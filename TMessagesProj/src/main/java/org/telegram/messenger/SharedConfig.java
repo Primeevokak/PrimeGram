@@ -1495,6 +1495,33 @@ public class SharedConfig {
             ProxyInfo info = currentProxy = new ProxyInfo(proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
             proxyList.add(0, info);
         }
+        
+        // Ensure 127.0.0.1:1080 SOCKS5 proxy is always present in the list
+        boolean hasLocalProxy = false;
+        for (ProxyInfo info : proxyList) {
+            if ("127.0.0.1".equals(info.address) && info.port == 1080 && TextUtils.isEmpty(info.secret)) {
+                hasLocalProxy = true;
+                break;
+            }
+        }
+        if (!hasLocalProxy) {
+            ProxyInfo localProxy = new ProxyInfo("127.0.0.1", 1080, "", "", "");
+            proxyList.add(localProxy);
+            // Auto-enable if no other proxy is currently set active
+            SharedPreferences mainPrefs = MessagesController.getGlobalMainSettings();
+            if (!mainPrefs.contains("proxy_enabled")) {
+                SharedPreferences.Editor editor = mainPrefs.edit();
+                editor.putBoolean("proxy_enabled", true);
+                editor.putString("proxy_ip", "127.0.0.1");
+                editor.putInt("proxy_port", 1080);
+                editor.putString("proxy_user", "");
+                editor.putString("proxy_pass", "");
+                editor.putString("proxy_secret", "");
+                editor.apply();
+                currentProxy = localProxy;
+                ConnectionsManager.setProxySettings(true, "127.0.0.1", 1080, "", "", "");
+            }
+        }
     }
 
     public static void saveProxyList() {
@@ -1550,6 +1577,10 @@ public class SharedConfig {
     }
 
     public static void deleteProxy(ProxyInfo proxyInfo) {
+        if (proxyInfo != null && "127.0.0.1".equals(proxyInfo.address) && proxyInfo.port == 1080 && TextUtils.isEmpty(proxyInfo.secret)) {
+            // Do not allow deleting the local loopback proxy
+            return;
+        }
         if (currentProxy == proxyInfo) {
             currentProxy = null;
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
