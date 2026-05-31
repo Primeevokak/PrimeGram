@@ -1,6 +1,7 @@
 .idea/
 .gradle/
 build/
+.antigravitycli
 obj/
 *.iml
 local.properties
