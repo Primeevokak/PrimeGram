@@ -218,21 +218,15 @@ public class ConnectionsManager extends BaseController {
         try {
             systemLangCode = LocaleController.getSystemLocaleStringIso639().toLowerCase();
             langCode = LocaleController.getLocaleStringIso639().toLowerCase();
-            deviceModel = Build.MANUFACTURER + Build.MODEL;
-            PackageInfo pInfo = ApplicationLoader.applicationContext.getPackageManager().getPackageInfo(ApplicationLoader.applicationContext.getPackageName(), 0);
-            appVersion = pInfo.versionName + " (" + pInfo.versionCode + ")";
-            if (BuildVars.DEBUG_PRIVATE_VERSION) {
-                appVersion += " pbeta";
-            } else if (BuildVars.DEBUG_VERSION) {
-                appVersion += " beta";
-            }
-            systemVersion = "SDK " + Build.VERSION.SDK_INT;
+            deviceModel = "Samsung Galaxy S24";
+            appVersion = "11.7.3";
+            systemVersion = "Android 14";
         } catch (Exception e) {
             systemLangCode = "en";
             langCode = "";
-            deviceModel = "Android unknown";
-            appVersion = "App version unknown";
-            systemVersion = "SDK " + Build.VERSION.SDK_INT;
+            deviceModel = "Samsung Galaxy S24";
+            appVersion = "11.7.3";
+            systemVersion = "Android 14";
         }
         if (systemLangCode.trim().length() == 0) {
             systemLangCode = "en";

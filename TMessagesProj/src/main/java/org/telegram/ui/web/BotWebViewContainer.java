@@ -456,13 +456,12 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
         try {
             String useragent = settings.getUserAgentString();
             useragent = useragent.replace("; wv)", ")");
-            useragent = useragent.replaceAll("\\(Linux; Android.+;[^)]+\\)", "(Linux; Android " + Build.VERSION.RELEASE + "; K)");
+            useragent = useragent.replaceAll("\\(Linux; Android.+;[^)]+\\)", "(Linux; Android 14; K)");
             useragent = useragent.replaceAll("Version/[\\d\\.]+ ", "");
             if (bot) {
-                final PackageInfo packageInfo = ApplicationLoader.applicationContext.getPackageManager().getPackageInfo(ApplicationLoader.applicationContext.getPackageName(), 0);
                 final int perf = SharedConfig.getDevicePerformanceClass();
                 final String perfName = perf == SharedConfig.PERFORMANCE_CLASS_LOW ? "LOW" : perf == SharedConfig.PERFORMANCE_CLASS_AVERAGE ? "AVERAGE" : "HIGH";
-                useragent += " Telegram-Android/" + packageInfo.versionName + " (" + capitalizeFirst(Build.MANUFACTURER) + " " + Build.MODEL + "; Android " + Build.VERSION.RELEASE + "; SDK " + Build.VERSION.SDK_INT + "; " + perfName + ")";
+                useragent += " Telegram-Android/11.7.3 (Samsung Galaxy S24; Android 14; SDK 34; " + perfName + ")";
             }
             settings.setUserAgentString(useragent);
         } catch (Exception e) {
