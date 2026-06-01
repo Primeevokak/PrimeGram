@@ -649,4 +649,58 @@ public class FileLog {
             }).start();
         }
     }
+
+    public static String getLastLogLines(int lineCount) {
+        try {
+            FileLog logInstance = getInstance();
+            if (logInstance.currentFile == null) {
+                return "No current log file initialized.";
+            }
+            if (logInstance.logQueue != null) {
+                final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                logInstance.logQueue.postRunnable(() -> {
+                    try {
+                        if (logInstance.streamWriter != null) {
+                            logInstance.streamWriter.flush();
+                        }
+                    } catch (Exception e) {
+                        // Ignore
+                    }
+                    latch.countDown();
+                });
+                latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+            }
+            
+            File file = logInstance.currentFile;
+            if (!file.exists()) {
+                return "Log file does not exist.";
+            }
+            
+            long len = file.length();
+            if (len == 0) {
+                return "Log file is empty.";
+            }
+            
+            long readLength = Math.min(len, 128 * 1024);
+            long startPosition = len - readLength;
+            
+            byte[] buffer = new byte[(int) readLength];
+            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
+            raf.seek(startPosition);
+            raf.readFully(buffer);
+            raf.close();
+            
+            String content = new String(buffer, "UTF-8");
+            String[] lines = content.split("\n");
+            
+            StringBuilder sb = new StringBuilder();
+            int startIndex = Math.max(0, lines.length - lineCount);
+            for (int i = startIndex; i < lines.length; i++) {
+                sb.append(lines[i]).append("\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "Failed to read log lines: " + e.getMessage();
+        }
+    }
 }

@@ -36,14 +36,23 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_LIMIT_PUBLIC_LINKS = 8;
     private static final int ID_LIMIT_CAPTION = 9;
     private static final int ID_LIMIT_ABOUT = 10;
+    private static final int ID_SIDEBAR_ENABLED = 11;
 
     @Override
     protected CharSequence getTitle() {
-        return "Лимиты PrimeGram";
+        return "Настройки PrimeGram";
     }
 
     @Override
     protected void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {
+        items.add(UItem.asHeader("Интерфейс"));
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", false);
+        UItem checkItem = UItem.asCheck(ID_SIDEBAR_ENABLED, "Боковая панель на основном экране");
+        checkItem.checked = sidebarEnabled;
+        items.add(checkItem);
+        items.add(UItem.asShadow("Отображает стильную вертикальную боковую панель на главном экране списка чатов для быстрого доступа к переключению аккаунтов, кошельку, прокси и настройкам."));
+
         MessagesController messagesController = MessagesController.getInstance(currentAccount);
 
         items.add(UItem.asHeader("Telegram Premium (Локальный)"));
@@ -72,7 +81,16 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     @Override
     protected void onClick(UItem item, View view, int position, float x, float y) {
         MessagesController messagesController = MessagesController.getInstance(currentAccount);
-        if (item.id == ID_LIMIT_FOLDERS) {
+        if (item.id == ID_SIDEBAR_ENABLED) {
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            boolean enabled = preferences.getBoolean("primegram_sidebar_enabled", false);
+            preferences.edit().putBoolean("primegram_sidebar_enabled", !enabled).apply();
+            
+            if (LaunchActivity.instance != null) {
+                LaunchActivity.instance.updateSidebarVisibility();
+            }
+            listView.adapter.update(true);
+        } else if (item.id == ID_LIMIT_FOLDERS) {
             showNumberInputDialog(item.id, "Количество папок", "Укажите максимальное число папок с чатами:", messagesController.dialogFiltersLimitPremium, 20, 1, 100);
         } else if (item.id == ID_LIMIT_PINNED_FOLDER) {
             showNumberInputDialog(item.id, "Закрепы в папке", "Укажите максимальное количество закрепленных чатов внутри одной папки:", messagesController.dialogFiltersPinnedLimitPremium, 10, 1, 100);

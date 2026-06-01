@@ -15522,10 +15522,12 @@ public class MessagesController extends BaseController implements NotificationCe
             for (String logLine : logList) {
                 sb.append(logLine).append("\n");
             }
-            android.content.ClipData clip = android.content.ClipData.newPlainText("PrimeGram Proxy Logs", sb.toString());
+            sb.append("\n=== PrimeGram General Application Logs ===\n");
+            sb.append(FileLog.getLastLogLines(500));
+            android.content.ClipData clip = android.content.ClipData.newPlainText("PrimeGram Proxy & App Logs", sb.toString());
             if (clipboard != null) {
                 clipboard.setPrimaryClip(clip);
-                FileLog.d("Copied proxy logs to clipboard on logout.");
+                FileLog.d("Copied proxy and app logs to clipboard on logout.");
             }
         } catch (Throwable t) {
             FileLog.e(t);

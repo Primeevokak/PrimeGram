@@ -159,6 +159,8 @@ import org.telegram.ui.ActionBar.BottomSheetTabs;
 import org.telegram.ui.ActionBar.BottomSheetTabsOverlay;
 import org.telegram.ui.ActionBar.DrawerLayoutContainer;
 import org.telegram.ui.ActionBar.INavigationLayout;
+import org.telegram.ui.Components.AvatarDrawable;
+import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.ChatMessageCell;
 import org.telegram.ui.Cells.LanguageCell;
@@ -498,12 +500,139 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 }
                 super.dispatchDraw(canvas);
             }
+
+            @Override
+            public boolean onInterceptTouchEvent(MotionEvent ev) {
+                if (isSidebarActiveOnScreen()) {
+                    int action = ev.getAction();
+                    float x = ev.getX();
+                    float y = ev.getY();
+                    
+                    if (action == MotionEvent.ACTION_DOWN) {
+                        dragStartX = x;
+                        dragStartY = y;
+                        isDraggingSidebar = false;
+                        
+                        if (isSidebarOpen && x > AndroidUtilities.dp(72)) {
+                            // Intercept touches outside the open sidebar to close it on tap or swipe
+                            return true;
+                        }
+                    } else if (action == MotionEvent.ACTION_MOVE) {
+                        if (isDraggingSidebar) {
+                            return true;
+                        }
+                        float dx = x - dragStartX;
+                        float dy = y - dragStartY;
+                        
+                        if (!isSidebarOpen) {
+                            // Sidebar is closed: swipe right from left edge (x < 24dp)
+                            if (dragStartX < AndroidUtilities.dp(24) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                isDraggingSidebar = true;
+                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                return true;
+                            }
+                        } else {
+                            // Sidebar is open: swipe left starting anywhere
+                            if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                isDraggingSidebar = true;
+                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return super.onInterceptTouchEvent(ev);
+            }
+
+            @Override
+            public boolean onTouchEvent(MotionEvent ev) {
+                if (isSidebarActiveOnScreen()) {
+                    int action = ev.getAction();
+                    float x = ev.getX();
+                    float y = ev.getY();
+                    
+                    if (!isDraggingSidebar) {
+                        if (action == MotionEvent.ACTION_MOVE) {
+                            float dx = x - dragStartX;
+                            float dy = y - dragStartY;
+                            if (!isSidebarOpen) {
+                                // Closed: swipe right from edge
+                                if (dragStartX < AndroidUtilities.dp(24) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                    isDraggingSidebar = true;
+                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                }
+                            } else {
+                                // Open: swipe left anywhere
+                                if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                    isDraggingSidebar = true;
+                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (isDraggingSidebar) {
+                        if (action == MotionEvent.ACTION_MOVE) {
+                            float dx = x - dragStartX;
+                            float newTranslation = dragStartTranslationX + dx;
+                            if (newTranslation < -AndroidUtilities.dp(72)) {
+                                newTranslation = -AndroidUtilities.dp(72);
+                            } else if (newTranslation > 0) {
+                                newTranslation = 0;
+                            }
+                            if (primeSidebarView != null) {
+                                primeSidebarView.setTranslationX(newTranslation);
+                            }
+                            View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
+                            if (abView != null) {
+                                abView.setTranslationX(newTranslation + AndroidUtilities.dp(72));
+                            }
+                            return true;
+                        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                            isDraggingSidebar = false;
+                            float currentTranslation = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                            if (currentTranslation > -AndroidUtilities.dp(36)) {
+                                setSidebarOpen(true, true);
+                            } else {
+                                setSidebarOpen(false, true);
+                            }
+                            return true;
+                        }
+                    }
+                    
+                    if (isSidebarOpen) {
+                        if (action == MotionEvent.ACTION_UP) {
+                            float dx = x - dragStartX;
+                            float dy = y - dragStartY;
+                            if (Math.abs(dx) < AndroidUtilities.dp(5) && Math.abs(dy) < AndroidUtilities.dp(5)) {
+                                if (dragStartX > AndroidUtilities.dp(72)) {
+                                    setSidebarOpen(false, true);
+                                    return true;
+                                }
+                            }
+                        }
+                        return true;
+                    }
+                }
+                return super.onTouchEvent(ev);
+            }
         };
         drawerLayoutContainer.setClipChildren(false);
         drawerLayoutContainer.setClipToPadding(false);
         drawerLayoutContainer.setBehindKeyboardColor(Theme.getColor(Theme.key_windowBackgroundWhite));
 
         frameLayout.addView(drawerLayoutContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        // Initialize PrimeGram Sidebar & Trigger
+        createPrimeSidebar();
+        if (primeSidebarView != null) {
+            drawerLayoutContainer.addView(primeSidebarView, LayoutHelper.createFrame(72, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
+            primeSidebarView.setVisibility(View.GONE);
+        }
+        
+        Context context = this;
+        primeSidebarTrigger = new View(context);
+        primeSidebarTrigger.setVisibility(View.GONE);
 
         themeSwitchSunView = new ImageView(this) {
             @Override
@@ -542,6 +671,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             if (getLastFragment() != null && getLastFragment().getLastStoryViewer() != null) {
                 getLastFragment().getLastStoryViewer().updatePlayingMode();
             }
+            updateSidebarVisibility();
         });
         actionBarLayout.setDelegate(this);
         Theme.loadWallpaper(true);
@@ -555,6 +685,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.reloadInterface);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.suggestedLangpack);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.didSetNewTheme);
+        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.proxySettingsChanged);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.needSetDayNightTheme);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.needCheckSystemBarColors);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.closeOtherAppActivities);
@@ -6546,6 +6677,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.stickersImportComplete);
             NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.currentUserShowLimitReachedDialog);
             NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.currentUserPremiumStatusChanged);
+            NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.chatSwitchedForum);
         }
 
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.needShowAlert);
@@ -6553,6 +6685,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.suggestedLangpack);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.reloadInterface);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.didSetNewTheme);
+        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.proxySettingsChanged);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.needSetDayNightTheme);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.needCheckSystemBarColors);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.closeOtherAppActivities);
@@ -6956,6 +7089,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onResume() {
         super.onResume();
+        updateSidebarVisibility();
         isResumed = true;
         pipActivityHandler.onResume();
         if (onResumeStaticCallback != null) {
@@ -7173,7 +7307,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 updateCurrentConnectionState(account);
             }
         } else if (id == NotificationCenter.mainUserInfoChanged) {
-
+            updateSidebarAccounts();
+        } else if (id == NotificationCenter.proxySettingsChanged) {
+            if (primeSidebarView != null) {
+                LinearLayout sidebarContent = (LinearLayout) ((ViewGroup) primeSidebarView).getChildAt(0);
+                if (sidebarContent != null && sidebarContent.getChildCount() > 1) {
+                    LinearLayout bottomContainer = (LinearLayout) sidebarContent.getChildAt(1);
+                    if (bottomContainer != null && bottomContainer.getChildCount() > 1) {
+                        View proxyBtn = bottomContainer.getChildAt(1);
+                        if (proxyBtn instanceof ImageView) {
+                            updateProxyButtonState((ImageView) proxyBtn);
+                        }
+                    }
+                }
+            }
         } else if (id == NotificationCenter.attachMenuBotsDidLoad) {
 
         } else if (id == NotificationCenter.needShowAlert) {
@@ -9107,5 +9254,333 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     public PipActivityController getPipController() {
         return pipActivityController;
+    }
+
+    // ─── PrimeGram Sidebar Implementation ───
+
+    public View primeSidebarView;
+    public View primeSidebarTrigger;
+    public boolean isSidebarOpen = false;
+    public boolean isDraggingSidebar;
+    public float dragStartX;
+    public float dragStartY;
+    public float dragStartTranslationX;
+    private LinearLayout sidebarAccountsContainer;
+
+    private boolean isSidebarEnabled() {
+        return MessagesController.getGlobalMainSettings().getBoolean("primegram_sidebar_enabled", false);
+    }
+
+    private boolean isSidebarActiveOnScreen() {
+        if (!isSidebarEnabled()) return false;
+        BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
+        return (currentFragment instanceof DialogsActivity || currentFragment instanceof MainTabsActivity);
+    }
+
+    public void updateSidebarVisibility() {
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", false);
+        
+        BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
+        boolean isMainScreen = (currentFragment instanceof DialogsActivity || currentFragment instanceof MainTabsActivity);
+        
+        boolean show = sidebarEnabled && isMainScreen;
+        
+        if (primeSidebarView != null) {
+            primeSidebarView.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+        
+        if (show) {
+            setSidebarOpen(isSidebarOpen, false);
+        } else {
+            if (primeSidebarView != null) {
+                primeSidebarView.setTranslationX(-AndroidUtilities.dp(72));
+            }
+            View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
+            if (abView != null) {
+                abView.setTranslationX(0);
+                ViewGroup.LayoutParams lp = abView.getLayoutParams();
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.leftMargin != 0) {
+                        mlp.leftMargin = 0;
+                        abView.setLayoutParams(mlp);
+                    }
+                }
+            }
+        }
+    }
+
+    public void setSidebarOpen(boolean open, boolean animate) {
+        if (!isSidebarEnabled()) return;
+        isSidebarOpen = open;
+        
+        float targetSidebarTranslation = open ? 0 : -AndroidUtilities.dp(72);
+        float targetContentTranslation = open ? AndroidUtilities.dp(72) : 0;
+        
+        if (animate) {
+            if (primeSidebarView != null) {
+                primeSidebarView.animate()
+                    .translationX(targetSidebarTranslation)
+                    .setDuration(200)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
+            }
+            
+            View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
+            if (abView != null) {
+                abView.animate()
+                    .translationX(targetContentTranslation)
+                    .setDuration(200)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
+            }
+        } else {
+            if (primeSidebarView != null) {
+                primeSidebarView.setTranslationX(targetSidebarTranslation);
+            }
+            View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
+            if (abView != null) {
+                abView.setTranslationX(targetContentTranslation);
+            }
+        }
+    }
+
+    private void createPrimeSidebar() {
+        Context context = this;
+        
+        LinearLayout sidebar = new LinearLayout(context);
+        sidebar.setOrientation(LinearLayout.VERTICAL);
+        sidebar.setGravity(Gravity.CENTER_HORIZONTAL);
+        
+        int bgColor = Theme.getColor(Theme.key_chats_menuBackground);
+        sidebar.setBackgroundColor(bgColor);
+        
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(context);
+        scrollView.setVerticalScrollBarEnabled(false);
+        scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        
+        sidebarAccountsContainer = new LinearLayout(context);
+        sidebarAccountsContainer.setOrientation(LinearLayout.VERTICAL);
+        sidebarAccountsContainer.setGravity(Gravity.CENTER_HORIZONTAL);
+        scrollView.addView(sidebarAccountsContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        
+        sidebar.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1.0f, 0, 16, 0, 16));
+        
+        View rightDivider = new View(context);
+        rightDivider.setBackgroundColor(Theme.getColor(Theme.key_divider));
+        
+        FrameLayout rootFrame = new FrameLayout(context) {
+            @Override
+            protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
+                super.onConfigurationChanged(newConfig);
+                post(() -> updateSidebarAccounts());
+            }
+        };
+        rootFrame.addView(sidebar, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        rootFrame.addView(rightDivider, LayoutHelper.createFrame(1, LayoutHelper.MATCH_PARENT, Gravity.RIGHT));
+        
+        primeSidebarView = rootFrame;
+        
+        LinearLayout bottomContainer = new LinearLayout(context);
+        bottomContainer.setOrientation(LinearLayout.VERTICAL);
+        bottomContainer.setGravity(Gravity.CENTER_HORIZONTAL);
+        sidebar.addView(bottomContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
+        
+        // 1. Wallet Button
+        ImageView walletButton = createSidebarIcon(context, R.drawable.settings_wallet, "Кошелек", v -> {
+            try {
+                org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://t.me/wallet");
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        });
+        bottomContainer.addView(walletButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        
+        // 2. Proxy Status Button
+        ImageView proxyButton = createProxyButton(context);
+        bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        
+        // 3. Theme Toggle Button
+        ImageView themeButton = createThemeButton(context);
+        bottomContainer.addView(themeButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        
+        // 4. Settings Gear Button
+        ImageView settingsButton = createSidebarIcon(context, R.drawable.msg_settings_old, "Настройки PrimeGram", v -> {
+            presentFragment(new PrimeGramSettingsActivity());
+        });
+        bottomContainer.addView(settingsButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
+        
+        updateSidebarAccounts();
+    }
+
+    private void updateSidebarAccounts() {
+        if (sidebarAccountsContainer == null) return;
+        sidebarAccountsContainer.removeAllViews();
+        
+        Context context = this;
+        
+        for (int i = 0; i < UserConfig.MAX_ACCOUNT_COUNT; i++) {
+            if (UserConfig.getInstance(i).isClientActivated()) {
+                final int accountNum = i;
+                TLRPC.User user = UserConfig.getInstance(i).getCurrentUser();
+                if (user == null) continue;
+                
+                FrameLayout avatarFrame = new FrameLayout(context);
+                avatarFrame.setPadding(AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6));
+                
+                BackupImageView avatarImageView = new BackupImageView(context);
+                avatarImageView.setRoundRadius(AndroidUtilities.dp(20));
+                
+                AvatarDrawable avatarDrawable = new AvatarDrawable();
+                avatarDrawable.setInfo(user);
+                avatarImageView.setForUserOrChat(user, avatarDrawable);
+                
+                avatarFrame.setOnClickListener(v -> {
+                    if (accountNum != currentAccount) {
+                        switchToAccount(accountNum, true);
+                    }
+                });
+                
+                if (accountNum == currentAccount) {
+                    avatarFrame.setBackground(createGlowingBorder(context));
+                } else {
+                    avatarFrame.setBackground(null);
+                }
+                
+                avatarFrame.addView(avatarImageView, LayoutHelper.createFrame(40, 40, Gravity.CENTER));
+                sidebarAccountsContainer.addView(avatarFrame, LayoutHelper.createLinear(52, 52, 0, 4, 0, 4));
+            }
+        }
+        
+        ImageView addAccountButton = new ImageView(context);
+        addAccountButton.setImageResource(R.drawable.msg_add);
+        addAccountButton.setScaleType(ImageView.ScaleType.CENTER);
+        addAccountButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        
+        addAccountButton.setOnClickListener(v -> {
+            presentFragment(new LoginActivity());
+        });
+        
+        FrameLayout addFrame = new FrameLayout(context);
+        addFrame.setPadding(AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6));
+        addFrame.addView(addAccountButton, LayoutHelper.createFrame(40, 40, Gravity.CENTER));
+        sidebarAccountsContainer.addView(addFrame, LayoutHelper.createLinear(52, 52, 0, 4, 0, 4));
+    }
+
+    private android.graphics.drawable.Drawable createGlowingBorder(Context context) {
+        int color = Theme.getColor(Theme.key_chats_actionBackground);
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        gd.setStroke(AndroidUtilities.dp(2), color);
+        return gd;
+    }
+
+    private ImageView createSidebarIcon(Context context, int iconRes, String tooltip, View.OnClickListener onClick) {
+        ImageView imageView = new ImageView(context);
+        imageView.setImageResource(iconRes);
+        imageView.setScaleType(ImageView.ScaleType.CENTER);
+        imageView.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        gd.setColor(Theme.getColor(Theme.key_listSelector));
+        sld.addState(new int[]{android.R.attr.state_pressed}, gd);
+        
+        imageView.setBackground(sld);
+        imageView.setOnClickListener(onClick);
+        
+        if (Build.VERSION.SDK_INT >= 26) {
+            imageView.setTooltipText(tooltip);
+        }
+        
+        return imageView;
+    }
+
+    private ImageView createProxyButton(Context context) {
+        ImageView proxyButton = new ImageView(context);
+        proxyButton.setScaleType(ImageView.ScaleType.CENTER);
+        
+        proxyButton.setOnClickListener(v -> {
+            presentFragment(new ProxyListActivity());
+        });
+        
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        gd.setColor(Theme.getColor(Theme.key_listSelector));
+        sld.addState(new int[]{android.R.attr.state_pressed}, gd);
+        proxyButton.setBackground(sld);
+        
+        updateProxyButtonState(proxyButton);
+        
+        return proxyButton;
+    }
+
+    private void updateProxyButtonState(ImageView proxyButton) {
+        if (proxyButton == null) return;
+        
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        boolean proxyEnabled = preferences.getBoolean("proxy_enabled", false);
+        
+        proxyButton.setImageResource(proxyEnabled ? R.drawable.outline_shield_check : R.drawable.outline_shield_plain_24);
+        int colorKey = proxyEnabled ? Theme.key_chats_actionBackground : Theme.key_chats_menuItemIcon;
+        proxyButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(colorKey), android.graphics.PorterDuff.Mode.MULTIPLY));
+        
+        if (Build.VERSION.SDK_INT >= 26) {
+            proxyButton.setTooltipText(proxyEnabled ? "Прокси активен (Нажмите для настроек)" : "Прокси отключен (Нажмите для настроек)");
+        }
+    }
+
+    private ImageView createThemeButton(Context context) {
+        ImageView themeButton = new ImageView(context);
+        themeButton.setScaleType(ImageView.ScaleType.CENTER);
+        
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        gd.setColor(Theme.getColor(Theme.key_listSelector));
+        sld.addState(new int[]{android.R.attr.state_pressed}, gd);
+        themeButton.setBackground(sld);
+        
+        updateSidebarThemeIcon(themeButton);
+        
+        themeButton.setOnClickListener(v -> {
+            SharedPreferences themePrefs = ApplicationLoader.applicationContext.getSharedPreferences("themeconfig", Activity.MODE_PRIVATE);
+            String dayTheme = themePrefs.getString("lastDayTheme", "Blue");
+            if (Theme.getTheme(dayTheme) == null || Theme.getTheme(dayTheme).isDark()) {
+                dayTheme = "Blue";
+            }
+            String nightTheme = themePrefs.getString("lastDarkTheme", "Dark Blue");
+            if (Theme.getTheme(nightTheme) == null || !Theme.getTheme(nightTheme).isDark()) {
+                nightTheme = "Dark Blue";
+            }
+            
+            Theme.ThemeInfo activeTheme = Theme.getActiveTheme();
+            Theme.ThemeInfo targetTheme;
+            if (activeTheme.isDark()) {
+                targetTheme = Theme.getTheme(dayTheme);
+            } else {
+                targetTheme = Theme.getTheme(nightTheme);
+            }
+            if (targetTheme != null) {
+                Theme.applyTheme(targetTheme);
+                v.post(() -> updateSidebarThemeIcon((ImageView) v));
+            }
+        });
+        
+        return themeButton;
+    }
+
+    private void updateSidebarThemeIcon(ImageView themeButton) {
+        if (themeButton == null) return;
+        boolean isDark = Theme.isCurrentThemeDark();
+        themeButton.setImageResource(isDark ? R.drawable.menu_day_mode_24 : R.drawable.menu_night_mode_24);
+        themeButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        
+        if (Build.VERSION.SDK_INT >= 26) {
+            themeButton.setTooltipText("Переключить день/ночь");
+        }
     }
 }
