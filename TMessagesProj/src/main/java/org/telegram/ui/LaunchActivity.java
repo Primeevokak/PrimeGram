@@ -502,6 +502,14 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             }
 
             @Override
+            public void requestDisallowInterceptTouchEvent(boolean disallow) {
+                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.dp(24)) {
+                    return;
+                }
+                super.requestDisallowInterceptTouchEvent(disallow);
+            }
+
+            @Override
             public boolean onInterceptTouchEvent(MotionEvent ev) {
                 if (isSidebarActiveOnScreen()) {
                     int action = ev.getAction();

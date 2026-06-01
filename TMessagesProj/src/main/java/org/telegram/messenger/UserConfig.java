@@ -372,8 +372,20 @@ public class UserConfig extends BaseController {
                 }
             }
             if (currentUser != null) {
-                checkPremiumSelf(null, currentUser);
-                clientUserId = currentUser.id;
+                java.io.File filesDir = ApplicationLoader.getFilesDirFixed();
+                if (currentAccount != 0) {
+                    filesDir = new java.io.File(filesDir, "account" + currentAccount + "/");
+                }
+                java.io.File cacheFile = new java.io.File(filesDir, "cache4.db");
+                if (!cacheFile.exists()) {
+                    FileLog.d("Google Auto-Backup corrupted restore detected! currentUser is not null, but cache4.db does not exist. Clearing config for account " + currentAccount);
+                    currentUser = null;
+                    clientUserId = 0;
+                    clearConfig();
+                } else {
+                    checkPremiumSelf(null, currentUser);
+                    clientUserId = currentUser.id;
+                }
             }
             configLoaded = true;
         }
