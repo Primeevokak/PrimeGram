@@ -80,11 +80,11 @@ import me.vkryl.android.animator.BoolAnimator;
 import me.vkryl.android.animator.FactorAnimator;
 
 public class MainTabsActivity extends ViewPagerActivity implements NotificationCenter.NotificationCenterDelegate, FactorAnimator.Target {
-    public static final int TABS_COUNT = 4;
+    public static final int TABS_COUNT = 3;
     private static final int POSITION_CHATS = 0;
-    private static final int POSITION_CONTACTS = 1;
-    private static final int POSITION_CALLS_OR_SETTINGS = 2;
-    private static final int POSITION_PROFILE = 3;
+    private static final int POSITION_CONTACTS = -1;
+    private static final int POSITION_CALLS_OR_SETTINGS = 1;
+    private static final int POSITION_PROFILE = 2;
 
     private static final int INDEX_CHATS = 0;
     private static final int INDEX_CONTACTS = 1;
@@ -93,7 +93,10 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
     private static final int INDEX_PROFILE = 4;
 
     private static int indexToPosition(int index) {
-        return index > 2 ? index - 1 : index;
+        if (index == INDEX_CHATS) return POSITION_CHATS;
+        if (index == INDEX_SETTINGS || index == INDEX_CALLS) return POSITION_CALLS_OR_SETTINGS;
+        if (index == INDEX_PROFILE) return POSITION_PROFILE;
+        return -1;
     }
 
 
@@ -274,6 +277,9 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsView.addTabToIgnoreClick(tabs[INDEX_CALLS]);
 
         for (int index = 0; index < tabs.length; index++) {
+            if (index == INDEX_CONTACTS) {
+                continue;
+            }
             final GlassTabView view = tabs[index];
 
             final int position = indexToPosition(index);

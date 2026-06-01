@@ -104,6 +104,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private int rotationTimeoutInfoRow;
     private int callsDetailRow;
     private int deleteAllRow;
+    private int logsRow;
 
     private ItemTouchHelper itemTouchHelper;
     private NumberTextView selectedCountTextView;
@@ -326,6 +327,93 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         @Override
         protected void onDraw(Canvas canvas) {
             canvas.drawLine(LocaleController.isRTL ? 0 : AndroidUtilities.dp(20), getMeasuredHeight() - 1, getMeasuredWidth() - (LocaleController.isRTL ? AndroidUtilities.dp(20) : 0), getMeasuredHeight() - 1, Theme.dividerPaint);
+        }
+    }
+
+    public class ProxyLogsCell extends FrameLayout {
+        private TextView titleTextView;
+        private TextView logsTextView;
+        private org.telegram.messenger.TgWsProxyService.LogListener logListener;
+
+        public ProxyLogsCell(Context context) {
+            super(context);
+            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+
+            FrameLayout topContainer = new FrameLayout(context);
+            addView(topContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 40, Gravity.TOP | Gravity.LEFT, 0, 0, 0, 0));
+
+            titleTextView = new TextView(context);
+            titleTextView.setText("Логи локального прокси-обходчика");
+            titleTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueHeader));
+            titleTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+            titleTextView.setTypeface(AndroidUtilities.getTypeface("fonts/rmedium.ttf"));
+            titleTextView.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+            topContainer.addView(titleTextView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.CENTER_VERTICAL, 21, 0, 0, 0));
+
+            TextView copyButton = new TextView(context);
+            copyButton.setText("Скопировать");
+            copyButton.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText6));
+            copyButton.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+            copyButton.setTypeface(AndroidUtilities.getTypeface("fonts/rmedium.ttf"));
+            copyButton.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+            copyButton.setPadding(AndroidUtilities.dp(12), 0, AndroidUtilities.dp(21), 0);
+            topContainer.addView(copyButton, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.RIGHT | Gravity.CENTER_VERTICAL, 0, 0, 0, 0));
+
+            copyButton.setOnClickListener(v -> {
+                List<String> logs = org.telegram.messenger.TgWsProxyService.getLogBuffer();
+                StringBuilder sb = new StringBuilder();
+                for (String s : logs) {
+                    sb.append(s).append("\n");
+                }
+                String textToCopy = sb.toString();
+                if (!textToCopy.isEmpty()) {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("Proxy Logs", textToCopy);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(clip);
+                        android.widget.Toast.makeText(getContext(), "Логи скопированы в буфер обмена!", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
+
+            logsTextView = new TextView(context);
+            logsTextView.setTextColor(0xFF333333);
+            logsTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
+            logsTextView.setTypeface(android.graphics.Typeface.MONOSPACE);
+            logsTextView.setBackgroundColor(0xFFF5F5F5);
+            logsTextView.setPadding(AndroidUtilities.dp(8), AndroidUtilities.dp(8), AndroidUtilities.dp(8), AndroidUtilities.dp(8));
+            logsTextView.setGravity(Gravity.LEFT | Gravity.TOP);
+            addView(logsTextView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 240, Gravity.TOP | Gravity.LEFT, 21, 40, 21, 12));
+
+            updateLogs();
+
+            logListener = line -> AndroidUtilities.runOnUIThread(this::updateLogs);
+            org.telegram.messenger.TgWsProxyService.setLogListener(logListener);
+        }
+
+        private void updateLogs() {
+            List<String> logs = org.telegram.messenger.TgWsProxyService.getLogBuffer();
+            if (logs.isEmpty()) {
+                logsTextView.setText("Логи пусты. Прокси-сервис не запускался или нет активности.");
+                return;
+            }
+            StringBuilder sb = new StringBuilder();
+            int start = Math.max(0, logs.size() - 25);
+            for (int i = start; i < logs.size(); i++) {
+                sb.append(logs.get(i)).append("\n");
+            }
+            logsTextView.setText(sb.toString());
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            org.telegram.messenger.TgWsProxyService.setLogListener(null);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            super.onMeasure(MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(290), MeasureSpec.EXACTLY));
         }
     }
 
@@ -713,6 +801,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         } else {
             deleteAllRow = -1;
         }
+        logsRow = rowCount++;
         checkProxyList();
         if (notify && listAdapter != null) {
             listAdapter.notifyDataSetChanged();
@@ -826,7 +915,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             VIEW_TYPE_TEXT_CHECK = 3,
             VIEW_TYPE_INFO = 4,
             VIEW_TYPE_PROXY_DETAIL = 5,
-            VIEW_TYPE_SLIDE_CHOOSER = 6;
+            VIEW_TYPE_SLIDE_CHOOSER = 6,
+            VIEW_TYPE_LOGS = 7;
 
         public static final int PAYLOAD_CHECKED_CHANGED = 0;
         public static final int PAYLOAD_SELECTION_CHANGED = 1;
@@ -1025,6 +1115,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     view = new SlideChooseView(mContext);
                     view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
                     break;
+                case VIEW_TYPE_LOGS:
+                    view = new ProxyLogsCell(mContext);
+                    break;
                 case VIEW_TYPE_PROXY_DETAIL:
                 default:
                     view = new TextDetailProxyCell(mContext);
@@ -1058,6 +1151,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return -10;
             } else if (position == rotationTimeoutInfoRow) {
                 return -11;
+            } else if (position == logsRow) {
+                return -12;
             } else if (position >= proxyStartRow && position < proxyEndRow) {
                 return proxyList.get(position - proxyStartRow).hashCode();
             } else {
@@ -1079,6 +1174,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_SLIDE_CHOOSER;
             } else if (position >= proxyStartRow && position < proxyEndRow) {
                 return VIEW_TYPE_PROXY_DETAIL;
+            } else if (position == logsRow) {
+                return VIEW_TYPE_LOGS;
             } else {
                 return VIEW_TYPE_INFO;
             }

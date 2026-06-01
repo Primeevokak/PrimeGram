@@ -59,6 +59,41 @@ public class TgWsProxyService extends Service {
 
     private static final String TAG = "TgWsProxyService";
 
+    public interface LogListener {
+        void onLogAdded(String line);
+    }
+    private static final List<String> logBuffer = new ArrayList<>();
+    private static LogListener logListener;
+
+    public static synchronized void addLog(String line) {
+        String formatted = String.format("[%tT] %s", System.currentTimeMillis(), line);
+        logBuffer.add(formatted);
+        if (logBuffer.size() > 200) {
+            logBuffer.remove(0);
+        }
+        if (logListener != null) {
+            logListener.onLogAdded(formatted);
+        }
+    }
+
+    public static synchronized List<String> getLogBuffer() {
+        return new ArrayList<>(logBuffer);
+    }
+
+    public static synchronized void setLogListener(LogListener listener) {
+        logListener = listener;
+    }
+
+    private static void logInfo(String msg) {
+        FileLog.d(msg);
+        addLog("[INFO] " + msg);
+    }
+
+    private static void logError(String msg, Throwable e) {
+        FileLog.e(msg, e);
+        addLog("[ERROR] " + msg + (e != null ? ": " + e.getMessage() : ""));
+    }
+
     // DC IP mapping — from backend.py _IP_TO_DC
     private static final Map<String, int[]> IP_TO_DC = new HashMap<>();
 
@@ -226,7 +261,7 @@ public class TgWsProxyService extends Service {
         try {
             serverSocket = new ServerSocket(PROXY_PORT, 50, InetAddress.getByName("127.0.0.1"));
             serverSocket.setReuseAddress(true);
-            FileLog.d(TAG + ": listening on 127.0.0.1:" + PROXY_PORT);
+            logInfo("listening on 127.0.0.1:" + PROXY_PORT);
 
             while (running.get()) {
                 try {
@@ -234,12 +269,12 @@ public class TgWsProxyService extends Service {
                     executor.submit(() -> handleClient(client));
                 } catch (IOException e) {
                     if (running.get()) {
-                        FileLog.e(TAG + ": accept error", e);
+                        logError("accept error", e);
                     }
                 }
             }
         } catch (IOException e) {
-            FileLog.e(TAG + ": server error", e);
+            logError("server error", e);
         } finally {
             running.set(false);
         }
@@ -293,12 +328,14 @@ public class TgWsProxyService extends Service {
     private static CryptoCtx initCrypto(byte[] clientHandshake, byte[] relayInit, byte[] secret) throws Exception {
         CryptoCtx ctx = new CryptoCtx();
 
+        boolean useSecret = secret != null && secret.length > 0;
+
         // 1. Client Decryptor (Normal order of clientHandshake[8:56])
         byte[] cltDecPrekey = new byte[32];
         byte[] cltDecIv = new byte[16];
         System.arraycopy(clientHandshake, 8, cltDecPrekey, 0, 32);
         System.arraycopy(clientHandshake, 40, cltDecIv, 0, 16);
-        byte[] cltDecKey = sha256(cltDecPrekey, secret);
+        byte[] cltDecKey = useSecret ? sha256(cltDecPrekey, secret) : cltDecPrekey;
         ctx.cltDec = new AESCTR(cltDecKey, cltDecIv);
 
         // 2. Client Encryptor (Reversed order of clientHandshake[8:56])
@@ -307,24 +344,22 @@ public class TgWsProxyService extends Service {
         byte[] cltEncIv = new byte[16];
         System.arraycopy(clientReversed, 8, cltEncPrekey, 0, 32);
         System.arraycopy(clientReversed, 40, cltEncIv, 0, 16);
-        byte[] cltEncKey = sha256(cltEncPrekey, secret);
+        byte[] cltEncKey = useSecret ? sha256(cltEncPrekey, secret) : cltEncPrekey;
         ctx.cltEnc = new AESCTR(cltEncKey, cltEncIv);
 
         // 3. Telegram Encryptor (Normal order of relayInit[8:56])
-        byte[] tgEncPrekey = new byte[32];
+        byte[] tgEncKey = new byte[32];
         byte[] tgEncIv = new byte[16];
-        System.arraycopy(relayInit, 8, tgEncPrekey, 0, 32);
+        System.arraycopy(relayInit, 8, tgEncKey, 0, 32);
         System.arraycopy(relayInit, 40, tgEncIv, 0, 16);
-        byte[] tgEncKey = sha256(tgEncPrekey, null);
         ctx.tgEnc = new AESCTR(tgEncKey, tgEncIv);
 
         // 4. Telegram Decryptor (Reversed order of relayInit[8:56])
         byte[] relayReversed = reverseBytes(relayInit);
-        byte[] tgDecPrekey = new byte[32];
+        byte[] tgDecKey = new byte[32];
         byte[] tgDecIv = new byte[16];
-        System.arraycopy(relayReversed, 8, tgDecPrekey, 0, 32);
+        System.arraycopy(relayReversed, 8, tgDecKey, 0, 32);
         System.arraycopy(relayReversed, 40, tgDecIv, 0, 16);
-        byte[] tgDecKey = sha256(tgDecPrekey, null);
         ctx.tgDec = new AESCTR(tgDecKey, tgDecIv);
 
         // Advance 64 bytes using zero buffer on dec/enc per Python spec
@@ -358,8 +393,7 @@ public class TgWsProxyService extends Service {
             byte[] iv = new byte[16];
             System.arraycopy(relayInit, 8, key, 0, 32);
             System.arraycopy(relayInit, 40, iv, 0, 16);
-            byte[] decKey = sha256(key, null);
-            this.dec = new AESCTR(decKey, iv);
+            this.dec = new AESCTR(key, iv);
             this.dec.update(new byte[64]); // advance 64 bytes
             this.proto = proto;
         }
@@ -473,9 +507,12 @@ public class TgWsProxyService extends Service {
             InputStream in = client.getInputStream();
             OutputStream out = client.getOutputStream();
 
+            logInfo("New SOCKS5 connection from " + client.getRemoteSocketAddress());
+
             // SOCKS5 handshake: [ver=5, nmethods, methods...]
             int ver = in.read();
             if (ver != 5) {
+                logInfo("Invalid SOCKS5 version: " + ver);
                 client.close();
                 return;
             }
@@ -494,6 +531,7 @@ public class TgWsProxyService extends Service {
             int atyp   = in.read();
 
             if (reqVer != 5 || cmd != 1) { // cmd=1 = CONNECT
+                logInfo("Unsupported SOCKS5 command: " + cmd);
                 out.write(new byte[]{0x05, 0x07, 0x00, 0x01, 0,0,0,0, 0,0});
                 out.flush();
                 client.close();
@@ -514,25 +552,63 @@ public class TgWsProxyService extends Service {
                 readFully(in, domain, 0, len);
                 destIp = new String(domain);
                 destPort = ((in.read() & 0xFF) << 8) | (in.read() & 0xFF);
+            } else if (atyp == 4) { // IPv6
+                byte[] addr = new byte[16];
+                readFully(in, addr, 0, 16);
+                try {
+                    destIp = java.net.InetAddress.getByAddress(addr).getHostAddress();
+                } catch (Exception e) {
+                    destIp = "::1";
+                }
+                destPort = ((in.read() & 0xFF) << 8) | (in.read() & 0xFF);
             } else {
+                logInfo("Unsupported address type: " + atyp);
                 out.write(new byte[]{0x05, 0x08, 0x00, 0x01, 0,0,0,0, 0,0});
                 out.flush();
                 client.close();
                 return;
             }
 
+            logInfo("SOCKS5 Request to " + destIp + ":" + destPort);
+
             // Определяем DC
             int[] dcInfo = IP_TO_DC.get(destIp);
-            if (dcInfo == null) {
+            int dcId = -1;
+            boolean isMedia = false;
+
+            if (dcInfo != null) {
+                dcId = dcInfo[0];
+                isMedia = dcInfo[1] == 1;
+            } else if (atyp == 4) {
+                // Пытаемся распарсить DC из IPv6 адреса Telegram (например, 2001:67c:4e8:f002::a)
+                // Байты: 20 01 | 06 7c | 04 e8 | f0 02 ...
+                byte[] addrBytes = null;
+                try {
+                    addrBytes = java.net.InetAddress.getByName(destIp).getAddress();
+                } catch (Exception ignored) {}
+                
+                if (addrBytes != null && addrBytes.length == 16) {
+                    if (addrBytes[0] == 0x20 && addrBytes[1] == 0x01 && 
+                        addrBytes[2] == 0x06 && addrBytes[3] == 0x7c && 
+                        addrBytes[4] == 0x04 && addrBytes[5] == (byte)0xe8) {
+                        
+                        if (addrBytes[6] == (byte)0xf0) {
+                            dcId = addrBytes[7] & 0xFF;
+                        }
+                    }
+                }
+            }
+
+            if (dcId == -1) {
+                logInfo("No DC match for " + destIp + ", connecting direct...");
                 connectDirect(client, in, out, destIp, destPort);
                 return;
             }
 
-            int dcId    = dcInfo[0];
-            boolean isMedia = dcInfo[1] == 1;
-
             // Нормализуем DC203 -> DC2
             if (dcId == 203) dcId = 2;
+
+            logInfo("Matched DC" + dcId + " (media=" + isMedia + ")");
 
             // SOCKS5 ответ: успех
             out.write(new byte[]{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0});
@@ -545,7 +621,7 @@ public class TgWsProxyService extends Service {
             try {
                 readFully(in, handshake, 0, HANDSHAKE_LEN);
             } catch (IOException e) {
-                FileLog.d(TAG + ": client closed before handshake");
+                logInfo("Client closed connection before sending handshake");
                 client.close();
                 return;
             }
@@ -557,7 +633,7 @@ public class TgWsProxyService extends Service {
             // Перебираем наши домены-обходчики
             for (String baseDomain : BASE_DOMAINS) {
                 String wsDomain = "kws" + dcId + "." + baseDomain;
-                FileLog.d(TAG + ": Connecting to CF proxy " + wsDomain + ":443");
+                logInfo("Connecting to CF proxy " + wsDomain + ":443");
                 try {
                     tlsSocket = (SSLSocket) sslSocketFactory.createSocket(wsDomain, 443);
                     tlsSocket.setUseClientMode(true);
@@ -568,10 +644,10 @@ public class TgWsProxyService extends Service {
                     // WebSocket handshake
                     wsHandshake(tlsSocket, wsDomain);
                     chosenDomain = wsDomain;
-                    FileLog.d(TAG + ": Successfully connected to " + wsDomain);
+                    logInfo("Successfully connected to " + wsDomain);
                     break; // Успешно подключились!
                 } catch (Exception e) {
-                    FileLog.e(TAG + ": Failed to connect to " + wsDomain + ": " + e.getMessage());
+                    logError("Failed to connect to " + wsDomain, e);
                     if (tlsSocket != null) {
                         try { tlsSocket.close(); } catch (IOException ignored) {}
                         tlsSocket = null;
@@ -580,7 +656,7 @@ public class TgWsProxyService extends Service {
             }
 
             if (tlsSocket == null || chosenDomain == null) {
-                FileLog.e(TAG + ": All CF proxy domains failed!");
+                logInfo("All CF proxy domains failed!");
                 client.close();
                 return;
             }
@@ -597,7 +673,7 @@ public class TgWsProxyService extends Service {
                 byte[] cltDecIv = new byte[16];
                 System.arraycopy(handshake, 8, cltDecPrekey, 0, 32);
                 System.arraycopy(handshake, 40, cltDecIv, 0, 16);
-                byte[] cltDecKey = sha256(cltDecPrekey, new byte[0]);
+                byte[] cltDecKey = cltDecPrekey; // No hashing for direct connections
                 AESCTR tempDec = new AESCTR(cltDecKey, cltDecIv);
                 byte[] decrypted = tempDec.update(handshake);
 
@@ -611,10 +687,12 @@ public class TgWsProxyService extends Service {
                     protoVal = PROTO_ABRIDGED_INT;
                 }
 
+                logInfo("Negotiated transport protocol: " + (protoVal == PROTO_ABRIDGED_INT ? "Abridged" : "Intermediate"));
+
                 // 2. Создаем постоянный контекст шифрования (внутри initCrypto cltDec и tgEnc будут правильно смещены на 64 байта)
                 cryptoCtx = initCrypto(handshake, relayInit, new byte[0]); 
             } catch (Exception e) {
-                FileLog.e(TAG + ": crypto init failed", e);
+                logError("Crypto initialization failed", e);
                 client.close();
                 tlsSocket.close();
                 return;
@@ -625,7 +703,7 @@ public class TgWsProxyService extends Service {
             try {
                 splitter = new MsgSplitter(relayInit, protoVal);
             } catch (Exception e) {
-                FileLog.e(TAG + ": MsgSplitter init failed", e);
+                logError("MsgSplitter initialization failed", e);
                 client.close();
                 tlsSocket.close();
                 return;
@@ -636,16 +714,19 @@ public class TgWsProxyService extends Service {
 
             // Отправляем relay init в WebSocket бинарном фрейме
             sendWsFrame(wsOut, relayInit);
+            logInfo("Sent obfuscation handshake to remote WS");
 
             // Убираем timeout — теперь работаем постоянно
             client.setSoTimeout(0);
             tlsSocket.setSoTimeout(0);
 
+            logInfo("Session established, entering active relay bridge...");
+
             // Запускаем двунаправленный мост с ре-шифрованием
             bridgeConnections(client, in, out, tlsSocket, wsIn, wsOut, cryptoCtx, splitter);
 
         } catch (Exception e) {
-            FileLog.e(TAG + ": handleClient error", e);
+            logError("handleClient error", e);
         } finally {
             try { client.close(); } catch (IOException ignored) {}
         }

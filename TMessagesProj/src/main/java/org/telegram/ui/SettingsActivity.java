@@ -689,6 +689,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         items.add(SettingCell.Factory.of(8, IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom, R.drawable.settings_devices, getString(R.string.SettingsDevices), getString(R.string.SettingsDevicesInfo)));
         items.add(SettingCell.Factory.of(9, IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom, R.drawable.settings_power, getString(R.string.SettingsPowerSaving), getString(R.string.SettingsPowerSavingInfo)));
         items.add(SettingCell.Factory.of(10, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_language, getString(R.string.SettingsLanguage), LocaleController.getCurrentLanguageName()));
+        items.add(SettingCell.Factory.of(50, IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom, R.drawable.msg_contacts, LocaleController.getString("Contacts", R.string.Contacts), null));
 
         items.add(UItem.asShadow(null));
 
@@ -812,6 +813,13 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             case 10:
                 presentFragment(new LanguageSelectActivity());
                 break;
+            case 50: {
+                Bundle args = new Bundle();
+                args.putBoolean("needPhonebook", true);
+                args.putBoolean("needFinishFragment", false);
+                presentFragment(new org.telegram.ui.ContactsActivity(args));
+                break;
+            }
 
             case 11:
                 presentFragment(new PremiumPreviewFragment("settings"));
