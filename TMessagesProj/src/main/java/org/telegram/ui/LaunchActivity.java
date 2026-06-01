@@ -8085,36 +8085,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     }
 
     private void showSubscriptionDialog() {
-        if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
-            return;
-        }
-        try {
-            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-            long lastSubPromptTime = preferences.getLong("last_sub_prompt_time", 0);
-            long currentTime = System.currentTimeMillis();
-            if (lastSubPromptTime == 0 || (currentTime - lastSubPromptTime) >= 30L * 24 * 60 * 60 * 1000) {
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle("Поддержите автора");
-                builder.setMessage("Подпишитесь на официальный Telegram-канал разработчика, чтобы первыми узнавать о новых версиях и обновлениях PrimeGram!");
-                builder.setPositiveButton("Подписаться", (dialogInterface, i) -> {
-                    preferences.edit().putLong("last_sub_prompt_time", currentTime).apply();
-                    try {
-                        Browser.openUrl(LaunchActivity.this, "https://t.me/o00000000i");
-                    } catch (Throwable t) {
-                        FileLog.e(t);
-                    }
-                });
-                builder.setNegativeButton("Позже", (dialogInterface, i) -> {
-                    preferences.edit().putLong("last_sub_prompt_time", currentTime).apply();
-                });
-                builder.setOnCancelListener(dialogInterface -> {
-                    preferences.edit().putLong("last_sub_prompt_time", currentTime).apply();
-                });
-                showAlertDialog(builder);
-            }
-        } catch (Throwable e) {
-            FileLog.e(e);
-        }
     }
 
     private void onPasscodePause() {

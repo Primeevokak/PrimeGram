@@ -910,6 +910,9 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public boolean isPremiumUser(TLRPC.User currentUser) {
+        if (currentUser != null && currentUser.id == getUserConfig().getClientUserId()) {
+            return true;
+        }
         return currentUser != null && currentUser.premium && !isSupportUser(currentUser);
     }
 

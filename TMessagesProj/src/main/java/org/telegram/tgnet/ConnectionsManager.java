@@ -633,6 +633,9 @@ public class ConnectionsManager extends BaseController {
             installer = "";
         }
         String packageId = ApplicationLoader.applicationContext.getPackageName();
+        if (apiId == 6 || apiId == 2040) {
+            packageId = "org.telegram.messenger";
+        }
 
         native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
         checkConnection();

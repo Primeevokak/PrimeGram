@@ -690,6 +690,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         items.add(SettingCell.Factory.of(9, IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom, R.drawable.settings_power, getString(R.string.SettingsPowerSaving), getString(R.string.SettingsPowerSavingInfo)));
         items.add(SettingCell.Factory.of(10, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_language, getString(R.string.SettingsLanguage), LocaleController.getCurrentLanguageName()));
         items.add(SettingCell.Factory.of(50, IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom, R.drawable.msg_contacts, LocaleController.getString("Contacts", R.string.Contacts), null));
+        items.add(SettingCell.Factory.of(51, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_channel, "О приложении PrimeGram", "Канал разработчика, обновления и поддержка"));
 
         items.add(UItem.asShadow(null));
 
@@ -818,6 +819,14 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
                 args.putBoolean("needPhonebook", true);
                 args.putBoolean("needFinishFragment", false);
                 presentFragment(new org.telegram.ui.ContactsActivity(args));
+                break;
+            }
+            case 51: {
+                try {
+                    org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/o00000000i");
+                } catch (Throwable t) {
+                    FileLog.e(t);
+                }
                 break;
             }
 

@@ -8,6 +8,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
+import android.app.Activity;
+import android.content.SharedPreferences;
+import org.telegram.messenger.AndroidUtilities;
+import org.telegram.tgnet.ConnectionsManager;
 
 import androidx.core.app.NotificationCompat;
 
@@ -262,6 +266,24 @@ public class TgWsProxyService extends Service {
             serverSocket = new ServerSocket(PROXY_PORT, 50, InetAddress.getByName("127.0.0.1"));
             serverSocket.setReuseAddress(true);
             logInfo("listening on 127.0.0.1:" + PROXY_PORT);
+
+            AndroidUtilities.runOnUIThread(() -> {
+                try {
+                    SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                    if (preferences.getBoolean("proxy_enabled", false)) {
+                        String proxyAddress = preferences.getString("proxy_ip", "");
+                        int proxyPort = preferences.getInt("proxy_port", 1080);
+                        if ("127.0.0.1".equals(proxyAddress) && proxyPort == 1080) {
+                            String proxyUsername = preferences.getString("proxy_user", "");
+                            String proxyPassword = preferences.getString("proxy_pass", "");
+                            String proxySecret = preferences.getString("proxy_secret", "");
+                            ConnectionsManager.setProxySettings(true, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
+                        }
+                    }
+                } catch (Throwable t) {
+                    FileLog.e(t);
+                }
+            });
 
             while (running.get()) {
                 try {
@@ -630,6 +652,11 @@ public class TgWsProxyService extends Service {
             SSLSocket tlsSocket = null;
             String chosenDomain = null;
 
+            // Добавляем случайную задержку (jitter) для сглаживания параллельных соединений (избегаем 429 лимитов)
+            try {
+                Thread.sleep(20 + RANDOM.nextInt(280));
+            } catch (InterruptedException ignored) {}
+
             // Перебираем наши домены-обходчики
             for (String baseDomain : BASE_DOMAINS) {
                 String wsDomain = "kws" + dcId + "." + baseDomain;
@@ -648,6 +675,12 @@ public class TgWsProxyService extends Service {
                     break; // Успешно подключились!
                 } catch (Exception e) {
                     logError("Failed to connect to " + wsDomain, e);
+                    // Если словили 429 Too Many Requests, делаем паузу перед следующим доменом
+                    if (e.getMessage() != null && e.getMessage().contains("429")) {
+                        try {
+                            Thread.sleep(300 + RANDOM.nextInt(200));
+                        } catch (InterruptedException ignored) {}
+                    }
                     if (tlsSocket != null) {
                         try { tlsSocket.close(); } catch (IOException ignored) {}
                         tlsSocket = null;

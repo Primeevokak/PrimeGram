@@ -13399,6 +13399,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 args.putLong("user_id", UserConfig.getInstance(currentAccount).getClientUserId());
                 presentFragment(new ChatActivity(args));
             });
+            io.add(R.drawable.settings_channel, "PrimeGram в Telegram", () -> {
+                try {
+                    org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/o00000000i");
+                } catch (Throwable t) {
+                    FileLog.e(t);
+                }
+            });
             if (ApplicationLoader.applicationLoaderInstance != null) {
                 ApplicationLoader.applicationLoaderInstance.addItemOptions(io);
             }
