@@ -1705,6 +1705,7 @@ public class DatabaseMigrationHelper {
             newDatabase.executeFast("PRAGMA secure_delete = ON").stepThis().dispose();
             newDatabase.executeFast("PRAGMA temp_store = MEMORY").stepThis().dispose();
             newDatabase.executeFast("PRAGMA journal_mode = WAL").stepThis().dispose();
+            newDatabase.executeFast("PRAGMA synchronous = NORMAL").stepThis().dispose();
             newDatabase.executeFast("PRAGMA journal_size_limit = 10485760").stepThis().dispose();
 
             MessagesStorage.createTables(newDatabase);
