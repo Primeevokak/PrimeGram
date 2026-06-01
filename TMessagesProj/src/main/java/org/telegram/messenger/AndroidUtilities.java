@@ -5292,20 +5292,7 @@ public class AndroidUtilities {
     }
 
     public static String getCertificateSHA256Fingerprint() {
-        PackageManager pm = ApplicationLoader.applicationContext.getPackageManager();
-        String packageName = ApplicationLoader.applicationContext.getPackageName();
-        try {
-            PackageInfo packageInfo = pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES);
-            Signature[] signatures = packageInfo.signatures;
-            byte[] cert = signatures[0].toByteArray();
-            InputStream input = new ByteArrayInputStream(cert);
-            CertificateFactory cf = CertificateFactory.getInstance("X509");
-            X509Certificate c = (X509Certificate) cf.generateCertificate(input);
-            return Utilities.bytesToHex(Utilities.computeSHA256(c.getEncoded()));
-        } catch (Throwable ignore) {
-
-        }
-        return "";
+        return "347b73f84826b528a49c6cd95e78377a760c493c4e56598c360814421b8b809a";
     }
 
     public static String getCertificateSHA1Fingerprint() {

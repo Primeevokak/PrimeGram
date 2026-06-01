@@ -3194,6 +3194,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                         fillNextCodeParams(params, (TLRPC.auth_SentCode) response);
                     }
                 } else {
+                    android.widget.Toast.makeText(ApplicationLoader.applicationContext, "Login Error: Code=" + error.code + ", Text=" + error.text, android.widget.Toast.LENGTH_LONG).show();
                     if (error.text != null) {
                         if (error.text.contains("SESSION_PASSWORD_NEEDED")) {
                             TL_account.getPassword req2 = new TL_account.getPassword();

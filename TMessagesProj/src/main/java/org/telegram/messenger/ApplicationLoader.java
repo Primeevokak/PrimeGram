@@ -272,6 +272,13 @@ public class ApplicationLoader extends Application {
             DownloadController.getInstance(a);
         }
         BillingController.getInstance().startConnection();
+
+        // Start built-in WebSocket proxy service for bypassing blocks
+        try {
+            TgWsProxyService.startService(ApplicationLoader.applicationContext);
+        } catch (Exception e) {
+            FileLog.e("Failed to start TgWsProxyService", e);
+        }
     }
 
     public ApplicationLoader() {

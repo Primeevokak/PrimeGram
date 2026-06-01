@@ -218,15 +218,15 @@ public class ConnectionsManager extends BaseController {
         try {
             systemLangCode = LocaleController.getSystemLocaleStringIso639().toLowerCase();
             langCode = LocaleController.getLocaleStringIso639().toLowerCase();
-            deviceModel = "Samsung Galaxy S24";
-            appVersion = "11.7.3";
-            systemVersion = "Android 14";
+            deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
+            appVersion = BuildVars.BUILD_VERSION_STRING;
+            systemVersion = "SDK " + Build.VERSION.SDK_INT;
         } catch (Exception e) {
             systemLangCode = "en";
             langCode = "";
-            deviceModel = "Samsung Galaxy S24";
-            appVersion = "11.7.3";
-            systemVersion = "Android 14";
+            deviceModel = "Android unknown";
+            appVersion = "App version unknown";
+            systemVersion = "SDK " + Build.VERSION.SDK_INT;
         }
         if (systemLangCode.trim().length() == 0) {
             systemLangCode = "en";
@@ -632,15 +632,7 @@ public class ConnectionsManager extends BaseController {
         if (installer == null) {
             installer = "";
         }
-        String packageId = "";
-        try {
-            packageId = ApplicationLoader.applicationContext.getPackageName();
-        } catch (Throwable ignore) {
-
-        }
-        if (packageId == null) {
-            packageId = "";
-        }
+        String packageId = ApplicationLoader.applicationContext.getPackageName();
 
         native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
         checkConnection();

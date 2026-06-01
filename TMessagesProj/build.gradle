@@ -114,6 +114,9 @@ android {
 
         multiDexEnabled true
 
+        buildConfigField "int", "APP_ID", APP_ID
+        buildConfigField "String", "APP_HASH", "\"" + APP_HASH + "\""
+
         externalNativeBuild {
             cmake {
                 version '3.10.2'

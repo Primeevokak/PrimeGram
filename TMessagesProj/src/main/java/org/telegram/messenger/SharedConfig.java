@@ -1507,19 +1507,25 @@ public class SharedConfig {
         if (!hasLocalProxy) {
             ProxyInfo localProxy = new ProxyInfo("127.0.0.1", 1080, "", "", "");
             proxyList.add(localProxy);
-            // Auto-enable if no other proxy is currently set active
-            SharedPreferences mainPrefs = MessagesController.getGlobalMainSettings();
-            if (!mainPrefs.contains("proxy_enabled")) {
-                SharedPreferences.Editor editor = mainPrefs.edit();
+        }
+
+        // Auto-select and enable the local proxy if no proxy is currently active
+        if (currentProxy == null) {
+            for (ProxyInfo info : proxyList) {
+                if ("127.0.0.1".equals(info.address) && info.port == 1080 && TextUtils.isEmpty(info.secret)) {
+                    currentProxy = info;
+                    break;
+                }
+            }
+            if (currentProxy != null) {
+                SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
                 editor.putBoolean("proxy_enabled", true);
-                editor.putString("proxy_ip", "127.0.0.1");
-                editor.putInt("proxy_port", 1080);
-                editor.putString("proxy_user", "");
-                editor.putString("proxy_pass", "");
-                editor.putString("proxy_secret", "");
+                editor.putString("proxy_ip", currentProxy.address);
+                editor.putInt("proxy_port", currentProxy.port);
+                editor.putString("proxy_user", currentProxy.username);
+                editor.putString("proxy_pass", currentProxy.password);
+                editor.putString("proxy_secret", currentProxy.secret);
                 editor.apply();
-                currentProxy = localProxy;
-                ConnectionsManager.setProxySettings(true, "127.0.0.1", 1080, "", "", "");
             }
         }
     }

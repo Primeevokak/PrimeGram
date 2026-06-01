@@ -45,6 +45,22 @@
         tools:replace="android:supportsRtl">
 
         <activity-alias
+            android:enabled="true"
+            android:name="org.telegram.messenger.DefaultIcon"
+            android:targetActivity="org.telegram.ui.LaunchActivity"
+            android:icon="@mipmap/ic_launcher_sa"
+            android:roundIcon="@mipmap/ic_launcher_sa"
+            android:exported="true"
+            tools:node="replace">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.MULTIWINDOW_LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
             android:enabled="false"
             android:name="org.telegram.messenger.VintageIcon"
             android:targetActivity="org.telegram.ui.LaunchActivity"

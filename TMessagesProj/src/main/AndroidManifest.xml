@@ -486,6 +486,13 @@
             android:foregroundServiceType="dataSync"
         />
         <service
+            android:name=".TgWsProxyService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false"
+        />
+        <service
             android:name=".NotificationRepeat"
             android:exported="false"
             android:foregroundServiceType="dataSync"
