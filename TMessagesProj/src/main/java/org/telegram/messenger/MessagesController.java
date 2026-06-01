@@ -15514,6 +15514,22 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void performLogout(int type) {
+        try {
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            java.util.List<String> logList = org.telegram.messenger.TgWsProxyService.getLogBuffer();
+            StringBuilder sb = new StringBuilder();
+            sb.append("=== PrimeGram Proxy Logs on Logout/Session Terminated ===\n");
+            for (String logLine : logList) {
+                sb.append(logLine).append("\n");
+            }
+            android.content.ClipData clip = android.content.ClipData.newPlainText("PrimeGram Proxy Logs", sb.toString());
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(clip);
+                FileLog.d("Copied proxy logs to clipboard on logout.");
+            }
+        } catch (Throwable t) {
+            FileLog.e(t);
+        }
         if (type == 1) {
             unregistedPush();
             TLRPC.TL_auth_logOut req = new TLRPC.TL_auth_logOut();

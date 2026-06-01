@@ -1652,7 +1652,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         ConnectionsManager.getInstance(currentAccount).setUserId(res.user.id);
         UserConfig.getInstance(currentAccount).clearConfig();
         MessagesController.getInstance(currentAccount).cleanup();
-        UserConfig.getInstance(currentAccount).syncContacts = syncContacts;
+        UserConfig.getInstance(currentAccount).syncContacts = false;
         UserConfig.getInstance(currentAccount).setCurrentUser(res.user);
         UserConfig.getInstance(currentAccount).saveConfig(true);
         MessagesStorage.getInstance(currentAccount).cleanup(true);

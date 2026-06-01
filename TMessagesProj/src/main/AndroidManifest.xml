@@ -96,8 +96,8 @@
 
     <application
         android:name="org.telegram.messenger.ApplicationLoader"
-        android:allowBackup="true"
-        android:restoreAnyVersion="true"
+        android:allowBackup="false"
+        android:restoreAnyVersion="false"
         android:backupAgent=".BackupAgent"
         android:hardwareAccelerated="true"
         android:largeHeap="true"

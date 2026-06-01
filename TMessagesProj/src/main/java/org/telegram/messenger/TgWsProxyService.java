@@ -10,6 +10,8 @@ import android.os.Build;
 import android.os.IBinder;
 import android.app.Activity;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.tgnet.ConnectionsManager;
 
@@ -209,6 +211,79 @@ public class TgWsProxyService extends Service {
     // Singleton for external access
     private static TgWsProxyService instance;
 
+    public static int activeProxyPort = 1080;
+
+    private final Object socketLock = new Object();
+    private final List<Socket> activeClientSockets = new ArrayList<>();
+    private ConnectivityManager.NetworkCallback networkCallback;
+
+    private void addClientSocket(Socket socket) {
+        synchronized (socketLock) {
+            activeClientSockets.add(socket);
+        }
+    }
+
+    private void removeClientSocket(Socket socket) {
+        synchronized (socketLock) {
+            activeClientSockets.remove(socket);
+        }
+    }
+
+    private void closeActiveClientSockets() {
+        synchronized (socketLock) {
+            for (Socket socket : activeClientSockets) {
+                try {
+                    socket.close();
+                } catch (IOException ignored) {}
+            }
+            activeClientSockets.clear();
+        }
+    }
+
+    private void restartProxySockets() {
+        logInfo("Triggering restart of proxy sockets...");
+        closeActiveClientSockets();
+        try {
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                serverSocket.close();
+            }
+        } catch (IOException ignored) {}
+    }
+
+    private void startWatchdog() {
+        executor.submit(() -> {
+            while (running.get()) {
+                try {
+                    Thread.sleep(15_000); // Check every 15 seconds
+                    if (running.get()) {
+                        if (serverSocket == null || serverSocket.isClosed() || !serverSocket.isBound()) {
+                            logInfo("Watchdog detected server socket is closed/unbound! Restarting server socket...");
+                            restartProxySockets();
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    break;
+                } catch (Exception e) {
+                    logError("Watchdog error", e);
+                }
+            }
+        });
+    }
+
+    private void updateNotification() {
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("PrimeGram Proxy")
+                .setContentText("Прокси активен (порт " + activeProxyPort + ")")
+                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
+                .build();
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) {
+            nm.notify(NOTIFICATION_ID, notification);
+        }
+    }
+
     public static boolean isRunning() {
         return instance != null && instance.running.get();
     }
@@ -221,6 +296,27 @@ public class TgWsProxyService extends Service {
         instance = this;
         executor = Executors.newCachedThreadPool();
         sslSocketFactory = buildTrustAllSslFactory();
+
+        ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (connectivityManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            networkCallback = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    logInfo("Network connection changed: available. Restarting proxy sockets...");
+                    restartProxySockets();
+                }
+                @Override
+                public void onLost(Network network) {
+                    logInfo("Network connection lost. Restarting proxy sockets...");
+                    restartProxySockets();
+                }
+            };
+            try {
+                connectivityManager.registerDefaultNetworkCallback(networkCallback);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        }
     }
 
     @Override
@@ -228,7 +324,7 @@ public class TgWsProxyService extends Service {
         createNotificationChannel();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("PrimeGram Proxy")
-                .setContentText("Прокси активен (порт " + PROXY_PORT + ")")
+                .setContentText("Прокси активен (порт " + activeProxyPort + ")")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
@@ -237,6 +333,7 @@ public class TgWsProxyService extends Service {
 
         if (!running.getAndSet(true)) {
             executor.submit(this::runProxyServer);
+            startWatchdog();
         }
         return START_STICKY;
     }
@@ -246,11 +343,13 @@ public class TgWsProxyService extends Service {
         super.onDestroy();
         running.set(false);
         instance = null;
-        try {
-            if (serverSocket != null && !serverSocket.isClosed()) {
-                serverSocket.close();
-            }
-        } catch (IOException ignored) {}
+        ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (connectivityManager != null && networkCallback != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                connectivityManager.unregisterNetworkCallback(networkCallback);
+            } catch (Exception ignored) {}
+        }
+        restartProxySockets();
         if (executor != null) executor.shutdown();
     }
 
@@ -262,44 +361,71 @@ public class TgWsProxyService extends Service {
     // ─── Proxy server loop ─────────────────────────────────────────────────
 
     private void runProxyServer() {
-        try {
-            serverSocket = new ServerSocket(PROXY_PORT, 50, InetAddress.getByName("127.0.0.1"));
-            serverSocket.setReuseAddress(true);
-            logInfo("listening on 127.0.0.1:" + PROXY_PORT);
+        while (running.get()) {
+            try {
+                int port = PROXY_PORT;
+                for (int i = 0; i < 10; i++) {
+                    try {
+                        serverSocket = new ServerSocket(port, 50, null);
+                        serverSocket.setReuseAddress(true);
+                        activeProxyPort = port;
+                        break;
+                    } catch (IOException e) {
+                        logInfo("Port " + port + " is in use, trying next...");
+                        port++;
+                    }
+                }
+                if (serverSocket == null || serverSocket.isClosed()) {
+                    serverSocket = new ServerSocket(0, 50, null);
+                    activeProxyPort = serverSocket.getLocalPort();
+                }
 
-            AndroidUtilities.runOnUIThread(() -> {
-                try {
-                    SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
-                    if (preferences.getBoolean("proxy_enabled", false)) {
-                        String proxyAddress = preferences.getString("proxy_ip", "");
-                        int proxyPort = preferences.getInt("proxy_port", 1080);
-                        if ("127.0.0.1".equals(proxyAddress) && proxyPort == 1080) {
-                            String proxyUsername = preferences.getString("proxy_user", "");
-                            String proxyPassword = preferences.getString("proxy_pass", "");
-                            String proxySecret = preferences.getString("proxy_secret", "");
-                            ConnectionsManager.setProxySettings(true, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
+                logInfo("Listening on wildcard address (IPv4/IPv6 loopback allowed) port: " + activeProxyPort);
+                updateNotification();
+
+                int finalPort = activeProxyPort;
+                AndroidUtilities.runOnUIThread(() -> {
+                    try {
+                        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                        if (preferences.getBoolean("proxy_enabled", false)) {
+                            String proxyAddress = preferences.getString("proxy_ip", "");
+                            if ("127.0.0.1".equals(proxyAddress)) {
+                                String proxyUsername = preferences.getString("proxy_user", "");
+                                String proxyPassword = preferences.getString("proxy_pass", "");
+                                String proxySecret = preferences.getString("proxy_secret", "");
+                                
+                                SharedPreferences.Editor editor = preferences.edit();
+                                editor.putInt("proxy_port", finalPort);
+                                editor.apply();
+                                
+                                ConnectionsManager.setProxySettings(true, proxyAddress, finalPort, proxyUsername, proxyPassword, proxySecret);
+                            }
+                        }
+                    } catch (Throwable t) {
+                        FileLog.e(t);
+                    }
+                });
+
+                while (running.get() && serverSocket != null && !serverSocket.isClosed()) {
+                    try {
+                        Socket client = serverSocket.accept();
+                        if (!client.getInetAddress().isLoopbackAddress()) {
+                            try { client.close(); } catch (IOException ignored) {}
+                            continue;
+                        }
+                        executor.submit(() -> handleClient(client));
+                    } catch (IOException e) {
+                        if (running.get()) {
+                            logInfo("Accept interrupted or socket closed, will re-bind if running.");
                         }
                     }
-                } catch (Throwable t) {
-                    FileLog.e(t);
                 }
-            });
-
-            while (running.get()) {
-                try {
-                    Socket client = serverSocket.accept();
-                    executor.submit(() -> handleClient(client));
-                } catch (IOException e) {
-                    if (running.get()) {
-                        logError("accept error", e);
-                    }
-                }
+            } catch (IOException e) {
+                logError("server error, resting before retry...", e);
+                try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
             }
-        } catch (IOException e) {
-            logError("server error", e);
-        } finally {
-            running.set(false);
         }
+        running.set(false);
     }
 
     // ─── SOCKS5 handshake ──────────────────────────────────────────────────
@@ -522,8 +648,10 @@ public class TgWsProxyService extends Service {
     }
 
     private void handleClient(Socket client) {
+        addClientSocket(client);
         try {
             client.setTcpNoDelay(true);
+            client.setKeepAlive(true);
             client.setSoTimeout(30_000);
 
             InputStream in = client.getInputStream();
@@ -749,9 +877,10 @@ public class TgWsProxyService extends Service {
             sendWsFrame(wsOut, relayInit);
             logInfo("Sent obfuscation handshake to remote WS");
 
-            // Убираем timeout — теперь работаем постоянно
-            client.setSoTimeout(0);
-            tlsSocket.setSoTimeout(0);
+            client.setKeepAlive(true);
+            tlsSocket.setKeepAlive(true);
+            client.setSoTimeout(120_000); // 2 minutes read timeout
+            tlsSocket.setSoTimeout(120_000); // 2 minutes read timeout
 
             logInfo("Session established, entering active relay bridge...");
 
@@ -761,6 +890,7 @@ public class TgWsProxyService extends Service {
         } catch (Exception e) {
             logError("handleClient error", e);
         } finally {
+            removeClientSocket(client);
             try { client.close(); } catch (IOException ignored) {}
         }
     }

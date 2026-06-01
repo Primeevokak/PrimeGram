@@ -108,7 +108,10 @@ public class AuthTokensHelper {
                 editor.putString("log_in_token_" + i, Utilities.bytesToHex(data.toByteArray()));
             }
             editor.apply();
-            BackupAgent.requestBackup(ApplicationLoader.applicationContext);
+            // PrimeGram: не бэкапим токены авторизации в облако Google —
+            // восстановление из бэкапа при переустановке конфликтует с новым SMS-логином
+            // и вызывает инвалидацию сессии на первом запуске.
+            // BackupAgent.requestBackup(ApplicationLoader.applicationContext);
         }
     }
 
@@ -118,7 +121,7 @@ public class AuthTokensHelper {
         SerializedData data = new SerializedData(response.getObjectSize());
         response.serializeToStream(data);
         preferences.edit().putString("log_out_token_" + count, Utilities.bytesToHex(data.toByteArray())).putInt("count", count + 1).apply();
-        BackupAgent.requestBackup(ApplicationLoader.applicationContext);
+        // BackupAgent.requestBackup(ApplicationLoader.applicationContext);
     }
 
     public static void clearLogInTokens() {
