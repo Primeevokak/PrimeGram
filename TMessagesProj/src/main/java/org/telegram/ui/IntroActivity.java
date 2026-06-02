@@ -384,7 +384,7 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
             }
             startPressed = true;
 
-            presentFragment(new LoginActivity().setIntroView(frameContainerView, startMessagingButton), true);
+            presentFragment(new ProxySetupActivity(), true);
             destroyed = true;
         });
 
@@ -412,8 +412,8 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
                         loaderDialog.dismiss();
 
                         NotificationCenter.getGlobalInstance().removeObserver(this, id);
-                        AndroidUtilities.runOnUIThread(()->{
-                            presentFragment(new LoginActivity().setIntroView(frameContainerView, startMessagingButton), true);
+                         AndroidUtilities.runOnUIThread(()->{
+                            presentFragment(new ProxySetupActivity(), true);
                             destroyed = true;
                         }, 100);
                     }

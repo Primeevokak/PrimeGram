@@ -385,6 +385,7 @@ public class TgWsProxyService extends Service {
         super.onDestroy();
         running.set(false);
         instance = null;
+        isSocketBound = false;
         ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivityManager != null && networkCallback != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
@@ -421,6 +422,7 @@ public class TgWsProxyService extends Service {
                     serverSocket = new ServerSocket(0, 50, null);
                     activeProxyPort = serverSocket.getLocalPort();
                 }
+                isSocketBound = true;
 
                 logInfo("Listening on wildcard address (IPv4/IPv6 loopback allowed) port: " + activeProxyPort);
                 updateNotification();
@@ -457,16 +459,19 @@ public class TgWsProxyService extends Service {
                         }
                         executor.submit(() -> handleClient(client));
                     } catch (IOException e) {
+                        isSocketBound = false;
                         if (running.get()) {
                             logInfo("Accept interrupted or socket closed, will re-bind if running.");
                         }
                     }
                 }
             } catch (IOException e) {
+                isSocketBound = false;
                 logError("server error, resting before retry...", e);
                 try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
             }
         }
+        isSocketBound = false;
         running.set(false);
     }
 
@@ -689,6 +694,64 @@ public class TgWsProxyService extends Service {
         }
     }
 
+    private static int[] getDcByIpRange(String ip) {
+        try {
+            String[] parts = ip.split("\\.");
+            if (parts.length != 4) return null;
+            int b0 = Integer.parseInt(parts[0]);
+            int b1 = Integer.parseInt(parts[1]);
+            int b2 = Integer.parseInt(parts[2]);
+            int b3 = Integer.parseInt(parts[3]);
+
+            // DC5: 91.108.56.0/22 (91.108.56.0 - 91.108.59.255)
+            if (b0 == 91 && b1 == 108 && b2 >= 56 && b2 <= 59) {
+                boolean isMedia = (b3 == 102 || b3 >= 128);
+                return new int[]{5, isMedia ? 1 : 0};
+            }
+            
+            // DC5: 149.154.171.0/24
+            if (b0 == 149 && b1 == 154 && b2 == 171) {
+                return new int[]{5, 0};
+            }
+
+            // DC1 & DC3: 149.154.175.X
+            if (b0 == 149 && b1 == 154 && b2 == 175) {
+                if (b3 >= 100 && b3 <= 120) {
+                    boolean isMedia = (b3 == 102);
+                    return new int[]{3, isMedia ? 1 : 0};
+                } else {
+                    boolean isMedia = (b3 == 52);
+                    return new int[]{1, isMedia ? 1 : 0};
+                }
+            }
+
+            // DC2 & DC4: 149.154.167.X
+            if (b0 == 149 && b1 == 154 && b2 == 167) {
+                if (b3 >= 90 && b3 <= 199) {
+                    boolean isMedia = (b3 == 118 || b3 == 151);
+                    return new int[]{4, isMedia ? 1 : 0};
+                } else {
+                    return new int[]{2, 0};
+                }
+            }
+
+            // DC4 extra subnets: 149.154.164.X, 149.154.165.X, 149.154.166.X
+            if (b0 == 149 && b1 == 154 && (b2 == 164 || b2 == 165 || b2 == 166)) {
+                return new int[]{4, 1};
+            }
+
+            // DC2 extra IPs
+            if (b0 == 95 && b1 == 161 && b2 == 76 && b3 == 100) {
+                return new int[]{2, 0};
+            }
+            if (b0 == 149 && b1 == 154 && b2 == 162 && b3 == 123) {
+                return new int[]{2, 1};
+            }
+
+        } catch (Exception ignored) {}
+        return null;
+    }
+
     private void handleClient(Socket client) {
         addClientSocket(client);
         boolean semaphoreAcquired = false;
@@ -767,7 +830,21 @@ public class TgWsProxyService extends Service {
             logInfo("SOCKS5 Request to " + destIp + ":" + destPort);
 
             // Определяем DC
-            int[] dcInfo = IP_TO_DC.get(destIp);
+            int[] dcInfo = null;
+            if (atyp == 3 && destIp.startsWith("dc") && destIp.endsWith(".telegram")) {
+                try {
+                    boolean mediaFlag = destIp.contains("media");
+                    String numStr = destIp.replace("dc", "").replace("media", "").replace(".telegram", "");
+                    int parsedDcId = Integer.parseInt(numStr);
+                    dcInfo = new int[]{parsedDcId, mediaFlag ? 1 : 0};
+                } catch (Exception ignored) {}
+            }
+            if (dcInfo == null) {
+                dcInfo = IP_TO_DC.get(destIp);
+            }
+            if (dcInfo == null) {
+                dcInfo = getDcByIpRange(destIp);
+            }
             dcId = -1;
             isMedia = false;
 

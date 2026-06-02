@@ -472,11 +472,13 @@ ConnectionSocket::~ConnectionSocket() {
     }
 }
 
-void ConnectionSocket::openConnection(std::string address, uint16_t port, std::string secret, bool ipv6, int32_t networkType) {
+void ConnectionSocket::openConnection(std::string address, uint16_t port, std::string secret, bool ipv6, int32_t networkType, int32_t dcId, bool isMedia) {
     currentNetworkType = networkType;
     isIpv6 = ipv6;
     currentAddress = address;
     currentPort = port;
+    datacenterId = dcId;
+    isMediaConnection = isMedia;
     waitingForHostResolve = "";
     adjustWriteOpAfterResolve = false;
     tlsState = 0;
@@ -979,18 +981,42 @@ void ConnectionSocket::onEvent(uint32_t events) {
                         }
                         adjustWriteOp();
                     } else if (proxyAuthState == 5) {
-                        tempBuffer->bytes[0] = 0x05;
-                        tempBuffer->bytes[1] = 0x01;
-                        tempBuffer->bytes[2] = 0x00;
-                        tempBuffer->bytes[3] = (uint8_t) (isIpv6 ? 0x04 : 0x01);
-                        uint16_t networkPort = ntohs(currentPort);
-                        inet_pton(isIpv6 ? AF_INET6 : AF_INET, currentAddress.c_str(), tempBuffer->bytes + 4);
-                        memcpy(tempBuffer->bytes + 4 + (isIpv6 ? 16 : 4), &networkPort, sizeof(uint16_t));
-                        proxyAuthState = 6;
-                        if (send(socketFd, tempBuffer->bytes, 4 + (isIpv6 ? 16 : 4) + 2, 0) < 0) {
-                            if (LOGS_ENABLED) DEBUG_E("connection(%p) send failed", this);
-                            closeSocket(1, -1);
-                            return;
+                        std::string *pAddress = &overrideProxyAddress;
+                        if (pAddress->empty()) {
+                            pAddress = &ConnectionsManager::getInstance(instanceNum).proxyAddress;
+                        }
+                        
+                        if (*pAddress == "127.0.0.1" && datacenterId != -1) {
+                            std::string domain = "dc" + std::to_string(datacenterId) + (isMediaConnection ? "media" : "") + ".telegram";
+                            tempBuffer->bytes[0] = 0x05;
+                            tempBuffer->bytes[1] = 0x01;
+                            tempBuffer->bytes[2] = 0x00;
+                            tempBuffer->bytes[3] = 0x03; // ATYP: Domain Name
+                            tempBuffer->bytes[4] = (uint8_t) domain.length();
+                            memcpy(tempBuffer->bytes + 5, domain.c_str(), domain.length());
+                            uint16_t networkPort = ntohs(currentPort);
+                            memcpy(tempBuffer->bytes + 5 + domain.length(), &networkPort, sizeof(uint16_t));
+                            
+                            proxyAuthState = 6;
+                            if (send(socketFd, tempBuffer->bytes, 5 + domain.length() + 2, 0) < 0) {
+                                if (LOGS_ENABLED) DEBUG_E("connection(%p) send failed", this);
+                                closeSocket(1, -1);
+                                return;
+                            }
+                        } else {
+                            tempBuffer->bytes[0] = 0x05;
+                            tempBuffer->bytes[1] = 0x01;
+                            tempBuffer->bytes[2] = 0x00;
+                            tempBuffer->bytes[3] = (uint8_t) (isIpv6 ? 0x04 : 0x01);
+                            uint16_t networkPort = ntohs(currentPort);
+                            inet_pton(isIpv6 ? AF_INET6 : AF_INET, currentAddress.c_str(), tempBuffer->bytes + 4);
+                            memcpy(tempBuffer->bytes + 4 + (isIpv6 ? 16 : 4), &networkPort, sizeof(uint16_t));
+                            proxyAuthState = 6;
+                            if (send(socketFd, tempBuffer->bytes, 4 + (isIpv6 ? 16 : 4) + 2, 0) < 0) {
+                                if (LOGS_ENABLED) DEBUG_E("connection(%p) send failed", this);
+                                closeSocket(1, -1);
+                                return;
+                            }
                         }
                         adjustWriteOp();
                     }

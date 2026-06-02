@@ -27,7 +27,7 @@ public:
 
     void writeBuffer(uint8_t *data, uint32_t size);
     void writeBuffer(NativeByteBuffer *buffer);
-    void openConnection(std::string address, uint16_t port, std::string secret, bool ipv6, int32_t networkType);
+    void openConnection(std::string address, uint16_t port, std::string secret, bool ipv6, int32_t networkType, int32_t dcId = -1, bool isMedia = false);
     void setTimeout(time_t timeout);
     time_t getTimeout();
     bool isDisconnected();
@@ -81,6 +81,8 @@ private:
     int8_t tlsState = 0;
 
     uint8_t proxyAuthState;
+    int32_t datacenterId = -1;
+    bool isMediaConnection = false;
 
     int32_t checkSocketError(int32_t *error);
     void closeSocket(int32_t reason, int32_t error);
