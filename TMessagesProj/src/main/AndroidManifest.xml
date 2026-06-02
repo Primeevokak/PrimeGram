@@ -98,7 +98,6 @@
         android:name="org.telegram.messenger.ApplicationLoader"
         android:allowBackup="false"
         android:restoreAnyVersion="false"
-        android:backupAgent=".BackupAgent"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:theme="@style/Theme.TMessages.Start"

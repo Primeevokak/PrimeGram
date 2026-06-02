@@ -252,6 +252,18 @@ public class ApplicationLoader extends Application {
         }
 
         SharedConfig.loadConfig();
+        SharedConfig.loadProxyList();
+        try {
+            TgWsProxyService.startService(ApplicationLoader.applicationContext);
+            long startWait = System.currentTimeMillis();
+            while (!TgWsProxyService.isSocketBound && (System.currentTimeMillis() - startWait < 1500)) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException ignored) {}
+            }
+        } catch (Exception e) {
+            FileLog.e("Failed to start TgWsProxyService", e);
+        }
         SharedPrefsHelper.init(applicationContext);
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) { //TODO improve account
             UserConfig.getInstance(a).loadConfig();
@@ -280,13 +292,6 @@ public class ApplicationLoader extends Application {
             DownloadController.getInstance(a);
         }
         BillingController.getInstance().startConnection();
-
-        // Start built-in WebSocket proxy service for bypassing blocks
-        try {
-            TgWsProxyService.startService(ApplicationLoader.applicationContext);
-        } catch (Exception e) {
-            FileLog.e("Failed to start TgWsProxyService", e);
-        }
     }
 
     public ApplicationLoader() {

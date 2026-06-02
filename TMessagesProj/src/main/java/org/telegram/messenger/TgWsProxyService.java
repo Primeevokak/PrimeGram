@@ -212,6 +212,8 @@ public class TgWsProxyService extends Service {
     private static TgWsProxyService instance;
 
     public static int activeProxyPort = 1080;
+    public static volatile boolean isSocketBound = false;
+    private static volatile String currentBaseDomain = null;
 
     private final Object socketLock = new Object();
     private final List<Socket> activeClientSockets = new ArrayList<>();
@@ -331,6 +333,7 @@ public class TgWsProxyService extends Service {
                 .build();
         startForeground(NOTIFICATION_ID, notification);
 
+        currentBaseDomain = null;
         if (!running.getAndSet(true)) {
             executor.submit(this::runProxyServer);
             startWatchdog();
@@ -785,34 +788,72 @@ public class TgWsProxyService extends Service {
                 Thread.sleep(20 + RANDOM.nextInt(280));
             } catch (InterruptedException ignored) {}
 
-            // Перебираем наши домены-обходчики
-            for (String baseDomain : BASE_DOMAINS) {
-                String wsDomain = "kws" + dcId + "." + baseDomain;
-                logInfo("Connecting to CF proxy " + wsDomain + ":443");
-                try {
-                    tlsSocket = (SSLSocket) sslSocketFactory.createSocket(wsDomain, 443);
-                    tlsSocket.setUseClientMode(true);
-                    tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-                    tlsSocket.setTcpNoDelay(true);
-                    tlsSocket.setSoTimeout(10_000); // 10s timeout for handshake
+            if (currentBaseDomain == null) {
+                // Выполняем параллельный пинг доменов для выбора быстрейшего
+                logInfo("Starting parallel latency check on base domains...");
+                final String[] selected = new String[1];
+                final Object lock = new Object();
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(BASE_DOMAINS.length);
 
-                    // WebSocket handshake
-                    wsHandshake(tlsSocket, wsDomain);
-                    chosenDomain = wsDomain;
-                    logInfo("Successfully connected to " + wsDomain);
-                    break; // Успешно подключились!
-                } catch (Exception e) {
-                    logError("Failed to connect to " + wsDomain, e);
-                    // Если словили 429 Too Many Requests, делаем паузу перед следующим доменом
-                    if (e.getMessage() != null && e.getMessage().contains("429")) {
+                for (final String domain : BASE_DOMAINS) {
+                    executor.submit(() -> {
+                        long start = System.currentTimeMillis();
+                        SSLSocket testSocket = null;
                         try {
-                            Thread.sleep(300 + RANDOM.nextInt(200));
-                        } catch (InterruptedException ignored) {}
+                            String testHost = "kws." + domain;
+                            testSocket = (SSLSocket) sslSocketFactory.createSocket();
+                            testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1500); // 1.5s TCP timeout
+                            testSocket.setSoTimeout(1500);
+                            testSocket.startHandshake(); // TLS test
+                            
+                            synchronized (lock) {
+                                if (selected[0] == null) {
+                                    selected[0] = domain;
+                                    long dur = System.currentTimeMillis() - start;
+                                    logInfo("Fastest domain selected: " + domain + " in " + dur + "ms");
+                                }
+                            }
+                        } catch (Exception ignored) {
+                        } finally {
+                            if (testSocket != null) {
+                                try { testSocket.close(); } catch (IOException ignored) {}
+                            }
+                            latch.countDown();
+                        }
+                    });
+                }
+
+                try {
+                    latch.await(2000, java.util.concurrent.TimeUnit.MILLISECONDS); // wait up to 2 seconds
+                } catch (InterruptedException ignored) {}
+
+                synchronized (lock) {
+                    if (selected[0] == null) {
+                        selected[0] = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                        logInfo("All latency tests timed out or failed. Selected fallback: " + selected[0]);
                     }
-                    if (tlsSocket != null) {
-                        try { tlsSocket.close(); } catch (IOException ignored) {}
-                        tlsSocket = null;
-                    }
+                    currentBaseDomain = selected[0];
+                }
+            }
+            String baseDomain = currentBaseDomain;
+            String wsDomain = "kws." + baseDomain;
+            logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId);
+            try {
+                tlsSocket = (SSLSocket) sslSocketFactory.createSocket(wsDomain, 443);
+                tlsSocket.setUseClientMode(true);
+                tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
+                tlsSocket.setTcpNoDelay(true);
+                tlsSocket.setSoTimeout(10_000); // 10s timeout for handshake
+
+                // WebSocket handshake - передаем DC ID в пути/запросе
+                wsHandshake(tlsSocket, wsDomain, dcId);
+                chosenDomain = wsDomain;
+                logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ")");
+            } catch (Exception e) {
+                logError("Failed to connect to unified proxy " + wsDomain, e);
+                if (tlsSocket != null) {
+                    try { tlsSocket.close(); } catch (IOException ignored) {}
+                    tlsSocket = null;
                 }
             }
 
@@ -921,18 +962,23 @@ public class TgWsProxyService extends Service {
     }
 
     private void wsHandshake(SSLSocket socket, String domain) throws IOException {
+        wsHandshake(socket, domain, 2);
+    }
+
+    private void wsHandshake(SSLSocket socket, String domain, int dcId) throws IOException {
         byte[] keyBytes = new byte[16];
         RANDOM.nextBytes(keyBytes);
         String wsKey = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP);
 
         String req =
-                "GET /apiws HTTP/1.1\r\n" +
+                "GET /apiws?dc=" + dcId + " HTTP/1.1\r\n" +
                 "Host: " + domain + "\r\n" +
                 "Upgrade: websocket\r\n" +
                 "Connection: Upgrade\r\n" +
                 "Sec-WebSocket-Key: " + wsKey + "\r\n" +
                 "Sec-WebSocket-Version: 13\r\n" +
                 "Sec-WebSocket-Protocol: binary\r\n" +
+                "X-Telegram-DC: " + dcId + "\r\n" +
                 "Origin: https://web.telegram.org\r\n" +
                 "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\r\n" +

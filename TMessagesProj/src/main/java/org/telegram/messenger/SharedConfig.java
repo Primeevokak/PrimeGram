@@ -1526,6 +1526,8 @@ public class SharedConfig {
                 editor.putString("proxy_pass", currentProxy.password);
                 editor.putString("proxy_secret", currentProxy.secret);
                 editor.apply();
+                
+                org.telegram.tgnet.ConnectionsManager.setProxySettings(true, currentProxy.address, currentProxy.port, currentProxy.username, currentProxy.password, currentProxy.secret);
             }
         }
     }

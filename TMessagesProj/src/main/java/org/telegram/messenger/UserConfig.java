@@ -377,7 +377,11 @@ public class UserConfig extends BaseController {
                     filesDir = new java.io.File(filesDir, "account" + currentAccount + "/");
                 }
                 java.io.File cacheFile = new java.io.File(filesDir, "cache4.db");
-                if (!cacheFile.exists()) {
+                // Проверяем, был ли XML-файл настроек восстановлен из резервной копии (или уже существовал до этой сессии).
+                // Если файла cache4.db нет, но у нас есть данные пользователя в префах, это баг автобэкапа ТОЛЬКО если
+                // префы были созданы в прошлых запусках, а не прямо сейчас при авторизации.
+                boolean isCleanInstall = !preferences.contains("loginTime");
+                if (!cacheFile.exists() && !isCleanInstall) {
                     FileLog.d("Google Auto-Backup corrupted restore detected! currentUser is not null, but cache4.db does not exist. Clearing config for account " + currentAccount);
                     currentUser = null;
                     clientUserId = 0;
