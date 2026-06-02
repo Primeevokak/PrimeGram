@@ -1581,6 +1581,9 @@ public class SharedConfig {
     }
 
     public static boolean isProxyEnabled() {
+        if (currentProxy != null && "127.0.0.1".equals(currentProxy.address) && (currentProxy.port == 1080 || currentProxy.port == TgWsProxyService.activeProxyPort) && TextUtils.isEmpty(currentProxy.secret)) {
+            return true;
+        }
         return MessagesController.getGlobalMainSettings().getBoolean("proxy_enabled", false) && currentProxy != null;
     }
 

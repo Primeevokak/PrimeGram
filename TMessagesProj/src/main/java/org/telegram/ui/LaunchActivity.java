@@ -7399,6 +7399,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
                 }
             } else if (reason == 3) {
+                if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.address)) {
+                    org.telegram.messenger.FileLog.d("LaunchActivity: Suppressing proxy error dialog for local proxy. Restarting service.");
+                    org.telegram.messenger.TgWsProxyService.startService(org.telegram.messenger.ApplicationLoader.applicationContext);
+                    return;
+                }
                 builder.setTitle(LocaleController.getString(R.string.Proxy));
                 builder.setMessage(LocaleController.getString(R.string.UseProxyTelegramError));
                 builder.setPositiveButton(LocaleController.getString(R.string.OK), null);

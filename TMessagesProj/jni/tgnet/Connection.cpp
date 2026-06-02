@@ -76,8 +76,12 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
     if (connectionType == ConnectionTypeGeneric || connectionType == ConnectionTypeTemp || connectionType == ConnectionTypeGenericMedia) {
         receivedDataAmount += buffer->limit();
         if (receivedDataAmount >= 512 * 1024) {
-            if (currentTimeout > 4) {
+            uint32_t minTimeout = ConnectionsManager::getInstance(currentDatacenter->instanceNum).proxyAddress.empty() ? 4 : 12;
+            if (currentTimeout > minTimeout) {
                 currentTimeout -= 2;
+                if (currentTimeout < minTimeout) {
+                    currentTimeout = minTimeout;
+                }
                 setTimeout(currentTimeout);
             }
             receivedDataAmount = 0;
@@ -141,6 +145,10 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
             } else if (connectionType == ConnectionTypeDownload) {
                 setTimeout(25);
             } else {
+                uint32_t minTimeout = ConnectionsManager::getInstance(currentDatacenter->instanceNum).proxyAddress.empty() ? 4 : 12;
+                if (currentTimeout < minTimeout) {
+                    currentTimeout = minTimeout;
+                }
                 setTimeout(currentTimeout);
             }
         }
@@ -380,10 +388,18 @@ void Connection::connect() {
             setTimeout(25);
         }
     } else {
-        if (isTryingNextPort) {
-            setTimeout(8);
+        if (!ConnectionsManager::getInstance(currentDatacenter->instanceNum).proxyAddress.empty()) {
+            if (isTryingNextPort) {
+                setTimeout(20);
+            } else {
+                setTimeout(25);
+            }
         } else {
-            setTimeout(12);
+            if (isTryingNextPort) {
+                setTimeout(8);
+            } else {
+                setTimeout(12);
+            }
         }
     }
     connectionInProcess = false;
@@ -659,7 +675,8 @@ void Connection::onDisconnectedInternal(int32_t reason, int32_t error) {
     if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) disconnected with reason %d", this, currentDatacenter->instanceNum, currentDatacenter->getDatacenterId(), connectionType, reason);
     bool switchToNextPort = reason == 2 && wasConnected && (!hasSomeDataSinceLastConnect || currentDatacenter->isCustomPort(currentAddressFlags)) || forceNextPort;
     if (connectionType == ConnectionTypeGeneric || connectionType == ConnectionTypeTemp || connectionType == ConnectionTypeGenericMedia) {
-        if (wasConnected && reason == 2 && currentTimeout < 16) {
+        uint32_t maxTimeout = ConnectionsManager::getInstance(currentDatacenter->instanceNum).proxyAddress.empty() ? 16 : 30;
+        if (wasConnected && reason == 2 && currentTimeout < maxTimeout) {
             currentTimeout += 2;
         }
     }

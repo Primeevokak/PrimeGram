@@ -790,6 +790,14 @@ public class ConnectionsManager extends BaseController {
     public static void onConnectionStateChanged(final int state, final int currentAccount) {
         AndroidUtilities.runOnUIThread(() -> {
             getInstance(currentAccount).connectionState = state;
+            if (state == 1 /* ConnectionStateConnecting */) {
+                if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.address)) {
+                    if (!org.telegram.messenger.TgWsProxyService.isSocketBound) {
+                        org.telegram.messenger.FileLog.d("ConnectionsManager: Proxy service not bound during connecting state. Restarting service...");
+                        org.telegram.messenger.TgWsProxyService.startService(org.telegram.messenger.ApplicationLoader.applicationContext);
+                    }
+                }
+            }
             AccountInstance.getInstance(currentAccount).getNotificationCenter().postNotificationName(NotificationCenter.didUpdateConnectionState);
         });
     }
