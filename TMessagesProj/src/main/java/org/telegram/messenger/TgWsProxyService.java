@@ -27,8 +27,13 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -182,6 +187,21 @@ public class TgWsProxyService extends Service {
         "kartoshka.co.uk",
         "sorokodin.co.uk",
         "pyatdesyatodin.co.uk"
+    };
+
+    // Hardcoded Cloudflare IP addresses as ultimate fallback
+    // These are anycast IPs that Cloudflare Workers respond on
+    private static final String[] FALLBACK_IPS = {
+        "104.16.0.0",     // Cloudflare anycast range
+        "104.16.1.0",
+        "104.17.0.0",
+        "104.18.0.0",
+        "104.19.0.0",
+        "104.20.0.0",
+        "172.64.0.0",
+        "172.65.0.0",
+        "172.66.0.0",
+        "172.67.0.0"
     };
 
     // MTProto handshake constants — from utils.py
@@ -839,7 +859,7 @@ public class TgWsProxyService extends Service {
             String wsDomain = "kws." + baseDomain;
             logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId);
             try {
-                tlsSocket = (SSLSocket) sslSocketFactory.createSocket(wsDomain, 443);
+                tlsSocket = createTlsSocketWithIpv4Preference(wsDomain, 443, 10_000);
                 tlsSocket.setUseClientMode(true);
                 tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
                 tlsSocket.setTcpNoDelay(true);
@@ -1245,5 +1265,175 @@ public class TgWsProxyService extends Service {
     public static void stopService(Context context) {
         Intent intent = new Intent(context, TgWsProxyService.class);
         context.stopService(intent);
+    }
+
+    private InetAddress[] resolveWithFallbackDns(String host) {
+        // Try system DNS first
+        try {
+            InetAddress[] addresses = InetAddress.getAllByName(host);
+            if (addresses != null && addresses.length > 0) {
+                logInfo("System DNS resolved " + host + " to " + addresses.length + " addresses");
+                return addresses;
+            }
+        } catch (java.net.UnknownHostException e) {
+            logError("System DNS failed for " + host + ", trying fallback methods", e);
+        }
+
+        // Try DNS-over-HTTPS via multiple providers
+        String[] dohProviders = {
+            "https://dns.google/resolve?name=" + host + "&type=A",
+            "https://cloudflare-dns.com/dns-query?name=" + host + "&type=A",
+            "https://dns.quad9.net/dns-query?name=" + host + "&type=A"
+        };
+
+        for (String dohUrl : dohProviders) {
+            try {
+                InetAddress[] addresses = resolveDnsOverHttps(dohUrl, host);
+                if (addresses != null && addresses.length > 0) {
+                    logInfo("DNS-over-HTTPS resolved " + host + " to " + addresses.length + " addresses via " + dohUrl);
+                    return addresses;
+                }
+            } catch (Exception e) {
+                logError("DNS-over-HTTPS failed for " + host + " via " + dohUrl, e);
+            }
+        }
+
+        // Last resort: try hardcoded Cloudflare anycast IPs
+        logError("All DNS methods failed for " + host + ", using hardcoded Cloudflare IPs", null);
+        List<InetAddress> fallbackAddresses = new ArrayList<>();
+        for (String ip : FALLBACK_IPS) {
+            try {
+                fallbackAddresses.add(InetAddress.getByName(ip));
+            } catch (java.net.UnknownHostException ignored) {}
+        }
+        if (!fallbackAddresses.isEmpty()) {
+            return fallbackAddresses.toArray(new InetAddress[0]);
+        }
+
+        return null;
+    }
+
+    private InetAddress[] resolveDnsOverHttps(String dohUrl, String host) throws IOException {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(dohUrl).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.setRequestProperty("Accept", "application/dns-json");
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode != 200) {
+                throw new IOException("DNS-over-HTTPS returned code: " + responseCode);
+            }
+
+            StringBuilder response = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+            }
+
+            // Parse JSON response manually to avoid dependency on JSON library
+            String json = response.toString();
+            List<InetAddress> addresses = new ArrayList<>();
+
+            // Look for "Answer" array or "answer" array (different providers use different casing)
+            int answerStart = json.indexOf("\"Answer\"");
+            if (answerStart == -1) {
+                answerStart = json.indexOf("\"answer\"");
+            }
+            if (answerStart == -1) {
+                return null;
+            }
+
+            // Find all "data" fields in the Answer array
+            int searchPos = answerStart;
+            int dataPos = json.indexOf("\"data\"", searchPos);
+            while (dataPos != -1) {
+                int colonPos = json.indexOf(':', dataPos + 6);
+                if (colonPos == -1) break;
+
+                int quoteStart = json.indexOf('"', colonPos + 1);
+                if (quoteStart == -1) break;
+
+                int quoteEnd = json.indexOf('"', quoteStart + 1);
+                if (quoteEnd == -1) break;
+
+                String ip = json.substring(quoteStart + 1, quoteEnd);
+                if (ip.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
+                    try {
+                        addresses.add(InetAddress.getByName(ip));
+                    } catch (java.net.UnknownHostException ignored) {}
+                }
+
+                dataPos = json.indexOf("\"data\"", quoteEnd);
+            }
+
+            return addresses.isEmpty() ? null : addresses.toArray(new InetAddress[0]);
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    private Socket connectWithIpv4Preference(String host, int port, int timeoutMs) throws IOException {
+        InetAddress[] addresses;
+
+        // Try system DNS first, then fallback DNS servers
+        addresses = resolveWithFallbackDns(host);
+
+        if (addresses == null || addresses.length == 0) {
+            throw new java.net.UnknownHostException("Could not resolve host by any method: " + host);
+        }
+
+        List<InetAddress> prioritized = new ArrayList<>();
+        // Prefer IPv4
+        for (InetAddress addr : addresses) {
+            if (addr instanceof java.net.Inet4Address) {
+                prioritized.add(addr);
+            }
+        }
+        // Then IPv6
+        for (InetAddress addr : addresses) {
+            if (addr instanceof java.net.Inet6Address) {
+                prioritized.add(addr);
+            }
+        }
+
+        if (prioritized.isEmpty()) {
+            throw new java.net.UnknownHostException("No IP addresses found for host: " + host);
+        }
+
+        IOException lastEx = null;
+        for (InetAddress addr : prioritized) {
+            Socket socket = new Socket();
+            try {
+                logInfo("Connecting to resolved address " + addr + " for host " + host);
+                socket.connect(new java.net.InetSocketAddress(addr, port), timeoutMs);
+                return socket;
+            } catch (IOException e) {
+                logError("Failed to connect to address " + addr + ": " + e.getMessage(), e);
+                lastEx = e;
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+
+        if (lastEx != null) {
+            throw lastEx;
+        }
+        throw new IOException("Could not connect to any address for host: " + host);
+    }
+
+    private SSLSocket createTlsSocketWithIpv4Preference(String host, int port, int timeoutMs) throws IOException {
+        Socket plainSocket = connectWithIpv4Preference(host, port, timeoutMs);
+        SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, host, port, true);
+        tlsSocket.setUseClientMode(true);
+        tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
+        tlsSocket.setTcpNoDelay(true);
+        tlsSocket.setSoTimeout(timeoutMs);
+        return tlsSocket;
     }
 }
