@@ -49,6 +49,9 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLSession;
 
 /**
  * TgWsProxyService — полный порт tg-ws-proxy (backend.py) на Java.
@@ -227,6 +230,7 @@ public class TgWsProxyService extends Service {
     private ServerSocket serverSocket;
     private ExecutorService executor;
     private SSLSocketFactory sslSocketFactory;
+    private final java.util.concurrent.Semaphore connectionSemaphore = new java.util.concurrent.Semaphore(5);
 
     // Singleton for external access
     private static TgWsProxyService instance;
@@ -672,6 +676,7 @@ public class TgWsProxyService extends Service {
 
     private void handleClient(Socket client) {
         addClientSocket(client);
+        boolean semaphoreAcquired = false;
         try {
             client.setTcpNoDelay(true);
             client.setKeepAlive(true);
@@ -815,12 +820,23 @@ public class TgWsProxyService extends Service {
                 final Object lock = new Object();
                 java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(BASE_DOMAINS.length);
 
+                final int targetDcId = dcId;
                 for (final String domain : BASE_DOMAINS) {
                     executor.submit(() -> {
                         long start = System.currentTimeMillis();
                         SSLSocket testSocket = null;
                         try {
-                            String testHost = "kws." + domain;
+                            // Автоопределение формата домена: сначала пробуем динамический kws<DC_ID>., затем kws., затем напрямую root
+                            String testHost = "kws" + targetDcId + "." + domain;
+                            InetAddress[] testResolve = resolveWithFallbackDns(testHost);
+                            if (testResolve == null || testResolve.length == 0) {
+                                testHost = "kws." + domain;
+                                testResolve = resolveWithFallbackDns(testHost);
+                                if (testResolve == null || testResolve.length == 0) {
+                                    testHost = domain;
+                                }
+                            }
+
                             testSocket = (SSLSocket) sslSocketFactory.createSocket();
                             testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1500); // 1.5s TCP timeout
                             testSocket.setSoTimeout(1500);
@@ -856,8 +872,26 @@ public class TgWsProxyService extends Service {
                 }
             }
             String baseDomain = currentBaseDomain;
-            String wsDomain = "kws." + baseDomain;
-            logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId);
+            String wsDomain = "kws" + dcId + "." + baseDomain;
+            boolean isUnified = false;
+            InetAddress[] checkResolve = resolveWithFallbackDns(wsDomain);
+            if (checkResolve == null || checkResolve.length == 0) {
+                wsDomain = "kws." + baseDomain;
+                checkResolve = resolveWithFallbackDns(wsDomain);
+                isUnified = true;
+                if (checkResolve == null || checkResolve.length == 0) {
+                    wsDomain = baseDomain;
+                }
+            }
+
+            logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId + " (unified=" + isUnified + ")");
+            try {
+                connectionSemaphore.acquire();
+                semaphoreAcquired = true;
+            } catch (InterruptedException e) {
+                logInfo("Interrupted waiting for connection semaphore");
+                return;
+            }
             try {
                 tlsSocket = createTlsSocketWithIpv4Preference(wsDomain, 443, 10_000);
                 tlsSocket.setUseClientMode(true);
@@ -865,12 +899,12 @@ public class TgWsProxyService extends Service {
                 tlsSocket.setTcpNoDelay(true);
                 tlsSocket.setSoTimeout(10_000); // 10s timeout for handshake
 
-                // WebSocket handshake - передаем DC ID в пути/запросе
-                wsHandshake(tlsSocket, wsDomain, dcId);
+                // WebSocket handshake - передаем флаг единого прокси
+                wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
                 chosenDomain = wsDomain;
                 logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ")");
             } catch (Exception e) {
-                logError("Failed to connect to unified proxy " + wsDomain, e);
+                logError("Failed to connect to proxy " + wsDomain, e);
                 if (tlsSocket != null) {
                     try { tlsSocket.close(); } catch (IOException ignored) {}
                     tlsSocket = null;
@@ -951,6 +985,9 @@ public class TgWsProxyService extends Service {
         } catch (Exception e) {
             logError("handleClient error", e);
         } finally {
+            if (semaphoreAcquired) {
+                connectionSemaphore.release();
+            }
             removeClientSocket(client);
             try { client.close(); } catch (IOException ignored) {}
         }
@@ -982,27 +1019,37 @@ public class TgWsProxyService extends Service {
     }
 
     private void wsHandshake(SSLSocket socket, String domain) throws IOException {
-        wsHandshake(socket, domain, 2);
+        wsHandshake(socket, domain, 2, false);
     }
 
     private void wsHandshake(SSLSocket socket, String domain, int dcId) throws IOException {
+        wsHandshake(socket, domain, dcId, false);
+    }
+
+    private void wsHandshake(SSLSocket socket, String domain, int dcId, boolean isUnified) throws IOException {
         byte[] keyBytes = new byte[16];
         RANDOM.nextBytes(keyBytes);
         String wsKey = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP);
 
+        String path = isUnified ? ("/apiws?dc=" + dcId) : "/apiws";
+
         String req =
-                "GET /apiws?dc=" + dcId + " HTTP/1.1\r\n" +
+                "GET " + path + " HTTP/1.1\r\n" +
                 "Host: " + domain + "\r\n" +
                 "Upgrade: websocket\r\n" +
                 "Connection: Upgrade\r\n" +
                 "Sec-WebSocket-Key: " + wsKey + "\r\n" +
                 "Sec-WebSocket-Version: 13\r\n" +
-                "Sec-WebSocket-Protocol: binary\r\n" +
-                "X-Telegram-DC: " + dcId + "\r\n" +
-                "Origin: https://web.telegram.org\r\n" +
-                "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\r\n" +
-                "\r\n";
+                "Sec-WebSocket-Protocol: binary\r\n";
+
+        if (isUnified) {
+            req += "X-Telegram-DC: " + dcId + "\r\n";
+        }
+
+        req += "Origin: https://web.telegram.org\r\n" +
+               "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\r\n" +
+               "\r\n";
 
         OutputStream out = socket.getOutputStream();
         InputStream in = socket.getInputStream();
