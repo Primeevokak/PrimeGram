@@ -1775,20 +1775,20 @@ public class FileLoader extends BaseController {
     }
 
     public static boolean copyFile(InputStream sourceFile, File destFile, int maxSize) throws IOException {
-        FileOutputStream out = new FileOutputStream(destFile);
-        byte[] buf = new byte[4096];
-        int len;
-        int totalLen = 0;
-        while ((len = sourceFile.read(buf)) > 0) {
-            Thread.yield();
-            out.write(buf, 0, len);
-            totalLen += len;
-            if (maxSize > 0 && totalLen >= maxSize) {
-                break;
+        try (FileOutputStream out = new FileOutputStream(destFile)) {
+            byte[] buf = new byte[4096];
+            int len;
+            int totalLen = 0;
+            while ((len = sourceFile.read(buf)) > 0) {
+                Thread.yield();
+                out.write(buf, 0, len);
+                totalLen += len;
+                if (maxSize > 0 && totalLen >= maxSize) {
+                    break;
+                }
             }
+            out.getFD().sync();
         }
-        out.getFD().sync();
-        out.close();
         return true;
     }
 

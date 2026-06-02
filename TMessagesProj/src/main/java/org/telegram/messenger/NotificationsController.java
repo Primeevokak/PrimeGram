@@ -237,7 +237,7 @@ public class NotificationsController extends BaseController {
                 delayedPushMessages.clear();
             }
             try {
-                if (notificationDelayWakelock.isHeld()) {
+                if (notificationDelayWakelock != null && notificationDelayWakelock.isHeld()) {
                     notificationDelayWakelock.release();
                 }
             } catch (Exception e) {
@@ -381,7 +381,7 @@ public class NotificationsController extends BaseController {
             notifyCheck = false;
             lastBadgeCount = 0;
             try {
-                if (notificationDelayWakelock.isHeld()) {
+                if (notificationDelayWakelock != null && notificationDelayWakelock.isHeld()) {
                     notificationDelayWakelock.release();
                 }
             } catch (Exception e) {
@@ -3330,7 +3330,9 @@ public class NotificationsController extends BaseController {
             if (BuildVars.LOGS_ENABLED) {
                 FileLog.d("delay notification start, onlineReason = " + onlineReason);
             }
-            notificationDelayWakelock.acquire(10000);
+            if (notificationDelayWakelock != null) {
+                notificationDelayWakelock.acquire(10000);
+            }
             notificationsQueue.cancelRunnable(notificationDelayRunnable);
             notificationsQueue.postRunnable(notificationDelayRunnable, (onlineReason ? 3 * 1000 : 1000));
         } catch (Exception e) {
