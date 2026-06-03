@@ -81,7 +81,7 @@ android {
             ndk.debugSymbolLevel = 'FULL'
         }
         release {
-            debuggable false
+            debuggable true
             jniDebuggable false
             signingConfig signingConfigs.release
             minifyEnabled true

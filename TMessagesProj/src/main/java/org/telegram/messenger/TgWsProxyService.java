@@ -253,6 +253,7 @@ public class TgWsProxyService extends Service {
     public static int activeProxyPort = 1080;
     public static volatile boolean isSocketBound = false;
     private static volatile String currentBaseDomain = null;
+    private static volatile java.net.InetAddress cachedBaseAddress = null;
 
     private final Object socketLock = new Object();
     private final List<Socket> activeClientSockets = new ArrayList<>();
@@ -374,6 +375,7 @@ public class TgWsProxyService extends Service {
 
         if (!running.getAndSet(true)) {
             currentBaseDomain = null;
+            cachedBaseAddress = null;
             executor.submit(this::runProxyServer);
             startWatchdog();
         }
@@ -386,6 +388,8 @@ public class TgWsProxyService extends Service {
         running.set(false);
         instance = null;
         isSocketBound = false;
+        currentBaseDomain = null;
+        cachedBaseAddress = null;
         ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivityManager != null && networkCallback != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
@@ -1052,6 +1056,7 @@ public class TgWsProxyService extends Service {
                 synchronized (TgWsProxyService.class) {
                     if (baseDomain.equals(currentBaseDomain)) {
                         currentBaseDomain = null;
+                        cachedBaseAddress = null;
                     }
                 }
                 if (tlsSocket != null) {
@@ -1598,10 +1603,33 @@ public class TgWsProxyService extends Service {
     }
 
     private Socket connectWithIpv4Preference(String host, int port, int timeoutMs) throws IOException {
-        InetAddress[] addresses;
+        InetAddress[] addresses = null;
 
-        // Try system DNS first, then fallback DNS servers
-        addresses = resolveWithFallbackDns(host);
+        // If it's a proxy subdomain request, reuse the cached base IP to ensure all DC connections
+        // route through the exact same Cloudflare edge server IP (avoiding geographic "impossible travel" IP mismatch).
+        if (currentBaseDomain != null && host.endsWith(currentBaseDomain)) {
+            synchronized (TgWsProxyService.class) {
+                if (cachedBaseAddress == null) {
+                    try {
+                        InetAddress[] resolved = resolveWithFallbackDns(currentBaseDomain);
+                        if (resolved != null && resolved.length > 0) {
+                            cachedBaseAddress = resolved[0];
+                            logInfo("Resolved and cached base IP for " + currentBaseDomain + ": " + cachedBaseAddress);
+                        }
+                    } catch (Exception e) {
+                        logError("Failed to resolve base domain " + currentBaseDomain, e);
+                    }
+                }
+                if (cachedBaseAddress != null) {
+                    addresses = new InetAddress[]{cachedBaseAddress};
+                }
+            }
+        }
+
+        if (addresses == null) {
+            // Try system DNS first, then fallback DNS servers
+            addresses = resolveWithFallbackDns(host);
+        }
 
         if (addresses == null || addresses.length == 0) {
             throw new java.net.UnknownHostException("Could not resolve host by any method: " + host);
