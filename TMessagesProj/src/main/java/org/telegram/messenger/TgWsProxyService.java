@@ -253,7 +253,11 @@ public class TgWsProxyService extends Service {
     public static int activeProxyPort = 1080;
     public static volatile boolean isSocketBound = false;
     private static volatile String currentBaseDomain = null;
+    public static String getCurrentBaseDomain() {
+        return currentBaseDomain;
+    }
     private static volatile java.net.InetAddress cachedBaseAddress = null;
+    private static volatile long lastDomainSelectionTime = 0;
 
     private final Object socketLock = new Object();
     private final List<Socket> activeClientSockets = new ArrayList<>();
@@ -577,27 +581,50 @@ public class TgWsProxyService extends Service {
         return reversed;
     }
 
+    private static boolean isReqPqMulti(byte[] plain) {
+        if (plain == null || plain.length < 25) {
+            return false;
+        }
+        if (plain.length == 41 && (plain[0] & 0xFF) == 0x0A) {
+            for (int i = 1; i <= 8; i++) {
+                if (plain[i] != 0) return false;
+            }
+            if ((plain[17] & 0xFF) == 0x14 && plain[18] == 0 && plain[19] == 0 && plain[20] == 0) {
+                if ((plain[21] & 0xFF) == 0xF1 && (plain[22] & 0xFF) == 0x8E && 
+                    (plain[23] & 0xFF) == 0x7E && (plain[24] & 0xFF) == (byte)0xBE) {
+                    return true;
+                }
+            }
+        }
+        if (plain.length == 44) {
+            if ((plain[0] & 0xFF) == 0x28 && plain[1] == 0 && plain[2] == 0 && plain[3] == 0) {
+                for (int i = 4; i <= 11; i++) {
+                    if (plain[i] != 0) return false;
+                }
+                if ((plain[20] & 0xFF) == 0x14 && plain[21] == 0 && plain[22] == 0 && plain[23] == 0) {
+                    if ((plain[24] & 0xFF) == 0xF1 && (plain[25] & 0xFF) == 0x8E && 
+                        (plain[26] & 0xFF) == 0x7E && (plain[27] & 0xFF) == (byte)0xBE) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     // ─── MsgSplitter ───────────────────────────────────────────────────────
 
     private static class MsgSplitter {
-        private final AESCTR dec;
         private final int proto;
-        private final byte[] cipherBuf = new byte[256 * 1024];
         private final byte[] plainBuf = new byte[256 * 1024];
         private int bufLen = 0;
         private boolean disabled = false;
 
-        public MsgSplitter(byte[] relayInit, int proto) throws Exception {
-            byte[] key = new byte[32];
-            byte[] iv = new byte[16];
-            System.arraycopy(relayInit, 8, key, 0, 32);
-            System.arraycopy(relayInit, 40, iv, 0, 16);
-            this.dec = new AESCTR(key, iv);
-            this.dec.update(new byte[64]); // advance 64 bytes
+        public MsgSplitter(int proto) {
             this.proto = proto;
         }
 
-        public synchronized List<byte[]> split(byte[] chunk) throws Exception {
+        public synchronized List<byte[]> split(byte[] chunk) {
             if (chunk == null || chunk.length == 0) {
                 return new ArrayList<>();
             }
@@ -607,15 +634,14 @@ public class TgWsProxyService extends Service {
                 return res;
             }
 
-            if (bufLen + chunk.length > cipherBuf.length) {
+            if (bufLen + chunk.length > plainBuf.length) {
                 disabled = true;
                 List<byte[]> res = new ArrayList<>();
                 res.add(chunk);
                 return res;
             }
 
-            System.arraycopy(chunk, 0, cipherBuf, bufLen, chunk.length);
-            dec.update(chunk, 0, chunk.length, plainBuf, bufLen);
+            System.arraycopy(chunk, 0, plainBuf, bufLen, chunk.length);
             bufLen += chunk.length;
 
             List<byte[]> parts = new ArrayList<>();
@@ -628,14 +654,14 @@ public class TgWsProxyService extends Service {
                 }
                 if (packetLen <= 0) {
                     byte[] tail = new byte[bufLen - offset];
-                    System.arraycopy(cipherBuf, offset, tail, 0, tail.length);
+                    System.arraycopy(plainBuf, offset, tail, 0, tail.length);
                     parts.add(tail);
                     offset = bufLen;
                     disabled = true;
                     break;
                 }
                 byte[] pkt = new byte[packetLen];
-                System.arraycopy(cipherBuf, offset, pkt, 0, packetLen);
+                System.arraycopy(plainBuf, offset, pkt, 0, packetLen);
                 parts.add(pkt);
                 offset += packetLen;
             }
@@ -643,7 +669,6 @@ public class TgWsProxyService extends Service {
             if (offset > 0) {
                 int remaining = bufLen - offset;
                 if (remaining > 0) {
-                    System.arraycopy(cipherBuf, offset, cipherBuf, 0, remaining);
                     System.arraycopy(plainBuf, offset, plainBuf, 0, remaining);
                 }
                 bufLen = remaining;
@@ -914,63 +939,32 @@ public class TgWsProxyService extends Service {
             String baseDomain;
             synchronized (TgWsProxyService.class) {
                 if (currentBaseDomain == null) {
-                    logInfo("Selecting base domain from candidates using pair-wise latency tests...");
-                    List<String> candidates = new ArrayList<>(Arrays.asList(BASE_DOMAINS));
-                    Collections.shuffle(candidates);
+                    if (System.currentTimeMillis() - lastDomainSelectionTime > 30_000) {
+                        logInfo("Selecting base domain from candidates using pair-wise latency tests...");
+                        List<String> candidates = new ArrayList<>(Arrays.asList(BASE_DOMAINS));
+                        Collections.shuffle(candidates);
 
-                    final String[] selected = new String[1];
-                    final int targetDcId = dcId;
+                        final String[] selected = new String[1];
+                        final int targetDcId = dcId;
 
-                    for (int i = 0; i < candidates.size() && selected[0] == null; i += 2) {
-                        final String dom1 = candidates.get(i);
-                        final String dom2 = (i + 1 < candidates.size()) ? candidates.get(i + 1) : null;
+                        for (int i = 0; i < candidates.size() && selected[0] == null; i += 2) {
+                            final String dom1 = candidates.get(i);
+                            final String dom2 = (i + 1 < candidates.size()) ? candidates.get(i + 1) : null;
 
-                        int count = (dom2 != null) ? 2 : 1;
-                        final java.util.concurrent.CountDownLatch pairLatch = new java.util.concurrent.CountDownLatch(count);
-                        final String[] pairSelected = new String[1];
+                            int count = (dom2 != null) ? 2 : 1;
+                            final java.util.concurrent.CountDownLatch pairLatch = new java.util.concurrent.CountDownLatch(count);
+                            final String[] pairSelected = new String[1];
 
-                        Runnable runTest1 = () -> {
-                            SSLSocket testSocket = null;
-                            try {
-                                String testHost = "kws" + targetDcId + "." + dom1;
-                                InetAddress[] testResolve = resolveWithFallbackDns(testHost);
-                                if (testResolve == null || testResolve.length == 0) {
-                                    testHost = "kws." + dom1;
-                                    testResolve = resolveWithFallbackDns(testHost);
-                                    if (testResolve == null || testResolve.length == 0) {
-                                        testHost = dom1;
-                                    }
-                                }
-                                testSocket = (SSLSocket) sslSocketFactory.createSocket();
-                                testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1200);
-                                testSocket.setSoTimeout(1200);
-                                testSocket.startHandshake();
-                                synchronized (pairSelected) {
-                                    if (pairSelected[0] == null) {
-                                        pairSelected[0] = dom1;
-                                    }
-                                }
-                            } catch (Exception ignored) {
-                            } finally {
-                                if (testSocket != null) {
-                                    try { testSocket.close(); } catch (IOException ignored) {}
-                                }
-                                pairLatch.countDown();
-                            }
-                        };
-                        executor.submit(runTest1);
-
-                        if (dom2 != null) {
-                            Runnable runTest2 = () -> {
+                            Runnable runTest1 = () -> {
                                 SSLSocket testSocket = null;
                                 try {
-                                    String testHost = "kws" + targetDcId + "." + dom2;
+                                    String testHost = "kws" + targetDcId + "." + dom1;
                                     InetAddress[] testResolve = resolveWithFallbackDns(testHost);
                                     if (testResolve == null || testResolve.length == 0) {
-                                        testHost = "kws." + dom2;
+                                        testHost = "kws." + dom1;
                                         testResolve = resolveWithFallbackDns(testHost);
                                         if (testResolve == null || testResolve.length == 0) {
-                                            testHost = dom2;
+                                            testHost = dom1;
                                         }
                                     }
                                     testSocket = (SSLSocket) sslSocketFactory.createSocket();
@@ -979,7 +973,7 @@ public class TgWsProxyService extends Service {
                                     testSocket.startHandshake();
                                     synchronized (pairSelected) {
                                         if (pairSelected[0] == null) {
-                                            pairSelected[0] = dom2;
+                                            pairSelected[0] = dom1;
                                         }
                                     }
                                 } catch (Exception ignored) {
@@ -990,41 +984,77 @@ public class TgWsProxyService extends Service {
                                     pairLatch.countDown();
                                 }
                             };
-                            executor.submit(runTest2);
+                            executor.submit(runTest1);
+
+                            if (dom2 != null) {
+                                Runnable runTest2 = () -> {
+                                    SSLSocket testSocket = null;
+                                    try {
+                                        String testHost = "kws" + targetDcId + "." + dom2;
+                                        InetAddress[] testResolve = resolveWithFallbackDns(testHost);
+                                        if (testResolve == null || testResolve.length == 0) {
+                                            testHost = "kws." + dom2;
+                                            testResolve = resolveWithFallbackDns(testHost);
+                                            if (testResolve == null || testResolve.length == 0) {
+                                                testHost = dom2;
+                                            }
+                                        }
+                                        testSocket = (SSLSocket) sslSocketFactory.createSocket();
+                                        testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1200);
+                                        testSocket.setSoTimeout(1200);
+                                        testSocket.startHandshake();
+                                        synchronized (pairSelected) {
+                                            if (pairSelected[0] == null) {
+                                                pairSelected[0] = dom2;
+                                            }
+                                        }
+                                    } catch (Exception ignored) {
+                                    } finally {
+                                        if (testSocket != null) {
+                                            try { testSocket.close(); } catch (IOException ignored) {}
+                                        }
+                                        pairLatch.countDown();
+                                    }
+                                };
+                                executor.submit(runTest2);
+                            }
+
+                            try {
+                                pairLatch.await(1400, java.util.concurrent.TimeUnit.MILLISECONDS);
+                            } catch (InterruptedException ignored) {}
+
+                            if (pairSelected[0] != null) {
+                                selected[0] = pairSelected[0];
+                                break;
+                            }
                         }
 
-                        try {
-                            pairLatch.await(1400, java.util.concurrent.TimeUnit.MILLISECONDS);
-                        } catch (InterruptedException ignored) {}
-
-                        if (pairSelected[0] != null) {
-                            selected[0] = pairSelected[0];
-                            break;
+                        if (selected[0] == null) {
+                            selected[0] = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                            logInfo("All pair-wise latency tests failed. Selected fallback: " + selected[0]);
+                        } else {
+                            logInfo("Fastest base domain selected: " + selected[0]);
                         }
-                    }
-
-                    if (selected[0] == null) {
-                        selected[0] = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
-                        logInfo("All pair-wise latency tests failed. Selected fallback: " + selected[0]);
+                        currentBaseDomain = selected[0];
+                        lastDomainSelectionTime = System.currentTimeMillis();
                     } else {
-                        logInfo("Fastest base domain selected: " + selected[0]);
+                        // Quick failover: select a random base domain without running latency tests to avoid request storms
+                        currentBaseDomain = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                        logInfo("Quick failover (cooldown active): selected random domain: " + currentBaseDomain);
                     }
-                    currentBaseDomain = selected[0];
                     baseDomain = currentBaseDomain;
                 } else {
                     baseDomain = currentBaseDomain;
                 }
             }
-            String wsDomain = "kws" + dcId + "." + baseDomain;
-            boolean isUnified = false;
+            // Force unified routing to keep all DC connections on the exact same Cloudflare Worker instance
+            // and edge server node, guaranteeing consistent egress IP address matching.
+            // Using "kws1." subdomain because "kws." does not exist in DNS and fails with HTTP 530.
+            boolean isUnified = true;
+            String wsDomain = "kws1." + baseDomain;
             InetAddress[] checkResolve = resolveWithFallbackDns(wsDomain);
             if (checkResolve == null || checkResolve.length == 0) {
-                wsDomain = "kws." + baseDomain;
-                checkResolve = resolveWithFallbackDns(wsDomain);
-                isUnified = true;
-                if (checkResolve == null || checkResolve.length == 0) {
-                    wsDomain = baseDomain;
-                }
+                wsDomain = baseDomain;
             }
 
             logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId + " (unified=" + isUnified + ")");
@@ -1057,6 +1087,7 @@ public class TgWsProxyService extends Service {
                     if (baseDomain.equals(currentBaseDomain)) {
                         currentBaseDomain = null;
                         cachedBaseAddress = null;
+                        logInfo("Resetting currentBaseDomain (failover triggered)");
                     }
                 }
                 if (tlsSocket != null) {
@@ -1111,7 +1142,7 @@ public class TgWsProxyService extends Service {
             // Инициализируем MsgSplitter
             MsgSplitter splitter;
             try {
-                splitter = new MsgSplitter(relayInit, protoVal);
+                splitter = new MsgSplitter(protoVal);
             } catch (Exception e) {
                 logError("MsgSplitter initialization failed", e);
                 client.close();
@@ -1266,32 +1297,62 @@ public class TgWsProxyService extends Service {
         out.flush();
     }
 
-    private byte[] recvWsFrame(InputStream in) throws IOException {
-        int b1 = in.read();
-        int b2 = in.read();
-        if (b1 < 0 || b2 < 0) return null;
+    private byte[] recvWsFrame(InputStream in, OutputStream wsOut) throws IOException {
+        while (true) {
+            int b1 = in.read();
+            int b2 = in.read();
+            if (b1 < 0 || b2 < 0) return null;
 
-        long payloadLen = b2 & 0x7F;
-        if (payloadLen == 126) {
-            payloadLen = ((in.read() & 0xFFL) << 8) | (in.read() & 0xFFL);
-        } else if (payloadLen == 127) {
-            payloadLen = 0;
-            for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | (in.read() & 0xFFL);
-        }
-
-        boolean masked = (b2 & 0x80) != 0;
-        byte[] maskKey = new byte[4];
-        if (masked) readFully(in, maskKey, 0, 4);
-
-        byte[] payload = new byte[(int) payloadLen];
-        readFully(in, payload, 0, (int) payloadLen);
-
-        if (masked) {
-            for (int i = 0; i < payload.length; i++) {
-                payload[i] ^= maskKey[i % 4];
+            int opcode = b1 & 0x0F;
+            long payloadLen = b2 & 0x7F;
+            if (payloadLen == 126) {
+                payloadLen = ((in.read() & 0xFFL) << 8) | (in.read() & 0xFFL);
+            } else if (payloadLen == 127) {
+                payloadLen = 0;
+                for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | (in.read() & 0xFFL);
             }
+
+            boolean masked = (b2 & 0x80) != 0;
+            byte[] maskKey = new byte[4];
+            if (masked) readFully(in, maskKey, 0, 4);
+
+            byte[] payload = new byte[(int) payloadLen];
+            readFully(in, payload, 0, (int) payloadLen);
+
+            if (masked) {
+                for (int i = 0; i < payload.length; i++) {
+                    payload[i] ^= maskKey[i % 4];
+                }
+            }
+
+            if (opcode == 0x9) { // PING -> reply with PONG
+                synchronized (wsOut) {
+                    byte[] mask = new byte[4];
+                    RANDOM.nextBytes(mask);
+                    byte[] pong = new byte[2 + 4 + payload.length];
+                    pong[0] = (byte) 0x8A; // FIN + PONG
+                    pong[1] = (byte) (0x80 | payload.length);
+                    System.arraycopy(mask, 0, pong, 2, 4);
+                    for (int i = 0; i < payload.length; i++) {
+                        pong[6 + i] = (byte) (payload[i] ^ mask[i % 4]);
+                    }
+                    wsOut.write(pong);
+                    wsOut.flush();
+                }
+                logInfo("Received WS PING frame, replied with PONG");
+                continue;
+            }
+            if (opcode == 0xA) { // PONG -> ignore
+                logInfo("Received WS PONG frame");
+                continue;
+            }
+            if (opcode == 0x8) { // CLOSE -> end stream
+                logInfo("Received WS CLOSE frame");
+                return null;
+            }
+
+            return payload; // Binary/Text frame data
         }
-        return payload;
     }
 
     private byte[] generateRelayInit(byte[] clientHandshake, int dcId, boolean isMedia) {
@@ -1359,27 +1420,76 @@ public class TgWsProxyService extends Service {
                                    CryptoCtx ctx, MsgSplitter splitter) {
         AtomicBoolean closed = new AtomicBoolean(false);
 
+        // Reset read timeouts to 0 (infinite) during active relay bridge,
+        // relying on WebSocket keepalive ping/pong and TCP keepalive.
+        try { client.setSoTimeout(0); } catch (Exception ignored) {}
+        try { tlsSocket.setSoTimeout(0); } catch (Exception ignored) {}
+
+        // Thread: WebSocket PING keepalive (every 30 seconds)
+        Thread pinger = new Thread(() -> {
+            try {
+                while (!closed.get()) {
+                    Thread.sleep(30_000);
+                    if (closed.get()) break;
+                    synchronized (wsOut) {
+                        // WebSocket PING frame: FIN=1, Opcode=0x9, Masked=1, Payload len=0
+                        byte[] mask = new byte[4];
+                        RANDOM.nextBytes(mask);
+                        wsOut.write(new byte[]{
+                            (byte) 0x89, (byte) 0x80,
+                            mask[0], mask[1], mask[2], mask[3]
+                        });
+                        wsOut.flush();
+                    }
+                }
+            } catch (Exception ignored) {
+                closed.set(true);
+            }
+        });
+        pinger.setDaemon(true);
+        pinger.start();
+
         // Thread: client -> WebSocket
         Thread toWs = new Thread(() -> {
             try {
                 byte[] buf = new byte[65536];
-                int n;
+                int n = 0;
+                int packetCount = 0;
+                boolean sentReqPqMulti = false;
                 while (!closed.get() && (n = in.read(buf)) > 0) {
+                    packetCount++;
+                    logInfo("Read packet #" + packetCount + " from client, size: " + n);
                     byte[] plain = ctx.cltDec.update(Arrays.copyOf(buf, n));
-                    byte[] enc = ctx.tgEnc.update(plain);
-                    List<byte[]> parts = splitter.split(enc);
+                    if (plain.length <= 500) {
+                        StringBuilder hex = new StringBuilder();
+                        for (byte b : plain) hex.append(String.format("%02X ", b));
+                        logInfo("Decrypted client packet, hex: " + hex.toString());
+                    }
+                    List<byte[]> parts = splitter.split(plain);
                     if (!parts.isEmpty()) {
                         synchronized (wsOut) {
                             for (byte[] part : parts) {
-                                sendWsFrame(wsOut, part);
+                                if (isReqPqMulti(part)) {
+                                    if (sentReqPqMulti) {
+                                        logInfo("Detected duplicate req_pq_multi (len=" + part.length + "), dropping it to prevent handshake loop!");
+                                        continue;
+                                    }
+                                    sentReqPqMulti = true;
+                                }
+                                byte[] enc = ctx.tgEnc.update(part);
+                                sendWsFrame(wsOut, enc);
+                                logInfo("Sent packet #" + packetCount + " part to WS, size: " + enc.length);
                             }
                         }
                     }
                 }
-            } catch (Exception ignored) {
+                logInfo("Client socket read EOF (read returned " + n + ")");
+            } catch (Exception e) {
+                logError("Error in client-to-ws thread", e);
             } finally {
                 closed.set(true);
                 try { tlsSocket.close(); } catch (IOException ignored) {}
+                logInfo("client-to-ws thread finished, closed WebSocket");
             }
         });
         toWs.setDaemon(true);
@@ -1387,18 +1497,32 @@ public class TgWsProxyService extends Service {
 
         // Thread: WebSocket -> client
         try {
+            int frameCount = 0;
             while (!closed.get()) {
-                byte[] frame = recvWsFrame(wsIn);
-                if (frame == null) break;
+                byte[] frame = recvWsFrame(wsIn, wsOut);
+                if (frame == null) {
+                    logInfo("WebSocket read EOF (frame is null)");
+                    break;
+                }
+                frameCount++;
+                logInfo("Read frame #" + frameCount + " from WS, size: " + frame.length);
                 byte[] plain = ctx.tgDec.update(frame);
+                if (plain.length <= 500) {
+                    StringBuilder hex = new StringBuilder();
+                    for (byte b : plain) hex.append(String.format("%02X ", b));
+                    logInfo("Decrypted WS frame, hex: " + hex.toString());
+                }
                 byte[] enc = ctx.cltEnc.update(plain);
                 out.write(enc);
                 out.flush();
+                logInfo("Sent frame #" + frameCount + " to client, size: " + enc.length);
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logError("Error in ws-to-client thread", e);
         } finally {
             closed.set(true);
             try { client.close(); } catch (IOException ignored) {}
+            logInfo("ws-to-client thread finished, closed client socket");
         }
     }
 
@@ -1611,13 +1735,13 @@ public class TgWsProxyService extends Service {
             synchronized (TgWsProxyService.class) {
                 if (cachedBaseAddress == null) {
                     try {
-                        InetAddress[] resolved = resolveWithFallbackDns(currentBaseDomain);
+                        InetAddress[] resolved = resolveWithFallbackDns(host);
                         if (resolved != null && resolved.length > 0) {
                             cachedBaseAddress = resolved[0];
-                            logInfo("Resolved and cached base IP for " + currentBaseDomain + ": " + cachedBaseAddress);
+                            logInfo("Resolved and cached base IP for " + host + ": " + cachedBaseAddress);
                         }
                     } catch (Exception e) {
-                        logError("Failed to resolve base domain " + currentBaseDomain, e);
+                        logError("Failed to resolve host " + host, e);
                     }
                 }
                 if (cachedBaseAddress != null) {

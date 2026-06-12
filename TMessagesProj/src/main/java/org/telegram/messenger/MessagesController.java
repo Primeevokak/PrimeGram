@@ -15524,6 +15524,8 @@ public class MessagesController extends BaseController implements NotificationCe
             }
             sb.append("\n=== PrimeGram General Application Logs ===\n");
             sb.append(FileLog.getLastLogLines(500));
+            sb.append("\n=== PrimeGram MTProto Application Logs ===\n");
+            sb.append(FileLog.getLastMTProtoLogLines(500));
             android.content.ClipData clip = android.content.ClipData.newPlainText("PrimeGram Proxy & App Logs", sb.toString());
             if (clipboard != null) {
                 clipboard.setPrimaryClip(clip);

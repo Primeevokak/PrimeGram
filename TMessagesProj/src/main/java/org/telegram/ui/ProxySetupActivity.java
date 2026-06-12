@@ -132,7 +132,7 @@ public class ProxySetupActivity extends BaseFragment {
                 if (currentProgress < 60) {
                     currentProgress++;
                 } else if (currentProgress == 60) {
-                    if (TgWsProxyService.isSocketBound) {
+                    if (TgWsProxyService.isSocketBound && TgWsProxyService.getCurrentBaseDomain() != null) {
                         isProxyReady = true;
                         currentProgress++;
                     } else {

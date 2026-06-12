@@ -390,6 +390,9 @@ public class ConnectionsManager extends BaseController {
                         try {
                             resp = object.deserializeResponse(buff, magic, true);
                         } catch (Exception e2) {
+                            if (e2 instanceof TLParseException && magic == 0xcd78e586) {
+                                return;
+                            }
                             if (BuildVars.DEBUG_PRIVATE_VERSION) {
                                 throw e2;
                             }
