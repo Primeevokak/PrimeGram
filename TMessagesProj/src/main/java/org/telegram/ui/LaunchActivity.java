@@ -9669,6 +9669,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         
         if (Build.VERSION.SDK_INT >= 26) {
             themeButton.setTooltipText("Переключить день/ночь");
+        }
+    }
+
     private int reasonsToHideMainContent = 0;
     private int reasonsToHideDecorView = 0;
 
@@ -9740,5 +9743,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
         public void hide() {
             setHidden(true);
+        }
     }
 }
