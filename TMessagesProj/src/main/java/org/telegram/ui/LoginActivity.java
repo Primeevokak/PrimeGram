@@ -329,8 +329,8 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
     private Dialog permissionsShowDialog;
     private ArrayList<String> permissionsItems = new ArrayList<>();
     private ArrayList<String> permissionsShowItems = new ArrayList<>();
-    private boolean checkPermissions = true;
-    private boolean checkShowPermissions = true;
+    private boolean checkPermissions = false; // PrimeGram: disable aggressive startup permissions
+    private boolean checkShowPermissions = false; // PrimeGram: disable aggressive startup permissions
     private boolean newAccount;
     private boolean syncContacts = true;
     private boolean testBackend = false;

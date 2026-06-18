@@ -10101,6 +10101,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     @TargetApi(Build.VERSION_CODES.M)
     private void askForPermissons(boolean alert) {
+        if (true) return; // PrimeGram: Disable aggressive startup permission requests
         Activity activity = getParentActivity();
         if (activity == null) {
             return;

@@ -37,7 +37,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_LIMIT_CAPTION = 9;
     private static final int ID_LIMIT_ABOUT = 10;
     private static final int ID_SIDEBAR_ENABLED = 11;
-
+    private static final int ID_SUPPORT_PROJECT = 12;
+    private static final int ID_GRANT_PERMISSIONS = 13;
     @Override
     protected CharSequence getTitle() {
         return "Настройки PrimeGram";
@@ -76,6 +77,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asButton(ID_LIMIT_CAPTION, "Лимит символов в описании медиа", String.valueOf(messagesController.captionLengthLimitPremium)));
         items.add(UItem.asButton(ID_LIMIT_ABOUT, "Лимит символов в разделе «О себе»", String.valueOf(messagesController.aboutLengthLimitPremium)));
         items.add(UItem.asShadow("Символьные ограничения для описания медиафайлов и био вашего аккаунта."));
+        items.add(UItem.asHeader("Разрешения и поддержка"));
+        items.add(UItem.asButton(ID_GRANT_PERMISSIONS, "Выдать системные разрешения", "Контакты, Звонки, Память"));
+        items.add(UItem.asShadow("Нажмите, чтобы вручную выдать приложению базовые разрешения (если отключили их запрос при старте)."));
+        
+        items.add(UItem.asButton(ID_SUPPORT_PROJECT, "Поддержать проект (USDT TON)", "Отправить донат через @wallet"));
+        items.add(UItem.asShadow("Спасибо за вашу поддержку! Это помогает развивать PrimeGram."));
     }
 
     @Override
@@ -110,6 +117,28 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showNumberInputDialog(item.id, "Символов в описании", "Укажите лимит символов в описании к медиа:", messagesController.captionLengthLimitPremium, 4096, 100, 50000);
         } else if (item.id == ID_LIMIT_ABOUT) {
             showNumberInputDialog(item.id, "Символов в «О себе»", "Укажите лимит символов в описании профиля «О себе»:", messagesController.aboutLengthLimitPremium, 140, 20, 2000);
+        } else if (item.id == ID_SUPPORT_PROJECT) {
+            try {
+                org.telegram.messenger.browser.Browser.openUrl(getContext(), "http://t.me/send?start=IVqCWWqPk6AA");
+            } catch (Exception e) {
+                org.telegram.messenger.FileLog.e(e);
+            }
+        } else if (item.id == ID_GRANT_PERMISSIONS) {
+            if (getParentActivity() != null && android.os.Build.VERSION.SDK_INT >= 23) {
+                ArrayList<String> perms = new ArrayList<>();
+                perms.add(android.Manifest.permission.READ_CONTACTS);
+                perms.add(android.Manifest.permission.WRITE_CONTACTS);
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    perms.add(android.Manifest.permission.READ_MEDIA_IMAGES);
+                    perms.add(android.Manifest.permission.READ_MEDIA_VIDEO);
+                } else {
+                    perms.add(android.Manifest.permission.READ_EXTERNAL_STORAGE);
+                    perms.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE);
+                }
+                perms.add(android.Manifest.permission.READ_PHONE_STATE);
+                perms.add(android.Manifest.permission.CALL_PHONE);
+                getParentActivity().requestPermissions(perms.toArray(new String[0]), 100);
+            }
         }
     }
 
