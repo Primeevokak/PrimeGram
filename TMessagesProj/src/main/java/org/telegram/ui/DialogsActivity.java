@@ -6887,6 +6887,25 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onResume() {
         super.onResume();
+        
+        // PrimeGram: Monthly Promo
+        android.content.SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        long lastPromoTime = preferences.getLong("primegram_last_promo_time", 0);
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastPromoTime > 2592000000L && getParentActivity() != null) {
+            preferences.edit().putLong("primegram_last_promo_time", currentTime).apply();
+            org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity(), getResourceProvider());
+            builder.setTitle("PrimeGram");
+            builder.setMessage("Спасибо, что пользуетесь PrimeGram! Подписывайтесь на наш канал, чтобы не пропустить свежие обновления, и поддержите разработку проекта, если он вам нравится! ❤️");
+            builder.setPositiveButton("Наш канал", (dialog, which) -> {
+                org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/prime_gram"); // Замените ссылку, если она другая
+            });
+            builder.setNegativeButton("Поддержать", (dialog, which) -> {
+                org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "http://t.me/send?start=IVqCWWqPk6AA");
+            });
+            builder.setNeutralButton("Закрыть", null);
+            showDialog(builder.create());
+        }
         if (dialogStoriesCell != null) {
             dialogStoriesCell.onResume();
         }
