@@ -301,6 +301,12 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
                     finishFragment();
                 } else if (id == 2) {
                     presentSettingFragment(new LogoutActivity());
+                } else if (id == 3) {
+                    try {
+                        org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "http://t.me/send?start=IVqCWWqPk6AA");
+                    } catch (Exception e) {
+                        org.telegram.messenger.FileLog.e(e);
+                    }
                 }
             }
         });
@@ -335,6 +341,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         searchItem.setSearchFieldHint(getString(R.string.Search));
 
         otherItem = menu.addItem(1, R.drawable.ic_ab_other);
+        otherItem.addSubItem(3, R.drawable.settings_premium, "Поддержать PrimeGram");
         otherItem.addSubItem(2, R.drawable.msg_leave, getString(R.string.LogOut));
 
         search = new ProfileActivity.SearchAdapter(this, context) {
