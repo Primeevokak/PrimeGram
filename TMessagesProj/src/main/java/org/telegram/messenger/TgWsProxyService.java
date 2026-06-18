@@ -590,7 +590,7 @@ public class TgWsProxyService extends Service {
                 if (plain[i] != 0) return false;
             }
             if ((plain[17] & 0xFF) == 0x14 && plain[18] == 0 && plain[19] == 0 && plain[20] == 0) {
-                if ((plain[21] & 0xFF) == 0xF1 && (plain[22] & 0xFF) == 0x8E && 
+                if ((plain[21] & 0xFF) == 0xF1 && (plain[22] & 0xFF) == 0x8E &&
                     (plain[23] & 0xFF) == 0x7E && (plain[24] & 0xFF) == (byte)0xBE) {
                     return true;
                 }
@@ -602,7 +602,7 @@ public class TgWsProxyService extends Service {
                     if (plain[i] != 0) return false;
                 }
                 if ((plain[20] & 0xFF) == 0x14 && plain[21] == 0 && plain[22] == 0 && plain[23] == 0) {
-                    if ((plain[24] & 0xFF) == 0xF1 && (plain[25] & 0xFF) == 0x8E && 
+                    if ((plain[24] & 0xFF) == 0xF1 && (plain[25] & 0xFF) == 0x8E &&
                         (plain[26] & 0xFF) == 0x7E && (plain[27] & 0xFF) == (byte)0xBE) {
                         return true;
                     }
@@ -610,6 +610,30 @@ public class TgWsProxyService extends Service {
             }
         }
         return false;
+    }
+
+    /**
+     * Определяет, является ли пакет (в формате MTProto Abridged) сообщением msgs_ack
+     * в неавторизованном контексте (auth_key_id == 0).
+     * Конструктор msgs_ack = 0x62D6B459
+     */
+    private static boolean isUnencryptedMsgsAck(byte[] plain) {
+        // Абридж-формат: [lenByte] [8 байт auth_key_id=0] [8 байт msg_id] [4 байта msg_len] [4 байта constructor ...]
+        // Итого минимум: 1 + 8 + 8 + 4 + 4 = 25 байт
+        if (plain == null || plain.length < 25) return false;
+        // auth_key_id должен быть 0 (байты 1-8)
+        for (int i = 1; i <= 8; i++) {
+            if (plain[i] != 0) return false;
+        }
+        // Находим начало тела: зависит от формата (Abridged: 1 байт header, Intermediate: 4 байта)
+        // Для Abridged: тело начинается с байта 1 (без header-байта), но мы передаём пакет ВКЛЮЧАЯ header.
+        // Структура в буфере: [abr_hdr(1)] [auth_key_id(8)] [msg_id(8)] [msg_len(4)] [body...]
+        // constructor at offset 21
+        if (plain.length < 25) return false;
+        return (plain[21] & 0xFF) == 0x59
+            && (plain[22] & 0xFF) == 0xB4
+            && (plain[23] & 0xFF) == 0xD6
+            && (plain[24] & 0xFF) == 0x62;
     }
 
     // ─── MsgSplitter ───────────────────────────────────────────────────────
@@ -1047,11 +1071,9 @@ public class TgWsProxyService extends Service {
                     baseDomain = currentBaseDomain;
                 }
             }
-            // Force unified routing to keep all DC connections on the exact same Cloudflare Worker instance
-            // and edge server node, guaranteeing consistent egress IP address matching.
-            // Using "kws1." subdomain because "kws." does not exist in DNS and fails with HTTP 530.
-            boolean isUnified = true;
-            String wsDomain = "kws1." + baseDomain;
+            // Route to the correct DC using its corresponding subdomain
+            boolean isUnified = false;
+            String wsDomain = "kws" + dcId + "." + baseDomain;
             InetAddress[] checkResolve = resolveWithFallbackDns(wsDomain);
             if (checkResolve == null || checkResolve.length == 0) {
                 wsDomain = baseDomain;
@@ -1357,7 +1379,9 @@ public class TgWsProxyService extends Service {
 
     private byte[] generateRelayInit(byte[] clientHandshake, int dcId, boolean isMedia) {
         int dcIdx = isMedia ? -dcId : dcId;
-        byte[] protoTag = PROTO_TAG_ABRIDGED;
+        // Force INTERMEDIATE protocol for WebSocket connections to the server
+        // because Telegram's apiws backend strictly requires it for large payloads.
+        byte[] protoTag = new byte[]{(byte) 0xee, (byte) 0xee, (byte) 0xee, (byte) 0xee};
 
         while (true) {
             byte[] rnd = new byte[HANDSHAKE_LEN];
@@ -1450,37 +1474,48 @@ public class TgWsProxyService extends Service {
         pinger.start();
 
         // Thread: client -> WebSocket
+        // Используем сплиттер чтобы инспектировать пакеты и дропать msgs_ack во время
+        // неавторизованной фазы handshake — DC игнорирует их и закрывает соединение.
+        // После завершения handshake (auth_key установлен) — сплиттер отключён и данные
+        // проходят как есть.
         Thread toWs = new Thread(() -> {
             try {
                 byte[] buf = new byte[65536];
                 int n = 0;
                 int packetCount = 0;
-                boolean sentReqPqMulti = false;
                 while (!closed.get() && (n = in.read(buf)) > 0) {
                     packetCount++;
                     logInfo("Read packet #" + packetCount + " from client, size: " + n);
-                    byte[] plain = ctx.cltDec.update(Arrays.copyOf(buf, n));
-                    if (plain.length <= 500) {
+                    byte[] plainChunk = ctx.cltDec.update(Arrays.copyOf(buf, n));
+                    if (plainChunk.length <= 500) {
                         StringBuilder hex = new StringBuilder();
-                        for (byte b : plain) hex.append(String.format("%02X ", b));
+                        for (byte b : plainChunk) hex.append(String.format("%02X ", b));
                         logInfo("Decrypted client packet, hex: " + hex.toString());
                     }
-                    List<byte[]> parts = splitter.split(plain);
-                    if (!parts.isEmpty()) {
+
+                    List<byte[]> packets = splitter.split(plainChunk);
+                    for (byte[] plain : packets) {
+                        // if (isUnencryptedMsgsAck(plain)) {
+                        //     logInfo("Dropping unencrypted msgs_ack (size " + plain.length + ") to prevent DC disconnect");
+                        //     continue;
+                        // }
+
+                        // Repackage Abridged -> Intermediate for the Server
+                        int headerLen = (plain[0] == 0x7F) ? 4 : 1;
+                        int payloadLen = plain.length - headerLen;
+                        
+                        byte[] intermediate = new byte[4 + payloadLen];
+                        intermediate[0] = (byte) (payloadLen & 0xFF);
+                        intermediate[1] = (byte) ((payloadLen >> 8) & 0xFF);
+                        intermediate[2] = (byte) ((payloadLen >> 16) & 0xFF);
+                        intermediate[3] = (byte) ((payloadLen >> 24) & 0xFF);
+                        System.arraycopy(plain, headerLen, intermediate, 4, payloadLen);
+
+                        byte[] enc = ctx.tgEnc.update(intermediate);
                         synchronized (wsOut) {
-                            for (byte[] part : parts) {
-                                if (isReqPqMulti(part)) {
-                                    if (sentReqPqMulti) {
-                                        logInfo("Detected duplicate req_pq_multi (len=" + part.length + "), dropping it to prevent handshake loop!");
-                                        continue;
-                                    }
-                                    sentReqPqMulti = true;
-                                }
-                                byte[] enc = ctx.tgEnc.update(part);
-                                sendWsFrame(wsOut, enc);
-                                logInfo("Sent packet #" + packetCount + " part to WS, size: " + enc.length);
-                            }
+                            sendWsFrame(wsOut, enc);
                         }
+                        logInfo("Sent sub-packet to WS, size: " + enc.length);
                     }
                 }
                 logInfo("Client socket read EOF (read returned " + n + ")");
@@ -1506,16 +1541,51 @@ public class TgWsProxyService extends Service {
                 }
                 frameCount++;
                 logInfo("Read frame #" + frameCount + " from WS, size: " + frame.length);
-                byte[] plain = ctx.tgDec.update(frame);
-                if (plain.length <= 500) {
+                byte[] plainChunkDecrypted = ctx.tgDec.update(frame);
+                
+                if (plainChunkDecrypted.length <= 100) {
                     StringBuilder hex = new StringBuilder();
-                    for (byte b : plain) hex.append(String.format("%02X ", b));
+                    for (byte b : plainChunkDecrypted) hex.append(String.format("%02X ", b));
                     logInfo("Decrypted WS frame, hex: " + hex.toString());
                 }
-                byte[] enc = ctx.cltEnc.update(plain);
-                out.write(enc);
+                
+                // Repackage Intermediate -> Abridged for the Client
+                int offset = 0;
+                while (offset < plainChunkDecrypted.length) {
+                    if (offset + 4 > plainChunkDecrypted.length) break;
+                    int payloadLen = ((plainChunkDecrypted[offset + 3] & 0xFF) << 24) |
+                                     ((plainChunkDecrypted[offset + 2] & 0xFF) << 16) |
+                                     ((plainChunkDecrypted[offset + 1] & 0xFF) << 8) |
+                                      (plainChunkDecrypted[offset] & 0xFF);
+                    
+                    offset += 4;
+                    if (offset + payloadLen > plainChunkDecrypted.length) break;
+                    
+                    byte[] payload = new byte[payloadLen];
+                    System.arraycopy(plainChunkDecrypted, offset, payload, 0, payloadLen);
+                    offset += payloadLen;
+                    
+                    // Format as Abridged
+                    int words = payloadLen / 4;
+                    byte[] abridged;
+                    if (words < 127) {
+                        abridged = new byte[1 + payloadLen];
+                        abridged[0] = (byte) words;
+                        System.arraycopy(payload, 0, abridged, 1, payloadLen);
+                    } else {
+                        abridged = new byte[4 + payloadLen];
+                        abridged[0] = 0x7F;
+                        abridged[1] = (byte) (words & 0xFF);
+                        abridged[2] = (byte) ((words >> 8) & 0xFF);
+                        abridged[3] = (byte) ((words >> 16) & 0xFF);
+                        System.arraycopy(payload, 0, abridged, 4, payloadLen);
+                    }
+                    
+                    byte[] enc = ctx.cltEnc.update(abridged);
+                    out.write(enc);
+                }
                 out.flush();
-                logInfo("Sent frame #" + frameCount + " to client, size: " + enc.length);
+                logInfo("Sent frame #" + frameCount + " to client, size: " + frame.length);
             }
         } catch (Exception e) {
             logError("Error in ws-to-client thread", e);

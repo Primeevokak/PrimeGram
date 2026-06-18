@@ -390,9 +390,6 @@ public class ConnectionsManager extends BaseController {
                         try {
                             resp = object.deserializeResponse(buff, magic, true);
                         } catch (Exception e2) {
-                            if (e2 instanceof TLParseException && magic == 0xcd78e586) {
-                                return;
-                            }
                             if (BuildVars.DEBUG_PRIVATE_VERSION) {
                                 throw e2;
                             }
@@ -638,6 +635,8 @@ public class ConnectionsManager extends BaseController {
         String packageId = ApplicationLoader.applicationContext.getPackageName();
         if (apiId == 6 || apiId == 2040) {
             packageId = "org.telegram.messenger";
+        } else if (apiId == 21724) {
+            packageId = "org.thunderdog.challegram";
         }
 
         native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
