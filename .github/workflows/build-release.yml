@@ -10,6 +10,8 @@ jobs:
   build:
     name: Build Standalone Release APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -42,3 +44,10 @@ jobs:
         with:
           name: PrimeGram-Release-APK
           path: TMessagesProj_AppStandalone/build/outputs/apk/afat/release/*.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Release
+          files: TMessagesProj_AppStandalone/build/outputs/apk/afat/release/*.apk
