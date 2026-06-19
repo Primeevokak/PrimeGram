@@ -348,13 +348,13 @@ public class TgWsProxyService extends Service {
             networkCallback = new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
-                    logInfo("Network connection changed: available. Disconnecting active client sockets...");
-                    closeActiveClientSockets();
+                    logInfo("Network connection changed: available.");
+                    // closeActiveClientSockets(); // Disabled: causes JNI/SOCKS5 SIGPIPE crash
                 }
                 @Override
                 public void onLost(Network network) {
-                    logInfo("Network connection lost. Disconnecting active client sockets...");
-                    closeActiveClientSockets();
+                    logInfo("Network connection lost.");
+                    // closeActiveClientSockets(); // Disabled: causes JNI/SOCKS5 SIGPIPE crash
                 }
             };
             try {
@@ -1531,6 +1531,7 @@ public class TgWsProxyService extends Service {
         toWs.start();
 
         // Thread: WebSocket -> client
+        final long sessionStartTime = System.currentTimeMillis();
         try {
             int frameCount = 0;
             while (!closed.get()) {
@@ -1593,6 +1594,14 @@ public class TgWsProxyService extends Service {
             closed.set(true);
             try { client.close(); } catch (IOException ignored) {}
             logInfo("ws-to-client thread finished, closed client socket");
+            
+            if (System.currentTimeMillis() - sessionStartTime < 5000) {
+                logInfo("Session died too quickly! Triggering domain failover.");
+                synchronized (TgWsProxyService.class) {
+                    currentBaseDomain = null;
+                    cachedBaseAddress = null;
+                }
+            }
         }
     }
 
