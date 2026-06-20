@@ -39,6 +39,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_SIDEBAR_ENABLED = 11;
     private static final int ID_SUPPORT_PROJECT = 12;
     private static final int ID_GRANT_PERMISSIONS = 13;
+    private static final int ID_AUTO_UPDATES = 14;
+    private static final int ID_CHECK_UPDATES = 15;
     @Override
     protected CharSequence getTitle() {
         return "Настройки PrimeGram";
@@ -53,6 +55,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         checkItem.checked = sidebarEnabled;
         items.add(checkItem);
         items.add(UItem.asShadow("Отображает стильную вертикальную боковую панель на главном экране списка чатов для быстрого доступа к переключению аккаунтов, кошельку, прокси и настройкам."));
+
+        items.add(UItem.asHeader("Обновления приложения"));
+        boolean autoUpdates = preferences.getBoolean("primegram_auto_updates", true);
+        UItem autoUpdatesItem = UItem.asCheck(ID_AUTO_UPDATES, "Автоматически скачивать обновления");
+        autoUpdatesItem.checked = autoUpdates;
+        items.add(autoUpdatesItem);
+        items.add(UItem.asButton(ID_CHECK_UPDATES, "Проверить обновления сейчас", "Скачать новую версию с GitHub"));
+        items.add(UItem.asShadow("PrimeGram может автоматически проверять релизы на GitHub и скачивать новые версии в папку Загрузки (Downloads)."));
 
         MessagesController messagesController = MessagesController.getInstance(currentAccount);
 
@@ -97,6 +107,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 LaunchActivity.instance.updateSidebarVisibility();
             }
             listView.adapter.update(true);
+        } else if (item.id == ID_AUTO_UPDATES) {
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            boolean enabled = preferences.getBoolean("primegram_auto_updates", true);
+            preferences.edit().putBoolean("primegram_auto_updates", !enabled).apply();
+            listView.adapter.update(true);
+        } else if (item.id == ID_CHECK_UPDATES) {
+            org.telegram.messenger.PrimeUpdater.checkUpdate(getContext(), true);
         } else if (item.id == ID_LIMIT_FOLDERS) {
             showNumberInputDialog(item.id, "Количество папок", "Укажите максимальное число папок с чатами:", messagesController.dialogFiltersLimitPremium, 20, 1, 100);
         } else if (item.id == ID_LIMIT_PINNED_FOLDER) {
