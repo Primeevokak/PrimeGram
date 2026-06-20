@@ -376,32 +376,12 @@ public class Browser {
                     .appendQueryParameter("autologin_token", autologin_token)
                     .build();
             }
-            if (allowCustom && !(uri != null && MessagesController.getInstance(currentAccount).isWebBrowserOpenInApp(uri.toString()) || isInstantViewOpen()) && MessagesController.getInstance(currentAccount).isWebBrowserUseCustomTabs() && !internalUri && !scheme.equals("tel") && !isTonsite(uri.toString())) {
+            if (!internalUri && ("http".equals(scheme) || "https".equals(scheme))) {
                 if (forceBrowser[0] || !openInExternalApp(context, uri.toString(), false) || !hasAppToOpen(context, uri.toString())) {
-                    if (MessagesController.getInstance(currentAccount).authDomains.contains(host)) {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        ApplicationLoader.applicationContext.startActivity(intent);
+                    if (org.telegram.ui.LaunchActivity.instance != null) {
+                        org.telegram.ui.LaunchActivity.instance.presentFragment(new org.telegram.ui.PrimeBrowserActivity(uri.toString()));
                         return;
                     }
-
-                    Intent share = new Intent(ApplicationLoader.applicationContext, ShareBroadcastReceiver.class);
-                    share.setAction(Intent.ACTION_SEND);
-
-                    PendingIntent copy = PendingIntent.getBroadcast(ApplicationLoader.applicationContext, 0, new Intent(ApplicationLoader.applicationContext, CustomTabsCopyReceiver.class), PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-
-                    CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder(getSession());
-
-                    builder.addMenuItem(LocaleController.getString(R.string.CopyLink), copy);
-
-                    builder.setToolbarColor(Theme.getColor(Theme.key_actionBarBrowser));
-                    builder.setShowTitle(true);
-                    builder.setActionButton(BitmapFactory.decodeResource(context.getResources(), R.drawable.msg_filled_shareout), LocaleController.getString(R.string.ShareFile), PendingIntent.getBroadcast(ApplicationLoader.applicationContext, 0, share, PendingIntent.FLAG_MUTABLE ), true);
-
-                    CustomTabsIntent intent = builder.build();
-                    intent.setUseNewTask();
-                    intent.launchUrl(context, uri);
-                    return;
                 }
             }
         } catch (Exception e) {

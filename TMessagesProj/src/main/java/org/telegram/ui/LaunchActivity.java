@@ -9438,16 +9438,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         
         // 0. Browser Button
         ImageView browserButton = createSidebarIcon(context, R.drawable.msg_language, "Браузер", v -> {
-            try {
-                org.telegram.messenger.browser.Browser.openInTelegramBrowser(LaunchActivity.this, "https://google.com", null);
-            } catch (Exception e) {
-                // Fallback — open page via standard browser
-                try {
-                    org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://google.com");
-                } catch (Exception ex) {
-                    FileLog.e(ex);
-                }
-            }
+            presentFragment(new org.telegram.ui.PrimeBrowserActivity(""));
         });
         bottomContainer.addView(browserButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
