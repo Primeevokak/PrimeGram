@@ -39,6 +39,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_SIDEBAR_ENABLED = 11;
     private static final int ID_SUPPORT_PROJECT = 12;
     private static final int ID_GRANT_PERMISSIONS = 13;
+    private static final int ID_AUTO_UPDATES = 14;
+    private static final int ID_CHECK_UPDATES = 15;
+    private static final int ID_FEED_EXCLUDE_MUTED = 16;
+    private static final int ID_FEED_EXCLUDE_ARCHIVED = 17;
     @Override
     protected CharSequence getTitle() {
         return "Настройки PrimeGram";
@@ -48,11 +52,30 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     protected void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {
         items.add(UItem.asHeader("Интерфейс"));
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", false);
+        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         UItem checkItem = UItem.asCheck(ID_SIDEBAR_ENABLED, "Боковая панель на основном экране");
         checkItem.checked = sidebarEnabled;
         items.add(checkItem);
         items.add(UItem.asShadow("Отображает стильную вертикальную боковую панель на главном экране списка чатов для быстрого доступа к переключению аккаунтов, кошельку, прокси и настройкам."));
+
+        items.add(UItem.asHeader("Лента"));
+        boolean feedExcludeMuted = preferences.getBoolean("primegram_feed_exclude_muted", false);
+        boolean feedExcludeArchived = preferences.getBoolean("primegram_feed_exclude_archived", false);
+        UItem feedExcludeMutedItem = UItem.asCheck(ID_FEED_EXCLUDE_MUTED, "Скрывать чаты без уведомлений");
+        feedExcludeMutedItem.checked = feedExcludeMuted;
+        items.add(feedExcludeMutedItem);
+        UItem feedExcludeArchivedItem = UItem.asCheck(ID_FEED_EXCLUDE_ARCHIVED, "Скрывать чаты из архива");
+        feedExcludeArchivedItem.checked = feedExcludeArchived;
+        items.add(feedExcludeArchivedItem);
+        items.add(UItem.asShadow("Настройки отображения каналов и групп во вкладке Лента."));
+
+        items.add(UItem.asHeader("Обновления приложения"));
+        boolean autoUpdates = preferences.getBoolean("primegram_auto_updates", false);
+        UItem autoUpdatesItem = UItem.asCheck(ID_AUTO_UPDATES, "Автоматически скачивать обновления");
+        autoUpdatesItem.checked = autoUpdates;
+        items.add(autoUpdatesItem);
+        items.add(UItem.asButton(ID_CHECK_UPDATES, "Проверить обновления", ""));
+        items.add(UItem.asShadow("PrimeGram может автоматически проверять релизы на GitHub и скачивать новые версии."));
 
         MessagesController messagesController = MessagesController.getInstance(currentAccount);
 
@@ -97,6 +120,23 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 LaunchActivity.instance.updateSidebarVisibility();
             }
             listView.adapter.update(true);
+        } else if (item.id == ID_AUTO_UPDATES) {
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            boolean enabled = preferences.getBoolean("primegram_auto_updates", false);
+            preferences.edit().putBoolean("primegram_auto_updates", !enabled).apply();
+            listView.adapter.update(true);
+        } else if (item.id == ID_FEED_EXCLUDE_MUTED) {
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            boolean enabled = preferences.getBoolean("primegram_feed_exclude_muted", false);
+            preferences.edit().putBoolean("primegram_feed_exclude_muted", !enabled).apply();
+            listView.adapter.update(true);
+        } else if (item.id == ID_FEED_EXCLUDE_ARCHIVED) {
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            boolean enabled = preferences.getBoolean("primegram_feed_exclude_archived", false);
+            preferences.edit().putBoolean("primegram_feed_exclude_archived", !enabled).apply();
+            listView.adapter.update(true);
+        } else if (item.id == ID_CHECK_UPDATES) {
+            org.telegram.messenger.PrimeUpdater.checkUpdate(getContext(), true);
         } else if (item.id == ID_LIMIT_FOLDERS) {
             showNumberInputDialog(item.id, "Количество папок", "Укажите максимальное число папок с чатами:", messagesController.dialogFiltersLimitPremium, 20, 1, 100);
         } else if (item.id == ID_LIMIT_PINNED_FOLDER) {

@@ -404,6 +404,17 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
         instance = this;
         ApplicationLoader.postInitApplication();
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        
+        // Track app launches
+        if (savedInstanceState == null) {
+            int launchCount = preferences.getInt("primegram_app_launch_count", 0);
+            preferences.edit().putInt("primegram_app_launch_count", launchCount + 1).apply();
+        }
+
+        if (preferences.getBoolean("primegram_auto_updates", true)) {
+            // PrimeUpdater.checkUpdate is removed in favor of GithubUpdater
+        }
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
         registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
@@ -519,7 +530,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public void requestDisallowInterceptTouchEvent(boolean disallow) {
-                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.dp(24)) {
+                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.displaySize.x * 0.60f) {
                     return;
                 }
                 super.requestDisallowInterceptTouchEvent(disallow);
@@ -527,117 +538,122 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public boolean onInterceptTouchEvent(MotionEvent ev) {
-                if (isSidebarActiveOnScreen()) {
-                    int action = ev.getAction();
-                    float x = ev.getX();
-                    float y = ev.getY();
+                if (!isSidebarActiveOnScreen()) {
+                    return super.onInterceptTouchEvent(ev);
+                }
+
+                if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+                    dragStartX = ev.getX();
+                    dragStartY = ev.getY();
+                    isDraggingSidebar = false;
                     
-                    if (action == MotionEvent.ACTION_DOWN) {
-                        dragStartX = x;
-                        dragStartY = y;
-                        isDraggingSidebar = false;
-                        
-                        if (isSidebarOpen && x > AndroidUtilities.dp(72)) {
-                            // Intercept touches outside the open sidebar to close it on tap or swipe
-                            return true;
-                        }
-                    } else if (action == MotionEvent.ACTION_MOVE) {
-                        if (isDraggingSidebar) {
-                            return true;
-                        }
-                        float dx = x - dragStartX;
-                        float dy = y - dragStartY;
+                    if (isSidebarOpen && dragStartX > AndroidUtilities.dp(72)) {
+                        setSidebarOpen(false, true);
+                        return true;
+                    }
+                } else if (ev.getAction() == MotionEvent.ACTION_MOVE) {
+                    if (!isDraggingSidebar) {
+                        float dx = ev.getX() - dragStartX;
+                        float dy = ev.getY() - dragStartY;
                         
                         if (!isSidebarOpen) {
-                            // Sidebar is closed: swipe right from left edge (x < 24dp)
-                            if (dragStartX < AndroidUtilities.dp(24) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            // Sidebar is closed: swipe right from left edge (x < 60% of screen)
+                            if (dragStartX < AndroidUtilities.displaySize.x * 0.60f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                getParent().requestDisallowInterceptTouchEvent(true);
                                 return true;
                             }
                         } else {
-                            // Sidebar is open: swipe left starting anywhere
+                            // Sidebar is open: swipe left to close
                             if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
+                                getParent().requestDisallowInterceptTouchEvent(true);
                                 return true;
                             }
                         }
                     }
                 }
+                
+                if (isDraggingSidebar) return true;
                 return super.onInterceptTouchEvent(ev);
             }
 
             @Override
             public boolean onTouchEvent(MotionEvent ev) {
-                if (isSidebarActiveOnScreen()) {
-                    int action = ev.getAction();
-                    float x = ev.getX();
-                    float y = ev.getY();
-                    
+                if (!isSidebarActiveOnScreen()) {
+                    return super.onTouchEvent(ev);
+                }
+
+                int action = ev.getAction();
+                float x = ev.getX();
+                float y = ev.getY();
+
+                if (action == MotionEvent.ACTION_DOWN) {
+                    dragStartX = x;
+                    dragStartY = y;
+                    isDraggingSidebar = false;
+                } else if (action == MotionEvent.ACTION_MOVE) {
+                    float dx = x - dragStartX;
+                    float dy = y - dragStartY;
+
                     if (!isDraggingSidebar) {
-                        if (action == MotionEvent.ACTION_MOVE) {
-                            float dx = x - dragStartX;
-                            float dy = y - dragStartY;
-                            if (!isSidebarOpen) {
-                                // Closed: swipe right from edge
-                                if (dragStartX < AndroidUtilities.dp(24) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                                    isDraggingSidebar = true;
-                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
-                                }
-                            } else {
-                                // Open: swipe left anywhere
-                                if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                                    isDraggingSidebar = true;
-                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
-                                }
+                        if (!isSidebarOpen) {
+                            // Closed: swipe right from edge
+                            if (dragStartX < AndroidUtilities.displaySize.x * 0.60f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                isDraggingSidebar = true;
+                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                getParent().requestDisallowInterceptTouchEvent(true);
+                            }
+                        } else {
+                            // Open: swipe left anywhere
+                            if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                isDraggingSidebar = true;
+                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
+                                getParent().requestDisallowInterceptTouchEvent(true);
                             }
                         }
                     }
-                    
-                    if (isDraggingSidebar) {
-                        if (action == MotionEvent.ACTION_MOVE) {
-                            float dx = x - dragStartX;
-                            float newTranslation = dragStartTranslationX + dx;
-                            if (newTranslation < -AndroidUtilities.dp(72)) {
-                                newTranslation = -AndroidUtilities.dp(72);
-                            } else if (newTranslation > 0) {
-                                newTranslation = 0;
-                            }
-                            if (primeSidebarView != null) {
-                                primeSidebarView.setTranslationX(newTranslation);
-                            }
-                            View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
-                            if (abView != null) {
-                                abView.setTranslationX(newTranslation + AndroidUtilities.dp(72));
-                            }
-                            return true;
-                        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                            isDraggingSidebar = false;
-                            float currentTranslation = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
-                            if (currentTranslation > -AndroidUtilities.dp(36)) {
-                                setSidebarOpen(true, true);
-                            } else {
-                                setSidebarOpen(false, true);
-                            }
-                            return true;
+                }
+                
+                if (isDraggingSidebar) {
+                    if (action == MotionEvent.ACTION_MOVE) {
+                        float dx = x - dragStartX;
+                        float newTranslation = dragStartTranslationX + dx;
+                        if (newTranslation < -AndroidUtilities.dp(72)) {
+                            newTranslation = -AndroidUtilities.dp(72);
+                        } else if (newTranslation > 0) {
+                            newTranslation = 0;
                         }
-                    }
-                    
-                    if (isSidebarOpen) {
-                        if (action == MotionEvent.ACTION_UP) {
-                            float dx = x - dragStartX;
-                            float dy = y - dragStartY;
-                            if (Math.abs(dx) < AndroidUtilities.dp(5) && Math.abs(dy) < AndroidUtilities.dp(5)) {
-                                if (dragStartX > AndroidUtilities.dp(72)) {
-                                    setSidebarOpen(false, true);
-                                    return true;
-                                }
-                            }
+                        if (primeSidebarView != null) {
+                            primeSidebarView.setTranslationX(newTranslation);
+                        }
+                        View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
+                        if (abView != null) {
+                            abView.setTranslationX(newTranslation + AndroidUtilities.dp(72));
+                        }
+                        return true;
+                    } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                        isDraggingSidebar = false;
+                        float currentTranslation = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                        if (currentTranslation > -AndroidUtilities.dp(36)) {
+                            setSidebarOpen(true, true);
+                        } else {
+                            setSidebarOpen(false, true);
                         }
                         return true;
                     }
                 }
+                
+                if (isSidebarOpen) {
+                    if (action == MotionEvent.ACTION_UP && dragStartX > AndroidUtilities.dp(72)) {
+                        setSidebarOpen(false, true);
+                        return true;
+                    }
+                    return true;
+                }
+                
                 return super.onTouchEvent(ev);
             }
         };
@@ -650,7 +666,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // Initialize PrimeGram Sidebar & Trigger
         createPrimeSidebar();
         if (primeSidebarView != null) {
-            drawerLayoutContainer.addView(primeSidebarView, LayoutHelper.createFrame(72, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
+            frameLayout.addView(primeSidebarView, LayoutHelper.createFrame(72, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
             primeSidebarView.setVisibility(View.GONE);
         }
         
@@ -6105,99 +6121,19 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private boolean firstAppUpdateCheck = true;
     public void checkAppUpdate(boolean force, Browser.Progress progress) {
-        if (!ApplicationLoader.isStandaloneBuild() && !ApplicationLoader.isBetaBuild()) {
-            return;
-        }
         if (!force && !BuildVars.CHECK_UPDATES) {
             return;
         }
-        if (ApplicationLoader.applicationLoaderInstance.isCustomUpdate()) {
-            final BetaUpdate prevUpdate = ApplicationLoader.applicationLoaderInstance.getUpdate();
-            final boolean first = firstAppUpdateCheck;
-            firstAppUpdateCheck = false;
-            ApplicationLoader.applicationLoaderInstance.checkUpdate(force, () -> {
-                final BetaUpdate pendingUpdate = ApplicationLoader.applicationLoaderInstance.getUpdate();
-                if (progress != null) {
-                    progress.end();
-                    if (pendingUpdate == null) {
-                        BaseFragment fragment = getLastFragment();
-                        if (fragment != null) {
-                            BulletinFactory.of(fragment).createSimpleBulletin(R.raw.chats_infotip, LocaleController.getString(R.string.YourVersionIsLatest)).show();
-                        }
-                    }
-                }
-                if (pendingUpdate != null && !ApplicationLoader.applicationLoaderInstance.isDownloadingUpdate() && (first || prevUpdate == null || pendingUpdate.higherThan(prevUpdate))) {
-                    ApplicationLoader.applicationLoaderInstance.showCustomUpdateAppPopup(LaunchActivity.this, pendingUpdate, currentAccount);
-                }
-            });
-            return;
-        }
-        if (!force && Math.abs(System.currentTimeMillis() - SharedConfig.lastUpdateCheckTime) < MessagesController.getInstance(0).updateCheckDelay * 1000) {
-            return;
-        }
-        final TLRPC.TL_help_getAppUpdate req = new TLRPC.TL_help_getAppUpdate();
+        
+        // Use custom Github Updater
         try {
-            req.source = ApplicationLoader.applicationContext.getPackageManager().getInstallerPackageName(ApplicationLoader.applicationContext.getPackageName());
-        } catch (Exception ignore) {
-
+            org.telegram.ui.Components.GithubUpdater.checkForUpdates(this, org.telegram.messenger.BuildVars.BUILD_VERSION_STRING, false);
+        } catch (Exception e) {
+            // ignore
         }
-        if (req.source == null) {
-            req.source = "";
-        }
-        final int accountNum = currentAccount;
-        int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-            SharedConfig.lastUpdateCheckTime = System.currentTimeMillis();
-            SharedConfig.saveConfig();
-            if (response instanceof TLRPC.TL_help_appUpdate) {
-                final TLRPC.TL_help_appUpdate res = (TLRPC.TL_help_appUpdate) response;
-                AndroidUtilities.runOnUIThread(() -> {
-                    if (SharedConfig.pendingAppUpdate != null && SharedConfig.pendingAppUpdate.version.equals(res.version)) {
-                        return;
-                    }
-                    final boolean newVersionAvailable = SharedConfig.setNewAppVersionAvailable(res);
-                    if (newVersionAvailable) {
-                        if (res.can_not_skip) {
-                            showUpdateActivity(accountNum, res, false);
-                        } else if (ApplicationLoader.isStandaloneBuild() || BuildVars.DEBUG_VERSION) {
-                            ApplicationLoader.applicationLoaderInstance.showUpdateAppPopup(LaunchActivity.this, res, accountNum);
-                        }
-                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.appUpdateAvailable);
-                    }
-                    if (progress != null) {
-                        progress.end();
-                        if (!newVersionAvailable) {
-                            BaseFragment fragment = getLastFragment();
-                            if (fragment != null) {
-                                BulletinFactory.of(fragment).createSimpleBulletin(R.raw.chats_infotip, LocaleController.getString(R.string.YourVersionIsLatest)).show();
-                            }
-                        }
-                    }
-                });
-            } else if (response instanceof TLRPC.TL_help_noAppUpdate) {
-                AndroidUtilities.runOnUIThread(() -> {
-                    if (progress != null) {
-                        progress.end();
-                        BaseFragment fragment = getLastFragment();
-                        if (fragment != null) {
-                            BulletinFactory.of(fragment).createSimpleBulletin(R.raw.chats_infotip, LocaleController.getString(R.string.YourVersionIsLatest)).show();
-                        }
-                    }
-                });
-            } else if (error != null) {
-                AndroidUtilities.runOnUIThread(() -> {
-                    if (progress != null) {
-                        progress.end();
-                        BaseFragment fragment = getLastFragment();
-                        if (fragment != null) {
-                            BulletinFactory.of(fragment).showForError(error);
-                        }
-                    }
-                });
-            }
-        });
+        
         if (progress != null) {
-            progress.init();
-            progress.onCancel(() -> ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true));
+            progress.end();
         }
     }
 
@@ -8429,8 +8365,27 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 presentFragment(new ProxyListActivity());
             };
         }
-        actionBarLayout.setTitleOverlayText(title, titleId, action);
+        if (connectionStateRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(connectionStateRunnable);
+            connectionStateRunnable = null;
+        }
+
+        if (title == null) {
+            actionBarLayout.setTitleOverlayText(title, titleId, action);
+        } else {
+            final String finalTitle = title;
+            final int finalTitleId = titleId;
+            final Runnable finalAction = action;
+            connectionStateRunnable = () -> {
+                if (actionBarLayout != null) {
+                    actionBarLayout.setTitleOverlayText(finalTitle, finalTitleId, finalAction);
+                }
+            };
+            AndroidUtilities.runOnUIThread(connectionStateRunnable, 1500);
+        }
     }
+
+    private Runnable connectionStateRunnable;
 
     public void hideVisibleActionMode() {
         if (visibleActionMode == null) {
@@ -9356,21 +9311,27 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private LinearLayout sidebarAccountsContainer;
 
     private boolean isSidebarEnabled() {
-        return MessagesController.getGlobalMainSettings().getBoolean("primegram_sidebar_enabled", false);
+        return MessagesController.getGlobalMainSettings().getBoolean("primegram_sidebar_enabled", true);
     }
 
     private boolean isSidebarActiveOnScreen() {
         if (!isSidebarEnabled()) return false;
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
-        return (currentFragment instanceof DialogsActivity || currentFragment instanceof MainTabsActivity);
+        if (currentFragment instanceof MainTabsActivity) {
+            return ((MainTabsActivity) currentFragment).getCurrentVisibleFragment() instanceof DialogsActivity;
+        }
+        return (currentFragment instanceof DialogsActivity);
     }
 
     public void updateSidebarVisibility() {
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", false);
+        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
-        boolean isMainScreen = (currentFragment instanceof DialogsActivity || currentFragment instanceof MainTabsActivity);
+        boolean isMainScreen = currentFragment instanceof DialogsActivity;
+        if (currentFragment instanceof MainTabsActivity) {
+            isMainScreen = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment() instanceof DialogsActivity;
+        }
         
         boolean show = sidebarEnabled && isMainScreen;
         
@@ -9404,7 +9365,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         isSidebarOpen = open;
         
         float targetSidebarTranslation = open ? 0 : -AndroidUtilities.dp(72);
-        float targetContentTranslation = open ? AndroidUtilities.dp(72) : 0;
+        float targetContentTranslation = 0; // open ? AndroidUtilities.dp(72) : 0;
         
         if (animate) {
             if (primeSidebarView != null) {
@@ -9475,6 +9436,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         bottomContainer.setGravity(Gravity.CENTER_HORIZONTAL);
         sidebar.addView(bottomContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
         
+        // 0. Browser Button
+        ImageView browserButton = createSidebarIcon(context, R.drawable.msg_language, "Браузер", v -> {
+            presentFragment(new org.telegram.ui.PrimeBrowserActivity(""));
+            setPrimeSidebarVisible(false, true);
+        });
+        bottomContainer.addView(browserButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        
         // 1. Wallet Button
         ImageView walletButton = createSidebarIcon(context, R.drawable.settings_wallet, "Кошелек", v -> {
             try {
@@ -9482,6 +9450,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             } catch (Exception e) {
                 FileLog.e(e);
             }
+            setPrimeSidebarVisible(false, true);
         });
         bottomContainer.addView(walletButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
@@ -9489,15 +9458,15 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ImageView proxyButton = createProxyButton(context);
         bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
-        // 3. Theme Toggle Button
-        ImageView themeButton = createThemeButton(context);
-        bottomContainer.addView(themeButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
-        // 4. Settings Gear Button
-        ImageView settingsButton = createSidebarIcon(context, R.drawable.msg_settings_old, "Настройки PrimeGram", v -> {
-            presentFragment(new PrimeGramSettingsActivity());
+        // 4. Saved Messages Button
+        ImageView savedMessagesButton = createSidebarIcon(context, R.drawable.msg_saved, "Избранное", v -> {
+            Bundle args = new Bundle();
+            args.putLong("dialog_id", UserConfig.getInstance(currentAccount).clientUserId);
+            presentFragment(new ChatActivity(args));
+            setPrimeSidebarVisible(false, true);
         });
-        bottomContainer.addView(settingsButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
+        bottomContainer.addView(savedMessagesButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
         
         updateSidebarAccounts();
     }

@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - release
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -39,15 +41,19 @@ jobs:
       - name: Compile Standalone Release APK
         run: ./gradlew :TMessagesProj_AppStandalone:assembleAfatRelease --no-daemon
 
-      - name: Upload Compiled APK
+      - name: Rename APK
+        run: |
+          mv TMessagesProj_AppStandalone/build/outputs/apk/afat/release/TMessagesProj_AppStandalone-afat-release.apk PrimeGram.apk
+
+      - name: Upload Compiled APK (Artifact)
         uses: actions/upload-artifact@v4
         with:
           name: PrimeGram-Release-APK
-          path: TMessagesProj_AppStandalone/build/outputs/apk/afat/release/*.apk
+          path: PrimeGram.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest Release
-          files: TMessagesProj_AppStandalone/build/outputs/apk/afat/release/*.apk
+          files: PrimeGram.apk

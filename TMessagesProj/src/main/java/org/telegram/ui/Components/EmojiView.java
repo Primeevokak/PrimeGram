@@ -1388,42 +1388,15 @@ public class EmojiView extends FrameLayout implements
                 if (emoticon == null && document != null) {
                     emoticon = MessageObject.findAnimatedEmojiEmoticon(document);
                 }
-                if (!MessageObject.isFreeEmoji(document) && !UserConfig.getInstance(currentAccount).isPremium() && !(delegate != null && delegate.isUserSelf()) && !allowEmojisForNonPremium && !isGroupEmojis) {
+                if (!MessageObject.isFreeEmoji(document) && !UserConfig.getInstance(currentAccount).hasRealPremium() && !(delegate != null && delegate.isUserSelf()) && !allowEmojisForNonPremium && !isGroupEmojis) {
                     showBottomTab(false, true);
-                    BulletinFactory factory = fragment != null ? BulletinFactory.of(fragment) : BulletinFactory.of(bulletinContainer, resourcesProvider);
-                    if (premiumBulletin || fragment == null) {
-                        factory.createEmojiBulletin(
-                                document,
-                                AndroidUtilities.replaceTags(getString(R.string.UnlockPremiumEmojiHint)),
-                                getString(R.string.PremiumMore),
-                                EmojiView.this::openPremiumAnimatedEmojiFeature
-                        ).show();
-                    } else {
-                        factory.createSimpleBulletin(
-                                R.raw.saved_messages,
-                                AndroidUtilities.replaceTags(getString(R.string.UnlockPremiumEmojiHint2)),
-                                getString(R.string.Open),
-                                () -> {
-                                    Bundle args = new Bundle();
-                                    args.putLong("user_id", UserConfig.getInstance(currentAccount).getClientUserId());
-                                    fragment.presentFragment(new ChatActivity(args) {
-                                        @Override
-                                        public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
-                                            super.onTransitionAnimationEnd(isOpen, backward);
-                                            if (isOpen && chatActivityEnterView != null) {
-                                                chatActivityEnterView.showEmojiView();
-                                                chatActivityEnterView.postDelayed(() -> {
-                                                    if (chatActivityEnterView.getEmojiView() != null) {
-                                                        chatActivityEnterView.getEmojiView().scrollEmojisToAnimated();
-                                                    }
-                                                }, 100);
-                                            }
-                                        }
-                                    });
-                                }
-                        ).show();
+                    if (getContext() != null) {
+                        new org.telegram.ui.ActionBar.AlertDialog.Builder(getContext())
+                                .setTitle("Premium")
+                                .setMessage("К сожалению, у вас нет реального Premium. Локальный Premium не сможет дать вам доступ к этому функционалу, так как эти функции работают на серверах Telegram.")
+                                .setPositiveButton(org.telegram.messenger.LocaleController.getString("OK", org.telegram.messenger.R.string.OK), null)
+                                .show();
                     }
-                    premiumBulletin = !premiumBulletin;
                     return;
                 }
                 shownBottomTabAfterClick = SystemClock.elapsedRealtime();

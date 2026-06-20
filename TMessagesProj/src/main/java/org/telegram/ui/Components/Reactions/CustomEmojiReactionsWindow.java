@@ -208,16 +208,17 @@ public class CustomEmojiReactionsWindow {
 
             @Override
             protected void onEmojiSelected(View emojiView, Long documentId, TLRPC.Document document, TL_stars.TL_starGiftUnique gift, Integer until) {
-                if (baseFragment != null && !reactionsContainerLayout.channelReactions && reactionsContainerLayout.getWindowType() != SelectAnimatedEmojiDialog.TYPE_STICKER_SET_EMOJI && !UserConfig.getInstance(baseFragment.getCurrentAccount()).isPremium()) {
+                if (baseFragment != null && !reactionsContainerLayout.channelReactions && reactionsContainerLayout.getWindowType() != SelectAnimatedEmojiDialog.TYPE_STICKER_SET_EMOJI && !UserConfig.getInstance(baseFragment.getCurrentAccount()).hasRealPremium()) {
                     try {
                         windowView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
                     } catch (Exception ignored) {}
-                    BulletinFactory.of(windowView, null).createEmojiBulletin(
-                            document,
-                            AndroidUtilities.replaceTags(LocaleController.getString(R.string.UnlockPremiumEmojiReaction)),
-                            LocaleController.getString(R.string.PremiumMore),
-                            () -> showUnlockPremiumAlert()
-                    ).show();
+                    if (baseFragment.getContext() != null) {
+                        new org.telegram.ui.ActionBar.AlertDialog.Builder(baseFragment.getContext())
+                                .setTitle("Premium")
+                                .setMessage("К сожалению, у вас нет реального Premium. Локальный Premium не сможет дать вам доступ к этому функционалу, так как эти функции работают на серверах Telegram.")
+                                .setPositiveButton(org.telegram.messenger.LocaleController.getString("OK", org.telegram.messenger.R.string.OK), null)
+                                .show();
+                    }
                     return;
                 }
                 if (documentId == null && document == null) return;
