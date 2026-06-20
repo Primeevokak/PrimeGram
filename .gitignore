@@ -15,3 +15,7 @@ TMessagesProj_AppHockeyApp/afat/
 TMessagesProj_AppStandalone/afat/
 TMessagesProj_AppHuawei/afat/
 /opencode.json
+ 
+*.apk
+*.log
+
