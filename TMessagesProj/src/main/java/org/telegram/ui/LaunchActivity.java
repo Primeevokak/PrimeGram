@@ -8365,8 +8365,27 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 presentFragment(new ProxyListActivity());
             };
         }
-        actionBarLayout.setTitleOverlayText(title, titleId, action);
+        if (connectionStateRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(connectionStateRunnable);
+            connectionStateRunnable = null;
+        }
+
+        if (title == null) {
+            actionBarLayout.setTitleOverlayText(title, titleId, action);
+        } else {
+            final String finalTitle = title;
+            final int finalTitleId = titleId;
+            final Runnable finalAction = action;
+            connectionStateRunnable = () -> {
+                if (actionBarLayout != null) {
+                    actionBarLayout.setTitleOverlayText(finalTitle, finalTitleId, finalAction);
+                }
+            };
+            AndroidUtilities.runOnUIThread(connectionStateRunnable, 1500);
+        }
     }
+
+    private Runnable connectionStateRunnable;
 
     public void hideVisibleActionMode() {
         if (visibleActionMode == null) {
@@ -9441,11 +9460,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
         
-        // 4. Settings Gear Button
-        ImageView settingsButton = createSidebarIcon(context, R.drawable.msg_settings_old, "Настройки PrimeGram", v -> {
-            presentFragment(new PrimeGramSettingsActivity());
+        // 4. Saved Messages Button
+        ImageView savedMessagesButton = createSidebarIcon(context, R.drawable.msg_saved, "Избранное", v -> {
+            Bundle args = new Bundle();
+            args.putLong("dialog_id", UserConfig.getInstance(currentAccount).clientUserId);
+            presentFragment(new ChatActivity(args));
         });
-        bottomContainer.addView(settingsButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
+        bottomContainer.addView(savedMessagesButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
         
         updateSidebarAccounts();
     }

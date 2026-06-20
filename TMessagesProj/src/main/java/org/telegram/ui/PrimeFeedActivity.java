@@ -81,8 +81,20 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         listView.setLayoutManager(layoutManager);
         adapter = new FeedAdapter(context);
         listView.setAdapter(adapter);
+        listView.setOnItemClickListener((view, position) -> {
+            if (position >= 0 && position < feedItems.size()) {
+                MessageObject msg = feedItems.get(position);
+                if (msg != null && getParentActivity() != null) {
+                    Bundle args = new Bundle();
+                    args.putLong("dialog_id", msg.getDialogId());
+                    args.putInt("message_id", msg.getId());
+                    presentFragment(new ChatActivity(args));
+                }
+            }
+        });
+
         listView.setClipToPadding(false);
-        listView.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(8));
+        listView.setPadding(0, org.telegram.ui.ActionBar.ActionBar.getCurrentActionBarHeight() + AndroidUtilities.dp(4), 0, AndroidUtilities.dp(8));
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         listView.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -164,7 +176,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 for (TLRPC.Dialog d : unreadDialogs) {
                     int limit = Math.min(d.unread_count, 50);
                     org.telegram.SQLite.SQLiteCursor cursor = database.queryFinalized(
-                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages WHERE dialog_id = %d ORDER BY mid DESC LIMIT %d", d.id, limit));
+                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages_v2 WHERE uid = %d ORDER BY mid DESC LIMIT %d", d.id, limit));
                     
                     while (cursor.next()) {
                         org.telegram.tgnet.NativeByteBuffer data = cursor.byteBufferValue(0);
@@ -177,13 +189,23 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                             message.dialog_id = d.id;
                             
                             MessageObject obj = new MessageObject(currentAccount, message, true, false);
+                            // Set folder ID to identify if it's archived
+                            obj.messageOwner.folder_id = d.folder_id; 
                             msgs.add(obj);
                         }
                     }
                     cursor.dispose();
                 }
 
-                Collections.sort(msgs, (a, b) -> Integer.compare(b.messageOwner.date, a.messageOwner.date));
+                // Sort: Archive messages at the bottom (oldest), then sort by date descending
+                Collections.sort(msgs, (a, b) -> {
+                    boolean aArchived = a.messageOwner.folder_id == 1;
+                    boolean bArchived = b.messageOwner.folder_id == 1;
+                    if (aArchived != bArchived) {
+                        return aArchived ? 1 : -1; // Archive goes to the bottom
+                    }
+                    return Integer.compare(b.messageOwner.date, a.messageOwner.date); // Newest first
+                });
 
                 AndroidUtilities.runOnUIThread(() -> {
                     feedItems.addAll(msgs);
@@ -233,7 +255,9 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                             int maxId = msg.getId();
                             int maxDate = msg.messageOwner.date;
                             
+                            // To correctly mark archive or main dialogs as read, use the normal markDialogAsRead
                             mc.markDialogAsRead(dialogId, maxId, 0, maxDate, false, 0, 0, true, 0);
+                            mc.markMessageContentAsRead(msg); // Also mark content (like voice) as read
                         }
                     }
                 }
@@ -283,6 +307,16 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 public void didPressChannelAvatar(org.telegram.ui.Cells.ChatMessageCell cell, TLRPC.Chat chat, int postId, float touchX, float touchY, boolean asForward) {
                     openChat(cell.getMessageObject());
                 }
+                
+                @Override
+                public void didPressBotButton(org.telegram.ui.Cells.ChatMessageCell cell, TLRPC.KeyboardButton button) {
+                    openChat(cell.getMessageObject());
+                }
+                
+                @Override
+                public void didPressSideButton(org.telegram.ui.Cells.ChatMessageCell cell) {
+                    openChat(cell.getMessageObject());
+                }
             };
         }
 
@@ -308,12 +342,8 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             org.telegram.ui.Cells.ChatMessageCell cell = new org.telegram.ui.Cells.ChatMessageCell(context, currentAccount, false, null, null);
             cell.setDelegate(cellDelegate);
-            cell.setOnClickListener(v -> {
-                MessageObject msg = cell.getMessageObject();
-                if (msg != null) {
-                    openChat(msg);
-                }
-            });
+            // DO NOT setOnClickListener on cell directly, let RecyclerListView handle it or ChatMessageCell native touch event
+            
             // Fix layout params for recycler view
             RecyclerView.LayoutParams layoutParams = new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT);
             layoutParams.bottomMargin = AndroidUtilities.dp(4);

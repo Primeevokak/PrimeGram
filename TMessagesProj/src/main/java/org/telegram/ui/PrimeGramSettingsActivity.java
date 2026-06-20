@@ -52,7 +52,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     protected void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {
         items.add(UItem.asHeader("Интерфейс"));
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", false);
+        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         UItem checkItem = UItem.asCheck(ID_SIDEBAR_ENABLED, "Боковая панель на основном экране");
         checkItem.checked = sidebarEnabled;
         items.add(checkItem);
