@@ -591,6 +591,10 @@ public class UserConfig extends BaseController {
         return true;
     }
 
+    public boolean hasRealPremium() {
+        return currentUser != null && currentUser.premium;
+    }
+
     public Long getEmojiStatus() {
         return UserObject.getEmojiStatusDocumentId(currentUser);
     }

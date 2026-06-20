@@ -97,6 +97,13 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         listView.setPadding(0, 0, 0, AndroidUtilities.dp(8));
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
+        listView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+                checkVisibleItems();
+            }
+        });
+
         // Empty placeholder
         emptyView = new TextView(context);
         emptyView.setTextSize(16);
@@ -153,6 +160,9 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
             isLoading = false;
             if (adapter != null) adapter.notifyDataSetChanged();
             updateEmptyView();
+            
+            // Check visible items shortly after layout
+            AndroidUtilities.runOnUIThread(this::checkVisibleItems, 200);
         }, 0);
     }
 
@@ -234,6 +244,41 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         }
     }
 
+    private void checkVisibleItems() {
+        if (listView == null || layoutManager == null || feedItems.isEmpty()) return;
+        int first = layoutManager.findFirstVisibleItemPosition();
+        int last = layoutManager.findLastVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
+
+        boolean updated = false;
+        MessagesController mc = MessagesController.getInstance(currentAccount);
+
+        for (int i = first; i <= last; i++) {
+            if (i >= 0 && i < feedItems.size()) {
+                FeedItem item = feedItems.get(i);
+                if (item.unreadCount > 0 && item.topMessage != null) {
+                    item.unreadCount = 0; // mark locally
+                    updated = true;
+                    
+                    long dialogId = item.dialog.id;
+                    int maxId = item.topMessage.getId();
+                    int maxDate = item.topMessage.messageOwner != null ? item.topMessage.messageOwner.date : 0;
+                    
+                    // Mark as read on the server
+                    mc.markDialogAsRead(dialogId, maxId, 0, maxDate, false, 0, 0, true, 0);
+                }
+            }
+        }
+
+        if (updated && adapter != null) {
+            final int f = first;
+            final int count = last - first + 1;
+            AndroidUtilities.runOnUIThread(() -> {
+                if (adapter != null) adapter.notifyItemRangeChanged(f, count);
+            });
+        }
+    }
+
     private void updateEmptyView() {
         if (emptyView == null) return;
         emptyView.setVisibility(feedItems.isEmpty() ? View.VISIBLE : View.GONE);
@@ -257,7 +302,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
     //  Adapter
     // ─────────────────────────────────────────────
 
-    private class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    private class FeedAdapter extends RecyclerListView.SelectionAdapter {
 
         private static final int TYPE_CHANNEL_POST = 0;
 
@@ -272,14 +317,18 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
             return TYPE_CHANNEL_POST;
         }
 
-        @NonNull
         @Override
-        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        public boolean isEnabled(RecyclerView.ViewHolder holder) {
+            return true;
+        }
+
+        @Override
+        public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             return new ChannelPostHolder(new ChannelPostCell(context));
         }
 
         @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
             ((ChannelPostHolder) holder).bind(feedItems.get(position));
         }
 
@@ -404,7 +453,12 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
 
             // Unread count
             int unread = item.unreadCount;
-            unreadCountView.setText(unread > 999 ? "999+" : String.valueOf(unread));
+            if (unread > 0) {
+                unreadCountView.setVisibility(View.VISIBLE);
+                unreadCountView.setText(unread > 999 ? "999+" : String.valueOf(unread));
+            } else {
+                unreadCountView.setVisibility(View.GONE);
+            }
 
             // Archive badge
             archiveBadgeView.setVisibility(item.isFromArchive ? View.VISIBLE : View.GONE);

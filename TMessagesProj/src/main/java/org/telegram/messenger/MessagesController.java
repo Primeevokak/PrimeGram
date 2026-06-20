@@ -2594,7 +2594,9 @@ public class MessagesController extends BaseController implements NotificationCe
         }
         getMessagesController().updateEmojiStatusUntilUpdate(dialogId, new_emoji_status);
         getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_EMOJI_STATUS);
-        getConnectionsManager().sendRequest(r, null);
+        if (getUserConfig().hasRealPremium() || newStatus instanceof TLRPC.TL_emojiStatusEmpty || newStatus instanceof TLRPC.TL_inputEmojiStatusEmpty) {
+            getConnectionsManager().sendRequest(r, null);
+        }
     }
 
     public void removeFilter(DialogFilter filter) {
@@ -9089,6 +9091,9 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void saveWallpaperToServer(File path, Theme.OverrideWallpaperInfo info, boolean install, long taskId) {
+        if (!getUserConfig().hasRealPremium()) {
+            return;
+        }
         if (uploadingWallpaper != null) {
             File finalPath = new File(ApplicationLoader.getFilesDirFixed(), info.originalFileName);
             if (path != null && (path.getAbsolutePath().equals(uploadingWallpaper) || path.equals(finalPath))) {
