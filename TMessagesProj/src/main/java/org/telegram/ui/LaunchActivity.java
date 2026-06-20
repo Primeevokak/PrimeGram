@@ -405,6 +405,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         instance = this;
         ApplicationLoader.postInitApplication();
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        
+        // Track app launches
+        if (savedInstanceState == null) {
+            int launchCount = preferences.getInt("primegram_app_launch_count", 0);
+            preferences.edit().putInt("primegram_app_launch_count", launchCount + 1).apply();
+        }
+
         if (preferences.getBoolean("primegram_auto_updates", true)) {
             org.telegram.messenger.PrimeUpdater.checkUpdate(this, false);
         }
@@ -523,7 +530,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public void requestDisallowInterceptTouchEvent(boolean disallow) {
-                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.dp(24)) {
+                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.displaySize.x * 0.45f) {
                     return;
                 }
                 super.requestDisallowInterceptTouchEvent(disallow);
@@ -553,8 +560,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         float dy = y - dragStartY;
                         
                         if (!isSidebarOpen) {
-                            // Sidebar is closed: swipe right from left edge (x < 24dp)
-                            if (dragStartX < AndroidUtilities.dp(24) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            // Sidebar is closed: swipe right from left edge (x < 45% of screen)
+                            if (dragStartX < AndroidUtilities.displaySize.x * 0.45f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
                                 return true;
@@ -585,7 +592,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             float dy = y - dragStartY;
                             if (!isSidebarOpen) {
                                 // Closed: swipe right from edge
-                                if (dragStartX < AndroidUtilities.dp(24) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                if (dragStartX < AndroidUtilities.displaySize.x * 0.45f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                     isDraggingSidebar = true;
                                     dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
                                 }
@@ -654,7 +661,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // Initialize PrimeGram Sidebar & Trigger
         createPrimeSidebar();
         if (primeSidebarView != null) {
-            drawerLayoutContainer.addView(primeSidebarView, LayoutHelper.createFrame(72, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
+            frameLayout.addView(primeSidebarView, LayoutHelper.createFrame(72, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
             primeSidebarView.setVisibility(View.GONE);
         }
         
@@ -9478,6 +9485,21 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         bottomContainer.setOrientation(LinearLayout.VERTICAL);
         bottomContainer.setGravity(Gravity.CENTER_HORIZONTAL);
         sidebar.addView(bottomContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
+        
+        // 0. Browser Button
+        ImageView browserButton = createSidebarIcon(context, R.drawable.msg_language, "Браузер", v -> {
+            try {
+                org.telegram.messenger.browser.Browser.openInTelegramBrowser(LaunchActivity.this, "about:blank", null);
+            } catch (Exception e) {
+                // Fallback — open blank page via standard browser
+                try {
+                    org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://telegram.org");
+                } catch (Exception ex) {
+                    FileLog.e(ex);
+                }
+            }
+        });
+        bottomContainer.addView(browserButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
         // 1. Wallet Button
         ImageView walletButton = createSidebarIcon(context, R.drawable.settings_wallet, "Кошелек", v -> {

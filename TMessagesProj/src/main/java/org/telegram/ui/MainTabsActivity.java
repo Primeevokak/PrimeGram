@@ -81,22 +81,25 @@ import me.vkryl.android.animator.BoolAnimator;
 import me.vkryl.android.animator.FactorAnimator;
 
 public class MainTabsActivity extends ViewPagerActivity implements NotificationCenter.NotificationCenterDelegate, FactorAnimator.Target {
-    public static final int TABS_COUNT = 3;
+    public static final int TABS_COUNT = 4;
     private static final int POSITION_CHATS = 0;
     private static final int POSITION_CONTACTS = -1;
     private static final int POSITION_CALLS_OR_SETTINGS = 1;
     private static final int POSITION_PROFILE = 2;
+    private static final int POSITION_FEED = 3;
 
     private static final int INDEX_CHATS = 0;
     private static final int INDEX_CONTACTS = 1;
     private static final int INDEX_SETTINGS = 2;
     private static final int INDEX_CALLS = 3;
     private static final int INDEX_PROFILE = 4;
+    private static final int INDEX_FEED = 5;
 
     private static int indexToPosition(int index) {
         if (index == INDEX_CHATS) return POSITION_CHATS;
         if (index == INDEX_SETTINGS || index == INDEX_CALLS) return POSITION_CALLS_OR_SETTINGS;
         if (index == INDEX_PROFILE) return POSITION_PROFILE;
+        if (index == INDEX_FEED) return POSITION_FEED;
         return -1;
     }
 
@@ -291,12 +294,13 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsView.setPadding(dp(DialogsActivity.MAIN_TABS_MARGIN + 4), dp(DialogsActivity.MAIN_TABS_MARGIN + 4), dp(DialogsActivity.MAIN_TABS_MARGIN + 4), dp(DialogsActivity.MAIN_TABS_MARGIN + 4));
         tabsView.setMaxWidth(dp(328 + DialogsActivity.MAIN_TABS_MARGIN * 2));
 
-        tabs = new GlassTabView[5];
+        tabs = new GlassTabView[6];
         tabs[INDEX_CHATS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.CHATS, R.string.MainTabsChats);
         tabs[INDEX_CONTACTS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.CONTACTS, R.string.MainTabsContacts);
         tabs[INDEX_SETTINGS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.SETTINGS, R.string.Settings);
         tabs[INDEX_CALLS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.CALLS, R.string.MainTabsCalls);
         tabs[INDEX_PROFILE] = GlassTabView.createAvatar(context, resourceProvider, currentAccount, R.string.MainTabsProfile);
+        tabs[INDEX_FEED] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.LINK, R.string.MainTabsFeed);
         tabs[INDEX_CHATS].setOnLongClickListener(this::openFoldersSelector);
         tabs[INDEX_CONTACTS].setOnLongClickListener(this::openContactsSelector);
         tabs[INDEX_CALLS].setOnLongClickListener(this::openCallsSelector);
@@ -306,6 +310,40 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsView.addTabToIgnoreClick(tabs[INDEX_CONTACTS]);
         tabsView.addTabToIgnoreClick(tabs[INDEX_PROFILE]);
         tabsView.addTabToIgnoreClick(tabs[INDEX_CALLS]);
+        tabsView.addTabToIgnoreClick(tabs[INDEX_FEED]);
+
+        AndroidUtilities.runOnUIThread(() -> {
+            try {
+                int[] positionsToPreload = {POSITION_PROFILE, POSITION_CALLS_OR_SETTINGS};
+                for (int pos : positionsToPreload) {
+                    if (fragmentsArr.get(pos) == null) {
+                        BaseFragment fragment = createBaseFragmentAt(pos);
+                        putFragmentAtPosition(pos, fragment);
+                    }
+                    ViewPagerActivity.FragmentState state = fragmentsArr.get(pos);
+                    if (state != null) {
+                        try {
+                            java.lang.reflect.Field field = state.getClass().getDeclaredField("onCreateCalled");
+                            field.setAccessible(true);
+                            boolean called = field.getBoolean(state);
+                            if (!called) {
+                                state.fragment.onFragmentCreate();
+                                field.setBoolean(state, true);
+                            }
+                        } catch (Exception ignore) {}
+
+                        state.fragment.setParentLayout(getParentLayout());
+                        if (state.fragment.getFragmentView() == null) {
+                            state.fragment.createView(context);
+                            if (!state.fragment.hasOwnBackground() && state.fragment.getFragmentView().getBackground() == null) {
+                                state.fragment.getFragmentView().setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignore) {
+            }
+        }, 300);
 
         for (int index = 0; index < tabs.length; index++) {
             if (index == INDEX_CONTACTS) {
@@ -630,9 +668,6 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
                 dropFragmentAtPosition(POSITION_CALLS_OR_SETTINGS);
                 dropCallsFragmentAfterPageScroll = false;
             }
-            if (currentPosition != POSITION_PROFILE) {
-                dropFragmentAtPosition(POSITION_PROFILE);
-            }
             if (pendingFolderId != null && currentPosition == POSITION_CHATS && dialogsActivity != null) {
                 dialogsActivity.scrollToFolder(pendingFolderId);
                 pendingFolderId = null;
@@ -728,6 +763,8 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             // args.putBoolean("expandPhoto", true);
             args.putBoolean("hasMainTabs", true);
             return new ProfileActivity(args);
+        } else if (position == POSITION_FEED) {
+            return new PrimeFeedActivity();
         }
         return null;
     }

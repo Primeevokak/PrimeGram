@@ -6892,7 +6892,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         android.content.SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         long lastPromoTime = preferences.getLong("primegram_last_promo_time", 0);
         long currentTime = System.currentTimeMillis();
-        if (currentTime - lastPromoTime > 2592000000L && getParentActivity() != null) {
+        int launchCount = preferences.getInt("primegram_app_launch_count", 1);
+        
+        // Show only from the 2nd app launch onwards, to avoid system dialogs overlapping it
+        if (launchCount >= 2 && currentTime - lastPromoTime > 2592000000L && getParentActivity() != null) {
             preferences.edit().putLong("primegram_last_promo_time", currentTime).apply();
             org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity(), getResourceProvider());
             builder.setTitle("PrimeGram");
