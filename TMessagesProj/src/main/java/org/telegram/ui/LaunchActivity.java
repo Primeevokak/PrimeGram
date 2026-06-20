@@ -6116,99 +6116,19 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private boolean firstAppUpdateCheck = true;
     public void checkAppUpdate(boolean force, Browser.Progress progress) {
-        if (!ApplicationLoader.isStandaloneBuild() && !ApplicationLoader.isBetaBuild()) {
-            return;
-        }
         if (!force && !BuildVars.CHECK_UPDATES) {
             return;
         }
-        if (ApplicationLoader.applicationLoaderInstance.isCustomUpdate()) {
-            final BetaUpdate prevUpdate = ApplicationLoader.applicationLoaderInstance.getUpdate();
-            final boolean first = firstAppUpdateCheck;
-            firstAppUpdateCheck = false;
-            ApplicationLoader.applicationLoaderInstance.checkUpdate(force, () -> {
-                final BetaUpdate pendingUpdate = ApplicationLoader.applicationLoaderInstance.getUpdate();
-                if (progress != null) {
-                    progress.end();
-                    if (pendingUpdate == null) {
-                        BaseFragment fragment = getLastFragment();
-                        if (fragment != null) {
-                            BulletinFactory.of(fragment).createSimpleBulletin(R.raw.chats_infotip, LocaleController.getString(R.string.YourVersionIsLatest)).show();
-                        }
-                    }
-                }
-                if (pendingUpdate != null && !ApplicationLoader.applicationLoaderInstance.isDownloadingUpdate() && (first || prevUpdate == null || pendingUpdate.higherThan(prevUpdate))) {
-                    ApplicationLoader.applicationLoaderInstance.showCustomUpdateAppPopup(LaunchActivity.this, pendingUpdate, currentAccount);
-                }
-            });
-            return;
-        }
-        if (!force && Math.abs(System.currentTimeMillis() - SharedConfig.lastUpdateCheckTime) < MessagesController.getInstance(0).updateCheckDelay * 1000) {
-            return;
-        }
-        final TLRPC.TL_help_getAppUpdate req = new TLRPC.TL_help_getAppUpdate();
+        
+        // Use custom Github Updater
         try {
-            req.source = ApplicationLoader.applicationContext.getPackageManager().getInstallerPackageName(ApplicationLoader.applicationContext.getPackageName());
-        } catch (Exception ignore) {
-
+            org.telegram.ui.Components.GithubUpdater.checkForUpdates(this, org.telegram.messenger.BuildVars.BUILD_VERSION_STRING);
+        } catch (Exception e) {
+            // ignore
         }
-        if (req.source == null) {
-            req.source = "";
-        }
-        final int accountNum = currentAccount;
-        int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-            SharedConfig.lastUpdateCheckTime = System.currentTimeMillis();
-            SharedConfig.saveConfig();
-            if (response instanceof TLRPC.TL_help_appUpdate) {
-                final TLRPC.TL_help_appUpdate res = (TLRPC.TL_help_appUpdate) response;
-                AndroidUtilities.runOnUIThread(() -> {
-                    if (SharedConfig.pendingAppUpdate != null && SharedConfig.pendingAppUpdate.version.equals(res.version)) {
-                        return;
-                    }
-                    final boolean newVersionAvailable = SharedConfig.setNewAppVersionAvailable(res);
-                    if (newVersionAvailable) {
-                        if (res.can_not_skip) {
-                            showUpdateActivity(accountNum, res, false);
-                        } else if (ApplicationLoader.isStandaloneBuild() || BuildVars.DEBUG_VERSION) {
-                            ApplicationLoader.applicationLoaderInstance.showUpdateAppPopup(LaunchActivity.this, res, accountNum);
-                        }
-                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.appUpdateAvailable);
-                    }
-                    if (progress != null) {
-                        progress.end();
-                        if (!newVersionAvailable) {
-                            BaseFragment fragment = getLastFragment();
-                            if (fragment != null) {
-                                BulletinFactory.of(fragment).createSimpleBulletin(R.raw.chats_infotip, LocaleController.getString(R.string.YourVersionIsLatest)).show();
-                            }
-                        }
-                    }
-                });
-            } else if (response instanceof TLRPC.TL_help_noAppUpdate) {
-                AndroidUtilities.runOnUIThread(() -> {
-                    if (progress != null) {
-                        progress.end();
-                        BaseFragment fragment = getLastFragment();
-                        if (fragment != null) {
-                            BulletinFactory.of(fragment).createSimpleBulletin(R.raw.chats_infotip, LocaleController.getString(R.string.YourVersionIsLatest)).show();
-                        }
-                    }
-                });
-            } else if (error != null) {
-                AndroidUtilities.runOnUIThread(() -> {
-                    if (progress != null) {
-                        progress.end();
-                        BaseFragment fragment = getLastFragment();
-                        if (fragment != null) {
-                            BulletinFactory.of(fragment).showForError(error);
-                        }
-                    }
-                });
-            }
-        });
+        
         if (progress != null) {
-            progress.init();
-            progress.onCancel(() -> ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true));
+            progress.end();
         }
     }
 
@@ -9415,7 +9335,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         isSidebarOpen = open;
         
         float targetSidebarTranslation = open ? 0 : -AndroidUtilities.dp(72);
-        float targetContentTranslation = open ? AndroidUtilities.dp(72) : 0;
+        float targetContentTranslation = 0; // open ? AndroidUtilities.dp(72) : 0;
         
         if (animate) {
             if (primeSidebarView != null) {
@@ -9489,11 +9409,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // 0. Browser Button
         ImageView browserButton = createSidebarIcon(context, R.drawable.msg_language, "Браузер", v -> {
             try {
-                org.telegram.messenger.browser.Browser.openInTelegramBrowser(LaunchActivity.this, "about:blank", null);
+                org.telegram.messenger.browser.Browser.openInTelegramBrowser(LaunchActivity.this, "https://google.com", null);
             } catch (Exception e) {
-                // Fallback — open blank page via standard browser
+                // Fallback — open page via standard browser
                 try {
-                    org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://telegram.org");
+                    org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://google.com");
                 } catch (Exception ex) {
                     FileLog.e(ex);
                 }
@@ -9515,9 +9435,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ImageView proxyButton = createProxyButton(context);
         bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
-        // 3. Theme Toggle Button
-        ImageView themeButton = createThemeButton(context);
-        bottomContainer.addView(themeButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
         // 4. Settings Gear Button
         ImageView settingsButton = createSidebarIcon(context, R.drawable.msg_settings_old, "Настройки PrimeGram", v -> {
