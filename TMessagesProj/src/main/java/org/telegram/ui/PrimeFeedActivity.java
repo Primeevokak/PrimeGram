@@ -73,16 +73,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         actionBar.setItemsColor(Theme.getColor(Theme.key_actionBarDefaultIcon), false);
         actionBar.setAllowOverlayTitle(false);
 
-        // Refresh button in action bar
-        actionBar.createMenu().addItem(1, R.drawable.ic_ab_refresh);
-        actionBar.setActionBarMenuOnItemClick(new org.telegram.ui.ActionBar.ActionBar.ActionBarMenuOnItemClick() {
-            @Override
-            public void onItemClick(int id) {
-                if (id == 1) {
-                    loadFeed();
-                }
-            }
-        });
+        // Refresh can be triggered by pull-to-refresh later if needed.
 
         fragmentView = new FrameLayout(context);
         FrameLayout frameLayout = (FrameLayout) fragmentView;

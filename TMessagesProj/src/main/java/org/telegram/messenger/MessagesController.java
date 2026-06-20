@@ -2594,7 +2594,7 @@ public class MessagesController extends BaseController implements NotificationCe
         }
         getMessagesController().updateEmojiStatusUntilUpdate(dialogId, new_emoji_status);
         getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_EMOJI_STATUS);
-        if (getUserConfig().hasRealPremium() || newStatus instanceof TLRPC.TL_emojiStatusEmpty || newStatus instanceof TLRPC.TL_inputEmojiStatusEmpty) {
+        if (getUserConfig().hasRealPremium() || newStatus instanceof TLRPC.TL_emojiStatusEmpty) {
             getConnectionsManager().sendRequest(r, null);
         }
     }
