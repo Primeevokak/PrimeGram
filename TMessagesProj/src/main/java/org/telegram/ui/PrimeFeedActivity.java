@@ -129,26 +129,27 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         feedItems.clear();
         if (adapter != null) adapter.notifyDataSetChanged();
 
-        boolean includeArchive = MessagesController.getGlobalMainSettings().getBoolean(PREF_INCLUDE_ARCHIVE, false);
+        boolean excludeMuted = MessagesController.getGlobalMainSettings().getBoolean("primegram_feed_exclude_muted", false);
+        boolean excludeArchived = MessagesController.getGlobalMainSettings().getBoolean("primegram_feed_exclude_archived", false);
         MessagesController mc = MessagesController.getInstance(currentAccount);
 
         ArrayList<TLRPC.Dialog> unreadDialogs = new ArrayList<>();
-        if (mc.dialogsChannelsOnly != null) {
-            for (TLRPC.Dialog d : mc.dialogsChannelsOnly) {
-                if (d.unread_count > 0 && DialogObject.isChatDialog(d.id)) {
-                    TLRPC.Chat chat = mc.getChat(-d.id);
-                    if (chat != null && chat.broadcast) {
-                        unreadDialogs.add(d);
-                    }
-                }
-            }
-        }
+        if (mc.dialogs_dict != null) {
+            for (int i = 0; i < mc.dialogs_dict.size(); i++) {
+                TLRPC.Dialog d = mc.dialogs_dict.valueAt(i);
+                if (d == null) continue;
 
-        if (includeArchive && mc.dialogsByFolder.get(1) != null) {
-            for (TLRPC.Dialog d : mc.dialogsByFolder.get(1)) {
+                if (d.folder_id == 1 && excludeArchived) {
+                    continue; // Skip archived
+                }
+
                 if (d.unread_count > 0 && DialogObject.isChatDialog(d.id)) {
                     TLRPC.Chat chat = mc.getChat(-d.id);
-                    if (chat != null && chat.broadcast) {
+                    // Broadcast == true means it's a channel, megagroup == true means it's a supergroup
+                    if (chat != null && chat.broadcast && !chat.megagroup) {
+                        if (excludeMuted && mc.isDialogMuted(d.id, 0)) {
+                            continue; // Skip muted
+                        }
                         unreadDialogs.add(d);
                     }
                 }
@@ -255,7 +256,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
             this.context = ctx;
             this.cellDelegate = new org.telegram.ui.Cells.ChatMessageCell.ChatMessageCellDelegate() {
                 @Override
-                public void didPressReplyMessage(org.telegram.ui.Cells.ChatMessageCell cell, int id) {
+                public void didPressReplyMessage(org.telegram.ui.Cells.ChatMessageCell cell, int id, float x, float y, boolean longpress) {
                     openChat(cell.getMessageObject());
                 }
 
@@ -269,7 +270,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 }
 
                 @Override
-                public boolean needPlayMessage(org.telegram.ui.Cells.ChatMessageCell cell) {
+                public boolean needPlayMessage(org.telegram.ui.Cells.ChatMessageCell cell, org.telegram.messenger.MessageObject messageObject, boolean muted) {
                     return false;
                 }
 
@@ -279,7 +280,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 }
 
                 @Override
-                public void didPressChannelAvatar(org.telegram.ui.Cells.ChatMessageCell cell, TLRPC.Chat chat, int postId, float touchX, float touchY) {
+                public void didPressChannelAvatar(org.telegram.ui.Cells.ChatMessageCell cell, TLRPC.Chat chat, int postId, float touchX, float touchY, boolean asForward) {
                     openChat(cell.getMessageObject());
                 }
             };
@@ -328,7 +329,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
             // isChat = true forces the cell to show avatars and names (like in groups/channels)
             cell.isChat = true;
             cell.setFullyDraw(true);
-            cell.setMessageObject(msg, null, false, false);
+            cell.setMessageObject(msg, null, false, false, false);
         }
 
         @Override

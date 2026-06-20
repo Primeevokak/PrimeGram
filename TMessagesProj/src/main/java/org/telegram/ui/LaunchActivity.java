@@ -413,7 +413,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         }
 
         if (preferences.getBoolean("primegram_auto_updates", true)) {
-            org.telegram.messenger.PrimeUpdater.checkUpdate(this, false);
+            // PrimeUpdater.checkUpdate is removed in favor of GithubUpdater
         }
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
@@ -530,7 +530,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public void requestDisallowInterceptTouchEvent(boolean disallow) {
-                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.displaySize.x * 0.45f) {
+                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.displaySize.x * 0.60f) {
                     return;
                 }
                 super.requestDisallowInterceptTouchEvent(disallow);
@@ -538,117 +538,122 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public boolean onInterceptTouchEvent(MotionEvent ev) {
-                if (isSidebarActiveOnScreen()) {
-                    int action = ev.getAction();
-                    float x = ev.getX();
-                    float y = ev.getY();
+                if (!isSidebarActiveOnScreen()) {
+                    return super.onInterceptTouchEvent(ev);
+                }
+
+                if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+                    dragStartX = ev.getX();
+                    dragStartY = ev.getY();
+                    isDraggingSidebar = false;
                     
-                    if (action == MotionEvent.ACTION_DOWN) {
-                        dragStartX = x;
-                        dragStartY = y;
-                        isDraggingSidebar = false;
-                        
-                        if (isSidebarOpen && x > AndroidUtilities.dp(72)) {
-                            // Intercept touches outside the open sidebar to close it on tap or swipe
-                            return true;
-                        }
-                    } else if (action == MotionEvent.ACTION_MOVE) {
-                        if (isDraggingSidebar) {
-                            return true;
-                        }
-                        float dx = x - dragStartX;
-                        float dy = y - dragStartY;
+                    if (isSidebarOpen && dragStartX > AndroidUtilities.dp(72)) {
+                        setSidebarOpen(false, true);
+                        return true;
+                    }
+                } else if (ev.getAction() == MotionEvent.ACTION_MOVE) {
+                    if (!isDraggingSidebar) {
+                        float dx = ev.getX() - dragStartX;
+                        float dy = ev.getY() - dragStartY;
                         
                         if (!isSidebarOpen) {
-                            // Sidebar is closed: swipe right from left edge (x < 45% of screen)
-                            if (dragStartX < AndroidUtilities.displaySize.x * 0.45f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            // Sidebar is closed: swipe right from left edge (x < 60% of screen)
+                            if (dragStartX < AndroidUtilities.displaySize.x * 0.60f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                getParent().requestDisallowInterceptTouchEvent(true);
                                 return true;
                             }
                         } else {
-                            // Sidebar is open: swipe left starting anywhere
+                            // Sidebar is open: swipe left to close
                             if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
+                                getParent().requestDisallowInterceptTouchEvent(true);
                                 return true;
                             }
                         }
                     }
                 }
+                
+                if (isDraggingSidebar) return true;
                 return super.onInterceptTouchEvent(ev);
             }
 
             @Override
             public boolean onTouchEvent(MotionEvent ev) {
-                if (isSidebarActiveOnScreen()) {
-                    int action = ev.getAction();
-                    float x = ev.getX();
-                    float y = ev.getY();
-                    
+                if (!isSidebarActiveOnScreen()) {
+                    return super.onTouchEvent(ev);
+                }
+
+                int action = ev.getAction();
+                float x = ev.getX();
+                float y = ev.getY();
+
+                if (action == MotionEvent.ACTION_DOWN) {
+                    dragStartX = x;
+                    dragStartY = y;
+                    isDraggingSidebar = false;
+                } else if (action == MotionEvent.ACTION_MOVE) {
+                    float dx = x - dragStartX;
+                    float dy = y - dragStartY;
+
                     if (!isDraggingSidebar) {
-                        if (action == MotionEvent.ACTION_MOVE) {
-                            float dx = x - dragStartX;
-                            float dy = y - dragStartY;
-                            if (!isSidebarOpen) {
-                                // Closed: swipe right from edge
-                                if (dragStartX < AndroidUtilities.displaySize.x * 0.45f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                                    isDraggingSidebar = true;
-                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
-                                }
-                            } else {
-                                // Open: swipe left anywhere
-                                if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                                    isDraggingSidebar = true;
-                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
-                                }
+                        if (!isSidebarOpen) {
+                            // Closed: swipe right from edge
+                            if (dragStartX < AndroidUtilities.displaySize.x * 0.60f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                isDraggingSidebar = true;
+                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                getParent().requestDisallowInterceptTouchEvent(true);
+                            }
+                        } else {
+                            // Open: swipe left anywhere
+                            if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                isDraggingSidebar = true;
+                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
+                                getParent().requestDisallowInterceptTouchEvent(true);
                             }
                         }
                     }
-                    
-                    if (isDraggingSidebar) {
-                        if (action == MotionEvent.ACTION_MOVE) {
-                            float dx = x - dragStartX;
-                            float newTranslation = dragStartTranslationX + dx;
-                            if (newTranslation < -AndroidUtilities.dp(72)) {
-                                newTranslation = -AndroidUtilities.dp(72);
-                            } else if (newTranslation > 0) {
-                                newTranslation = 0;
-                            }
-                            if (primeSidebarView != null) {
-                                primeSidebarView.setTranslationX(newTranslation);
-                            }
-                            View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
-                            if (abView != null) {
-                                abView.setTranslationX(newTranslation + AndroidUtilities.dp(72));
-                            }
-                            return true;
-                        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                            isDraggingSidebar = false;
-                            float currentTranslation = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
-                            if (currentTranslation > -AndroidUtilities.dp(36)) {
-                                setSidebarOpen(true, true);
-                            } else {
-                                setSidebarOpen(false, true);
-                            }
-                            return true;
+                }
+                
+                if (isDraggingSidebar) {
+                    if (action == MotionEvent.ACTION_MOVE) {
+                        float dx = x - dragStartX;
+                        float newTranslation = dragStartTranslationX + dx;
+                        if (newTranslation < -AndroidUtilities.dp(72)) {
+                            newTranslation = -AndroidUtilities.dp(72);
+                        } else if (newTranslation > 0) {
+                            newTranslation = 0;
                         }
-                    }
-                    
-                    if (isSidebarOpen) {
-                        if (action == MotionEvent.ACTION_UP) {
-                            float dx = x - dragStartX;
-                            float dy = y - dragStartY;
-                            if (Math.abs(dx) < AndroidUtilities.dp(5) && Math.abs(dy) < AndroidUtilities.dp(5)) {
-                                if (dragStartX > AndroidUtilities.dp(72)) {
-                                    setSidebarOpen(false, true);
-                                    return true;
-                                }
-                            }
+                        if (primeSidebarView != null) {
+                            primeSidebarView.setTranslationX(newTranslation);
+                        }
+                        View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
+                        if (abView != null) {
+                            abView.setTranslationX(newTranslation + AndroidUtilities.dp(72));
+                        }
+                        return true;
+                    } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                        isDraggingSidebar = false;
+                        float currentTranslation = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                        if (currentTranslation > -AndroidUtilities.dp(36)) {
+                            setSidebarOpen(true, true);
+                        } else {
+                            setSidebarOpen(false, true);
                         }
                         return true;
                     }
                 }
+                
+                if (isSidebarOpen) {
+                    if (action == MotionEvent.ACTION_UP && dragStartX > AndroidUtilities.dp(72)) {
+                        setSidebarOpen(false, true);
+                        return true;
+                    }
+                    return true;
+                }
+                
                 return super.onTouchEvent(ev);
             }
         };
@@ -6122,7 +6127,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         
         // Use custom Github Updater
         try {
-            org.telegram.ui.Components.GithubUpdater.checkForUpdates(this, org.telegram.messenger.BuildVars.BUILD_VERSION_STRING);
+            org.telegram.ui.Components.GithubUpdater.checkForUpdates(this, org.telegram.messenger.BuildVars.BUILD_VERSION_STRING, false);
         } catch (Exception e) {
             // ignore
         }

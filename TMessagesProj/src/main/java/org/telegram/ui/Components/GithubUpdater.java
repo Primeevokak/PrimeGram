@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -26,16 +27,37 @@ public class GithubUpdater {
 
     private static final String TAG = "GithubUpdater";
     private static final String GITHUB_REPO = "Primeevokak/PrimeGram";
+    private static final String PREFS_NAME = "primegram_updater";
+    private static final String KEY_LAST_CHECK = "last_check_time";
+    private static final String KEY_LATER_TIME = "later_time";
 
-    public static void checkForUpdates(Context context, String currentVersion) {
+    public static void checkForUpdates(Context context, String currentVersion, boolean isManual) {
         new Thread(() -> {
             try {
+                SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                
+                if (!isManual) {
+                    // If user pressed "Later", wait 24 hours
+                    long laterTime = prefs.getLong(KEY_LATER_TIME, 0);
+                    if (System.currentTimeMillis() - laterTime < 24 * 60 * 60 * 1000L) {
+                        return;
+                    }
+
+                    // Throttle background checks to once every 4 hours to avoid API limits
+                    long lastCheck = prefs.getLong(KEY_LAST_CHECK, 0);
+                    if (System.currentTimeMillis() - lastCheck < 4 * 60 * 60 * 1000L) {
+                        return;
+                    }
+                }
+                prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply();
+
                 URL url = new URL("https://api.github.com/repos/" + GITHUB_REPO + "/releases/latest");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
 
-                if (conn.getResponseCode() == 200) {
+                int responseCode = conn.getResponseCode();
+                if (responseCode == 200) {
                     BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder response = new StringBuilder();
                     String line;
@@ -48,47 +70,83 @@ public class GithubUpdater {
                     String latestVersion = json.getString("tag_name");
 
                     if (isNewerVersion(currentVersion, latestVersion)) {
+                        String downloadedVersion = prefs.getString("downloaded_version", "");
+                        if (!isManual && latestVersion.equals(downloadedVersion)) {
+                            // Already downloaded, don't redownload or annoy on auto check
+                            return;
+                        }
+
                         JSONArray assets = json.getJSONArray("assets");
                         if (assets.length() > 0) {
                             String downloadUrl = assets.getJSONObject(0).getString("browser_download_url");
-                            Log.d(TAG, "Update available: " + latestVersion + ". URL: " + downloadUrl);
+                            android.util.Log.d(TAG, "Update available: " + latestVersion + ". URL: " + downloadUrl);
+                            
+                            SharedPreferences mainPrefs = context.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                            boolean autoUpdate = mainPrefs.getBoolean("primegram_auto_updates", false);
                             
                             org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
-                                try {
-                                    org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(context);
-                                    builder.setTitle("Доступно обновление");
-                                    builder.setMessage("Вышла новая версия PrimeGram (" + latestVersion + "). Хотите скачать и установить её сейчас?");
-                                    builder.setPositiveButton("Обновить", (dialogInterface, i) -> {
-                                        downloadAndInstallUpdate(context, downloadUrl);
-                                    });
-                                    builder.setNegativeButton("Позже", null);
-                                    builder.show();
-                                } catch (Exception e) {
-                                    Log.e(TAG, "Failed to show update dialog", e);
+                                if (autoUpdate && !isManual) {
+                                    downloadAndInstallUpdate(context, downloadUrl, latestVersion);
+                                    android.widget.Toast.makeText(context, "Скачивание обновления PrimeGram...", android.widget.Toast.LENGTH_SHORT).show();
+                                } else {
+                                    try {
+                                        org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(context);
+                                        builder.setTitle("Доступно обновление");
+                                        builder.setMessage("Вышла новая версия PrimeGram (" + latestVersion + "). Хотите скачать и установить её?");
+                                        builder.setPositiveButton("Обновить", (dialogInterface, i) -> {
+                                            downloadAndInstallUpdate(context, downloadUrl, latestVersion);
+                                        });
+                                        builder.setNegativeButton("Позже", (dialogInterface, i) -> {
+                                            prefs.edit().putLong(KEY_LATER_TIME, System.currentTimeMillis()).apply();
+                                        });
+                                        builder.show();
+                                    } catch (Exception e) {
+                                        android.util.Log.e(TAG, "Failed to show update dialog", e);
+                                    }
                                 }
                             });
                         }
+                    } else {
+                        prefs.edit().remove("downloaded_version").apply();
+                        if (isManual) {
+                            org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
+                                android.widget.Toast.makeText(context, "У вас установлена актуальная версия.", android.widget.Toast.LENGTH_SHORT).show();
+                            });
+                        }
+                    }
+                } else {
+                    if (isManual) {
+                        org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
+                            android.widget.Toast.makeText(context, "Ошибка проверки обновлений. Код: " + responseCode, android.widget.Toast.LENGTH_SHORT).show();
+                        });
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Failed to check for updates", e);
+                android.util.Log.e(TAG, "Failed to check for updates", e);
+                if (isManual) {
+                    org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
+                        android.widget.Toast.makeText(context, "Ошибка сети при проверке обновлений.", android.widget.Toast.LENGTH_SHORT).show();
+                    });
+                }
             }
         }).start();
     }
 
-    public static void downloadAndInstallUpdate(Context context, String downloadUrl) {
-        DownloadManager.Request request = new DownloadManager.Request(Uri.parse(downloadUrl));
+    public static void downloadAndInstallUpdate(Context context, String downloadUrl, String latestVersion) {
+        android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse(downloadUrl));
         request.setTitle("Обновление PrimeGram");
         request.setDescription("Скачивание новой версии...");
-        request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "PrimeGram-update.apk");
-        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+        request.setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, "PrimeGram-update.apk");
+        request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
 
-        DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+        android.app.DownloadManager manager = (android.app.DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         long downloadId = manager.enqueue(request);
 
-        BroadcastReceiver onComplete = new BroadcastReceiver() {
-            public void onReceive(Context ctxt, Intent intent) {
-                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString("downloaded_version", latestVersion).apply();
+
+        android.content.BroadcastReceiver onComplete = new android.content.BroadcastReceiver() {
+            public void onReceive(Context ctxt, android.content.Intent intent) {
+                long id = intent.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
                 if (downloadId == id) {
                     installApk(context, downloadId);
                     context.unregisterReceiver(this);
@@ -96,10 +154,10 @@ public class GithubUpdater {
             }
         };
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(onComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(onComplete, new android.content.IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED);
         } else {
-            context.registerReceiver(onComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+            context.registerReceiver(onComplete, new android.content.IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE));
         }
     }
 
@@ -132,7 +190,6 @@ public class GithubUpdater {
 
     private static Uri getUriFromFile(Context context, File file) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // Требуется настроенный FileProvider в AndroidManifest.xml
             return FileProvider.getUriForFile(context, context.getPackageName() + ".provider", file);
         } else {
             return Uri.fromFile(file);
@@ -140,9 +197,26 @@ public class GithubUpdater {
     }
 
     private static boolean isNewerVersion(String current, String latest) {
-        // Упрощенная логика сравнения: удаляем 'v' и сравниваем
-        current = current.replace("v", "").replace("-beta", "");
-        latest = latest.replace("v", "").replace("-beta", "");
-        return latest.compareTo(current) > 0;
+        try {
+            current = current.replaceAll("[^0-9.]", "");
+            latest = latest.replaceAll("[^0-9.]", "");
+            
+            if (latest.isEmpty()) return false;
+            if (current.isEmpty()) return true;
+
+            String[] cParts = current.split("\\.");
+            String[] lParts = latest.split("\\.");
+            
+            int length = Math.max(cParts.length, lParts.length);
+            for (int i = 0; i < length; i++) {
+                int c = i < cParts.length && !cParts[i].isEmpty() ? Integer.parseInt(cParts[i]) : 0;
+                int l = i < lParts.length && !lParts[i].isEmpty() ? Integer.parseInt(lParts[i]) : 0;
+                if (l > c) return true;
+                if (l < c) return false;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing version", e);
+        }
+        return false;
     }
 }
