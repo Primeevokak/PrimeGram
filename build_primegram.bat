@@ -25,4 +25,3 @@ if %ERRORLEVEL% equ 0 (
     echo BUILD FAILED with error code %ERRORLEVEL%
     echo ===================================================
 )
-pause
