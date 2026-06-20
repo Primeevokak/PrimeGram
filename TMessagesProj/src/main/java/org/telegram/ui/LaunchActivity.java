@@ -9311,7 +9311,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private LinearLayout sidebarAccountsContainer;
 
     private boolean isSidebarEnabled() {
-        return MessagesController.getGlobalMainSettings().getBoolean("primegram_sidebar_enabled", false);
+        return MessagesController.getGlobalMainSettings().getBoolean("primegram_sidebar_enabled", true);
     }
 
     private boolean isSidebarActiveOnScreen() {
@@ -9322,7 +9322,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     public void updateSidebarVisibility() {
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", false);
+        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
         boolean isMainScreen = (currentFragment instanceof DialogsActivity || currentFragment instanceof MainTabsActivity);
