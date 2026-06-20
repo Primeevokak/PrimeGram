@@ -9439,7 +9439,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // 0. Browser Button
         ImageView browserButton = createSidebarIcon(context, R.drawable.msg_language, "Браузер", v -> {
             presentFragment(new org.telegram.ui.PrimeBrowserActivity(""));
-            setPrimeSidebarVisible(false, true);
+            setSidebarOpen(false, true);
         });
         bottomContainer.addView(browserButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
@@ -9450,7 +9450,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             } catch (Exception e) {
                 FileLog.e(e);
             }
-            setPrimeSidebarVisible(false, true);
+            setSidebarOpen(false, true);
         });
         bottomContainer.addView(walletButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
@@ -9464,7 +9464,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             Bundle args = new Bundle();
             args.putLong("dialog_id", UserConfig.getInstance(currentAccount).clientUserId);
             presentFragment(new ChatActivity(args));
-            setPrimeSidebarVisible(false, true);
+            setSidebarOpen(false, true);
         });
         bottomContainer.addView(savedMessagesButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
         
