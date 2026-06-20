@@ -9317,7 +9317,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private boolean isSidebarActiveOnScreen() {
         if (!isSidebarEnabled()) return false;
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
-        return (currentFragment instanceof DialogsActivity || currentFragment instanceof MainTabsActivity);
+        if (currentFragment instanceof MainTabsActivity) {
+            return ((MainTabsActivity) currentFragment).getCurrentVisibleFragment() instanceof DialogsActivity;
+        }
+        return (currentFragment instanceof DialogsActivity);
     }
 
     public void updateSidebarVisibility() {
@@ -9325,7 +9328,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
-        boolean isMainScreen = (currentFragment instanceof DialogsActivity || currentFragment instanceof MainTabsActivity);
+        boolean isMainScreen = currentFragment instanceof DialogsActivity;
+        if (currentFragment instanceof MainTabsActivity) {
+            isMainScreen = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment() instanceof DialogsActivity;
+        }
         
         boolean show = sidebarEnabled && isMainScreen;
         
