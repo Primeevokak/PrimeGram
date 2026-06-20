@@ -94,7 +94,9 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         });
 
         listView.setClipToPadding(false);
-        listView.setPadding(0, org.telegram.ui.ActionBar.ActionBar.getCurrentActionBarHeight() + AndroidUtilities.dp(4), 0, AndroidUtilities.dp(8));
+        int topPadding = org.telegram.ui.ActionBar.ActionBar.getCurrentActionBarHeight();
+        if (topPadding == 0) topPadding = AndroidUtilities.dp(56);
+        listView.setPadding(0, topPadding + AndroidUtilities.dp(4), 0, AndroidUtilities.dp(80));
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         listView.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -176,7 +178,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 for (TLRPC.Dialog d : unreadDialogs) {
                     int limit = Math.min(d.unread_count, 50);
                     org.telegram.SQLite.SQLiteCursor cursor = database.queryFinalized(
-                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages_v2 WHERE uid = %d ORDER BY mid DESC LIMIT %d", d.id, limit));
+                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages_v2 WHERE uid = %d AND mid > %d ORDER BY mid DESC LIMIT 50", d.id, d.read_inbox_max_id));
                     
                     while (cursor.next()) {
                         org.telegram.tgnet.NativeByteBuffer data = cursor.byteBufferValue(0);
