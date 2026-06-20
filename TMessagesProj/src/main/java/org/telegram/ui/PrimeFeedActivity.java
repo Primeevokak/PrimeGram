@@ -189,8 +189,6 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                             message.dialog_id = d.id;
                             
                             MessageObject obj = new MessageObject(currentAccount, message, true, false);
-                            // Set folder ID to identify if it's archived
-                            obj.messageOwner.folder_id = d.folder_id; 
                             msgs.add(obj);
                         }
                     }
@@ -199,8 +197,10 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
 
                 // Sort: Archive messages at the bottom (oldest), then sort by date descending
                 Collections.sort(msgs, (a, b) -> {
-                    boolean aArchived = a.messageOwner.folder_id == 1;
-                    boolean bArchived = b.messageOwner.folder_id == 1;
+                    TLRPC.Dialog dA = mc.dialogs_dict.get(a.getDialogId());
+                    TLRPC.Dialog dB = mc.dialogs_dict.get(b.getDialogId());
+                    boolean aArchived = (dA != null && dA.folder_id == 1);
+                    boolean bArchived = (dB != null && dB.folder_id == 1);
                     if (aArchived != bArchived) {
                         return aArchived ? 1 : -1; // Archive goes to the bottom
                     }
