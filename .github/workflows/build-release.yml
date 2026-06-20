@@ -52,8 +52,11 @@ jobs:
           path: PrimeGram.apk
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest Release
           files: PrimeGram.apk
+          name: PrimeGram ${{ github.ref_name }}
+          body: "Автоматическая сборка релиза ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
