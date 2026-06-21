@@ -1443,6 +1443,7 @@ public class TgWsProxyService extends Service {
                                    SSLSocket tlsSocket, InputStream wsIn, OutputStream wsOut,
                                    CryptoCtx ctx, MsgSplitter splitter) {
         AtomicBoolean closed = new AtomicBoolean(false);
+        MsgSplitter wsSplitter = new MsgSplitter(PROTO_INTERMEDIATE_INT);
 
         // Reset read timeouts to 0 (infinite) during active relay bridge,
         // relying on WebSocket keepalive ping/pong and TCP keepalive.
@@ -1551,20 +1552,12 @@ public class TgWsProxyService extends Service {
                 }
                 
                 // Repackage Intermediate -> Abridged for the Client
-                int offset = 0;
-                while (offset < plainChunkDecrypted.length) {
-                    if (offset + 4 > plainChunkDecrypted.length) break;
-                    int payloadLen = ((plainChunkDecrypted[offset + 3] & 0xFF) << 24) |
-                                     ((plainChunkDecrypted[offset + 2] & 0xFF) << 16) |
-                                     ((plainChunkDecrypted[offset + 1] & 0xFF) << 8) |
-                                      (plainChunkDecrypted[offset] & 0xFF);
-                    
-                    offset += 4;
-                    if (offset + payloadLen > plainChunkDecrypted.length) break;
+                List<byte[]> serverPackets = wsSplitter.split(plainChunkDecrypted);
+                for (byte[] serverPlain : serverPackets) {
+                    int payloadLen = serverPlain.length - 4;
                     
                     byte[] payload = new byte[payloadLen];
-                    System.arraycopy(plainChunkDecrypted, offset, payload, 0, payloadLen);
-                    offset += payloadLen;
+                    System.arraycopy(serverPlain, 4, payload, 0, payloadLen);
                     
                     // Format as Abridged
                     int words = payloadLen / 4;
