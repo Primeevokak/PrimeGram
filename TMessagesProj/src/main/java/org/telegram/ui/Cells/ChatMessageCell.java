@@ -13646,9 +13646,6 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             resultHeight
         );
 
-        // Pre-calculate internal text/background layouts during measurement
-        // so they are ready before any draw pass.
-        onLayout(false, 0, 0, getMeasuredWidth(), getMeasuredHeight());
     }
 
     private int additionalPaddingHeight;
