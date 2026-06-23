@@ -1,0 +1,23 @@
+# How to build libXray.aar
+
+Requirements: Go 1.21+, Android SDK, Android NDK
+
+1. Install gomobile:
+   go install golang.org/x/mobile/cmd/gomobile@latest
+   gomobile init
+
+2. Clone libxray:
+   git clone https://github.com/xtls/libxray
+   cd libxray
+
+3. Build AAR:
+   gomobile bind -target android -androidapi 21 -o libXray.aar .
+
+4. Copy result here:
+   cp libXray.aar <project>/vpn/proxy/libs/
+
+The AAR provides Java class: libXray.LibXray with static methods:
+  - runXrayFromJSON(String base64Request) -> String
+  - stopXray() -> String
+  - getXrayState() -> boolean
+  - registerDialerController(DialerController) -> void  (optional, for VPN fd protection)

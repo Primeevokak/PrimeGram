@@ -21,7 +21,7 @@ dependencies {
 }
 
 android {
-    compileSdkVersion 35
+    compileSdkVersion 36
     buildToolsVersion '35.0.0'
 
     defaultConfig.applicationId = APP_PACKAGE
@@ -171,7 +171,7 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 21
+        minSdkVersion 24
         targetSdkVersion 35
         versionName APP_VERSION_NAME
         ndkVersion "27.2.12479018"
@@ -199,3 +199,5 @@ android {
 }
 
 apply plugin: 'com.google.gms.google-services'
+
+

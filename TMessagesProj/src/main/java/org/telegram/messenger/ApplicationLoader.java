@@ -38,6 +38,7 @@ import com.google.android.gms.common.GooglePlayServicesUtil;
 import org.json.JSONObject;
 import org.telegram.messenger.voip.VideoCapturerDevice;
 import org.telegram.tgnet.ConnectionsManager;
+import vpn.sdk.VpnSDK;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.ForegroundDetector;
@@ -309,6 +310,8 @@ public class ApplicationLoader extends Application {
 
         super.onCreate();
 
+        VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
+
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("app start time = " + (startTime = SystemClock.elapsedRealtime()));
             try {
@@ -365,6 +368,15 @@ public class ApplicationLoader extends Application {
 
         LauncherIconController.tryFixLauncherIconIfNeeded();
         ProxyRotationController.init();
+    }
+
+    public static void applyXrayProxyToConnectionsManager() {
+        ConnectionsManager.setProxySettings(
+                true,
+                VpnSDK.getProxySocksHost(),
+                VpnSDK.getProxySocksPort(),
+                "", "", ""
+        );
     }
 
     public static void startPushService() {

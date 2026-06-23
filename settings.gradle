@@ -4,3 +4,5 @@ include ':TMessagesProj'
 // include ':TMessagesProj_AppHockeyApp'
 include ':TMessagesProj_AppStandalone'
 // include ':TMessagesProj_AppTests'
+
+includeBuild('vpn')

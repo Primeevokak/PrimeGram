@@ -17,6 +17,7 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.Theme;
+import vpn.sdk.VpnSDK;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.UItem;
@@ -43,6 +44,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_CHECK_UPDATES = 15;
     private static final int ID_FEED_EXCLUDE_MUTED = 16;
     private static final int ID_FEED_EXCLUDE_ARCHIVED = 17;
+    private static final int ID_EMERGENCY_PROXY = 18;
     @Override
     protected CharSequence getTitle() {
         return "Настройки PrimeGram";
@@ -57,6 +59,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         checkItem.checked = sidebarEnabled;
         items.add(checkItem);
         items.add(UItem.asShadow("Отображает стильную вертикальную боковую панель на главном экране списка чатов для быстрого доступа к переключению аккаунтов, кошельку, прокси и настройкам."));
+
+        items.add(UItem.asHeader("Соединение"));
+        UItem proxyItem = UItem.asCheck(ID_EMERGENCY_PROXY, "Аварийный VLESS-прокси");
+        proxyItem.checked = VpnSDK.isProxyRunning();
+        items.add(proxyItem);
+        items.add(UItem.asShadow("В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси (AmneziaWG) для обхода блокировок."));
 
         items.add(UItem.asHeader("Лента"));
         boolean feedExcludeMuted = preferences.getBoolean("primegram_feed_exclude_muted", false);
@@ -118,6 +126,21 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             
             if (LaunchActivity.instance != null) {
                 LaunchActivity.instance.updateSidebarVisibility();
+            }
+            listView.adapter.update(true);
+        } else if (item.id == ID_EMERGENCY_PROXY) {
+            if (VpnSDK.isProxyRunning()) {
+                VpnSDK.stopProxy();
+                listView.adapter.update(true);
+            } else {
+                VpnSDK.registerOrAuth(2, success -> {
+                    if (success) {
+                        ApplicationLoader.applyXrayProxyToConnectionsManager();
+                        if (listView != null && listView.adapter != null) {
+                            listView.adapter.update(true);
+                        }
+                    }
+                });
             }
             listView.adapter.update(true);
         } else if (item.id == ID_AUTO_UPDATES) {
