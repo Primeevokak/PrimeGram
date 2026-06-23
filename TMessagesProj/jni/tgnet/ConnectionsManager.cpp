@@ -2253,6 +2253,7 @@ void ConnectionsManager::receivedCaptchaResult(int32_t requestTokensCount, int32
 
                     processRequestQueue(request->connectionType, request->datacenterId);
 
+                    delete[] requestTokens;
                     return;
                 }
             }

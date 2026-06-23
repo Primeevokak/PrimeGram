@@ -3932,7 +3932,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                         fadePaint = new Paint();
                         fadePaint.setShader(new LinearGradient(0, 0, dp(24), 0, new int[]{0xffffffff, 0}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
                         fadePaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
-                    } else if (fadePaintBack == null) {
+                    }
+                    if (!nameLayoutEllipsizeLeft && fadePaintBack == null) {
                         fadePaintBack = new Paint();
                         fadePaintBack.setShader(new LinearGradient(0, 0, dp(24), 0, new int[]{0, 0xffffffff}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
                         fadePaintBack.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));

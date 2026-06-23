@@ -45,6 +45,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_FEED_EXCLUDE_MUTED = 16;
     private static final int ID_FEED_EXCLUDE_ARCHIVED = 17;
     private static final int ID_EMERGENCY_PROXY = 18;
+    private static final int ID_HW_ACCEL = 19;
     @Override
     protected CharSequence getTitle() {
         return "Настройки PrimeGram";
@@ -65,6 +66,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         proxyItem.checked = VpnSDK.isProxyRunning();
         items.add(proxyItem);
         items.add(UItem.asShadow("В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси (AmneziaWG) для обхода блокировок."));
+
+        items.add(UItem.asHeader("Экспериментальные настройки"));
+        boolean hwAccel = preferences.getBoolean("primegram_hw_accel", false);
+        UItem hwAccelItem = UItem.asCheck(ID_HW_ACCEL, "Аппаратное ускорение (MediaCodec/OpenGL)");
+        hwAccelItem.checked = hwAccel;
+        items.add(hwAccelItem);
+        items.add(UItem.asShadow("Включает обработку видео, стикеров и эффектов размытия на видеоядре вместо центрального процессора. Заметно экономит батарею, но может вызвать артефакты на несовместимых устройствах."));
 
         items.add(UItem.asHeader("Лента"));
         boolean feedExcludeMuted = preferences.getBoolean("primegram_feed_exclude_muted", false);
@@ -147,6 +155,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             boolean enabled = preferences.getBoolean("primegram_auto_updates", false);
             preferences.edit().putBoolean("primegram_auto_updates", !enabled).apply();
+            listView.adapter.update(true);
+        } else if (item.id == ID_HW_ACCEL) {
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            boolean enabled = preferences.getBoolean("primegram_hw_accel", false);
+            preferences.edit().putBoolean("primegram_hw_accel", !enabled).apply();
             listView.adapter.update(true);
         } else if (item.id == ID_FEED_EXCLUDE_MUTED) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
