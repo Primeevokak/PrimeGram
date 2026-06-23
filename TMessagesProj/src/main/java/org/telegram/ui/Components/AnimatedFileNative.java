@@ -3,12 +3,16 @@ package org.telegram.ui.Components;
 import android.graphics.Bitmap;
 import android.os.Build;
 
+import android.content.SharedPreferences;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.AnimatedFileDrawableStream;
 
 public class AnimatedFileNative {
 
     public static long createDecoder(String src, int[] params, int account, long streamFileSize, AnimatedFileDrawableStream readCallback, boolean preview) {
-        return nCreateDecoder(src, params, account, streamFileSize, readCallback, preview);
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        boolean hwAccel = preferences.getBoolean("primegram_hw_accel", false);
+        return nCreateDecoder(src, params, account, streamFileSize, readCallback, preview, hwAccel);
     }
 
     public static void destroyDecoder(long ptr) {
@@ -41,7 +45,7 @@ public class AnimatedFileNative {
 
 
 
-    private static native long nCreateDecoder(String src, int[] params, int account, long streamFileSize, Object readCallback, boolean preview);
+    private static native long nCreateDecoder(String src, int[] params, int account, long streamFileSize, Object readCallback, boolean preview, boolean hwAccel);
 
     private static native void nDestroyDecoder(long ptr);
 

@@ -200,6 +200,7 @@ add_library(tgnet STATIC
         tgnet/MTProtoScheme.cpp
         tgnet/NativeByteBuffer.cpp
         tgnet/Request.cpp
+        tgnet/ThreadPool.cpp
         tgnet/Timer.cpp
         tgnet/TLObject.cpp
         tgnet/ProxyCheckInfo.cpp
@@ -647,6 +648,7 @@ target_link_libraries(${NATIVE_LIB}
         flac
         rlottie
         sqlite
+        mediandk
         swscale
         avformat
         avcodec

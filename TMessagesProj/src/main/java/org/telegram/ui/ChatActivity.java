@@ -18208,6 +18208,12 @@ public class ChatActivity extends BaseFragment implements
                     blurredViewBottomOffset = recommendedAdditionalSizeY;
                 }
             }
+            if (fixPaddingsInLayout) {
+                fixPaddingsInLayout = false;
+                invalidateChatListViewTopPadding();
+                invalidateMessagesVisiblePart();
+                updateChatListViewTopPadding();
+            }
             for (int i = 0; i < childCount; i++) {
                 View child = getChildAt(i);
 
@@ -18302,14 +18308,6 @@ public class ChatActivity extends BaseFragment implements
                 } else {
                     measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, 0);
                 }
-            }
-            if (fixPaddingsInLayout) {
-                globalIgnoreLayout = true;
-                invalidateChatListViewTopPadding();
-                invalidateMessagesVisiblePart();
-                fixPaddingsInLayout = false;
-                chatListView.measure(View.MeasureSpec.makeMeasureSpec(chatListView.getMeasuredWidth(), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(chatListView.getMeasuredHeight(), View.MeasureSpec.EXACTLY));
-                globalIgnoreLayout = false;
             }
             if (scrollToPositionOnRecreate != -1) {
                 final int scrollTo = scrollToPositionOnRecreate;

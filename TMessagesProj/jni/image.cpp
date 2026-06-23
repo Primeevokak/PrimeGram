@@ -513,12 +513,332 @@ JNIEXPORT int Java_org_telegram_messenger_Utilities_needInvert(JNIEnv *env, jcla
     return hasAlpha && matching / total > 0.85;
 }
 
+#include <dlfcn.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <GLES3/gl3ext.h>
+
+struct AHardwareBuffer;
+typedef int (*PFN_AndroidBitmap_getHardwareBuffer)(JNIEnv*, jobject, AHardwareBuffer**);
+typedef void (*PFN_AHardwareBuffer_release)(AHardwareBuffer*);
+
+typedef EGLClientBuffer (*PFNEGLGETNATIVECLIENTBUFFERANDROID)(const AHardwareBuffer* buffer);
+typedef EGLImageKHR (*PFNEGLCREATEIMAGEKHR)(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer, const EGLint* attrib_list);
+typedef EGLBoolean (*PFNEGLDESTROYIMAGEKHR)(EGLDisplay dpy, EGLImageKHR image);
+typedef void (*PFNGLEGLIMAGETARGETTEXTURE2DOES)(GLenum target, void* image);
+
+static const char* BLUR_VERTEX_SHADER = R"(#version 300 es
+in vec2 a_position;
+in vec2 a_texCoord;
+out vec2 v_texCoord;
+void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    v_texCoord = a_texCoord;
+}
+)";
+
+static const char* BLUR_FRAGMENT_SHADER = R"(#version 300 es
+precision mediump float;
+in vec2 v_texCoord;
+out vec4 outColor;
+uniform sampler2D u_texture;
+uniform vec2 u_texOffset;
+uniform int u_radius;
+
+void main() {
+    vec4 color = vec4(0.0);
+    float totalWeight = 0.0;
+    for (int i = -u_radius; i <= u_radius; ++i) {
+        float weight = float(u_radius - abs(i) + 1);
+        color += texture(u_texture, v_texCoord + float(i) * u_texOffset) * weight;
+        totalWeight += weight;
+    }
+    outColor = color / totalWeight;
+}
+)";
+
+static GLuint compileShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+    GLint compiled;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    if (!compiled) {
+        glDeleteShader(shader);
+        return 0;
+    }
+    return shader;
+}
+
+static GLuint createProgram(const char* vertexSource, const char* fragmentSource) {
+    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
+    if (!vertexShader) return 0;
+    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+    if (!fragmentShader) {
+        glDeleteShader(vertexShader);
+        return 0;
+    }
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertexShader);
+    glAttachShader(program, fragmentShader);
+    glLinkProgram(program);
+    GLint linked;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        glDeleteProgram(program);
+        return 0;
+    }
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    return program;
+}
+
+static bool hardwareBlur(JNIEnv *env, jobject bitmap, int radius, int width, int height, int stride) {
+    static bool dlsym_attempted = false;
+    static PFN_AndroidBitmap_getHardwareBuffer getHardwareBuffer = nullptr;
+    static PFN_AHardwareBuffer_release releaseHardwareBuffer = nullptr;
+    
+    if (!dlsym_attempted) {
+        void* libjnigraphics = dlopen("libjnigraphics.so", RTLD_LAZY);
+        if (libjnigraphics) {
+            getHardwareBuffer = (PFN_AndroidBitmap_getHardwareBuffer)dlsym(libjnigraphics, "AndroidBitmap_getHardwareBuffer");
+        }
+        void* libandroid = dlopen("libandroid.so", RTLD_LAZY);
+        if (libandroid) {
+            releaseHardwareBuffer = (PFN_AHardwareBuffer_release)dlsym(libandroid, "AHardwareBuffer_release");
+        }
+        dlsym_attempted = true;
+    }
+    
+    if (!getHardwareBuffer || !releaseHardwareBuffer) return false;
+
+    AHardwareBuffer* hwBuffer = nullptr;
+    if (getHardwareBuffer(env, bitmap, &hwBuffer) != 0 || hwBuffer == nullptr) {
+        return false;
+    }
+
+    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (display == EGL_NO_DISPLAY) {
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    EGLint major, minor;
+    if (!eglInitialize(display, &major, &minor)) {
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    const EGLint configAttribs[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_NONE
+    };
+
+    EGLConfig config;
+    EGLint numConfigs;
+    if (!eglChooseConfig(display, configAttribs, &config, 1, &numConfigs) || numConfigs < 1) {
+        eglTerminate(display);
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    const EGLint contextAttribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 3,
+        EGL_NONE
+    };
+    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
+    if (context == EGL_NO_CONTEXT) {
+        eglTerminate(display);
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    const EGLint pbufferAttribs[] = {
+        EGL_WIDTH, 1,
+        EGL_HEIGHT, 1,
+        EGL_NONE
+    };
+    EGLSurface surface = eglCreatePbufferSurface(display, config, pbufferAttribs);
+    if (surface == EGL_NO_SURFACE) {
+        eglDestroyContext(display, context);
+        eglTerminate(display);
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    if (!eglMakeCurrent(display, surface, surface, context)) {
+        eglDestroySurface(display, surface);
+        eglDestroyContext(display, context);
+        eglTerminate(display);
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    auto eglGetNativeClientBufferANDROID = (PFNEGLGETNATIVECLIENTBUFFERANDROID)eglGetProcAddress("eglGetNativeClientBufferANDROID");
+    auto eglCreateImageKHR = (PFNEGLCREATEIMAGEKHR)eglGetProcAddress("eglCreateImageKHR");
+    auto eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHR)eglGetProcAddress("eglDestroyImageKHR");
+    auto glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOES)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+
+    if (!eglGetNativeClientBufferANDROID || !eglCreateImageKHR || !eglDestroyImageKHR || !glEGLImageTargetTexture2DOES) {
+        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroySurface(display, surface);
+        eglDestroyContext(display, context);
+        eglTerminate(display);
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    EGLClientBuffer clientBuffer = eglGetNativeClientBufferANDROID(hwBuffer);
+    if (!clientBuffer) {
+        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroySurface(display, surface);
+        eglDestroyContext(display, context);
+        eglTerminate(display);
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    const EGLint imageAttribs[] = {
+        EGL_IMAGE_PRESERVED_KHR, EGL_TRUE,
+        EGL_NONE
+    };
+    EGLImageKHR eglImage = eglCreateImageKHR(display, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, clientBuffer, imageAttribs);
+    if (!eglImage) {
+        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroySurface(display, surface);
+        eglDestroyContext(display, context);
+        eglTerminate(display);
+        releaseHardwareBuffer(hwBuffer);
+        return false;
+    }
+
+    bool success = true;
+
+    GLuint hwTexture;
+    glGenTextures(1, &hwTexture);
+    glBindTexture(GL_TEXTURE_2D, hwTexture);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, eglImage);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    GLuint intermediateTexture;
+    glGenTextures(1, &intermediateTexture);
+    glBindTexture(GL_TEXTURE_2D, intermediateTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    GLuint fbo[2];
+    glGenFramebuffers(2, fbo);
+    
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo[0]);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, intermediateTexture, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo[1]);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwTexture, 0);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        success = false;
+    }
+
+    GLuint program = 0;
+    if (success) {
+        program = createProgram(BLUR_VERTEX_SHADER, BLUR_FRAGMENT_SHADER);
+        if (!program) {
+            success = false;
+        }
+    }
+
+    if (success) {
+        glUseProgram(program);
+        GLint texLoc = glGetUniformLocation(program, "u_texture");
+        GLint offsetLoc = glGetUniformLocation(program, "u_texOffset");
+        GLint radiusLoc = glGetUniformLocation(program, "u_radius");
+        GLint posLoc = glGetAttribLocation(program, "a_position");
+        GLint uvLoc = glGetAttribLocation(program, "a_texCoord");
+
+        glUniform1i(texLoc, 0);
+        glUniform1i(radiusLoc, radius);
+
+        float vertices[] = {
+            -1.0f, -1.0f,   0.0f, 0.0f,
+             1.0f, -1.0f,   1.0f, 0.0f,
+            -1.0f,  1.0f,   0.0f, 1.0f,
+             1.0f,  1.0f,   1.0f, 1.0f
+        };
+
+        GLuint vao, vbo;
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(posLoc);
+        glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(uvLoc);
+        glVertexAttribPointer(uvLoc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+        glViewport(0, 0, width, height);
+
+        // Pass 1: Horizontal
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo[0]);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, hwTexture);
+        glUniform2f(offsetLoc, 1.0f / width, 0.0f);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        // Pass 2: Vertical
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo[1]);
+        glBindTexture(GL_TEXTURE_2D, intermediateTexture);
+        glUniform2f(offsetLoc, 0.0f, 1.0f / height);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        glFinish();
+
+        glDeleteBuffers(1, &vbo);
+        glDeleteVertexArrays(1, &vao);
+        glDeleteProgram(program);
+    }
+
+    glDeleteFramebuffers(2, fbo);
+    glDeleteTextures(1, &intermediateTexture);
+    glDeleteTextures(1, &hwTexture);
+    
+    eglDestroyImageKHR(display, eglImage);
+    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    eglDestroySurface(display, surface);
+    eglDestroyContext(display, context);
+    eglTerminate(display);
+    releaseHardwareBuffer(hwBuffer);
+
+    return success;
+}
+
 JNIEXPORT void Java_org_telegram_messenger_Utilities_blurBitmap(JNIEnv *env, jclass clazz, jobject bitmap, jint radius, jint unpin, jint width, jint height, jint stride) {
     if (!bitmap) {
         return;
     }
 
     if (!width || !height || !stride) {
+        return;
+    }
+
+    if (hardwareBlur(env, bitmap, radius, width, height, stride)) {
+        if (!unpin) {
+            void *ptr;
+            AndroidBitmap_lockPixels(env, bitmap, &ptr);
+        }
         return;
     }
 
@@ -676,6 +996,10 @@ JNIEXPORT void Java_org_telegram_messenger_Utilities_stackBlurBitmap(JNIEnv *env
     int w = info.width;
     int h = info.height;
     int stride = info.stride;
+
+    if (hardwareBlur(env, bitmap, radius, w, h, stride)) {
+        return;
+    }
 
     unsigned char *pixels = nullptr;
     AndroidBitmap_lockPixels(env, bitmap, (void **) &pixels);

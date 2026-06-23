@@ -13627,6 +13627,10 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             isWidthAdaptive() ? getBoundsRight() - getBoundsLeft() : MeasureSpec.getSize(widthMeasureSpec),
             resultHeight
         );
+
+        // Pre-calculate internal text/background layouts during measurement
+        // so they are ready before any draw pass.
+        onLayout(false, 0, 0, getMeasuredWidth(), getMeasuredHeight());
     }
 
     private int additionalPaddingHeight;
@@ -19958,9 +19962,6 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         if (currentMessageObject == null) {
             return;
         }
-        if (!wasLayout) {
-            onLayout(false, getLeft(), getTop(), getRight(), getBottom());
-        }
         if (enterTransitionInProgress && currentMessageObject.isAnimatedEmojiStickers()) {
             return;
         }
@@ -20191,13 +20192,6 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     public void drawBackgroundInternal(Canvas canvas, boolean fromParent) {
         if (currentMessageObject == null) {
             return;
-        }
-        if (!wasLayout && !animationRunning) {
-            forceLayout();
-            return;
-        }
-        if (!wasLayout || forcedLayout) {
-            onLayout(false, getLeft(), getTop(), getRight(), getBottom());
         }
         Drawable currentBackgroundShadowDrawable;
         int additionalTop = 0;
