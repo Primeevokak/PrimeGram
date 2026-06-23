@@ -1,39 +1,53 @@
-## Telegram messenger for Android
+# PrimeGram
 
-[Telegram](https://telegram.org) is a messaging app with a focus on speed and security. It’s superfast, simple and free.
-This repo contains the official source code for [Telegram App for Android](https://play.google.com/store/apps/details?id=org.telegram.messenger).
+*🇺🇸 Scroll down for English | 🇷🇺 Русская версия ниже*
 
-## Creating your Telegram Application
+---
 
-We welcome all developers to use our API and source code to create applications on our platform.
-There are several things we require from **all developers** for the moment.
+## 🇺🇸 English
 
-1. [**Obtain your own api_id**](https://core.telegram.org/api/obtaining_api_id) for your application.
-2. Please **do not** use the name Telegram for your app — or make sure your users understand that it is unofficial.
-3. Kindly **do not** use our standard logo (white paper plane in a blue circle) as your app's logo.
-3. Please study our [**security guidelines**](https://core.telegram.org/mtproto/security_guidelines) and take good care of your users' data and privacy.
-4. Please remember to publish **your** code too in order to comply with the licences.
+**PrimeGram** is an advanced, highly optimized fork of the official [Telegram App for Android](https://play.google.com/store/apps/details?id=org.telegram.messenger). 
+Our primary focus is delivering maximum performance, reducing battery consumption, seamlessly bypassing censorship, and providing a clean, extended user experience without aggressive tracking.
 
-### API, Protocol documentation
+### 🔥 Key Features
 
-Telegram API manuals: https://core.telegram.org/api
+* **Built-in Anti-Censorship:** Includes an integrated proxy service that allows you to connect automatically, even in heavily restricted networks.
+* **Smart Channel Feed ("The Wall"):** A custom feed that combines all unread posts from your favorite channels into a single, unified timeline.
+* **In-app Browser:** A fast, integrated browser with customizable search engines (Google, etc.) so you don't have to leave the app to read articles or open links.
+* **Battery & Performance Optimization:** Video decoding and heavy UI blur effects are fully hardware-accelerated. This drastically lowers CPU usage, saves battery life, and prevents your device from overheating.
+* **Super-Fast Networking:** Massive file downloads and heavy media loading will no longer freeze the app thanks to our optimized multi-threaded network engine.
+* **120fps Smooth Scrolling:** We've patched various layout bottlenecks from the original Telegram app to ensure buttery-smooth scrolling in chats.
+* **Enhanced Privacy:** We removed aggressive permission requests on startup. Furthermore, your authorization tokens are **no longer** backed up to the Google Cloud.
+* **Built-in Auto-Updater:** Automatically fetches and installs the latest PrimeGram updates directly from GitHub.
+* **Custom Sidebar:** A tailored navigation sidebar for quicker access to your favorite features.
 
-MTproto protocol manuals: https://core.telegram.org/mtproto
+### 🛠 Compilation Guide
+You will require Android Studio, Android NDK, and Android SDK.
+1. Clone the repository.
+2. Setup your `release.keystore`, `google-services.json`, and `BuildVars.java`.
+3. Run the custom build script (`.\build_primegram.bat`) or compile manually via Gradle.
 
-### Compilation Guide
+---
 
-**Note**: In order to support [reproducible builds](https://core.telegram.org/reproducible-builds), this repo contains dummy release.keystore,  google-services.json and filled variables inside BuildVars.java. Before publishing your own APKs please make sure to replace all these files with your own.
+## 🇷🇺 Русский
 
-You will require Android Studio 3.4, Android NDK rev. 20 and Android SDK 8.1
+**PrimeGram** — это продвинутый и глубоко оптимизированный форк официального [клиента Telegram для Android](https://play.google.com/store/apps/details?id=org.telegram.messenger).
+Наша главная цель: максимальная производительность, экономия заряда батареи, бесшовный обход блокировок и расширенный функционал без слежки и назойливых уведомлений.
 
-1. Download the Telegram source code from https://github.com/DrKLO/Telegram ( git clone https://github.com/DrKLO/Telegram.git )
-2. Copy your release.keystore into TMessagesProj/config
-3. Fill out RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_STORE_PASSWORD in gradle.properties to access your  release.keystore
-4.  Go to https://console.firebase.google.com/, create two android apps with application IDs org.telegram.messenger and org.telegram.messenger.beta, turn on firebase messaging and download google-services.json, which should be copied to the same folder as TMessagesProj.
-5. Open the project in the Studio (note that it should be opened, NOT imported).
-6. Fill out values in TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java – there’s a link for each of the variables showing where and which data to obtain.
-7. You are ready to compile Telegram.
+### 🔥 Главные фичи
 
-### Localization
+* **Встроенный обход блокировок:** Интегрированный прокси-сервис позволяет приложению автоматически обходить цензуру и подключаться даже в сетях с жесткими ограничениями.
+* **Умная лента ("Стена"):** Удобная лента, объединяющая все непрочитанные посты из ваших подписок в один общий скролл. Больше не нужно прыгать по десяткам каналов!
+* **Встроенный браузер:** Быстрый внутренний браузер с возможностью выбора поисковика. Открывайте ссылки и читайте статьи, не покидая мессенджер.
+* **Оптимизация батареи и видео:** Воспроизведение тяжелых видеороликов и эффекты размытия интерфейса теперь обрабатываются напрямую видеочипом (аппаратное ускорение). Телефон больше не греется, а заряд батареи экономится.
+* **Молниеносная загрузка файлов:** Благодаря переписанному сетевому движку, скачивание сотен файлов и тяжелого кэша больше не заставляет приложение зависать.
+* **Идеально плавный интерфейс:** Мы исправили системные баги оригинального Telegram, вызывавшие просадки кадров. Теперь скроллинг в чатах работает стабильно и плавно (вплоть до 120fps).
+* **Улучшенная приватность:** Отключены агрессивные запросы разрешений при старте приложения. Токены авторизации **больше не копируются** в облако Google (Cloud Backup полностью вырезан).
+* **Встроенное автообновление:** Приложение само проверяет, скачивает и устанавливает новые версии PrimeGram напрямую с GitHub.
+* **Кастомное боковое меню:** Переработанная навигация для самого быстрого доступа ко всем важным разделам.
 
-We moved all translations to https://translations.telegram.org/en/android/. Please use it.
+### 🛠 Инструкция по сборке
+Вам понадобится Android Studio, Android NDK и Android SDK.
+1. Склонируйте репозиторий.
+2. Настройте `release.keystore`, `google-services.json` и `BuildVars.java`.
+3. Запустите скрипт сборки (`.\build_primegram.bat`) или скомпилируйте проект вручную через Gradle.

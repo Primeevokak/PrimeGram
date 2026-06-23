@@ -257,6 +257,24 @@ import me.vkryl.core.BitwiseUtils;
 public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate, ImageReceiver.ImageReceiverDelegate,
         DownloadController.FileDownloadProgressListener, TextSelectionHelper.SelectableView,
         NotificationCenter.NotificationCenterDelegate, FactorAnimator.Target, IMessageCell {
+        
+    private static String[] pollPercentStrings;
+    private static int[] pollPercentWidths;
+    
+    private static void initPollPercents() {
+        if (pollPercentStrings == null) {
+            pollPercentStrings = new String[101];
+            pollPercentWidths = new int[101];
+            for (int i = 0; i <= 100; i++) {
+                pollPercentStrings[i] = String.format(Locale.US, "%d%%", i);
+                pollPercentWidths[i] = (int) Math.ceil(Theme.chat_instantViewPaint.measureText(pollPercentStrings[i]));
+            }
+        }
+    }
+    
+    private String lastLiveText;
+    private float lastLiveTextWidth;
+
     private final static int TIME_APPEAR_MS = 200;
     private final static int UPLOADING_ALLOWABLE_ERROR = 1024 * 1024;
     private final static int STICKER_STATUS_OFFSET = 6;
@@ -24839,7 +24857,11 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                             );
                             foreverDrawable.draw(canvas);
                         } else {
-                            float w = Theme.chat_livePaint.measureText(text);
+                            if (!text.equals(lastLiveText)) {
+                                lastLiveText = text;
+                                lastLiveTextWidth = Theme.chat_livePaint.measureText(text);
+                            }
+                            float w = lastLiveTextWidth;
                             int len = text.length();
                             final float s2 = (len > 4 ? .75f : (len > 3 ? .85f : 1f));
                             canvas.save();
@@ -25392,8 +25414,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     final boolean drawChosenCheckbox = button.chosen || button.prevChosen || lastPoll != null && lastPoll.quiz && button.correct && (pollVoted || pollClosed || pollResultsPreview || (pollHasVoteRestrictions && (!pollHideResults || pollHasResults)));
 
                     int currentPercent = MathUtils.clamp((int) Math.ceil(button.prevPercent + (button.percent - button.prevPercent) * pollAnimationProgress), 0, 100);
-                    String text = String.format("%d%%", currentPercent);
-                    int width = (int) Math.ceil(Theme.chat_instantViewPaint.measureText(text));
+                    initPollPercents();
+                    String text = pollPercentStrings[currentPercent];
+                    int width = pollPercentWidths[currentPercent];
                     canvas.drawText(text, -dp(6.5f) - width, dp(14) + (drawChosenCheckbox && button.title != null && button.title.getLineCount() < 2 ? resultsPollButtonOffset : 0), Theme.chat_instantViewPaint);
 
                     width = backgroundWidth - dp(76);
