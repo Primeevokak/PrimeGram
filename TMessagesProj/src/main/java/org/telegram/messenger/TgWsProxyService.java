@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.BufferedInputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -509,8 +510,8 @@ public class TgWsProxyService extends Service {
             return cipher.update(data);
         }
 
-        public void update(byte[] in, int inOff, int len, byte[] out, int outOff) throws Exception {
-            cipher.update(in, inOff, len, out, outOff);
+        public int update(byte[] in, int inOff, int len, byte[] out, int outOff) throws Exception {
+            return cipher.update(in, inOff, len, out, outOff);
         }
     }
 
@@ -649,24 +650,32 @@ public class TgWsProxyService extends Service {
         }
 
         public synchronized List<byte[]> split(byte[] chunk) {
-            if (chunk == null || chunk.length == 0) {
+            return split(chunk, 0, chunk != null ? chunk.length : 0);
+        }
+
+        public synchronized List<byte[]> split(byte[] chunk, int off, int len) {
+            if (chunk == null || len == 0) {
                 return new ArrayList<>();
             }
             if (disabled) {
                 List<byte[]> res = new ArrayList<>();
-                res.add(chunk);
+                byte[] copy = new byte[len];
+                System.arraycopy(chunk, off, copy, 0, len);
+                res.add(copy);
                 return res;
             }
 
-            if (bufLen + chunk.length > plainBuf.length) {
+            if (bufLen + len > plainBuf.length) {
                 disabled = true;
                 List<byte[]> res = new ArrayList<>();
-                res.add(chunk);
+                byte[] copy = new byte[len];
+                System.arraycopy(chunk, off, copy, 0, len);
+                res.add(copy);
                 return res;
             }
 
-            System.arraycopy(chunk, 0, plainBuf, bufLen, chunk.length);
-            bufLen += chunk.length;
+            System.arraycopy(chunk, off, plainBuf, bufLen, len);
+            bufLen += len;
 
             List<byte[]> parts = new ArrayList<>();
             int offset = 0;
@@ -1172,11 +1181,11 @@ public class TgWsProxyService extends Service {
                 return;
             }
 
-            InputStream wsIn = tlsSocket.getInputStream();
+            InputStream wsIn = new BufferedInputStream(tlsSocket.getInputStream(), 65536);
             OutputStream wsOut = tlsSocket.getOutputStream();
 
             // Отправляем relay init в WebSocket бинарном фрейме
-            sendWsFrame(wsOut, relayInit);
+            sendWsFrame(wsOut, relayInit, 0, relayInit.length);
             logInfo("Sent obfuscation handshake to remote WS");
 
             client.setKeepAlive(true);
@@ -1285,11 +1294,10 @@ public class TgWsProxyService extends Service {
         }
     }
 
-    private void sendWsFrame(OutputStream out, byte[] data) throws IOException {
+    private void sendWsFrame(OutputStream out, byte[] data, int off, int length) throws IOException {
         byte[] mask = new byte[4];
         RANDOM.nextBytes(mask);
 
-        int length = data.length;
         ByteBuffer header;
 
         if (length < 126) {
@@ -1309,13 +1317,12 @@ public class TgWsProxyService extends Service {
         }
         header.put(mask);
 
-        byte[] masked = new byte[length];
         for (int i = 0; i < length; i++) {
-            masked[i] = (byte) (data[i] ^ mask[i % 4]);
+            data[off + i] ^= mask[i % 4];
         }
 
         out.write(header.array());
-        out.write(masked);
+        out.write(data, off, length);
         out.flush();
     }
 
@@ -1450,57 +1457,42 @@ public class TgWsProxyService extends Service {
         try { client.setSoTimeout(0); } catch (Exception ignored) {}
         try { tlsSocket.setSoTimeout(0); } catch (Exception ignored) {}
 
-        // Thread: WebSocket PING keepalive (every 30 seconds)
-        Thread pinger = new Thread(() -> {
+        // PING keepalive (every 30 seconds)
+        java.util.concurrent.ScheduledFuture<?> pingerTask = PING_SCHEDULER.scheduleWithFixedDelay(() -> {
+            if (closed.get()) return;
             try {
-                while (!closed.get()) {
-                    Thread.sleep(30_000);
-                    if (closed.get()) break;
-                    synchronized (wsOut) {
-                        // WebSocket PING frame: FIN=1, Opcode=0x9, Masked=1, Payload len=0
-                        byte[] mask = new byte[4];
-                        RANDOM.nextBytes(mask);
-                        wsOut.write(new byte[]{
-                            (byte) 0x89, (byte) 0x80,
-                            mask[0], mask[1], mask[2], mask[3]
-                        });
-                        wsOut.flush();
-                    }
+                synchronized (wsOut) {
+                    byte[] mask = new byte[4];
+                    RANDOM.nextBytes(mask);
+                    wsOut.write(new byte[]{
+                        (byte) 0x89, (byte) 0x80,
+                        mask[0], mask[1], mask[2], mask[3]
+                    });
+                    wsOut.flush();
                 }
             } catch (Exception ignored) {
                 closed.set(true);
             }
-        });
-        pinger.setDaemon(true);
-        pinger.start();
+        }, 30, 30, java.util.concurrent.TimeUnit.SECONDS);
 
         // Thread: client -> WebSocket
-        // Используем сплиттер чтобы инспектировать пакеты и дропать msgs_ack во время
-        // неавторизованной фазы handshake — DC игнорирует их и закрывает соединение.
-        // После завершения handshake (auth_key установлен) — сплиттер отключён и данные
-        // проходят как есть.
         Thread toWs = new Thread(() -> {
             try {
                 byte[] buf = new byte[65536];
-                int n = 0;
-                int packetCount = 0;
+                byte[] decBuf = new byte[65536 + 64];
+                byte[] encBuf = new byte[65536 + 64];
+                int n;
                 while (!closed.get() && (n = in.read(buf)) > 0) {
-                    packetCount++;
-                    logInfo("Read packet #" + packetCount + " from client, size: " + n);
-                    byte[] plainChunk = ctx.cltDec.update(Arrays.copyOf(buf, n));
-                    if (plainChunk.length <= 500) {
+                    int decLen = ctx.cltDec.update(buf, 0, n, decBuf, 0);
+
+                    if (n <= 500) {
                         StringBuilder hex = new StringBuilder();
-                        for (byte b : plainChunk) hex.append(String.format("%02X ", b));
+                        for (int i = 0; i < n; i++) hex.append(String.format("%02X ", buf[i]));
                         logInfo("Decrypted client packet, hex: " + hex.toString());
                     }
 
-                    List<byte[]> packets = splitter.split(plainChunk);
+                    List<byte[]> packets = splitter.split(decBuf, 0, decLen);
                     for (byte[] plain : packets) {
-                        // if (isUnencryptedMsgsAck(plain)) {
-                        //     logInfo("Dropping unencrypted msgs_ack (size " + plain.length + ") to prevent DC disconnect");
-                        //     continue;
-                        // }
-
                         // Repackage Abridged -> Intermediate for the Server
                         int headerLen = (plain[0] == 0x7F) ? 4 : 1;
                         int payloadLen = plain.length - headerLen;
@@ -1512,20 +1504,19 @@ public class TgWsProxyService extends Service {
                         intermediate[3] = (byte) ((payloadLen >> 24) & 0xFF);
                         System.arraycopy(plain, headerLen, intermediate, 4, payloadLen);
 
-                        byte[] enc = ctx.tgEnc.update(intermediate);
-                        synchronized (wsOut) {
-                            sendWsFrame(wsOut, enc);
+                        int encLen = ctx.tgEnc.update(intermediate, 0, intermediate.length, encBuf, 0);
+                        if (encLen > 0) {
+                            synchronized (wsOut) {
+                                sendWsFrame(wsOut, encBuf, 0, encLen);
+                            }
                         }
-                        logInfo("Sent sub-packet to WS, size: " + enc.length);
                     }
                 }
-                logInfo("Client socket read EOF (read returned " + n + ")");
             } catch (Exception e) {
                 logError("Error in client-to-ws thread", e);
             } finally {
                 closed.set(true);
                 try { tlsSocket.close(); } catch (IOException ignored) {}
-                logInfo("client-to-ws thread finished, closed WebSocket");
             }
         });
         toWs.setDaemon(true);
@@ -1534,32 +1525,21 @@ public class TgWsProxyService extends Service {
         // Thread: WebSocket -> client
         final long sessionStartTime = System.currentTimeMillis();
         try {
-            int frameCount = 0;
+            byte[] decBuf = new byte[65536 + 64];
+            byte[] encBuf = new byte[65536 + 64];
             while (!closed.get()) {
                 byte[] frame = recvWsFrame(wsIn, wsOut);
-                if (frame == null) {
-                    logInfo("WebSocket read EOF (frame is null)");
-                    break;
-                }
-                frameCount++;
-                logInfo("Read frame #" + frameCount + " from WS, size: " + frame.length);
-                byte[] plainChunkDecrypted = ctx.tgDec.update(frame);
+                if (frame == null) break;
                 
-                if (plainChunkDecrypted.length <= 100) {
-                    StringBuilder hex = new StringBuilder();
-                    for (byte b : plainChunkDecrypted) hex.append(String.format("%02X ", b));
-                    logInfo("Decrypted WS frame, hex: " + hex.toString());
-                }
+                int decLen = ctx.tgDec.update(frame, 0, frame.length, decBuf, 0);
                 
                 // Repackage Intermediate -> Abridged for the Client
-                List<byte[]> serverPackets = wsSplitter.split(plainChunkDecrypted);
+                List<byte[]> serverPackets = wsSplitter.split(decBuf, 0, decLen);
                 for (byte[] serverPlain : serverPackets) {
                     int payloadLen = serverPlain.length - 4;
-                    
                     byte[] payload = new byte[payloadLen];
                     System.arraycopy(serverPlain, 4, payload, 0, payloadLen);
                     
-                    // Format as Abridged
                     int words = payloadLen / 4;
                     byte[] abridged;
                     if (words < 127) {
@@ -1575,21 +1555,19 @@ public class TgWsProxyService extends Service {
                         System.arraycopy(payload, 0, abridged, 4, payloadLen);
                     }
                     
-                    byte[] enc = ctx.cltEnc.update(abridged);
-                    out.write(enc);
+                    ctx.cltEnc.update(abridged, 0, abridged.length, abridged, 0);
+                    out.write(abridged);
                 }
                 out.flush();
-                logInfo("Sent frame #" + frameCount + " to client, size: " + frame.length);
             }
         } catch (Exception e) {
             logError("Error in ws-to-client thread", e);
         } finally {
             closed.set(true);
+            pingerTask.cancel(false);
             try { client.close(); } catch (IOException ignored) {}
-            logInfo("ws-to-client thread finished, closed client socket");
             
             if (System.currentTimeMillis() - sessionStartTime < 5000) {
-                logInfo("Session died too quickly! Triggering domain failover.");
                 synchronized (TgWsProxyService.class) {
                     currentBaseDomain = null;
                     cachedBaseAddress = null;
@@ -1597,6 +1575,8 @@ public class TgWsProxyService extends Service {
             }
         }
     }
+
+    private static final java.util.concurrent.ScheduledExecutorService PING_SCHEDULER = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
     // ─── Utilities ─────────────────────────────────────────────────────────
 

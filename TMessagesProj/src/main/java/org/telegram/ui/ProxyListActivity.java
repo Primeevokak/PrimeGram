@@ -365,8 +365,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 for (String s : logs) {
                     sb.append(s).append("\n");
                 }
+                sb.append("\nApp Version: ").append(org.telegram.messenger.BuildVars.BUILD_VERSION_STRING).append("\n");
                 String textToCopy = sb.toString();
-                if (!textToCopy.isEmpty()) {
+                if (!textToCopy.trim().isEmpty()) {
                     android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
                     android.content.ClipData clip = android.content.ClipData.newPlainText("Proxy Logs", textToCopy);
                     if (clipboard != null) {
