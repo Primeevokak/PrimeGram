@@ -664,7 +664,7 @@ target_link_libraries(${NATIVE_LIB}
         jnigraphics
         log
         z
-        GLESv2
+        GLESv3
         EGL
         android
         OpenSLES
