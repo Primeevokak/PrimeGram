@@ -307,6 +307,7 @@ public class TgWsProxyService extends Service {
                             logInfo("Watchdog detected server socket is closed/unbound! Restarting server socket...");
                             restartProxySockets();
                         }
+                        maintainWsPool();
                     }
                 } catch (InterruptedException e) {
                     break;
@@ -351,6 +352,8 @@ public class TgWsProxyService extends Service {
                 public void onAvailable(Network network) {
                     logInfo("Network connection changed: available.");
                     // closeActiveClientSockets(); // Disabled: causes JNI/SOCKS5 SIGPIPE crash
+                    clearWsPool();
+                    warmupActiveDcs();
                 }
                 @Override
                 public void onLost(Network network) {
@@ -828,9 +831,63 @@ public class TgWsProxyService extends Service {
 
     private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<WsConnection>> wsPoolMap = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean> wsPoolRefilling = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> activeDcs = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public void clearWsPool() {
+        for (java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q : wsPoolMap.values()) {
+            WsConnection conn;
+            while ((conn = q.poll()) != null) {
+                try { conn.tlsSocket.close(); } catch (Exception ignored) {}
+            }
+        }
+        logInfo("Cleared WS pool due to network change");
+    }
+
+    public void warmupActiveDcs() {
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, Long> entry : activeDcs.entrySet()) {
+            if (now - entry.getValue() < 15 * 60 * 1000) {
+                String[] parts = entry.getKey().split("_");
+                int dcId = Integer.parseInt(parts[0]);
+                boolean isMedia = Boolean.parseBoolean(parts[1]);
+                refillWsPoolAsync(dcId, isMedia);
+            }
+        }
+        logInfo("Warming up WS pool for recently active DCs");
+    }
+
+    private void maintainWsPool() {
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, java.util.concurrent.ConcurrentLinkedQueue<WsConnection>> entry : wsPoolMap.entrySet()) {
+            String key = entry.getKey();
+            java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = entry.getValue();
+            
+            java.util.Iterator<WsConnection> it = q.iterator();
+            while (it.hasNext()) {
+                WsConnection conn = it.next();
+                if (now - conn.createdAt > 100_000 || conn.tlsSocket.isClosed()) {
+                    try { conn.tlsSocket.close(); } catch (Exception ignored) {}
+                    it.remove();
+                }
+            }
+            
+            Long lastActive = activeDcs.get(key);
+            if (lastActive != null && (now - lastActive < 15 * 60 * 1000)) {
+                if (q.size() < 2) {
+                    String[] parts = key.split("_");
+                    int dcId = Integer.parseInt(parts[0]);
+                    boolean isMedia = Boolean.parseBoolean(parts[1]);
+                    refillWsPoolAsync(dcId, isMedia);
+                }
+            } else if (lastActive != null && (now - lastActive >= 15 * 60 * 1000)) {
+                activeDcs.remove(key);
+            }
+        }
+    }
 
     private WsConnection getPooledWsConnection(int dcId, boolean isMedia) {
         String key = dcId + "_" + isMedia;
+        activeDcs.put(key, System.currentTimeMillis());
         java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
         WsConnection conn = null;
         while ((conn = q.poll()) != null) {
@@ -853,7 +910,7 @@ public class TgWsProxyService extends Service {
             executor.submit(() -> {
                 try {
                     java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
-                    while (q.size() < 1) { // Maintain 1 ready background connection per active DC
+                    while (q.size() < 2) { // Maintain 2 ready background connections per active DC
                         WsConnection conn = connectToWebSocket(dcId, isMedia);
                         if (conn != null) {
                             q.add(conn);
