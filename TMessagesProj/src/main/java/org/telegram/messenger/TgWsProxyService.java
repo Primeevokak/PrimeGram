@@ -159,12 +159,12 @@ public class TgWsProxyService extends Service {
 
     static {
         // DC1: web.telegram.org/apiws -> actual DC IPs
-        DC_WS_DOMAINS.put(1, new String[]{"149.154.175.50"});
-        DC_WS_DOMAINS.put(2, new String[]{"149.154.167.220"});
-        DC_WS_DOMAINS.put(3, new String[]{"149.154.175.100"});
-        DC_WS_DOMAINS.put(4, new String[]{"149.154.167.91"});
-        DC_WS_DOMAINS.put(5, new String[]{"149.154.171.5"});
-        DC_WS_DOMAINS.put(203, new String[]{"91.105.192.100"});
+        DC_WS_DOMAINS.put(1, new String[]{"kws1.web.telegram.org", "kws1-1.web.telegram.org"});
+        DC_WS_DOMAINS.put(2, new String[]{"kws2.web.telegram.org", "kws2-1.web.telegram.org"});
+        DC_WS_DOMAINS.put(3, new String[]{"kws3.web.telegram.org", "kws3-1.web.telegram.org"});
+        DC_WS_DOMAINS.put(4, new String[]{"kws4.web.telegram.org", "kws4-1.web.telegram.org"});
+        DC_WS_DOMAINS.put(5, new String[]{"kws5.web.telegram.org", "kws5-1.web.telegram.org"});
+        DC_WS_DOMAINS.put(203, new String[]{"kws2.web.telegram.org", "kws2-1.web.telegram.org"});
     }
 
     // Telegram WebSocket domains (same as used in tg-ws-proxy)
@@ -814,6 +814,214 @@ public class TgWsProxyService extends Service {
         return null;
     }
 
+    private static class WsConnection {
+        final SSLSocket tlsSocket;
+        final String domain;
+        final long createdAt;
+
+        WsConnection(SSLSocket tlsSocket, String domain) {
+            this.tlsSocket = tlsSocket;
+            this.domain = domain;
+            this.createdAt = System.currentTimeMillis();
+        }
+    }
+
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<WsConnection>> wsPoolMap = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean> wsPoolRefilling = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private WsConnection getPooledWsConnection(int dcId, boolean isMedia) {
+        String key = dcId + "_" + isMedia;
+        java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
+        WsConnection conn = null;
+        while ((conn = q.poll()) != null) {
+            long age = System.currentTimeMillis() - conn.createdAt;
+            if (age > 100_000 || conn.tlsSocket.isClosed()) { // 100 seconds max age
+                try { conn.tlsSocket.close(); } catch (Exception ignored) {}
+                continue;
+            }
+            logInfo("WsPool hit for DC" + dcId + " (media=" + isMedia + "), age=" + age + "ms");
+            break;
+        }
+        refillWsPoolAsync(dcId, isMedia);
+        return conn;
+    }
+
+    private void refillWsPoolAsync(int dcId, boolean isMedia) {
+        String key = dcId + "_" + isMedia;
+        java.util.concurrent.atomic.AtomicBoolean refilling = wsPoolRefilling.computeIfAbsent(key, k -> new java.util.concurrent.atomic.AtomicBoolean(false));
+        if (refilling.compareAndSet(false, true)) {
+            executor.submit(() -> {
+                try {
+                    java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
+                    while (q.size() < 1) { // Maintain 1 ready background connection per active DC
+                        WsConnection conn = connectToWebSocket(dcId, isMedia);
+                        if (conn != null) {
+                            q.add(conn);
+                            logInfo("WsPool refilled for DC" + dcId + " (media=" + isMedia + "), pool size: " + q.size());
+                        } else {
+                            break;
+                        }
+                    }
+                } finally {
+                    refilling.set(false);
+                }
+            });
+        }
+    }
+
+    private WsConnection connectToWebSocket(int dcId, boolean isMedia) {
+        SSLSocket tlsSocket = null;
+        String chosenDomain = null;
+
+        try {
+            Thread.sleep(20 + RANDOM.nextInt(280));
+        } catch (InterruptedException ignored) {}
+
+        String baseDomain;
+        synchronized (TgWsProxyService.class) {
+            if (currentBaseDomain == null) {
+                if (System.currentTimeMillis() - lastDomainSelectionTime > 30_000) {
+                    logInfo("Selecting base domain from candidates using pair-wise latency tests...");
+                    List<String> candidates = new ArrayList<>(Arrays.asList(BASE_DOMAINS));
+                    Collections.shuffle(candidates);
+
+                    final String[] selected = new String[1];
+                    final int targetDcId = dcId;
+
+                    for (int i = 0; i < candidates.size() && selected[0] == null; i += 2) {
+                        final String dom1 = candidates.get(i);
+                        final String dom2 = (i + 1 < candidates.size()) ? candidates.get(i + 1) : null;
+
+                        int count = (dom2 != null) ? 2 : 1;
+                        final java.util.concurrent.CountDownLatch pairLatch = new java.util.concurrent.CountDownLatch(count);
+                        final String[] pairSelected = new String[1];
+
+                        Runnable runTest1 = () -> {
+                            SSLSocket testSocket = null;
+                            try {
+                                String testHost = "kws" + targetDcId + "." + dom1;
+                                InetAddress[] testResolve = resolveWithFallbackDns(testHost);
+                                if (testResolve == null || testResolve.length == 0) {
+                                    testHost = "kws." + dom1;
+                                    testResolve = resolveWithFallbackDns(testHost);
+                                    if (testResolve == null || testResolve.length == 0) {
+                                        testHost = dom1;
+                                    }
+                                }
+                                testSocket = (SSLSocket) sslSocketFactory.createSocket();
+                                testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1200);
+                                testSocket.setSoTimeout(1200);
+                                testSocket.startHandshake();
+                                synchronized (pairSelected) {
+                                    if (pairSelected[0] == null) {
+                                        pairSelected[0] = dom1;
+                                    }
+                                }
+                            } catch (Exception ignored) {
+                            } finally {
+                                if (testSocket != null) {
+                                    try { testSocket.close(); } catch (IOException ignored) {}
+                                }
+                                pairLatch.countDown();
+                            }
+                        };
+                        executor.submit(runTest1);
+
+                        if (dom2 != null) {
+                            Runnable runTest2 = () -> {
+                                SSLSocket testSocket = null;
+                                try {
+                                    String testHost = "kws" + targetDcId + "." + dom2;
+                                    InetAddress[] testResolve = resolveWithFallbackDns(testHost);
+                                    if (testResolve == null || testResolve.length == 0) {
+                                        testHost = "kws." + dom2;
+                                        testResolve = resolveWithFallbackDns(testHost);
+                                        if (testResolve == null || testResolve.length == 0) {
+                                            testHost = dom2;
+                                        }
+                                    }
+                                    testSocket = (SSLSocket) sslSocketFactory.createSocket();
+                                    testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1200);
+                                    testSocket.setSoTimeout(1200);
+                                    testSocket.startHandshake();
+                                    synchronized (pairSelected) {
+                                        if (pairSelected[0] == null) {
+                                            pairSelected[0] = dom2;
+                                        }
+                                    }
+                                } catch (Exception ignored) {
+                                } finally {
+                                    if (testSocket != null) {
+                                        try { testSocket.close(); } catch (IOException ignored) {}
+                                    }
+                                    pairLatch.countDown();
+                                }
+                            };
+                            executor.submit(runTest2);
+                        }
+
+                        try {
+                            pairLatch.await(1400, java.util.concurrent.TimeUnit.MILLISECONDS);
+                        } catch (InterruptedException ignored) {}
+
+                        if (pairSelected[0] != null) {
+                            selected[0] = pairSelected[0];
+                            break;
+                        }
+                    }
+
+                    if (selected[0] == null) {
+                        selected[0] = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                        logInfo("All pair-wise latency tests failed. Selected fallback: " + selected[0]);
+                    } else {
+                        logInfo("Fastest base domain selected: " + selected[0]);
+                    }
+                    currentBaseDomain = selected[0];
+                    lastDomainSelectionTime = System.currentTimeMillis();
+                } else {
+                    currentBaseDomain = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                    logInfo("Quick failover (cooldown active): selected random domain: " + currentBaseDomain);
+                }
+                baseDomain = currentBaseDomain;
+            } else {
+                baseDomain = currentBaseDomain;
+            }
+        }
+        boolean isUnified = false;
+        String wsDomain = "kws" + dcId + "." + baseDomain;
+        InetAddress[] checkResolve = resolveWithFallbackDns(wsDomain);
+        if (checkResolve == null || checkResolve.length == 0) {
+            wsDomain = baseDomain;
+        }
+
+        logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId + " (unified=" + isUnified + ")");
+        try {
+            tlsSocket = createTlsSocketWithIpv4Preference(wsDomain, 443, 10_000);
+            tlsSocket.setUseClientMode(true);
+            tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
+            tlsSocket.setTcpNoDelay(true);
+            tlsSocket.setSoTimeout(10_000); // 10s timeout for handshake
+
+            wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
+            chosenDomain = wsDomain;
+            logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ")");
+            return new WsConnection(tlsSocket, chosenDomain);
+        } catch (Exception e) {
+            logError("Failed to connect to proxy " + wsDomain + ", resetting currentBaseDomain", e);
+            synchronized (TgWsProxyService.class) {
+                if (baseDomain.equals(currentBaseDomain)) {
+                    currentBaseDomain = null;
+                    cachedBaseAddress = null;
+                    logInfo("Resetting currentBaseDomain (failover triggered)");
+                }
+            }
+            if (tlsSocket != null) {
+                try { tlsSocket.close(); } catch (IOException ignored) {}
+            }
+            return null;
+        }
+    }
+
     private void handleClient(Socket client) {
         addClientSocket(client);
         boolean semaphoreAcquired = false;
@@ -960,135 +1168,7 @@ public class TgWsProxyService extends Service {
                 return;
             }
 
-            // Подключаемся к Telegram DC через WebSocket (через обходные Cloudflare домены)
-            SSLSocket tlsSocket = null;
-            String chosenDomain = null;
-
-            // Добавляем случайную задержку (jitter) для сглаживания параллельных соединений (избегаем 429 лимитов)
-            try {
-                Thread.sleep(20 + RANDOM.nextInt(280));
-            } catch (InterruptedException ignored) {}
-
-            String baseDomain;
-            synchronized (TgWsProxyService.class) {
-                if (currentBaseDomain == null) {
-                    if (System.currentTimeMillis() - lastDomainSelectionTime > 30_000) {
-                        logInfo("Selecting base domain from candidates using pair-wise latency tests...");
-                        List<String> candidates = new ArrayList<>(Arrays.asList(BASE_DOMAINS));
-                        Collections.shuffle(candidates);
-
-                        final String[] selected = new String[1];
-                        final int targetDcId = dcId;
-
-                        for (int i = 0; i < candidates.size() && selected[0] == null; i += 2) {
-                            final String dom1 = candidates.get(i);
-                            final String dom2 = (i + 1 < candidates.size()) ? candidates.get(i + 1) : null;
-
-                            int count = (dom2 != null) ? 2 : 1;
-                            final java.util.concurrent.CountDownLatch pairLatch = new java.util.concurrent.CountDownLatch(count);
-                            final String[] pairSelected = new String[1];
-
-                            Runnable runTest1 = () -> {
-                                SSLSocket testSocket = null;
-                                try {
-                                    String testHost = "kws" + targetDcId + "." + dom1;
-                                    InetAddress[] testResolve = resolveWithFallbackDns(testHost);
-                                    if (testResolve == null || testResolve.length == 0) {
-                                        testHost = "kws." + dom1;
-                                        testResolve = resolveWithFallbackDns(testHost);
-                                        if (testResolve == null || testResolve.length == 0) {
-                                            testHost = dom1;
-                                        }
-                                    }
-                                    testSocket = (SSLSocket) sslSocketFactory.createSocket();
-                                    testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1200);
-                                    testSocket.setSoTimeout(1200);
-                                    testSocket.startHandshake();
-                                    synchronized (pairSelected) {
-                                        if (pairSelected[0] == null) {
-                                            pairSelected[0] = dom1;
-                                        }
-                                    }
-                                } catch (Exception ignored) {
-                                } finally {
-                                    if (testSocket != null) {
-                                        try { testSocket.close(); } catch (IOException ignored) {}
-                                    }
-                                    pairLatch.countDown();
-                                }
-                            };
-                            executor.submit(runTest1);
-
-                            if (dom2 != null) {
-                                Runnable runTest2 = () -> {
-                                    SSLSocket testSocket = null;
-                                    try {
-                                        String testHost = "kws" + targetDcId + "." + dom2;
-                                        InetAddress[] testResolve = resolveWithFallbackDns(testHost);
-                                        if (testResolve == null || testResolve.length == 0) {
-                                            testHost = "kws." + dom2;
-                                            testResolve = resolveWithFallbackDns(testHost);
-                                            if (testResolve == null || testResolve.length == 0) {
-                                                testHost = dom2;
-                                            }
-                                        }
-                                        testSocket = (SSLSocket) sslSocketFactory.createSocket();
-                                        testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1200);
-                                        testSocket.setSoTimeout(1200);
-                                        testSocket.startHandshake();
-                                        synchronized (pairSelected) {
-                                            if (pairSelected[0] == null) {
-                                                pairSelected[0] = dom2;
-                                            }
-                                        }
-                                    } catch (Exception ignored) {
-                                    } finally {
-                                        if (testSocket != null) {
-                                            try { testSocket.close(); } catch (IOException ignored) {}
-                                        }
-                                        pairLatch.countDown();
-                                    }
-                                };
-                                executor.submit(runTest2);
-                            }
-
-                            try {
-                                pairLatch.await(1400, java.util.concurrent.TimeUnit.MILLISECONDS);
-                            } catch (InterruptedException ignored) {}
-
-                            if (pairSelected[0] != null) {
-                                selected[0] = pairSelected[0];
-                                break;
-                            }
-                        }
-
-                        if (selected[0] == null) {
-                            selected[0] = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
-                            logInfo("All pair-wise latency tests failed. Selected fallback: " + selected[0]);
-                        } else {
-                            logInfo("Fastest base domain selected: " + selected[0]);
-                        }
-                        currentBaseDomain = selected[0];
-                        lastDomainSelectionTime = System.currentTimeMillis();
-                    } else {
-                        // Quick failover: select a random base domain without running latency tests to avoid request storms
-                        currentBaseDomain = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
-                        logInfo("Quick failover (cooldown active): selected random domain: " + currentBaseDomain);
-                    }
-                    baseDomain = currentBaseDomain;
-                } else {
-                    baseDomain = currentBaseDomain;
-                }
-            }
-            // Route to the correct DC using its corresponding subdomain
-            boolean isUnified = false;
-            String wsDomain = "kws" + dcId + "." + baseDomain;
-            InetAddress[] checkResolve = resolveWithFallbackDns(wsDomain);
-            if (checkResolve == null || checkResolve.length == 0) {
-                wsDomain = baseDomain;
-            }
-
-            logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId + " (unified=" + isUnified + ")");
+            // Получаем готовое WebSocket-соединение из пула (или создаем на лету)
             java.util.concurrent.Semaphore sem = getSemaphoreForDc(dcId, isMedia);
             try {
                 if (!sem.tryAcquire(5, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -1101,37 +1181,18 @@ public class TgWsProxyService extends Service {
                 logInfo("Interrupted waiting for connection semaphore for DC" + dcId);
                 return;
             }
-            try {
-                tlsSocket = createTlsSocketWithIpv4Preference(wsDomain, 443, 10_000);
-                tlsSocket.setUseClientMode(true);
-                tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-                tlsSocket.setTcpNoDelay(true);
-                tlsSocket.setSoTimeout(10_000); // 10s timeout for handshake
 
-                // WebSocket handshake - передаем флаг единого прокси
-                wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
-                chosenDomain = wsDomain;
-                logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ")");
-            } catch (Exception e) {
-                logError("Failed to connect to proxy " + wsDomain + ", resetting currentBaseDomain", e);
-                synchronized (TgWsProxyService.class) {
-                    if (baseDomain.equals(currentBaseDomain)) {
-                        currentBaseDomain = null;
-                        cachedBaseAddress = null;
-                        logInfo("Resetting currentBaseDomain (failover triggered)");
-                    }
-                }
-                if (tlsSocket != null) {
-                    try { tlsSocket.close(); } catch (IOException ignored) {}
-                    tlsSocket = null;
-                }
+            WsConnection wsConn = getPooledWsConnection(dcId, isMedia);
+            if (wsConn == null) {
+                wsConn = connectToWebSocket(dcId, isMedia);
             }
-
-            if (tlsSocket == null || chosenDomain == null) {
+            if (wsConn == null) {
                 logInfo("All CF proxy domains failed!");
                 client.close();
                 return;
             }
+            SSLSocket tlsSocket = wsConn.tlsSocket;
+            String chosenDomain = wsConn.domain;
 
             // Генерируем relay init для DC
             byte[] relayInit = generateRelayInit(handshake, dcId, isMedia);
@@ -1453,27 +1514,9 @@ public class TgWsProxyService extends Service {
         MsgSplitter wsSplitter = new MsgSplitter(PROTO_INTERMEDIATE_INT);
 
         // Reset read timeouts to 0 (infinite) during active relay bridge,
-        // relying on WebSocket keepalive ping/pong and TCP keepalive.
+        // relying on TCP keepalive.
         try { client.setSoTimeout(0); } catch (Exception ignored) {}
         try { tlsSocket.setSoTimeout(0); } catch (Exception ignored) {}
-
-        // PING keepalive (every 30 seconds)
-        java.util.concurrent.ScheduledFuture<?> pingerTask = PING_SCHEDULER.scheduleWithFixedDelay(() -> {
-            if (closed.get()) return;
-            try {
-                synchronized (wsOut) {
-                    byte[] mask = new byte[4];
-                    RANDOM.nextBytes(mask);
-                    wsOut.write(new byte[]{
-                        (byte) 0x89, (byte) 0x80,
-                        mask[0], mask[1], mask[2], mask[3]
-                    });
-                    wsOut.flush();
-                }
-            } catch (Exception ignored) {
-                closed.set(true);
-            }
-        }, 30, 30, java.util.concurrent.TimeUnit.SECONDS);
 
         // Thread: client -> WebSocket
         Thread toWs = new Thread(() -> {
@@ -1564,7 +1607,6 @@ public class TgWsProxyService extends Service {
             logError("Error in ws-to-client thread", e);
         } finally {
             closed.set(true);
-            pingerTask.cancel(false);
             try { client.close(); } catch (IOException ignored) {}
             
             if (System.currentTimeMillis() - sessionStartTime < 5000) {
@@ -1575,8 +1617,6 @@ public class TgWsProxyService extends Service {
             }
         }
     }
-
-    private static final java.util.concurrent.ScheduledExecutorService PING_SCHEDULER = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
     // ─── Utilities ─────────────────────────────────────────────────────────
 

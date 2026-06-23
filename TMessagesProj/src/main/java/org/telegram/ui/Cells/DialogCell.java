@@ -981,9 +981,10 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
     private void checkTwoLinesForName() {
         twoLinesForName = false;
-        if (isTopic && !hasTags() && nameString != null) {
+        CharSequence currentName = nameLayout != null ? nameLayout.getText() : null;
+        if (isTopic && !hasTags() && currentName != null) {
             int nameWidth = getMeasuredWidth() - dp(80);
-            if (nameWidth > 0 && Theme.dialogs_namePaint[0].measureText(nameString.toString()) > nameWidth) {
+            if (nameWidth > 0 && Theme.dialogs_namePaint[0].measureText(currentName.toString()) > nameWidth) {
                 twoLinesForName = true;
             }
         }

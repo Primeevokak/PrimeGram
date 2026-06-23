@@ -6,7 +6,7 @@ echo ===================================================
 echo Starting PrimeGram APK Build (Release, ARM64)
 echo ===================================================
 
-java -classpath gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain clean :TMessagesProj_AppStandalone:assembleAfatRelease
+java -classpath gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :TMessagesProj_AppStandalone:assembleAfatRelease
 
 if %ERRORLEVEL% equ 0 (
     echo.
