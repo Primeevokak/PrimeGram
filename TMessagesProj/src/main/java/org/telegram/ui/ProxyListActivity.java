@@ -488,6 +488,11 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             if (position == emergencyProxyRow) {
                 if (VpnSDK.isProxyRunning()) {
                     VpnSDK.stopProxy();
+                    if (SharedConfig.isProxyEnabled()) {
+                        ConnectionsManager.setProxySettings(true, SharedConfig.currentProxy.address, SharedConfig.currentProxy.port, SharedConfig.currentProxy.username, SharedConfig.currentProxy.password, SharedConfig.currentProxy.secret);
+                    } else {
+                        ConnectionsManager.setProxySettings(false, "", 1080, "", "", "");
+                    }
                     if (listAdapter != null) {
                         listAdapter.notifyItemChanged(emergencyProxyRow);
                     }

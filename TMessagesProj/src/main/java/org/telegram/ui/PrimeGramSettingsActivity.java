@@ -18,6 +18,7 @@ import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.Theme;
 import vpn.sdk.VpnSDK;
+import org.telegram.messenger.SharedConfig;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.UItem;
@@ -139,6 +140,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_EMERGENCY_PROXY) {
             if (VpnSDK.isProxyRunning()) {
                 VpnSDK.stopProxy();
+                if (SharedConfig.isProxyEnabled()) {
+                    org.telegram.tgnet.ConnectionsManager.setProxySettings(true, SharedConfig.currentProxy.address, SharedConfig.currentProxy.port, SharedConfig.currentProxy.username, SharedConfig.currentProxy.password, SharedConfig.currentProxy.secret);
+                } else {
+                    org.telegram.tgnet.ConnectionsManager.setProxySettings(false, "", 1080, "", "", "");
+                }
                 listView.adapter.update(true);
             } else {
                 VpnSDK.registerOrAuth(2, success -> {

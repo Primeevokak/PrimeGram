@@ -9318,9 +9318,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (!isSidebarEnabled()) return false;
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
         if (currentFragment instanceof MainTabsActivity) {
-            return ((MainTabsActivity) currentFragment).getCurrentVisibleFragment() instanceof DialogsActivity;
+            BaseFragment visibleFrag = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment();
+            return visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0;
         }
-        return (currentFragment instanceof DialogsActivity);
+        return (currentFragment instanceof DialogsActivity) && ((DialogsActivity) currentFragment).getFolderId() == 0;
     }
 
     public void updateSidebarVisibility() {
@@ -9328,9 +9329,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
-        boolean isMainScreen = currentFragment instanceof DialogsActivity;
+        boolean isMainScreen = currentFragment instanceof DialogsActivity && ((DialogsActivity) currentFragment).getFolderId() == 0;
         if (currentFragment instanceof MainTabsActivity) {
-            isMainScreen = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment() instanceof DialogsActivity;
+            BaseFragment visibleFrag = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment();
+            isMainScreen = visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0;
         }
         
         boolean show = sidebarEnabled && isMainScreen;
@@ -9462,7 +9464,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // 4. Saved Messages Button
         ImageView savedMessagesButton = createSidebarIcon(context, R.drawable.msg_saved, "Избранное", v -> {
             Bundle args = new Bundle();
-            args.putLong("dialog_id", UserConfig.getInstance(currentAccount).clientUserId);
+            args.putLong("user_id", UserConfig.getInstance(currentAccount).clientUserId);
             presentFragment(new ChatActivity(args));
             setSidebarOpen(false, true);
         });

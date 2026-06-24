@@ -104,7 +104,11 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 MessageObject msg = feedItems.get(position);
                 if (msg != null && getParentActivity() != null) {
                     Bundle args = new Bundle();
-                    args.putLong("dialog_id", msg.getDialogId());
+                    if (msg.getDialogId() < 0) {
+                        args.putLong("chat_id", -msg.getDialogId());
+                    } else {
+                        args.putLong("user_id", msg.getDialogId());
+                    }
                     args.putInt("message_id", msg.getId());
                     presentFragment(new ChatActivity(args));
                 }
@@ -256,8 +260,14 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                             message.id = cursor.intValue(1);
                             message.date = cursor.intValue(2);
                             message.dialog_id = d.id;
+                            message.unread = true;
+                            message.out = false;
+                            message.post = false;
+                            message.from_id = new TLRPC.TL_peerChannel();
+                            message.from_id.channel_id = -d.id;
                             
                             MessageObject obj = new MessageObject(currentAccount, message, true, false);
+                            obj.forceAvatar = true;
                             msgs.add(obj);
                         }
                     }
@@ -416,7 +426,11 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         private void openChat(MessageObject msg) {
             if (msg == null || getParentActivity() == null) return;
             Bundle args = new Bundle();
-            args.putLong("dialog_id", msg.getDialogId());
+            if (msg.getDialogId() < 0) {
+                args.putLong("chat_id", -msg.getDialogId());
+            } else {
+                args.putLong("user_id", msg.getDialogId());
+            }
             args.putInt("message_id", msg.getId());
             presentFragment(new ChatActivity(args));
         }

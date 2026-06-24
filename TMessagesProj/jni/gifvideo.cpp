@@ -690,19 +690,30 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileN
     if (info->hw_accel) {
         const char* mime = info->video_stream->codecpar->codec_id == AV_CODEC_ID_H264 ? "video/avc" : "video/hevc";
         info->media_codec = AMediaCodec_createDecoderByType(mime);
-        info->media_format = AMediaFormat_new();
-        AMediaFormat_setString(info->media_format, AMEDIAFORMAT_KEY_MIME, mime);
-        AMediaFormat_setInt32(info->media_format, AMEDIAFORMAT_KEY_WIDTH, info->video_stream->codecpar->width);
-        AMediaFormat_setInt32(info->media_format, AMEDIAFORMAT_KEY_HEIGHT, info->video_stream->codecpar->height);
-        
         const AVBitStreamFilter *bsf = av_bsf_get_by_name(info->video_stream->codecpar->codec_id == AV_CODEC_ID_H264 ? "h264_mp4toannexb" : "hevc_mp4toannexb");
-        av_bsf_alloc(bsf, &info->bsfc);
-        avcodec_parameters_copy(info->bsfc->par_in, info->video_stream->codecpar);
-        av_bsf_init(info->bsfc);
         
-        AMediaCodec_configure(info->media_codec, info->media_format, nullptr, nullptr, 0);
-        AMediaCodec_start(info->media_codec);
-    } else {
+        if (info->media_codec == nullptr || bsf == nullptr) {
+            info->hw_accel = false;
+            if (info->media_codec != nullptr) {
+                AMediaCodec_delete(info->media_codec);
+                info->media_codec = nullptr;
+            }
+        } else {
+            info->media_format = AMediaFormat_new();
+            AMediaFormat_setString(info->media_format, AMEDIAFORMAT_KEY_MIME, mime);
+            AMediaFormat_setInt32(info->media_format, AMEDIAFORMAT_KEY_WIDTH, info->video_stream->codecpar->width);
+            AMediaFormat_setInt32(info->media_format, AMEDIAFORMAT_KEY_HEIGHT, info->video_stream->codecpar->height);
+            
+            av_bsf_alloc(bsf, &info->bsfc);
+            avcodec_parameters_copy(info->bsfc->par_in, info->video_stream->codecpar);
+            av_bsf_init(info->bsfc);
+            
+            AMediaCodec_configure(info->media_codec, info->media_format, nullptr, nullptr, 0);
+            AMediaCodec_start(info->media_codec);
+        }
+    }
+    
+    if (!info->hw_accel) {
         if (open_codec_context(&info->video_stream_idx, &info->video_dec_ctx, info->fmt_ctx, AVMEDIA_TYPE_VIDEO) >= 0) {
             info->video_stream = info->fmt_ctx->streams[info->video_stream_idx];
         }

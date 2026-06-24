@@ -644,7 +644,7 @@ public class TgWsProxyService extends Service {
 
     private static class MsgSplitter {
         private final int proto;
-        private final byte[] plainBuf = new byte[256 * 1024];
+        private byte[] plainBuf = new byte[5 * 1024 * 1024];
         private int bufLen = 0;
         private boolean disabled = false;
 
@@ -669,12 +669,9 @@ public class TgWsProxyService extends Service {
             }
 
             if (bufLen + len > plainBuf.length) {
-                disabled = true;
-                List<byte[]> res = new ArrayList<>();
-                byte[] copy = new byte[len];
-                System.arraycopy(chunk, off, copy, 0, len);
-                res.add(copy);
-                return res;
+                byte[] newBuf = new byte[Math.max(plainBuf.length * 2, bufLen + len + 1024 * 1024)];
+                System.arraycopy(plainBuf, 0, newBuf, 0, bufLen);
+                plainBuf = newBuf;
             }
 
             System.arraycopy(chunk, off, plainBuf, bufLen, len);
@@ -1604,6 +1601,10 @@ public class TgWsProxyService extends Service {
                         intermediate[3] = (byte) ((payloadLen >> 24) & 0xFF);
                         System.arraycopy(plain, headerLen, intermediate, 4, payloadLen);
 
+                        if (encBuf.length < intermediate.length + 64) {
+                            encBuf = new byte[Math.max(encBuf.length * 2, intermediate.length + 64)];
+                        }
+
                         int encLen = ctx.tgEnc.update(intermediate, 0, intermediate.length, encBuf, 0);
                         if (encLen > 0) {
                             synchronized (wsOut) {
@@ -1626,10 +1627,13 @@ public class TgWsProxyService extends Service {
         final long sessionStartTime = System.currentTimeMillis();
         try {
             byte[] decBuf = new byte[65536 + 64];
-            byte[] encBuf = new byte[65536 + 64];
             while (!closed.get()) {
                 byte[] frame = recvWsFrame(wsIn, wsOut);
                 if (frame == null) break;
+                
+                if (decBuf.length < frame.length + 64) {
+                    decBuf = new byte[Math.max(decBuf.length * 2, frame.length + 64)];
+                }
                 
                 int decLen = ctx.tgDec.update(frame, 0, frame.length, decBuf, 0);
                 
