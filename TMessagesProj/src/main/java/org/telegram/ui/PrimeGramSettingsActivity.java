@@ -144,6 +144,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 VpnSDK.registerOrAuth(2, success -> {
                     if (success) {
                         ApplicationLoader.applyXrayProxyToConnectionsManager();
+                        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+                        if (preferences.getBoolean("proxy_enabled", false)) {
+                            preferences.edit()
+                                    .putBoolean("proxy_enabled", false)
+                                    .putBoolean("proxy_enabled_calls", false)
+                                    .apply();
+                        }
                         if (listView != null && listView.adapter != null) {
                             listView.adapter.update(true);
                         }

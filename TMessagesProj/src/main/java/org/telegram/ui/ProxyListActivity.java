@@ -495,6 +495,21 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     VpnSDK.registerOrAuth(2, success -> {
                         if (success) {
                             ApplicationLoader.applyXrayProxyToConnectionsManager();
+                            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+                            if (preferences.getBoolean("proxy_enabled", false)) {
+                                preferences.edit()
+                                        .putBoolean("proxy_enabled", false)
+                                        .putBoolean("proxy_enabled_calls", false)
+                                        .apply();
+                                useProxySettings = false;
+                                useProxyForCalls = false;
+                                if (listAdapter != null) {
+                                    listAdapter.notifyItemChanged(useProxyRow);
+                                    if (callsRow != -1) {
+                                        listAdapter.notifyItemChanged(callsRow);
+                                    }
+                                }
+                            }
                             if (listAdapter != null) {
                                 listAdapter.notifyItemChanged(emergencyProxyRow);
                             }
@@ -524,6 +539,12 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     }
                 }
                 useProxySettings = !useProxySettings;
+                if (useProxySettings && VpnSDK.isProxyRunning()) {
+                    VpnSDK.stopProxy();
+                    if (listAdapter != null) {
+                        listAdapter.notifyItemChanged(emergencyProxyRow);
+                    }
+                }
                 updateRows(true);
 
                 SharedPreferences preferences = MessagesController.getGlobalMainSettings();
@@ -583,6 +604,12 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 editor.putInt("proxy_port", info.port);
                 editor.putString("proxy_secret", info.secret);
                 editor.putBoolean("proxy_enabled", useProxySettings);
+                if (VpnSDK.isProxyRunning()) {
+                    VpnSDK.stopProxy();
+                    if (listAdapter != null) {
+                        listAdapter.notifyItemChanged(emergencyProxyRow);
+                    }
+                }
                 if (!info.secret.isEmpty()) {
                     useProxyForCalls = false;
                     editor.putBoolean("proxy_enabled_calls", false);
