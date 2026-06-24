@@ -1417,6 +1417,21 @@ public class SharedConfig {
         String proxyPassword = preferences.getString("proxy_pass", "");
         String proxySecret = preferences.getString("proxy_secret", "");
         int proxyPort = preferences.getInt("proxy_port", 1080);
+        if (!preferences.contains("proxy_enabled")) {
+            preferences.edit()
+                .putBoolean("proxy_enabled", true)
+                .putString("proxy_ip", "127.0.0.1")
+                .putInt("proxy_port", 1080)
+                .putString("proxy_user", "")
+                .putString("proxy_pass", "")
+                .putString("proxy_secret", "")
+                .apply();
+            MessagesController.getGlobalMainSettings().edit().putBoolean("proxy_enabled", true).apply();
+            proxyAddress = "127.0.0.1";
+            proxyPort = 1080;
+            
+            org.telegram.tgnet.ConnectionsManager.setProxySettings(true, "127.0.0.1", 1080, "", "", "");
+        }
 
         proxyListLoaded = true;
         proxyList.clear();

@@ -4,6 +4,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RadialGradient;
@@ -31,6 +32,7 @@ public class ProxySetupActivity extends BaseFragment {
     private Runnable progressRunnable;
     private int currentProgress = 0;
     private boolean isProxyReady = false;
+    private int waitTicks = 0;
 
     @Override
     public View createView(Context context) {
@@ -132,19 +134,32 @@ public class ProxySetupActivity extends BaseFragment {
                 if (currentProgress < 60) {
                     currentProgress++;
                 } else if (currentProgress == 60) {
-                    if (TgWsProxyService.isSocketBound && TgWsProxyService.getCurrentBaseDomain() != null) {
+                    SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                    boolean tgwsEnabled = mainconfig.getBoolean("primegram_tgws_enabled", true);
+                    
+                    if (!tgwsEnabled) {
+                        isProxyReady = true;
+                        currentProgress++;
+                    } else if (TgWsProxyService.isSocketBound && TgWsProxyService.getCurrentBaseDomain() != null) {
                         isProxyReady = true;
                         currentProgress++;
                     } else {
-                        if (!TgWsProxyService.isRunning()) {
-                            TgWsProxyService.startService(ApplicationLoader.applicationContext);
+                        // Timeout logic to prevent infinite freeze
+                        if (waitTicks >= 50) { // 50 ticks * 100ms = 5 seconds
+                            isProxyReady = true;
+                            currentProgress++;
+                        } else {
+                            if (!TgWsProxyService.isRunning()) {
+                                TgWsProxyService.startService(ApplicationLoader.applicationContext);
+                            }
+                            waitTicks++;
+                            // Smoothly freeze at 60% with the correct status
+                            progressText.setText("60%");
+                            progressBar.setProgress(60);
+                            statusText.setText("Активация обходного прокси-сервера...");
+                            AndroidUtilities.runOnUIThread(this, 100);
+                            return;
                         }
-                        // Smoothly freeze at 60% with the correct status
-                        progressText.setText("60%");
-                        progressBar.setProgress(60);
-                        statusText.setText("Активация обходного прокси-сервера...");
-                        AndroidUtilities.runOnUIThread(this, 100);
-                        return;
                     }
                 } else if (currentProgress < 100) {
                     currentProgress++;
