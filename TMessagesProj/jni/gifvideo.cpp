@@ -233,26 +233,30 @@ int decode_packet(VideoInfo *info, int *got_frame) {
     if (info->hw_accel) {
         if (info->pkt.stream_index == info->video_stream_idx) {
             if (info->pkt.size > 0) {
-                av_bsf_send_packet(info->bsfc, &info->pkt);
-                decoded = info->pkt.size;
-            }
-
-            while (true) {
-                AVPacket bsf_pkt;
-                av_init_packet(&bsf_pkt);
-                ret = av_bsf_receive_packet(info->bsfc, &bsf_pkt);
-                if (ret == 0) {
+                if (info->bsfc) {
+                    av_bsf_send_packet(info->bsfc, &info->pkt);
+                    decoded = info->pkt.size;
+                } else {
+                    uint8_t *data = info->pkt.data;
+                    int size = info->pkt.size;
+                    int offset = 0;
+                    while (offset + 4 <= size) {
+                        int nal_len = (data[offset] << 24) | (data[offset+1] << 16) | (data[offset+2] << 8) | data[offset+3];
+                        if (nal_len < 0 || offset + 4 + nal_len > size) break;
+                        data[offset] = 0; data[offset+1] = 0; data[offset+2] = 0; data[offset+3] = 1;
+                        offset += 4 + nal_len;
+                    }
                     int tries = 10;
                     while (tries > 0) {
                         ssize_t inputBufIndex = AMediaCodec_dequeueInputBuffer(info->media_codec, 10000);
                         if (inputBufIndex >= 0) {
                             size_t bufsize;
                             uint8_t *buf = AMediaCodec_getInputBuffer(info->media_codec, inputBufIndex, &bufsize);
-                            if (buf && bufsize >= bsf_pkt.size) {
-                                memcpy(buf, bsf_pkt.data, bsf_pkt.size);
-                                int64_t pts = bsf_pkt.pts;
-                                if (pts == AV_NOPTS_VALUE) pts = bsf_pkt.dts;
-                                AMediaCodec_queueInputBuffer(info->media_codec, inputBufIndex, 0, bsf_pkt.size, pts, 0);
+                            if (buf && bufsize >= info->pkt.size) {
+                                memcpy(buf, info->pkt.data, info->pkt.size);
+                                int64_t pts = info->pkt.pts;
+                                if (pts == AV_NOPTS_VALUE) pts = info->pkt.dts;
+                                AMediaCodec_queueInputBuffer(info->media_codec, inputBufIndex, 0, info->pkt.size, pts, 0);
                             }
                             break;
                         } else if (inputBufIndex == AMEDIA_ERROR_UNKNOWN) {
@@ -260,9 +264,38 @@ int decode_packet(VideoInfo *info, int *got_frame) {
                         }
                         tries--;
                     }
-                    av_packet_unref(&bsf_pkt);
-                } else {
-                    break;
+                    decoded = info->pkt.size;
+                }
+            }
+
+            if (info->bsfc) {
+                while (true) {
+                    AVPacket bsf_pkt;
+                    av_init_packet(&bsf_pkt);
+                    ret = av_bsf_receive_packet(info->bsfc, &bsf_pkt);
+                    if (ret == 0) {
+                        int tries = 10;
+                        while (tries > 0) {
+                            ssize_t inputBufIndex = AMediaCodec_dequeueInputBuffer(info->media_codec, 10000);
+                            if (inputBufIndex >= 0) {
+                                size_t bufsize;
+                                uint8_t *buf = AMediaCodec_getInputBuffer(info->media_codec, inputBufIndex, &bufsize);
+                                if (buf && bufsize >= bsf_pkt.size) {
+                                    memcpy(buf, bsf_pkt.data, bsf_pkt.size);
+                                    int64_t pts = bsf_pkt.pts;
+                                    if (pts == AV_NOPTS_VALUE) pts = bsf_pkt.dts;
+                                    AMediaCodec_queueInputBuffer(info->media_codec, inputBufIndex, 0, bsf_pkt.size, pts, 0);
+                                }
+                                break;
+                            } else if (inputBufIndex == AMEDIA_ERROR_UNKNOWN) {
+                                break;
+                            }
+                            tries--;
+                        }
+                        av_packet_unref(&bsf_pkt);
+                    } else {
+                        break;
+                    }
                 }
             }
         }
