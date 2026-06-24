@@ -530,7 +530,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public void requestDisallowInterceptTouchEvent(boolean disallow) {
-                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.displaySize.x * 0.60f) {
+                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.dp(20)) {
                     return;
                 }
                 super.requestDisallowInterceptTouchEvent(disallow);
@@ -556,18 +556,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         float dx = ev.getX() - dragStartX;
                         float dy = ev.getY() - dragStartY;
                         
-                        if (!isSidebarOpen) {
-                            // Sidebar is closed: swipe right from left edge (x < 60% of screen)
-                            if (dragStartX < AndroidUtilities.displaySize.x * 0.60f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                                isDraggingSidebar = true;
-                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
-                                getParent().requestDisallowInterceptTouchEvent(true);
-                                return true;
-                            }
-                        } else {
+                            if (!isSidebarOpen) {
+                                // Sidebar is closed: swipe right from left edge (x < 30dp)
+                                if (dragStartX < AndroidUtilities.dp(20) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                    isDraggingSidebar = true;
+                                    if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
+                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                    getParent().requestDisallowInterceptTouchEvent(true);
+                                    return true;
+                                }
+                            } else {
                             // Sidebar is open: swipe left to close
                             if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
+                                if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
                                 getParent().requestDisallowInterceptTouchEvent(true);
                                 return true;
@@ -601,8 +603,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     if (!isDraggingSidebar) {
                         if (!isSidebarOpen) {
                             // Closed: swipe right from edge
-                            if (dragStartX < AndroidUtilities.displaySize.x * 0.60f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            if (dragStartX < AndroidUtilities.dp(20) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
+                                if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
                                 getParent().requestDisallowInterceptTouchEvent(true);
                             }
@@ -610,6 +613,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             // Open: swipe left anywhere
                             if (dx < -AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
+                                if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : 0;
                                 getParent().requestDisallowInterceptTouchEvent(true);
                             }
@@ -7294,8 +7298,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 LinearLayout sidebarContent = (LinearLayout) ((ViewGroup) primeSidebarView).getChildAt(0);
                 if (sidebarContent != null && sidebarContent.getChildCount() > 1) {
                     LinearLayout bottomContainer = (LinearLayout) sidebarContent.getChildAt(1);
-                    if (bottomContainer != null && bottomContainer.getChildCount() > 1) {
-                        View proxyBtn = bottomContainer.getChildAt(1);
+                    if (bottomContainer != null && bottomContainer.getChildCount() > 2) {
+                        View proxyBtn = bottomContainer.getChildAt(2);
                         if (proxyBtn instanceof ImageView) {
                             updateProxyButtonState((ImageView) proxyBtn);
                         }
@@ -9319,9 +9323,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
         if (currentFragment instanceof MainTabsActivity) {
             BaseFragment visibleFrag = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment();
-            return visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0;
+            return visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0 && ((DialogsActivity) visibleFrag).getCurrentFilterId() == 0;
         }
-        return (currentFragment instanceof DialogsActivity) && ((DialogsActivity) currentFragment).getFolderId() == 0;
+        return (currentFragment instanceof DialogsActivity) && ((DialogsActivity) currentFragment).getFolderId() == 0 && ((DialogsActivity) currentFragment).getCurrentFilterId() == 0;
     }
 
     public void updateSidebarVisibility() {
@@ -9329,10 +9333,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
-        boolean isMainScreen = currentFragment instanceof DialogsActivity && ((DialogsActivity) currentFragment).getFolderId() == 0;
+        boolean isMainScreen = currentFragment instanceof DialogsActivity && ((DialogsActivity) currentFragment).getFolderId() == 0 && ((DialogsActivity) currentFragment).getCurrentFilterId() == 0;
         if (currentFragment instanceof MainTabsActivity) {
             BaseFragment visibleFrag = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment();
-            isMainScreen = visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0;
+            isMainScreen = visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0 && ((DialogsActivity) visibleFrag).getCurrentFilterId() == 0;
         }
         
         boolean show = sidebarEnabled && isMainScreen;

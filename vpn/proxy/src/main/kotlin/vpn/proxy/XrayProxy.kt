@@ -24,21 +24,32 @@ object XrayProxy {
 
     const val SOCKS_PORT = 17808
     val socksPort: Int = SOCKS_PORT
-    val socksHost: String = "127.0.0.1"
+    val socksHost: String = "127.0.0.2"
 
     var lastError: String? = null
         private set
 
+    var proxyLogger: ((String) -> Unit)? = null
+
+    private fun logD(msg: String) {
+        Log.d(TAG, msg)
+        proxyLogger?.invoke("D/$TAG: $msg")
+    }
+    private fun logE(msg: String, t: Throwable? = null) {
+        if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
+        proxyLogger?.invoke("E/$TAG: $msg" + (if (t != null) " - ${t.message}" else ""))
+    }
+
     fun isRunning(): Boolean = try {
         libXray.LibXray.getXrayState()
     } catch (e: Throwable) {
-        Log.e(TAG, "getXrayState failed", e)
+        logE("getXrayState failed", e)
         false
     }
 
     fun start(configJson: String): Boolean {
         if (isRunning()) {
-            Log.d(TAG, "Already running")
+            logD("Already running")
             return true
         }
         return try {
@@ -47,38 +58,84 @@ object XrayProxy {
             val response = decodeResponse(responseBase64)
             if (response.isSuccess) {
                 lastError = null
-                Log.d(TAG, "Started on $socksHost:$socksPort")
+                logD("Started on $socksHost:$socksPort")
+                startLogcatReader()
                 true
             } else {
                 lastError = response.error
-                Log.e(TAG, "Start failed: ${response.error}")
+                logE("Start failed: ${response.error}")
                 false
             }
         } catch (e: Throwable) {
             lastError = "${e.javaClass.simpleName}: ${e.message}"
-            Log.e(TAG, "Start exception", e)
+            logE("Start exception", e)
             false
         }
     }
 
     fun stop() {
         try {
+            stopLogcatReader()
             libXray.LibXray.stopXray()
-            Log.d(TAG, "Stopped")
+            logD("Stopped")
         } catch (e: Throwable) {
-            Log.e(TAG, "Stop exception", e)
+            logE("Stop exception", e)
         }
     }
 
     // ---- private helpers ----
 
     private fun buildRunRequest(configJson: String): String {
+        var finalConfigJson = configJson.replace("\"127.0.0.1\"", "\"127.0.0.2\"")
+        try {
+            val configObj = JSONObject(finalConfigJson)
+            if (!configObj.has("log")) {
+                val logObj = JSONObject()
+                logObj.put("loglevel", "debug")
+                configObj.put("log", logObj)
+                finalConfigJson = configObj.toString()
+            }
+        } catch (e: Exception) {
+            logE("Failed to inject debug log level", e)
+        }
+
         val requestJson = JSONObject().apply {
             put("datDir", "")          // no geo dat files needed for basic VLESS
             put("mphCachePath", "")
-            put("configJSON", configJson)
+            put("configJSON", finalConfigJson)
         }.toString()
         return Base64.getEncoder().encodeToString(requestJson.toByteArray())
+    }
+
+    private var logcatThread: Thread? = null
+    @Volatile private var isLogcatRunning = false
+
+    private fun startLogcatReader() {
+        if (isLogcatRunning) return
+        isLogcatRunning = true
+        logcatThread = kotlin.concurrent.thread(start = true) {
+            try {
+                val process = Runtime.getRuntime().exec("logcat -v time GoLog:D libxray:D XrayProxy:D VpnSDK:D *:S")
+                val reader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream))
+                var line: String? = null
+                while (isLogcatRunning && reader.readLine().also { line = it } != null) {
+                    val l = line ?: continue
+                    if (l.contains("GoLog") || l.contains("libxray")) {
+                        val msgIndex = l.indexOf("GoLog")
+                        val cleanMsg = if (msgIndex != -1) l.substring(msgIndex) else l
+                        proxyLogger?.invoke(cleanMsg)
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    private fun stopLogcatReader() {
+        isLogcatRunning = false
+        logcatThread?.interrupt()
+        logcatThread = null
     }
 
     private data class LibResponse(val isSuccess: Boolean, val error: String?)

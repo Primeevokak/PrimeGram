@@ -680,6 +680,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     private int folderId;
     public int getFolderId() { return folderId; }
+    
+    public int getCurrentFilterId() {
+        if (filterTabsView != null) {
+            return filterTabsView.getCurrentTabId();
+        }
+        return 0;
+    }
 
     private final static int pin = 100;
     private final static int read = 101;
@@ -6672,6 +6679,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     }
 
     public void switchToCurrentSelectedMode(boolean animated) {
+        if (getParentActivity() instanceof org.telegram.ui.LaunchActivity) {
+            ((org.telegram.ui.LaunchActivity) getParentActivity()).updateSidebarVisibility();
+        }
         for (int a = 0; a < viewPages.length; a++) {
             viewPages[a].listView.stopScroll();
         }

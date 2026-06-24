@@ -49,7 +49,7 @@ object VpnSDK {
     }
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        Log.e(TAG, "Unhandled coroutine exception", throwable)
+        VpnSDK.logE(TAG, "Unhandled coroutine exception", throwable)
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
@@ -58,6 +58,31 @@ object VpnSDK {
 
     @Volatile
     private var isInitialized = false
+
+    @JvmStatic
+    var logListener: ((String) -> Unit)? = null
+        set(value) {
+            field = value
+            XrayProxy.proxyLogger = value
+        }
+
+    @JvmStatic
+    fun logD(tag: String, msg: String) {
+        Log.d(tag, msg)
+        logListener?.invoke("D/$tag: $msg")
+    }
+
+    @JvmStatic
+    fun logE(tag: String, msg: String, t: Throwable? = null) {
+        Log.e(tag, msg, t)
+        logListener?.invoke("E/$tag: $msg" + (if (t != null) " - ${t.message}" else ""))
+    }
+
+    @JvmStatic
+    fun logW(tag: String, msg: String) {
+        Log.w(tag, msg)
+        logListener?.invoke("W/$tag: $msg")
+    }
 
     @JvmStatic
     val tunnelStateFlow: StateFlow<VpnTunnelState>
@@ -87,14 +112,14 @@ object VpnSDK {
     @JvmOverloads
     fun setup(context: Context, debug: Boolean = false) {
         if (isInitialized) {
-            Log.d(TAG, "Already initialized")
+            VpnSDK.logD(TAG, "Already initialized")
             return
         }
         val appContext = context.applicationContext
         VpnNetworkFactory.setup(appContext, debug)
         TunnelFactory.setup(appContext)
         isInitialized = true
-        Log.d(TAG, "Initialized")
+        VpnSDK.logD(TAG, "Initialized")
 
         TunnelFactory.getTunnelManager().tunnelState
             .onEach { state -> notifyListeners(state) }
@@ -106,11 +131,11 @@ object VpnSDK {
     fun updateConfig() {
         checkInitialized()
         scope.launch {
-            Log.d(TAG, "Fetching remote config…")
+            VpnSDK.logD(TAG, "Fetching remote config…")
             when (val result = VpnNetworkFactory.getAppConfigRepository().fetchRemoteConfig()) {
-                is NetworkResult.Success -> Log.d(TAG, "Config updated")
-                is NetworkResult.Error   -> Log.e(TAG, "Config error: ${result.message}")
-                is NetworkResult.Failure -> Log.e(TAG, "Config failure, code=${result.code}")
+                is NetworkResult.Success -> VpnSDK.logD(TAG, "Config updated")
+                is NetworkResult.Error   -> VpnSDK.logE(TAG, "Config error: ${result.message}")
+                is NetworkResult.Failure -> VpnSDK.logE(TAG, "Config failure, code=${result.code}")
             }
         }
     }
@@ -119,11 +144,11 @@ object VpnSDK {
     fun fetchAppUpdate(callback: AppUpdateCallback) {
         checkInitialized()
         scope.launch {
-            Log.d(TAG, "Fetching app update info…")
+            VpnSDK.logD(TAG, "Fetching app update info…")
             when (val result = VpnNetworkFactory.getAppUpdateRepository().fetchUpdateInfo()) {
                 is NetworkResult.Success -> {
                     val info = result.data
-                    Log.d(TAG, "App update info fetched: v${info.version}")
+                    VpnSDK.logD(TAG, "App update info fetched: v${info.version}")
                     callback.onResult(
                         AppUpdateResult(
                             version = info.version,
@@ -135,11 +160,11 @@ object VpnSDK {
                     )
                 }
                 is NetworkResult.Error -> {
-                    Log.e(TAG, "App update fetch error: ${result.message}")
+                    VpnSDK.logE(TAG, "App update fetch error: ${result.message}")
                     callback.onResult(null)
                 }
                 is NetworkResult.Failure -> {
-                    Log.e(TAG, "App update fetch failure, code=${result.code}")
+                    VpnSDK.logE(TAG, "App update fetch failure, code=${result.code}")
                     callback.onResult(null)
                 }
             }
@@ -182,12 +207,12 @@ object VpnSDK {
     }
 
     private suspend fun connect() {
-        Log.d(TAG, "Connecting…")
+        VpnSDK.logD(TAG, "Connecting…")
         TunnelFactory.getTunnelManager().setState(VpnTunnelState.CONNECTING, null)
 
         val keyResult = VpnNetworkFactory.getVpnApi().getAnonymousKey()
         if (keyResult !is NetworkResult.Success) {
-            Log.w(TAG, "Failed to get anonymous key: $keyResult")
+            VpnSDK.logW(TAG, "Failed to get anonymous key: $keyResult")
             TunnelFactory.getTunnelManager().setState(VpnTunnelState.DOWN, null)
             return
         }
@@ -198,7 +223,7 @@ object VpnSDK {
     @JvmStatic
     fun disconnect() {
         if (!isInitialized) return
-        Log.d(TAG, "Disconnecting…")
+        VpnSDK.logD(TAG, "Disconnecting…")
         TunnelFactory.disconnect()
     }
 
@@ -221,12 +246,12 @@ object VpnSDK {
         checkInitialized()
         val cached = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
         if (cached == null) {
-            Log.d(TAG, "startProxy: no cached config; xray not started")
+            VpnSDK.logD(TAG, "startProxy: no cached config; xray not started")
             return false
         }
-        Log.d(TAG, "Starting xray with cached server config (size=${cached.length})")
+        VpnSDK.logD(TAG, "Starting xray with cached server config (size=${cached.length})")
         if (XrayProxy.start(cached)) return true
-        Log.w(TAG, "Cached xray config failed to start, clearing cache: ${XrayProxy.lastError}")
+        VpnSDK.logW(TAG, "Cached xray config failed to start, clearing cache: ${XrayProxy.lastError}")
         VpnNetworkFactory.getRegistrationRepository().clearCachedConfig()
         return false
     }
@@ -240,7 +265,7 @@ object VpnSDK {
 
     @JvmStatic
     fun stopProxy() {
-        Log.d(TAG, "Stopping xray proxy…")
+        VpnSDK.logD(TAG, "Stopping xray proxy…")
         XrayProxy.stop()
     }
 
@@ -280,7 +305,7 @@ object VpnSDK {
         checkInitialized()
         scope.launch {
             if (!registerMutex.tryLock()) {
-                Log.d(TAG, "registerOrAuth already in flight, dropping duplicate call")
+                VpnSDK.logD(TAG, "registerOrAuth already in flight, dropping duplicate call")
                 return@launch
             }
             try {
@@ -296,7 +321,7 @@ object VpnSDK {
         var delayMs = 1000L
         var lastResult: NetworkResult<Unit>? = null
         for (attempt in 1..maxAttempts) {
-            Log.d(TAG, "registerOrAuth attempt $attempt/$maxAttempts")
+            VpnSDK.logD(TAG, "registerOrAuth attempt $attempt/$maxAttempts")
             val result = VpnNetworkFactory.getRegistrationRepository().register()
             lastResult = result
             if (result is NetworkResult.Success) {
@@ -311,22 +336,22 @@ object VpnSDK {
                 delayMs *= 2
             }
         }
-        Log.w(TAG, "registerOrAuth exhausted $maxAttempts attempts: $lastResult")
+        VpnSDK.logW(TAG, "registerOrAuth exhausted $maxAttempts attempts: $lastResult")
         return false
     }
 
     private fun applyCachedConfigToXray(): Boolean {
         val configJson = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
         if (configJson == null) {
-            Log.w(TAG, "applyCachedConfigToXray: no cached config (unexpected after success)")
+            VpnSDK.logW(TAG, "applyCachedConfigToXray: no cached config (unexpected after success)")
             return false
         }
         XrayProxy.stop()
         val ok = XrayProxy.start(configJson)
         if (!ok) {
-            Log.w(TAG, "Failed to restart xray with new config: ${XrayProxy.lastError}")
+            VpnSDK.logW(TAG, "Failed to restart xray with new config: ${XrayProxy.lastError}")
         } else {
-            Log.d(TAG, "Xray restarted with fresh server config")
+            VpnSDK.logD(TAG, "Xray restarted with fresh server config")
         }
         return ok
     }

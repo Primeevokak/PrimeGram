@@ -311,6 +311,13 @@ public class ApplicationLoader extends Application {
         super.onCreate();
 
         VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
+        VpnSDK.setLogListener(new kotlin.jvm.functions.Function1<String, kotlin.Unit>() {
+            @Override
+            public kotlin.Unit invoke(String msg) {
+                org.telegram.messenger.TgWsProxyService.addLog("[VLESS] " + msg);
+                return kotlin.Unit.INSTANCE;
+            }
+        });
 
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("app start time = " + (startTime = SystemClock.elapsedRealtime()));
