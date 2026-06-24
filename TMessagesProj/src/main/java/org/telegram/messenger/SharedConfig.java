@@ -1476,39 +1476,24 @@ public class SharedConfig {
             proxyList.add(0, info);
         }
         
-        // Ensure 127.0.0.1 SOCKS5 proxy is always present in the list with the active port
-        boolean hasLocalProxy = false;
+        // Ensure 127.0.0.1 and 127.0.0.2 SOCKS5 proxies are always present in the list
+        boolean hasTgwsProxy = false;
+        boolean hasVlessProxy = false;
         for (ProxyInfo info : proxyList) {
-            if ("127.0.0.1".equals(info.address) && (info.port == 1080 || info.port == TgWsProxyService.activeProxyPort) && TextUtils.isEmpty(info.secret)) {
-                hasLocalProxy = true;
-                break;
+            if ("127.0.0.1".equals(info.address) && info.port == 1080 && TextUtils.isEmpty(info.secret)) {
+                hasTgwsProxy = true;
+            }
+            if ("127.0.0.2".equals(info.address) && info.port == 17808 && TextUtils.isEmpty(info.secret)) {
+                hasVlessProxy = true;
             }
         }
-        if (!hasLocalProxy) {
-            ProxyInfo localProxy = new ProxyInfo("127.0.0.1", TgWsProxyService.activeProxyPort, "", "", "");
-            proxyList.add(localProxy);
+        if (!hasTgwsProxy) {
+            ProxyInfo tgwsProxy = new ProxyInfo("127.0.0.1", 1080, "", "", "");
+            proxyList.add(tgwsProxy);
         }
-
-        // Auto-select and enable the local proxy if no proxy is currently active
-        if (currentProxy == null) {
-            for (ProxyInfo info : proxyList) {
-                if ("127.0.0.1".equals(info.address) && (info.port == 1080 || info.port == TgWsProxyService.activeProxyPort) && TextUtils.isEmpty(info.secret)) {
-                    currentProxy = info;
-                    break;
-                }
-            }
-            if (currentProxy != null) {
-                SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
-                editor.putBoolean("proxy_enabled", true);
-                editor.putString("proxy_ip", currentProxy.address);
-                editor.putInt("proxy_port", currentProxy.port);
-                editor.putString("proxy_user", currentProxy.username);
-                editor.putString("proxy_pass", currentProxy.password);
-                editor.putString("proxy_secret", currentProxy.secret);
-                editor.apply();
-                
-                org.telegram.tgnet.ConnectionsManager.setProxySettings(true, currentProxy.address, currentProxy.port, currentProxy.username, currentProxy.password, currentProxy.secret);
-            }
+        if (!hasVlessProxy) {
+            ProxyInfo vlessProxy = new ProxyInfo("127.0.0.2", 17808, "", "", "");
+            proxyList.add(vlessProxy);
         }
     }
 
@@ -1565,7 +1550,11 @@ public class SharedConfig {
     }
 
     public static void deleteProxy(ProxyInfo proxyInfo) {
-        if (proxyInfo != null && "127.0.0.1".equals(proxyInfo.address) && (proxyInfo.port == 1080 || proxyInfo.port == TgWsProxyService.activeProxyPort) && TextUtils.isEmpty(proxyInfo.secret)) {
+        if (proxyInfo != null && "127.0.0.1".equals(proxyInfo.address) && proxyInfo.port == 1080 && TextUtils.isEmpty(proxyInfo.secret)) {
+            // Do not allow deleting the local loopback proxy
+            return;
+        }
+        if (proxyInfo != null && "127.0.0.2".equals(proxyInfo.address) && proxyInfo.port == 17808 && TextUtils.isEmpty(proxyInfo.secret)) {
             // Do not allow deleting the local loopback proxy
             return;
         }

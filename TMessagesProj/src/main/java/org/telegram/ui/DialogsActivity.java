@@ -13452,6 +13452,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     FileLog.e(t);
                 }
             });
+            io.add(R.drawable.msg_channel, "Наш партнер", () -> {
+                try {
+                    org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/govpn?start=2f6a4271-0e89-481c-b90f-ecfd0e1a888d");
+                } catch (Throwable t) {
+                    FileLog.e(t);
+                }
+            });
             if (ApplicationLoader.applicationLoaderInstance != null) {
                 ApplicationLoader.applicationLoaderInstance.addItemOptions(io);
             }

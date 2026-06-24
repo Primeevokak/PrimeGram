@@ -530,7 +530,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public void requestDisallowInterceptTouchEvent(boolean disallow) {
-                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.dp(20)) {
+                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.displaySize.x * 0.40f) {
                     return;
                 }
                 super.requestDisallowInterceptTouchEvent(disallow);
@@ -557,8 +557,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         float dy = ev.getY() - dragStartY;
                         
                             if (!isSidebarOpen) {
-                                // Sidebar is closed: swipe right from left edge (x < 30dp)
-                                if (dragStartX < AndroidUtilities.dp(20) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                // Sidebar is closed: swipe right from left edge (x < 40%)
+                                if (dragStartX < AndroidUtilities.displaySize.x * 0.40f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                     isDraggingSidebar = true;
                                     if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
                                     dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
@@ -603,7 +603,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     if (!isDraggingSidebar) {
                         if (!isSidebarOpen) {
                             // Closed: swipe right from edge
-                            if (dragStartX < AndroidUtilities.dp(20) && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            if (dragStartX < AndroidUtilities.displaySize.x * 0.40f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);

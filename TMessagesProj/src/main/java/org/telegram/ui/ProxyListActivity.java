@@ -93,6 +93,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     @Keep
     private int useProxyRow;
     private int emergencyProxyRow;
+    private int tgwsProxyRow;
     private int useProxyShadowRow;
     private int connectionsHeaderRow;
     private int proxyStartRow;
@@ -488,42 +489,31 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             if (position == emergencyProxyRow) {
                 if (VpnSDK.isProxyRunning()) {
                     VpnSDK.stopProxy();
-                    if (SharedConfig.isProxyEnabled()) {
-                        ConnectionsManager.setProxySettings(true, SharedConfig.currentProxy.address, SharedConfig.currentProxy.port, SharedConfig.currentProxy.username, SharedConfig.currentProxy.password, SharedConfig.currentProxy.secret);
-                    } else {
-                        ConnectionsManager.setProxySettings(false, "", 1080, "", "", "");
-                    }
                     if (listAdapter != null) {
                         listAdapter.notifyItemChanged(emergencyProxyRow);
                     }
                 } else {
                     VpnSDK.registerOrAuth(2, success -> {
                         if (success) {
-                            ApplicationLoader.applyXrayProxyToConnectionsManager();
-                            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-                            if (preferences.getBoolean("proxy_enabled", false)) {
-                                preferences.edit()
-                                        .putBoolean("proxy_enabled", false)
-                                        .putBoolean("proxy_enabled_calls", false)
-                                        .apply();
-                                useProxySettings = false;
-                                useProxyForCalls = false;
-                                if (listAdapter != null) {
-                                    listAdapter.notifyItemChanged(useProxyRow);
-                                    if (callsRow != -1) {
-                                        listAdapter.notifyItemChanged(callsRow);
-                                    }
-                                }
-                            }
                             if (listAdapter != null) {
                                 listAdapter.notifyItemChanged(emergencyProxyRow);
                             }
                         }
                     });
                 }
-                return;
-            }
-            if (position == useProxyRow) {
+            } else if (position == tgwsProxyRow) {
+                SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                boolean enabled = mainconfig.getBoolean("primegram_tgws_enabled", true);
+                mainconfig.edit().putBoolean("primegram_tgws_enabled", !enabled).apply();
+                if (org.telegram.messenger.TgWsProxyService.isRunning()) {
+                    org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
+                } else {
+                    org.telegram.messenger.TgWsProxyService.startService(getParentActivity());
+                }
+                if (listAdapter != null) {
+                    listAdapter.notifyItemChanged(tgwsProxyRow);
+                }
+            } else if (position == useProxyRow) {
                 if (SharedConfig.currentProxy == null) {
                     if (!proxyList.isEmpty()) {
                         SharedConfig.currentProxy = proxyList.get(0);
@@ -544,12 +534,6 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     }
                 }
                 useProxySettings = !useProxySettings;
-                if (useProxySettings && VpnSDK.isProxyRunning()) {
-                    VpnSDK.stopProxy();
-                    if (listAdapter != null) {
-                        listAdapter.notifyItemChanged(emergencyProxyRow);
-                    }
-                }
                 updateRows(true);
 
                 SharedPreferences preferences = MessagesController.getGlobalMainSettings();
@@ -609,12 +593,6 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 editor.putInt("proxy_port", info.port);
                 editor.putString("proxy_secret", info.secret);
                 editor.putBoolean("proxy_enabled", useProxySettings);
-                if (VpnSDK.isProxyRunning()) {
-                    VpnSDK.stopProxy();
-                    if (listAdapter != null) {
-                        listAdapter.notifyItemChanged(emergencyProxyRow);
-                    }
-                }
                 if (!info.secret.isEmpty()) {
                     useProxyForCalls = false;
                     editor.putBoolean("proxy_enabled_calls", false);
@@ -770,6 +748,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private void updateRows(boolean notify) {
         rowCount = 0;
         emergencyProxyRow = rowCount++;
+        tgwsProxyRow = rowCount++;
         useProxyRow = rowCount++;
         if (useProxySettings && SharedConfig.currentProxy != null && SharedConfig.proxyList.size() > 1 && IS_PROXY_ROTATION_AVAILABLE) {
             rotationRow = rowCount++;
@@ -1052,7 +1031,11 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 case VIEW_TYPE_TEXT_CHECK: {
                     TextCheckCell checkCell = (TextCheckCell) holder.itemView;
                     if (position == emergencyProxyRow) {
-                        checkCell.setTextAndCheck("Аварийный VLESS-прокси", VpnSDK.isProxyRunning(), true);
+                        checkCell.setTextAndCheck("Включить VLESS-сервер", VpnSDK.isProxyRunning(), true);
+                    } else if (position == tgwsProxyRow) {
+                        SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                        boolean enabled = mainconfig.getBoolean("primegram_tgws_enabled", true);
+                        checkCell.setTextAndCheck("Включить TgWs-сервер", enabled, true);
                     } else if (position == useProxyRow) {
                         checkCell.setTextAndCheck(getString(R.string.UseProxySettings), useProxySettings, rotationRow != -1);
                     } else if (position == callsRow) {
@@ -1132,6 +1115,10 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 int position = holder.getAdapterPosition();
                 if (position == emergencyProxyRow) {
                     checkCell.setChecked(VpnSDK.isProxyRunning());
+                } else if (position == tgwsProxyRow) {
+                    SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                    boolean enabled = mainconfig.getBoolean("primegram_tgws_enabled", true);
+                    checkCell.setChecked(enabled);
                 } else if (position == useProxyRow) {
                     checkCell.setChecked(useProxySettings);
                 } else if (position == callsRow) {
@@ -1145,7 +1132,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == emergencyProxyRow || position == useProxyRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
+            return position == emergencyProxyRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
         }
 
         @Override
@@ -1198,6 +1185,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return -3;
             } else if (position == emergencyProxyRow) {
                 return -15;
+            } else if (position == tgwsProxyRow) {
+                return -16;
             } else if (position == useProxyRow) {
                 return -4;
             } else if (position == callsRow) {
@@ -1227,7 +1216,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_SHADOW;
             } else if (position == proxyAddRow || position == deleteAllRow) {
                 return VIEW_TYPE_TEXT_SETTING;
-            } else if (position == emergencyProxyRow || position == useProxyRow || position == rotationRow || position == callsRow) {
+            } else if (position == emergencyProxyRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow) {
                 return VIEW_TYPE_TEXT_CHECK;
             } else if (position == connectionsHeaderRow) {
                 return VIEW_TYPE_HEADER;

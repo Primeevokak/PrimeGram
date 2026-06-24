@@ -46,6 +46,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_FEED_EXCLUDE_MUTED = 16;
     private static final int ID_FEED_EXCLUDE_ARCHIVED = 17;
     private static final int ID_EMERGENCY_PROXY = 18;
+    private static final int ID_TGWS_PROXY = 20;
     private static final int ID_HW_ACCEL = 19;
     @Override
     protected CharSequence getTitle() {
@@ -63,10 +64,15 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asShadow("Отображает стильную вертикальную боковую панель на главном экране списка чатов для быстрого доступа к переключению аккаунтов, кошельку, прокси и настройкам."));
 
         items.add(UItem.asHeader("Соединение"));
-        UItem proxyItem = UItem.asCheck(ID_EMERGENCY_PROXY, "Аварийный VLESS-прокси");
+        UItem proxyItem = UItem.asCheck(ID_EMERGENCY_PROXY, "Включить VLESS-сервер");
         proxyItem.checked = VpnSDK.isProxyRunning();
         items.add(proxyItem);
-        items.add(UItem.asShadow("В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси (AmneziaWG) для обхода блокировок."));
+        items.add(UItem.asShadow("В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси (AmneziaWG) для обхода блокировок. Сервер работает локально на 127.0.0.2:17808"));
+
+        UItem tgwsItem = UItem.asCheck(ID_TGWS_PROXY, "Включить TgWs-сервер");
+        tgwsItem.checked = preferences.getBoolean("primegram_tgws_enabled", true);
+        items.add(tgwsItem);
+        items.add(UItem.asShadow("Включает локальный сервер TgWsProxy. Сервер работает локально на 127.0.0.1:1080"));
 
         items.add(UItem.asHeader("Экспериментальные настройки"));
         boolean hwAccel = preferences.getBoolean("primegram_hw_accel", false);
@@ -140,28 +146,25 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_EMERGENCY_PROXY) {
             if (VpnSDK.isProxyRunning()) {
                 VpnSDK.stopProxy();
-                if (SharedConfig.isProxyEnabled()) {
-                    org.telegram.tgnet.ConnectionsManager.setProxySettings(true, SharedConfig.currentProxy.address, SharedConfig.currentProxy.port, SharedConfig.currentProxy.username, SharedConfig.currentProxy.password, SharedConfig.currentProxy.secret);
-                } else {
-                    org.telegram.tgnet.ConnectionsManager.setProxySettings(false, "", 1080, "", "", "");
-                }
                 listView.adapter.update(true);
             } else {
                 VpnSDK.registerOrAuth(2, success -> {
                     if (success) {
-                        ApplicationLoader.applyXrayProxyToConnectionsManager();
-                        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-                        if (preferences.getBoolean("proxy_enabled", false)) {
-                            preferences.edit()
-                                    .putBoolean("proxy_enabled", false)
-                                    .putBoolean("proxy_enabled_calls", false)
-                                    .apply();
-                        }
                         if (listView != null && listView.adapter != null) {
                             listView.adapter.update(true);
                         }
                     }
                 });
+            }
+        } else if (item.id == ID_TGWS_PROXY) {
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            boolean enabled = preferences.getBoolean("primegram_tgws_enabled", true);
+            preferences.edit().putBoolean("primegram_tgws_enabled", !enabled).apply();
+
+            if (org.telegram.messenger.TgWsProxyService.isRunning()) {
+                org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
+            } else {
+                org.telegram.messenger.TgWsProxyService.startService(getParentActivity());
             }
             listView.adapter.update(true);
         } else if (item.id == ID_AUTO_UPDATES) {

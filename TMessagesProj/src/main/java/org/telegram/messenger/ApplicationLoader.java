@@ -254,16 +254,19 @@ public class ApplicationLoader extends Application {
 
         SharedConfig.loadConfig();
         SharedConfig.loadProxyList();
-        try {
-            TgWsProxyService.startService(ApplicationLoader.applicationContext);
-            long startWait = System.currentTimeMillis();
-            while (!TgWsProxyService.isSocketBound && (System.currentTimeMillis() - startWait < 1500)) {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException ignored) {}
+        SharedPreferences mainconfig = applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+        if (mainconfig.getBoolean("primegram_tgws_enabled", true)) {
+            try {
+                TgWsProxyService.startService(ApplicationLoader.applicationContext);
+                long startWait = System.currentTimeMillis();
+                while (!TgWsProxyService.isSocketBound && (System.currentTimeMillis() - startWait < 1500)) {
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException ignored) {}
+                }
+            } catch (Exception e) {
+                FileLog.e("Failed to start TgWsProxyService", e);
             }
-        } catch (Exception e) {
-            FileLog.e("Failed to start TgWsProxyService", e);
         }
         SharedPrefsHelper.init(applicationContext);
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) { //TODO improve account
