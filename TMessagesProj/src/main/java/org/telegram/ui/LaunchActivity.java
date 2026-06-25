@@ -9474,6 +9474,17 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         });
         bottomContainer.addView(savedMessagesButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
         
+        // 5. Partner Button
+        ImageView partnerButton = createSidebarIcon(context, R.drawable.msg_channel, "Наш партнер", v -> {
+            try {
+                org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://t.me/govpn?start=2f6a4271-0e89-481c-b90f-ecfd0e1a888d");
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            setSidebarOpen(false, true);
+        });
+        bottomContainer.addView(partnerButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
+        
         updateSidebarAccounts();
     }
 

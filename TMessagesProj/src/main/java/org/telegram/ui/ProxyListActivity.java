@@ -1239,9 +1239,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         public int getItemViewType(int position) {
             if (position == useProxyShadowRow || position == proxyShadowRow) {
                 return VIEW_TYPE_SHADOW;
-            } else if (position == proxyAddRow || position == deleteAllRow) {
+            } else if (position == proxyAddRow || position == deleteAllRow || position == customVlessRow) {
                 return VIEW_TYPE_TEXT_SETTING;
-            } else if (position == emergencyProxyRow || position == customVlessRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow) {
+            } else if (position == emergencyProxyRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow) {
                 return VIEW_TYPE_TEXT_CHECK;
             } else if (position == connectionsHeaderRow) {
                 return VIEW_TYPE_HEADER;
