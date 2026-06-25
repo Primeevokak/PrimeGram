@@ -93,6 +93,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     @Keep
     private int useProxyRow;
     private int emergencyProxyRow;
+    private int customVlessRow;
     private int tgwsProxyRow;
     private int useProxyShadowRow;
     private int connectionsHeaderRow;
@@ -489,18 +490,37 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             if (position == emergencyProxyRow) {
                 if (VpnSDK.isProxyRunning()) {
                     VpnSDK.stopProxy();
-                    if (listAdapter != null) {
-                        listAdapter.notifyItemChanged(emergencyProxyRow);
-                    }
+                    listAdapter.notifyItemChanged(emergencyProxyRow);
                 } else {
                     VpnSDK.registerOrAuth(2, success -> {
-                        if (success) {
+                        AndroidUtilities.runOnUIThread(() -> {
                             if (listAdapter != null) {
                                 listAdapter.notifyItemChanged(emergencyProxyRow);
                             }
-                        }
+                        });
                     });
                 }
+            } else if (position == customVlessRow) {
+                org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity());
+                builder.setTitle("Свой VLESS");
+                final android.widget.EditText editText = new android.widget.EditText(getParentActivity());
+                editText.setHint("vless://...");
+                builder.setView(editText);
+                builder.setPositiveButton(getString(R.string.OK), (dialog, which) -> {
+                    String url = editText.getText().toString().trim();
+                    if (url.startsWith("vless://")) {
+                        boolean ok = VpnSDK.setCustomVlessConfig(url);
+                        if (ok) {
+                            if (listAdapter != null) {
+                                listAdapter.notifyItemChanged(emergencyProxyRow);
+                            }
+                        } else {
+                            android.widget.Toast.makeText(getParentActivity(), "Ошибка парсинга", android.widget.Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                });
+                builder.setNegativeButton(getString(R.string.Cancel), null);
+                showDialog(builder.create());
             } else if (position == tgwsProxyRow) {
                 SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
                 boolean enabled = mainconfig.getBoolean("primegram_tgws_enabled", true);
@@ -748,6 +768,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private void updateRows(boolean notify) {
         rowCount = 0;
         emergencyProxyRow = rowCount++;
+        customVlessRow = rowCount++;
         tgwsProxyRow = rowCount++;
         useProxyRow = rowCount++;
         if (useProxySettings && SharedConfig.currentProxy != null && SharedConfig.proxyList.size() > 1 && IS_PROXY_ROTATION_AVAILABLE) {
@@ -1015,6 +1036,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     textCell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
                     if (position == proxyAddRow) {
                         textCell.setText(getString(R.string.AddProxy), deleteAllRow != -1);
+                    } else if (position == customVlessRow) {
+                        textCell.setText("Ввести свой VLESS ключ", true);
                     } else if (position == deleteAllRow) {
                         textCell.setTextColor(Theme.getColor(Theme.key_text_RedRegular));
                         textCell.setText(getString(R.string.DeleteAllProxies), false);
@@ -1132,7 +1155,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == emergencyProxyRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
+            return position == emergencyProxyRow || position == customVlessRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
         }
 
         @Override
@@ -1184,7 +1207,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             } else if (position == proxyAddRow) {
                 return -3;
             } else if (position == emergencyProxyRow) {
-                return -15;
+                return 4;
+            } else if (position == customVlessRow) {
+                return 3;
             } else if (position == tgwsProxyRow) {
                 return -16;
             } else if (position == useProxyRow) {
@@ -1216,7 +1241,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_SHADOW;
             } else if (position == proxyAddRow || position == deleteAllRow) {
                 return VIEW_TYPE_TEXT_SETTING;
-            } else if (position == emergencyProxyRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow) {
+            } else if (position == emergencyProxyRow || position == customVlessRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow) {
                 return VIEW_TYPE_TEXT_CHECK;
             } else if (position == connectionsHeaderRow) {
                 return VIEW_TYPE_HEADER;

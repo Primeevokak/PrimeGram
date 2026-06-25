@@ -256,6 +256,105 @@ object VpnSDK {
         return false
     }
 
+    @JvmStatic
+    fun setCustomVlessConfig(vlessUrl: String): Boolean {
+        checkInitialized()
+        val json = parseVlessUrlToJson(vlessUrl) ?: return false
+        VpnNetworkFactory.getRegistrationRepository().setCustomConfigJson(json)
+        if (isProxyRunning()) {
+            stopProxy()
+        }
+        return startProxy()
+    }
+
+    private fun parseVlessUrlToJson(url: String): String? {
+        try {
+            if (!url.startsWith("vless://")) return null
+            val withoutScheme = url.substring("vless://".length)
+            val atIndex = withoutScheme.indexOf('@')
+            if (atIndex == -1) return null
+            val uuid = withoutScheme.substring(0, atIndex)
+            val hostPortRest = withoutScheme.substring(atIndex + 1)
+            
+            val questionIndex = hostPortRest.indexOf('?')
+            val hashIndex = hostPortRest.indexOf('#')
+            val endOfHostPort = if (questionIndex != -1) questionIndex else if (hashIndex != -1) hashIndex else hostPortRest.length
+            
+            val hostPort = hostPortRest.substring(0, endOfHostPort)
+            val colonIndex = hostPort.lastIndexOf(':')
+            if (colonIndex == -1) return null
+            val host = hostPort.substring(0, colonIndex)
+            val port = hostPort.substring(colonIndex + 1).toIntOrNull() ?: 443
+
+            var type = "tcp"
+            var security = "reality"
+            var pbk = ""
+            var sni = ""
+            var sid = ""
+            var fp = "chrome"
+            var flow = "xtls-rprx-vision"
+
+            if (questionIndex != -1) {
+                val queryEnd = if (hashIndex != -1 && hashIndex > questionIndex) hashIndex else hostPortRest.length
+                val query = hostPortRest.substring(questionIndex + 1, queryEnd)
+                val params = query.split("&")
+                for (param in params) {
+                    val kv = param.split("=")
+                    if (kv.size == 2) {
+                        when (kv[0]) {
+                            "type" -> type = kv[1]
+                            "security" -> security = kv[1]
+                            "pbk" -> pbk = kv[1]
+                            "sni" -> sni = kv[1]
+                            "sid" -> sid = kv[1]
+                            "fp" -> fp = kv[1]
+                            "flow" -> flow = kv[1]
+                        }
+                    }
+                }
+            }
+
+            return """
+            {
+              "log": {"loglevel": "warning"},
+              "inbounds": [{
+                "listen": "127.0.0.2",
+                "port": 17808,
+                "protocol": "socks",
+                "settings": {"udp": true}
+              }],
+              "outbounds": [{
+                "protocol": "vless",
+                "settings": {
+                  "vnext": [{
+                    "address": "$host",
+                    "port": $port,
+                    "users": [{
+                      "id": "$uuid",
+                      "encryption": "none",
+                      "flow": "$flow"
+                    }]
+                  }]
+                },
+                "streamSettings": {
+                  "network": "$type",
+                  "security": "$security",
+                  "realitySettings": {
+                    "publicKey": "$pbk",
+                    "shortId": "$sid",
+                    "serverName": "$sni",
+                    "fingerprint": "$fp"
+                  }
+                }
+              }]
+            }
+            """.trimIndent()
+        } catch (e: Exception) {
+            logE(TAG, "Failed to parse vless URL", e)
+            return null
+        }
+    }
+
     /** True iff a server-issued xray config is cached locally. */
     @JvmStatic
     fun hasCachedXrayConfig(): Boolean {

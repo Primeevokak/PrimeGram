@@ -404,6 +404,7 @@ public class TgWsProxyService extends Service {
                 connectivityManager.unregisterNetworkCallback(networkCallback);
             } catch (Exception ignored) {}
         }
+        clearWsPool();
         restartProxySockets();
         if (executor != null) executor.shutdown();
     }

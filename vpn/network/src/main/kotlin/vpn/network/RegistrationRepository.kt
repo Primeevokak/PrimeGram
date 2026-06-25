@@ -77,4 +77,8 @@ class RegistrationRepository(
     fun clearCachedConfig() {
         storage.clearXrayConfigJson()
     }
+
+    fun setCustomConfigJson(json: String) {
+        storage.saveXrayConfigJson(json)
+    }
 }
