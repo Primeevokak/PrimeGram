@@ -232,6 +232,8 @@ public class TgWsProxyService extends Service {
     private ExecutorService executor;
     private SSLSocketFactory sslSocketFactory;
     private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.Semaphore> dcSemaphores = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> ipFailUntil = new java.util.concurrent.ConcurrentHashMap<>();
+
 
     private java.util.concurrent.Semaphore getSemaphoreForDc(int dcId, boolean isMedia) {
         String key = dcId + "_" + isMedia;
@@ -1061,6 +1063,18 @@ public class TgWsProxyService extends Service {
         }
         boolean isUnified = false;
         String wsDomain = "kws" + dcId + "." + baseDomain;
+
+        if (System.currentTimeMillis() < ipFailUntil.getOrDefault(wsDomain, 0L)) {
+            logInfo(wsDomain + " is in IP fail cooldown, skipping.");
+            synchronized (TgWsProxyService.class) {
+                if (baseDomain.equals(currentBaseDomain)) {
+                    currentBaseDomain = null;
+                    cachedBaseAddress = null;
+                }
+            }
+            return null;
+        }
+
         InetAddress[] checkResolve = resolveWithFallbackDns(wsDomain);
         if (checkResolve == null || checkResolve.length == 0) {
             wsDomain = baseDomain;
@@ -1077,20 +1091,42 @@ public class TgWsProxyService extends Service {
             wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
             chosenDomain = wsDomain;
             logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ")");
+            
+            // clear IP fail cooldown on success
+            ipFailUntil.remove(wsDomain);
             return new WsConnection(tlsSocket, chosenDomain);
         } catch (Exception e) {
-            logError("Failed to connect to proxy " + wsDomain + ", resetting currentBaseDomain", e);
-            synchronized (TgWsProxyService.class) {
-                if (baseDomain.equals(currentBaseDomain)) {
-                    currentBaseDomain = null;
-                    cachedBaseAddress = null;
-                    logInfo("Resetting currentBaseDomain (failover triggered)");
+            boolean isTimeout = e instanceof java.net.SocketTimeoutException || (e.getMessage() != null && e.getMessage().contains("timed out"));
+            logError("Failed to connect to proxy " + wsDomain + " (" + e.getMessage() + "), trying fronting fallback...", null);
+
+            try {
+                tlsSocket = createTlsSocketWithSni(wsDomain, "sprinthost.ru", 443, 5_000);
+                wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
+                chosenDomain = wsDomain;
+                logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ") via fronting");
+                ipFailUntil.remove(wsDomain);
+                return new WsConnection(tlsSocket, chosenDomain);
+            } catch (Exception eFronting) {
+                logError("Fronting also failed for " + wsDomain, eFronting);
+                boolean isFrontingTimeout = eFronting instanceof java.net.SocketTimeoutException || (eFronting.getMessage() != null && eFronting.getMessage().contains("timed out"));
+                
+                if (isTimeout || isFrontingTimeout) {
+                    ipFailUntil.put(wsDomain, System.currentTimeMillis() + 3600_000L);
+                    logInfo("Added " + wsDomain + " to ipFail cooldown for 1 hour");
                 }
+
+                synchronized (TgWsProxyService.class) {
+                    if (baseDomain.equals(currentBaseDomain)) {
+                        currentBaseDomain = null;
+                        cachedBaseAddress = null;
+                        logInfo("Resetting currentBaseDomain (failover triggered)");
+                    }
+                }
+                if (tlsSocket != null) {
+                    try { tlsSocket.close(); } catch (IOException ignored) {}
+                }
+                return null;
             }
-            if (tlsSocket != null) {
-                try { tlsSocket.close(); } catch (IOException ignored) {}
-            }
-            return null;
         }
     }
 
@@ -1971,6 +2007,16 @@ public class TgWsProxyService extends Service {
     private SSLSocket createTlsSocketWithIpv4Preference(String host, int port, int timeoutMs) throws IOException {
         Socket plainSocket = connectWithIpv4Preference(host, port, timeoutMs);
         SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, host, port, true);
+        tlsSocket.setUseClientMode(true);
+        tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
+        tlsSocket.setTcpNoDelay(true);
+        tlsSocket.setSoTimeout(timeoutMs);
+        return tlsSocket;
+    }
+
+    private SSLSocket createTlsSocketWithSni(String targetHost, String sniHost, int port, int timeoutMs) throws IOException {
+        Socket plainSocket = connectWithIpv4Preference(targetHost, port, timeoutMs);
+        SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, sniHost, port, true);
         tlsSocket.setUseClientMode(true);
         tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
         tlsSocket.setTcpNoDelay(true);
