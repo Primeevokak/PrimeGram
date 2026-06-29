@@ -369,6 +369,8 @@ public class TgWsProxyService extends Service {
         }
     }
 
+    private android.os.PowerManager.WakeLock wakeLock;
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         createNotificationChannel();
@@ -380,6 +382,17 @@ public class TgWsProxyService extends Service {
                 .setOngoing(true)
                 .build();
         startForeground(NOTIFICATION_ID, notification);
+
+        if (wakeLock == null) {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "PrimeGram:ProxyWakeLock");
+                wakeLock.setReferenceCounted(false);
+            }
+        }
+        if (wakeLock != null && !wakeLock.isHeld()) {
+            wakeLock.acquire();
+        }
 
         if (!running.getAndSet(true)) {
             currentBaseDomain = null;
@@ -394,6 +407,10 @@ public class TgWsProxyService extends Service {
     public void onDestroy() {
         super.onDestroy();
         running.set(false);
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+            wakeLock = null;
+        }
         instance = null;
         isSocketBound = false;
         currentBaseDomain = null;
