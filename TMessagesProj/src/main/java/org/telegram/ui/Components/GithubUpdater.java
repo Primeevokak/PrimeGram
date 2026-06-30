@@ -78,7 +78,27 @@ public class GithubUpdater {
 
                         JSONArray assets = json.getJSONArray("assets");
                         if (assets.length() > 0) {
-                            String downloadUrl = assets.getJSONObject(0).getString("browser_download_url");
+                            String downloadUrl = null;
+                            for (String abi : android.os.Build.SUPPORTED_ABIS) {
+                                for (int i = 0; i < assets.length(); i++) {
+                                    String name = assets.getJSONObject(i).getString("name");
+                                    if (name.endsWith(".apk") && name.contains(abi)) {
+                                        downloadUrl = assets.getJSONObject(i).getString("browser_download_url");
+                                        break;
+                                    }
+                                }
+                                if (downloadUrl != null) break;
+                            }
+                            if (downloadUrl == null) {
+                                for (int i = 0; i < assets.length(); i++) {
+                                    String name = assets.getJSONObject(i).getString("name");
+                                    if (name.endsWith(".apk")) {
+                                        downloadUrl = assets.getJSONObject(i).getString("browser_download_url");
+                                        break;
+                                    }
+                                }
+                            }
+                            if (downloadUrl == null) return;
                             android.util.Log.d(TAG, "Update available: " + latestVersion + ". URL: " + downloadUrl);
                             
                             SharedPreferences mainPrefs = context.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
