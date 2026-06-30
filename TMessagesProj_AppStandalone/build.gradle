@@ -106,9 +106,7 @@ android {
     productFlavors {
         afat {
             ndk {
-                if (System.getenv("CI") == "true") {
-                    abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
-                } else {
+                if (System.getenv("CI") != "true") {
                     abiFilters "arm64-v8a"
                 }
             }
