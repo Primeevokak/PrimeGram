@@ -106,7 +106,11 @@ android {
     productFlavors {
         afat {
             ndk {
-                abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+                if (System.getenv("CI") == "true") {
+                    abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+                } else {
+                    abiFilters "arm64-v8a"
+                }
             }
             ext {
                 abiVersionCode = 9
@@ -148,6 +152,15 @@ android {
                 version '3.10.2'
                 arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-21' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
             }
+        }
+    }
+
+    splits {
+        abi {
+            enable System.getenv("CI") == "true"
+            reset()
+            include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            universalApk false
         }
     }
 
