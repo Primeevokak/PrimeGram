@@ -104,9 +104,10 @@ public class GithubUpdater {
                             SharedPreferences mainPrefs = context.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
                             boolean autoUpdate = mainPrefs.getBoolean("primegram_auto_updates", false);
                             
+                            final String finalDownloadUrl = downloadUrl;
                             org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
                                 if (autoUpdate && !isManual) {
-                                    downloadAndInstallUpdate(context, downloadUrl, latestVersion);
+                                    downloadAndInstallUpdate(context, finalDownloadUrl, latestVersion);
                                     android.widget.Toast.makeText(context, "Скачивание обновления PrimeGram...", android.widget.Toast.LENGTH_SHORT).show();
                                 } else {
                                     try {
@@ -114,7 +115,7 @@ public class GithubUpdater {
                                         builder.setTitle("Доступно обновление");
                                         builder.setMessage("Вышла новая версия PrimeGram (" + latestVersion + "). Хотите скачать и установить её?");
                                         builder.setPositiveButton("Обновить", (dialogInterface, i) -> {
-                                            downloadAndInstallUpdate(context, downloadUrl, latestVersion);
+                                            downloadAndInstallUpdate(context, finalDownloadUrl, latestVersion);
                                         });
                                         builder.setNegativeButton("Позже", (dialogInterface, i) -> {
                                             prefs.edit().putLong(KEY_LATER_TIME, System.currentTimeMillis()).apply();
