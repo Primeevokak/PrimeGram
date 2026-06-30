@@ -333,6 +333,9 @@ public class FileLog {
             new ANRDetector(this::dumpANR);
         }
         initied = true;
+        logQueue.postRunnable(() -> {
+            cleanupLogs();
+        });
     }
 
     public static void ensureInitied() {
@@ -601,18 +604,37 @@ public class FileLog {
         }
         File[] files = dir.listFiles();
         if (files != null) {
+            long totalSize = 0;
+            for (File file : files) {
+                totalSize += file.length();
+            }
+            boolean clearAll = totalSize >= 50 * 1024 * 1024; // 50 MB
+            
             for (int a = 0; a < files.length; a++) {
                 File file = files[a];
-                if (getInstance().currentFile != null && file.getAbsolutePath().equals(getInstance().currentFile.getAbsolutePath())) {
-                    continue;
-                }
-                if (getInstance().networkFile != null && file.getAbsolutePath().equals(getInstance().networkFile.getAbsolutePath())) {
-                    continue;
-                }
-                if (getInstance().tonlibFile != null && file.getAbsolutePath().equals(getInstance().tonlibFile.getAbsolutePath())) {
-                    continue;
+                if (!clearAll) {
+                    if (getInstance().currentFile != null && file.getAbsolutePath().equals(getInstance().currentFile.getAbsolutePath())) {
+                        continue;
+                    }
+                    if (getInstance().networkFile != null && file.getAbsolutePath().equals(getInstance().networkFile.getAbsolutePath())) {
+                        continue;
+                    }
+                    if (getInstance().tonlibFile != null && file.getAbsolutePath().equals(getInstance().tonlibFile.getAbsolutePath())) {
+                        continue;
+                    }
+                    if (getInstance().tlRequestsFile != null && file.getAbsolutePath().equals(getInstance().tlRequestsFile.getAbsolutePath())) {
+                        continue;
+                    }
                 }
                 file.delete();
+            }
+            if (clearAll) {
+                getInstance().initied = false;
+                try {
+                    if (getInstance().streamWriter != null) getInstance().streamWriter.close();
+                    if (getInstance().tlStreamWriter != null) getInstance().tlStreamWriter.close();
+                } catch (Exception ignore) {}
+                getInstance().init();
             }
         }
     }

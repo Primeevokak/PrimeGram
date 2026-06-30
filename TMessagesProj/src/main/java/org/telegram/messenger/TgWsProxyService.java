@@ -426,6 +426,24 @@ public class TgWsProxyService extends Service {
         clearWsPool();
         restartProxySockets();
         if (executor != null) executor.shutdown();
+        
+        AndroidUtilities.runOnUIThread(() -> {
+            try {
+                android.content.SharedPreferences preferences = org.telegram.messenger.ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", android.content.Context.MODE_PRIVATE);
+                if (preferences.getBoolean("proxy_enabled", false)) {
+                    String proxyIp = preferences.getString("proxy_ip", "");
+                    if ("127.0.0.1".equals(proxyIp)) {
+                        android.content.SharedPreferences.Editor editor = preferences.edit();
+                        editor.putBoolean("proxy_enabled", false);
+                        editor.apply();
+                        org.telegram.tgnet.ConnectionsManager.setProxySettings(false, "", 0, "", "", "");
+                        logInfo("Disabled native Telegram proxy because TgWsProxyService was stopped.");
+                    }
+                }
+            } catch (Exception e) {
+                logError("Failed to disable native proxy in onDestroy", e);
+            }
+        });
     }
 
     @Override
