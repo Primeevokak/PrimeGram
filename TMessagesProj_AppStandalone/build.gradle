@@ -106,7 +106,7 @@ android {
     productFlavors {
         afat {
             ndk {
-                abiFilters "arm64-v8a"
+                abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
             }
             ext {
                 abiVersionCode = 9
