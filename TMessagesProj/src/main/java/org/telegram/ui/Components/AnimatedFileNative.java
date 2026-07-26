@@ -4,14 +4,36 @@ import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Trace;
 
-import android.content.SharedPreferences;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.AnimatedFileDrawableStream;
 import org.telegram.messenger.BuildConfig;
+import org.telegram.messenger.CrashSafeToggle;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnimatedFileNative {
+
+    private static final String HW_ACCEL_KEY = "primegram_hw_accel";
+
+    // Set once per process by ApplicationLoader at startup via armHwAccelForThisSession().
+    // CrashSafeToggle.checkAndArm() already auto-disabled the feature if the previous
+    // process died mid-attempt, so this reflects "user wants it on AND it's safe to try".
+    private static volatile boolean hwAccelArmedThisSession = false;
+    private static final AtomicBoolean hwAccelAttemptStarted = new AtomicBoolean(false);
+    private static final AtomicBoolean hwAccelConfirmed = new AtomicBoolean(false);
+
+    /**
+     * Call once at app startup, before any decoder is created. Runs at the very beginning
+     * of ApplicationLoader.onCreate(), so it must never be able to take the process down —
+     * any failure here simply leaves hardware decoding off.
+     */
+    public static void armHwAccelForThisSession() {
+        try {
+            hwAccelArmedThisSession = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                    && CrashSafeToggle.checkAndArm(HW_ACCEL_KEY);
+        } catch (Throwable t) {
+            hwAccelArmedThisSession = false;
+        }
+    }
 
     private final int[] mMetaData;
     private long mNativePtr;
@@ -91,9 +113,25 @@ public class AnimatedFileNative {
     private static long createDecoder(String src, int[] params, int account, long streamFileSize, AnimatedFileDrawableStream readCallback, boolean preview) {
         Trace.beginSection("AnimatedFileNative#createDecoder");
         try {
-            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-            boolean hwAccel = preferences.getBoolean("primegram_hw_accel", false);
-            return nCreateDecoder(src, params, account, streamFileSize, readCallback, preview, hwAccel);
+            boolean hwAccel = hwAccelArmedThisSession;
+            if (hwAccel && hwAccelAttemptStarted.compareAndSet(false, true)) {
+                // First hw-accel decoder this process is about to create the native
+                // MediaCodec and run configure()/start() on it — the highest-risk
+                // moment for a hard native crash on a misbehaving vendor decoder.
+                // Commit this synchronously so it's durable on disk before we cross
+                // into native code: if the process dies right here, the next launch's
+                // armHwAccelForThisSession() will see the leftover flag and auto-disable.
+                CrashSafeToggle.beginAttempt(HW_ACCEL_KEY);
+            }
+            long ptr = nCreateDecoder(src, params, account, streamFileSize, readCallback, preview, hwAccel);
+            if (hwAccel && hwAccelConfirmed.compareAndSet(false, true)) {
+                // Reaching here at all means nCreateDecoder returned without crashing
+                // the process — the riskiest moment has passed, so clear the attempt
+                // flag now rather than waiting for a clean app shutdown that may never
+                // come (background kill, etc. — see CrashSafeToggle's javadoc).
+                CrashSafeToggle.confirmSuccess(HW_ACCEL_KEY);
+            }
+            return ptr;
         } finally {
             Trace.endSection();
         }

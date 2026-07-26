@@ -1343,6 +1343,7 @@ public class VideoPlayer implements Player.Listener, VideoListener, AnalyticsLis
 
     public void releasePlayer(boolean async) {
         activePlayers.remove(playerId);
+        releaseVolumeBoost();
         if (player != null) {
             player.release();
             player = null;
@@ -1355,6 +1356,16 @@ public class VideoPlayer implements Player.Listener, VideoListener, AnalyticsLis
             NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.playerDidStartPlaying);
         }
         playerCounter--;
+    }
+
+    @Override
+    public void onAudioSessionIdChanged(EventTime eventTime, int audioSessionId) {
+        // The effect is bound to a concrete session, which only exists once the audio
+        // pipeline is up — and is recreated on track changes, so rebind here.
+        releaseVolumeBoost();
+        if (volumeBoostMb > 0) {
+            applyVolumeBoost();
+        }
     }
 
     @Override
@@ -1547,6 +1558,61 @@ public class VideoPlayer implements Player.Listener, VideoListener, AnalyticsLis
         }
         if (audioPlayer != null) {
             audioPlayer.setVolume(volume);
+        }
+    }
+
+    /** Max extra gain offered on top of the system volume, in millibels (+20 dB). */
+    public static final int MAX_VOLUME_BOOST_MB = 2000;
+
+    private android.media.audiofx.LoudnessEnhancer loudnessEnhancer;
+    private int volumeBoostMb;
+
+    /**
+     * Amplifies playback beyond what the system volume alone allows, using the platform
+     * LoudnessEnhancer effect attached to this player's audio session. 0 disables it.
+     */
+    public void setVolumeBoost(int millibels) {
+        volumeBoostMb = Math.max(0, Math.min(MAX_VOLUME_BOOST_MB, millibels));
+        applyVolumeBoost();
+    }
+
+    public int getVolumeBoost() {
+        return volumeBoostMb;
+    }
+
+    private void applyVolumeBoost() {
+        try {
+            if (volumeBoostMb <= 0) {
+                releaseVolumeBoost();
+                return;
+            }
+            ExoPlayer target = player != null ? player : audioPlayer;
+            if (target == null) {
+                return;
+            }
+            int sessionId = target.getAudioSessionId();
+            if (sessionId == C.AUDIO_SESSION_ID_UNSET) {
+                return;
+            }
+            if (loudnessEnhancer == null) {
+                loudnessEnhancer = new android.media.audiofx.LoudnessEnhancer(sessionId);
+            }
+            loudnessEnhancer.setTargetGain(volumeBoostMb);
+            loudnessEnhancer.setEnabled(true);
+        } catch (Throwable e) {
+            // Some devices/ROMs don't provide the effect at all — degrade to normal volume.
+            FileLog.e(e);
+            releaseVolumeBoost();
+        }
+    }
+
+    private void releaseVolumeBoost() {
+        if (loudnessEnhancer != null) {
+            try {
+                loudnessEnhancer.setEnabled(false);
+                loudnessEnhancer.release();
+            } catch (Throwable ignore) {}
+            loudnessEnhancer = null;
         }
     }
 

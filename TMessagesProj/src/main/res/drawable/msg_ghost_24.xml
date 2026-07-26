@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="24dp" android:viewportHeight="24" android:viewportWidth="24" android:width="24dp">
+
+    <!-- Ghost body: rounded dome with a wavy hem -->
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd" android:pathData="M12,2C7.582,2 4,5.582 4,10v10.2c0,0.72 0.85,1.104 1.39,0.628L7.4,19.06c0.29,-0.256 0.73,-0.24 1,0.036l1.19,1.214c0.29,0.296 0.77,0.296 1.06,0l1.19,-1.214c0.28,-0.284 0.74,-0.284 1.02,0l1.19,1.214c0.29,0.296 0.77,0.296 1.06,0l1.19,-1.214c0.27,-0.276 0.71,-0.292 1,-0.036l2.01,1.768C19.15,21.304 20,20.92 20,20.2V10C20,5.582 16.418,2 12,2zM12,4c3.314,0 6,2.686 6,6v8.09l-0.66,-0.582c-1.06,-0.934 -2.67,-0.876 -3.66,0.132l-0.46,0.472l-0.46,-0.472c-1.05,-1.07 -2.77,-1.07 -3.82,0l-0.46,0.472l-0.46,-0.472c-0.99,-1.008 -2.6,-1.066 -3.66,-0.132L6,18.09V10C6,6.686 8.686,4 12,4z"/>
+
+    <!-- Eyes -->
+    <path android:fillColor="#FFFFFF" android:pathData="M9.5,9.75m-1.35,0a1.35,1.35 0,1 1,2.7 0a1.35,1.35 0,1 1,-2.7 0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M14.5,9.75m-1.35,0a1.35,1.35 0,1 1,2.7 0a1.35,1.35 0,1 1,-2.7 0"/>
+
+</vector>

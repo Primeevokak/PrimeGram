@@ -7737,6 +7737,30 @@ public class AlertsCreator {
         void didPressedNewCard();
     }
 
+    /** Telegram accepts at most this many message ids per delete request. */
+    private static final int DELETE_BATCH_SIZE = 100;
+
+    /**
+     * Splits a bulk delete into API-sized batches. Sending more than
+     * {@link #DELETE_BATCH_SIZE} ids in one request is rejected by the server, and since
+     * the messages are marked deleted locally before the request is sent, a rejection
+     * would make them disappear on the device while surviving on the server.
+     * Encrypted chats are sent as-is: their random_id pairing must stay intact.
+     */
+    private static void deleteMessagesChunked(int currentAccount, ArrayList<Integer> ids, ArrayList<Long> randomIds, TLRPC.EncryptedChat encryptedChat, long dialogId, int topicId, boolean forAll, int mode) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        if (encryptedChat != null || ids.size() <= DELETE_BATCH_SIZE) {
+            MessagesController.getInstance(currentAccount).deleteMessages(ids, randomIds, encryptedChat, dialogId, topicId, forAll, mode);
+            return;
+        }
+        for (int start = 0; start < ids.size(); start += DELETE_BATCH_SIZE) {
+            int end = Math.min(start + DELETE_BATCH_SIZE, ids.size());
+            MessagesController.getInstance(currentAccount).deleteMessages(new ArrayList<>(ids.subList(start, end)), null, null, dialogId, topicId, forAll, mode);
+        }
+    }
+
     public static void createDeleteMessagesAlert(BaseFragment fragment, TLRPC.User user, TLRPC.Chat chat, TLRPC.EncryptedChat encryptedChat, TLRPC.ChatFull chatInfo, long mergeDialogId, MessageObject selectedMessage, SparseArray<MessageObject>[] selectedMessages, MessageObject.GroupedMessages selectedGroup, int topicId, int mode, TLRPC.ChannelParticipant[] channelParticipants, Runnable onDelete, Runnable hideDim, Theme.ResourcesProvider resourcesProvider) {
         final boolean scheduled = mode == ChatActivity.MODE_SCHEDULED;
         final boolean isSavedMessages = mode == ChatActivity.MODE_SAVED;
@@ -8183,7 +8207,7 @@ public class AlertsCreator {
                             }
                         }
                     }
-                    MessagesController.getInstance(currentAccount).deleteMessages(ids, random_ids, encryptedChat, (a == 1 && mergeDialogId != 0) ? mergeDialogId : thisDialogId, topicId, deleteForAll[0], mode);
+                    deleteMessagesChunked(currentAccount, ids, random_ids, encryptedChat, (a == 1 && mergeDialogId != 0) ? mergeDialogId : thisDialogId, topicId, deleteForAll[0], mode);
                     selectedMessages[a].clear();
                 }
             }

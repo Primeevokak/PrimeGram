@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/bitmap.h>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -16,6 +17,7 @@
 #include "sws_context_holder.h"
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
+#include <media/NdkMediaError.h>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -158,6 +160,24 @@ typedef struct VideoInfo {
     int64_t file_size = 0;
     int64_t last_seek_p = 0;
 };
+
+// Process-wide circuit breaker for the surfaceless MediaCodec hw-accel path:
+// vendor decoder behavior varies wildly by SoC/OEM and can't be reliably
+// probed ahead of time, so instead of a hardcoded device blocklist we trip
+// after a handful of observed anomalies (bad color format, buffer bounds
+// mismatch, configure/start failure) and stop offering hw_accel for the rest
+// of the process, falling back to the ffmpeg software decoder everywhere.
+static std::atomic<int> hwAccelAnomalyCount{0};
+static std::atomic<bool> hwAccelDisabledForSession{false};
+static const int HW_ACCEL_ANOMALY_THRESHOLD = 3;
+
+static void reportHwAccelAnomaly(const char *reason) {
+    int count = ++hwAccelAnomalyCount;
+    LOGE("hw_accel anomaly (%s), count=%d", reason, count);
+    if (count >= HW_ACCEL_ANOMALY_THRESHOLD && !hwAccelDisabledForSession.exchange(true)) {
+        LOGE("hw_accel: too many anomalies, disabling hardware video decode for the rest of this session");
+    }
+}
 
 void custom_log(void *ptr, int level, const char* fmt, va_list vl){
     va_list vl2;
@@ -309,12 +329,13 @@ int decode_packet(VideoInfo *info, int *got_frame) {
         if (outputBufIndex >= 0) {
             size_t bufsize;
             uint8_t *buf = AMediaCodec_getOutputBuffer(info->media_codec, outputBufIndex, &bufsize);
+            bool frameOk = false;
             if (buf) {
                 AMediaFormat *outFormat = AMediaCodec_getOutputFormat(info->media_codec);
                 int colorFormat = 0;
                 int width = 0, height = 0, stride = 0, sliceHeight = 0;
                 int cropLeft = 0, cropTop = 0, cropRight = 0, cropBottom = 0;
-                
+
                 AMediaFormat_getInt32(outFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, &colorFormat);
                 AMediaFormat_getInt32(outFormat, AMEDIAFORMAT_KEY_WIDTH, &width);
                 AMediaFormat_getInt32(outFormat, AMEDIAFORMAT_KEY_HEIGHT, &height);
@@ -324,10 +345,10 @@ int decode_packet(VideoInfo *info, int *got_frame) {
                 AMediaFormat_getInt32(outFormat, "crop-top", &cropTop);
                 AMediaFormat_getInt32(outFormat, "crop-right", &cropRight);
                 AMediaFormat_getInt32(outFormat, "crop-bottom", &cropBottom);
-                
+
                 if (stride == 0) stride = width;
                 if (sliceHeight == 0) sliceHeight = height;
-                
+
                 if (cropRight > cropLeft) {
                     width = cropRight - cropLeft + 1;
                 }
@@ -335,10 +356,41 @@ int decode_packet(VideoInfo *info, int *got_frame) {
                     height = cropBottom - cropTop + 1;
                 }
 
-                info->frame->width = width;
-                info->frame->height = height;
-                
-                if (colorFormat == 19) {
+                // Only these two byte-buffer-mode formats are well-defined for
+                // manual plane math below. Anything else (vendor-proprietary
+                // tiled formats, COLOR_FormatYUV420Flexible-but-actually-something-else,
+                // etc.) cannot be safely interpreted here — reading it as
+                // planar/semi-planar YUV is exactly the out-of-bounds read
+                // that used to crash on some Qualcomm/MediaTek decoders.
+                bool isPlanar420 = (colorFormat == 19 /* COLOR_FormatYUV420Planar */);
+                bool isSemiPlanar420 = (colorFormat == 21 /* COLOR_FormatYUV420SemiPlanar */ ||
+                                        colorFormat == 0x7F420888 /* COLOR_FormatYUV420Flexible, treated as NV12 */);
+
+                bool boundsOk = width > 0 && height > 0 && stride >= width && sliceHeight >= height &&
+                                 cropLeft >= 0 && cropTop >= 0;
+
+                if (boundsOk && (isPlanar420 || isSemiPlanar420)) {
+                    size_t requiredSize;
+                    if (isPlanar420) {
+                        requiredSize = (size_t) stride * sliceHeight * 3 / 2;
+                    } else {
+                        requiredSize = (size_t) stride * sliceHeight + (size_t)(stride / 2) * 2 * ((sliceHeight + 1) / 2);
+                    }
+                    // Cross-check against the actual output buffer size instead of
+                    // trusting stride/sliceHeight/crop from AMediaFormat blindly —
+                    // those can be inconsistent with what the codec actually wrote.
+                    if (bufferInfo.offset >= 0 && (size_t) bufferInfo.offset + requiredSize <= bufsize) {
+                        boundsOk = true;
+                    } else {
+                        boundsOk = false;
+                    }
+                } else {
+                    boundsOk = false;
+                }
+
+                if (boundsOk && isPlanar420) {
+                    info->frame->width = width;
+                    info->frame->height = height;
                     info->frame->format = AV_PIX_FMT_YUV420P;
                     info->frame->linesize[0] = stride;
                     info->frame->linesize[1] = stride / 2;
@@ -346,24 +398,37 @@ int decode_packet(VideoInfo *info, int *got_frame) {
                     info->frame->data[0] = buf + bufferInfo.offset + cropTop * stride + cropLeft;
                     info->frame->data[1] = buf + bufferInfo.offset + stride * sliceHeight + (cropTop / 2) * (stride / 2) + (cropLeft / 2);
                     info->frame->data[2] = buf + bufferInfo.offset + stride * sliceHeight * 5 / 4 + (cropTop / 2) * (stride / 2) + (cropLeft / 2);
-                } else {
+                    info->frame->best_effort_timestamp = bufferInfo.presentationTimeUs;
+                    info->mc_out_buf_idx = outputBufIndex;
+                    *got_frame = 1;
+                    frameOk = true;
+                } else if (boundsOk && isSemiPlanar420) {
+                    info->frame->width = width;
+                    info->frame->height = height;
                     info->frame->format = AV_PIX_FMT_NV12;
                     info->frame->linesize[0] = stride;
                     info->frame->linesize[1] = stride;
                     info->frame->data[0] = buf + bufferInfo.offset + cropTop * stride + cropLeft;
                     info->frame->data[1] = buf + bufferInfo.offset + stride * sliceHeight + (cropTop / 2) * stride + (cropLeft / 2) * 2;
+                    info->frame->best_effort_timestamp = bufferInfo.presentationTimeUs;
+                    info->mc_out_buf_idx = outputBufIndex;
+                    *got_frame = 1;
+                    frameOk = true;
+                } else {
+                    reportHwAccelAnomaly(!(isPlanar420 || isSemiPlanar420) ? "unsupported color format" : "buffer bounds mismatch");
                 }
-                
-                info->frame->best_effort_timestamp = bufferInfo.presentationTimeUs;
-                info->mc_out_buf_idx = outputBufIndex;
-                *got_frame = 1;
-                
+
                 AMediaFormat_delete(outFormat);
             } else {
+                reportHwAccelAnomaly("null output buffer");
+            }
+            if (!frameOk) {
+                // Skip this frame rather than reading/rendering garbage; the
+                // caller sees got_frame==0 and will just try the next packet.
                 AMediaCodec_releaseOutputBuffer(info->media_codec, outputBufIndex, false);
             }
         }
-        
+
         return decoded;
     }
 
@@ -715,7 +780,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileN
     if (ret_stream >= 0) {
         info->video_stream_idx = ret_stream;
         info->video_stream = info->fmt_ctx->streams[info->video_stream_idx];
-        if (hwAccel && (info->video_stream->codecpar->codec_id == AV_CODEC_ID_H264 || info->video_stream->codecpar->codec_id == AV_CODEC_ID_HEVC)) {
+        if (hwAccel && !hwAccelDisabledForSession.load() &&
+            (info->video_stream->codecpar->codec_id == AV_CODEC_ID_H264 || info->video_stream->codecpar->codec_id == AV_CODEC_ID_HEVC)) {
             info->hw_accel = true;
         }
     }
@@ -724,7 +790,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileN
         const char* mime = info->video_stream->codecpar->codec_id == AV_CODEC_ID_H264 ? "video/avc" : "video/hevc";
         info->media_codec = AMediaCodec_createDecoderByType(mime);
         const AVBitStreamFilter *bsf = av_bsf_get_by_name(info->video_stream->codecpar->codec_id == AV_CODEC_ID_H264 ? "h264_mp4toannexb" : "hevc_mp4toannexb");
-        
+
         if (info->media_codec == nullptr || bsf == nullptr) {
             info->hw_accel = false;
             if (info->media_codec != nullptr) {
@@ -736,13 +802,33 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileN
             AMediaFormat_setString(info->media_format, AMEDIAFORMAT_KEY_MIME, mime);
             AMediaFormat_setInt32(info->media_format, AMEDIAFORMAT_KEY_WIDTH, info->video_stream->codecpar->width);
             AMediaFormat_setInt32(info->media_format, AMEDIAFORMAT_KEY_HEIGHT, info->video_stream->codecpar->height);
-            
+
             av_bsf_alloc(bsf, &info->bsfc);
             avcodec_parameters_copy(info->bsfc->par_in, info->video_stream->codecpar);
             av_bsf_init(info->bsfc);
-            
-            AMediaCodec_configure(info->media_codec, info->media_format, nullptr, nullptr, 0);
-            AMediaCodec_start(info->media_codec);
+
+            // Both calls return media_status_t (AMEDIA_OK == 0 on success). The
+            // previous code ignored these — if either failed, hw_accel stayed
+            // true and every later dequeue/decode call operated on a codec
+            // that was never actually configured/started.
+            media_status_t configureStatus = AMediaCodec_configure(info->media_codec, info->media_format, nullptr, nullptr, 0);
+            media_status_t startStatus = AMEDIA_ERROR_UNKNOWN;
+            if (configureStatus == AMEDIA_OK) {
+                startStatus = AMediaCodec_start(info->media_codec);
+            }
+            if (configureStatus != AMEDIA_OK || startStatus != AMEDIA_OK) {
+                LOGE("hw_accel: MediaCodec configure/start failed (configure=%d, start=%d), falling back to software decode", configureStatus, startStatus);
+                reportHwAccelAnomaly("configure/start failed");
+                info->hw_accel = false;
+                if (info->bsfc) {
+                    av_bsf_free(&info->bsfc);
+                    info->bsfc = nullptr;
+                }
+                AMediaCodec_delete(info->media_codec);
+                info->media_codec = nullptr;
+                AMediaFormat_delete(info->media_format);
+                info->media_format = nullptr;
+            }
         }
     }
     

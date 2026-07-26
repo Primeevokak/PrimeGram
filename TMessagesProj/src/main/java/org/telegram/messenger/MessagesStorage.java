@@ -13984,6 +13984,65 @@ public class MessagesStorage extends BaseController {
         }
     }
 
+    /**
+     * PrimeGram grey zone: copies messages into the local archive right before the rows are
+     * removed. Runs on the storage queue where {@code dialogId} is already resolved — the
+     * server's delete update carries only message ids and no chat, so this is the only place
+     * the pairing is known for certain.
+     *
+     * <p>Wrapped so that any failure here is invisible to the caller: losing an archived
+     * copy is acceptable, breaking message deletion is not.
+     */
+    private void archiveDeletedMessages(long dialogId, ArrayList<Integer> messages, int mode) {
+        if (messages == null || messages.isEmpty() || dialogId == 0) {
+            return;
+        }
+        if (mode != 0) {
+            return; // scheduled / quick replies aren't real conversation history
+        }
+        if (!GreyZone.isEnabled(GreyZone.SAVE_DELETED)) {
+            return;
+        }
+        SQLiteCursor archiveCursor = null;
+        try {
+            final long selfId = getUserConfig().getClientUserId();
+            if (dialogId == selfId) {
+                return; // Saved Messages: nothing was hidden from us
+            }
+            String ids = TextUtils.join(",", messages);
+            archiveCursor = database.queryFinalized(String.format(Locale.US,
+                    "SELECT data, mid, out FROM messages_v2 WHERE mid IN(%s) AND uid = %d", ids, dialogId));
+            while (archiveCursor.next()) {
+                if (archiveCursor.intValue(2) != 0) {
+                    continue; // our own message — we deleted it on purpose
+                }
+                NativeByteBuffer data = archiveCursor.byteBufferValue(0);
+                if (data == null) {
+                    continue;
+                }
+                try {
+                    TLRPC.Message message = TLRPC.Message.TLdeserialize(data, data.readInt32(false), false);
+                    if (message != null) {
+                        long fromId = message.from_id != null ? DialogObject.getPeerDialogId(message.from_id) : dialogId;
+                        String text = message.message;
+                        if (TextUtils.isEmpty(text) && message.media != null) {
+                            text = "[" + message.media.getClass().getSimpleName().replace("TL_messageMedia", "") + "]";
+                        }
+                        DeletedMessagesStore.getInstance().save(dialogId, archiveCursor.intValue(1), fromId, message.date, text);
+                    }
+                } finally {
+                    data.reuse();
+                }
+            }
+        } catch (Throwable t) {
+            FileLog.e("archiveDeletedMessages", t);
+        } finally {
+            if (archiveCursor != null) {
+                try { archiveCursor.dispose(); } catch (Throwable ignore) {}
+            }
+        }
+    }
+
     public void markMessagesAsDeletedByRandoms(ArrayList<Long> messages) {
         if (messages.isEmpty()) {
             return;
@@ -14062,6 +14121,7 @@ public class MessagesStorage extends BaseController {
     private ArrayList<Long> markMessagesAsDeletedInternal(long dialogId, ArrayList<Integer> messages, boolean deleteFiles, int mode, int threadMessageId) {
         SQLiteCursor cursor = null;
         SQLitePreparedStatement state = null;
+        archiveDeletedMessages(dialogId, messages, mode);
         try {
             if (getUserConfig().getClientUserId() == dialogId) {
                 database.executeFast(String.format(Locale.US, "DELETE FROM tag_message_id WHERE mid IN(%s)", TextUtils.join(",", messages))).stepThis().dispose();

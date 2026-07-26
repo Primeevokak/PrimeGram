@@ -59,7 +59,7 @@ public class ProxyRotationController implements NotificationCenter.NotificationC
     private void switchToAvailable() {
         isCurrentlyChecking = false;
 
-        if (!SharedConfig.proxyRotationEnabled || vpn.sdk.VpnSDK.isProxyRunning()) {
+        if (!SharedConfig.proxyRotationEnabled || vpn.sdk.VpnSDK.isProxyHealthy()) {
             return;
         }
 
@@ -110,7 +110,7 @@ public class ProxyRotationController implements NotificationCenter.NotificationC
         } else if (id == NotificationCenter.proxySettingsChanged) {
             AndroidUtilities.cancelRunOnUIThread(checkProxyAndSwitchRunnable);
         } else if (id == NotificationCenter.didUpdateConnectionState && account == UserConfig.selectedAccount) {
-            if (vpn.sdk.VpnSDK.isProxyRunning()) {
+            if (vpn.sdk.VpnSDK.isProxyHealthy()) {
                 return;
             }
             if (!SharedConfig.isProxyEnabled() && !SharedConfig.proxyRotationEnabled || SharedConfig.proxyList.size() <= 1) {

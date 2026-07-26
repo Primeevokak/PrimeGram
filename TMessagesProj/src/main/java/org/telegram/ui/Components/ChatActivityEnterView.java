@@ -38,6 +38,7 @@ import android.graphics.ColorFilter;
 import android.graphics.LinearGradient;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
@@ -2615,6 +2616,7 @@ public class ChatActivityEnterView extends FrameLayout implements
         textFieldContainer.setClipToPadding(false);
         textFieldContainer.setPadding(0, dp(1), 0, 0);
         addView(textFieldContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.BOTTOM, 0, 1, 0, 0));
+        createPrimeTextToolbar(context);
 
         FrameLayout frameLayout = messageEditTextContainer = new FrameLayout(context) {
             @Override
@@ -6421,7 +6423,8 @@ public class ChatActivityEnterView extends FrameLayout implements
         textFieldContainer.setLayoutParams(layoutParams);
 
         resizeForTopViewLastShow = show;
-        setMinimumHeight(dp(44) + (show ? topView.getLayoutParams().height : 0));
+        int primeToolbarHeight = primeToolbarScroll != null && primeToolbarScroll.getVisibility() == VISIBLE ? dp(PRIME_TOOLBAR_HEIGHT) : 0;
+        setMinimumHeight(dp(44) + primeToolbarHeight + (show ? topView.getLayoutParams().height : 0));
         if (stickersExpanded) {
             if (searchingType == 0) {
                 setStickersExpanded(false, true, false);
@@ -14364,6 +14367,137 @@ public class ChatActivityEnterView extends FrameLayout implements
 
     int botCommandLastPosition = -1;
     int botCommandLastTop;
+
+    /* ------------------------------------------------------------------ *
+     * PrimeGram: formatting toolbar above the input field.
+     *
+     * Built here but left GONE and weightless until the host explicitly allows it, so the
+     * enter view keeps upstream's exact geometry everywhere except a real chat with the
+     * setting on — stories, comments and every other user of this view are unaffected.
+     * ------------------------------------------------------------------ */
+
+    private android.widget.HorizontalScrollView primeToolbarScroll;
+    private LinearLayout primeToolbarRow;
+    private boolean primeToolbarAllowed;
+
+    /** Height of the toolbar row; also the bottom margin the input gets pushed up by. */
+    private static final int PRIME_TOOLBAR_HEIGHT = 38;
+
+    private void createPrimeTextToolbar(Context context) {
+        try {
+            primeToolbarRow = new LinearLayout(context);
+            primeToolbarRow.setOrientation(LinearLayout.HORIZONTAL);
+
+            primeToolbarScroll = new android.widget.HorizontalScrollView(context);
+            primeToolbarScroll.setHorizontalScrollBarEnabled(false);
+            primeToolbarScroll.addView(primeToolbarRow, new FrameLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT));
+            primeToolbarScroll.setVisibility(GONE);
+            addView(primeToolbarScroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, PRIME_TOOLBAR_HEIGHT, Gravity.LEFT | Gravity.BOTTOM));
+
+            addPrimeToolbarText("B", Typeface.BOLD, () -> withSelection(EditTextCaption::makeSelectedBold));
+            addPrimeToolbarText("I", Typeface.ITALIC, () -> withSelection(EditTextCaption::makeSelectedItalic));
+            addPrimeToolbarText("M", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedMono));
+            addPrimeToolbarText("S", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedStrike));
+            addPrimeToolbarText("U", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedUnderline));
+            addPrimeToolbarIcon(R.drawable.msg_spoiler, () -> withSelection(EditTextCaption::makeSelectedSpoiler));
+            addPrimeToolbarIcon(R.drawable.menu_link_create, () -> withSelection(EditTextCaption::makeSelectedUrl));
+            addPrimeToolbarIcon(R.drawable.menu_select_quote, () -> withSelection(field -> field.makeSelectedQuote(false)));
+            addPrimeToolbarIcon(R.drawable.msg_clear, () -> withSelection(EditTextCaption::makeSelectedRegular));
+            addPrimeToolbarIcon(R.drawable.msg_copy, () -> {
+                EditTextCaption field = messageEditText;
+                if (field == null) {
+                    return;
+                }
+                int start = field.getSelectionStart(), end = field.getSelectionEnd();
+                if (start == end) {
+                    return;
+                }
+                AndroidUtilities.addToClipboard(field.getText().subSequence(Math.min(start, end), Math.max(start, end)).toString());
+                BulletinFactory.of(parentFragment).createCopyBulletin(getString(R.string.TextCopied)).show();
+            });
+        } catch (Throwable t) {
+            FileLog.e("createPrimeTextToolbar", t);
+            primeToolbarScroll = null;
+            primeToolbarRow = null;
+        }
+    }
+
+    /** Formatting only applies to a selection; without one the buttons do nothing but nudge. */
+    private void withSelection(Utilities.Callback<EditTextCaption> action) {
+        EditTextCaption field = messageEditText;
+        if (field == null) {
+            return;
+        }
+        int start = field.getSelectionStart(), end = field.getSelectionEnd();
+        if (start == end) {
+            AndroidUtilities.shakeView(primeToolbarScroll);
+            return;
+        }
+        try {
+            field.setSelectionOverride(Math.min(start, end), Math.max(start, end));
+            action.run(field);
+        } catch (Throwable t) {
+            FileLog.e("primeToolbar.format", t);
+        }
+    }
+
+    private void addPrimeToolbarText(String label, int typefaceStyle, Runnable onClick) {
+        if (primeToolbarRow == null) {
+            return;
+        }
+        TextView view = new TextView(getContext());
+        view.setText(label);
+        view.setGravity(Gravity.CENTER);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        view.setTypeface(Typeface.defaultFromStyle(typefaceStyle));
+        if ("S".equals(label)) {
+            view.setPaintFlags(view.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
+        } else if ("U".equals(label)) {
+            view.setPaintFlags(view.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        } else if ("M".equals(label)) {
+            view.setTypeface(Typeface.MONOSPACE);
+        }
+        view.setTextColor(getThemedColor(Theme.key_chat_messagePanelIcons));
+        view.setBackground(Theme.createSelectorDrawable(getThemedColor(Theme.key_listSelector), Theme.RIPPLE_MASK_CIRCLE_20DP));
+        view.setOnClickListener(v -> onClick.run());
+        primeToolbarRow.addView(view, LayoutHelper.createLinear(40, LayoutHelper.MATCH_PARENT));
+    }
+
+    private void addPrimeToolbarIcon(int resId, Runnable onClick) {
+        if (primeToolbarRow == null) {
+            return;
+        }
+        ImageView view = new ImageView(getContext());
+        view.setScaleType(ImageView.ScaleType.CENTER);
+        view.setImageResource(resId);
+        view.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_chat_messagePanelIcons), PorterDuff.Mode.MULTIPLY));
+        view.setBackground(Theme.createSelectorDrawable(getThemedColor(Theme.key_listSelector), Theme.RIPPLE_MASK_CIRCLE_20DP));
+        view.setOnClickListener(v -> onClick.run());
+        primeToolbarRow.addView(view, LayoutHelper.createLinear(40, LayoutHelper.MATCH_PARENT));
+    }
+
+    /**
+     * Lets the host opt this instance in. Called by ChatActivity only — every other user of
+     * ChatActivityEnterView keeps the stock layout.
+     */
+    public void primeSetToolbarAllowed(boolean allowed) {
+        primeToolbarAllowed = allowed;
+        updatePrimeToolbarVisibility();
+    }
+
+    public void updatePrimeToolbarVisibility() {
+        if (primeToolbarScroll == null) {
+            return;
+        }
+        boolean visible = primeToolbarAllowed && org.telegram.messenger.PrimeToolbarSettings.isEnabled();
+        primeToolbarScroll.setVisibility(visible ? VISIBLE : GONE);
+        LayoutParams params = (LayoutParams) textFieldContainer.getLayoutParams();
+        int wanted = visible ? dp(PRIME_TOOLBAR_HEIGHT) : 0;
+        if (params.bottomMargin != wanted) {
+            params.bottomMargin = wanted;
+            textFieldContainer.setLayoutParams(params);
+        }
+    }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {

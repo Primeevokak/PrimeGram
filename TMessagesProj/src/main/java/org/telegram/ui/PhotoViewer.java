@@ -113,6 +113,7 @@ import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Interpolator;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -5021,6 +5022,17 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         shadowBlurer = new BlurringShader.StoryBlurDrawer(blurManager, containerView, BlurringShader.StoryBlurDrawer.BLUR_TYPE_SHADOW);
 
         windowView.addView(containerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT));
+
+        // Brightness boost overlay. containerView paints the photo in its own onDraw(), which
+        // runs before children, so this sits above both photos and video while staying below
+        // every control added to containerView afterwards. Non-clickable, so it never eats touches.
+        brightnessBoostView = new View(activity);
+        brightnessBoostView.setBackgroundColor(0xffffffff);
+        brightnessBoostView.setAlpha(0f);
+        brightnessBoostView.setClickable(false);
+        brightnessBoostView.setFocusable(false);
+        brightnessBoostView.setVisibility(View.GONE);
+        containerView.addView(brightnessBoostView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         ViewCompat.setOnApplyWindowInsetsListener(containerView, (v, newInsetsCompat) -> {
             final Rect oldInsets = new Rect(insets);
             final Insets r = newInsetsCompat.getInsetsIgnoringVisibility(
@@ -6002,17 +6014,21 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         videoItem.setMenuXOffset(dp(3));
 
         speedItem = new ActionBarMenuSlider.SpeedSlider(activityContext, resourcesProvider);
-        speedItem.setStops(new float[]{0.5f, 1.0f, 1.5f, 2.0f, 2.5f});
+        // Wider range than the shared default (0.2–3.0), plus the fine-step buttons and the
+        // precise-entry dialog below, so speed can be dialled in exactly.
+        speedItem.setSpeedRange(VIDEO_SPEED_SLIDER_MIN, VIDEO_SPEED_SLIDER_MAX);
+        speedItem.setStops(new float[]{0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f});
         speedItem.setMinimumWidth(AndroidUtilities.dp(196));
         speedItem.setDrawShadow(false);
         speedItem.setBackgroundColor(0xff222222);
         speedItem.setTextColor(0xffffffff);
         speedItem.setLabel(LocaleController.getString(R.string.VideoPlayerSpeed));
         speedItem.setOnValueChange((value, isFinal) -> {
-            final float speed = ActionBarMenuSlider.SpeedSlider.MIN_SPEED + (ActionBarMenuSlider.SpeedSlider.MAX_SPEED - ActionBarMenuSlider.SpeedSlider.MIN_SPEED) * value;
-            chooseSpeed(speed, isFinal, false);
+            chooseSpeed(speedItem.getSpeed(value), isFinal, false);
         });
         videoItem.getPopupLayout().addView(speedItem, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
+        videoItem.getPopupLayout().addView(createSpeedFineTuneRow(activityContext), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 40));
+        videoItem.getPopupLayout().addView(createBoostControls(activityContext), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
         speedGap = videoItem.addColoredGap();
         speedGap.setColor(0xff181818);
         videoItem.getPopupLayout().addView(chooseSpeedLayout = new SpeedButtonsLayout(activityContext, this::chooseSpeed));
@@ -6108,6 +6124,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         });
         galleryGap = menuItem.addColoredGap();
         galleryGap.setColor(0xff181818);
+        menuItem.getPopupLayout().addView(createBrightnessControl(activityContext), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
         menuItem.addSubItem(gallery_menu_openin, R.drawable.msg_openin, getString(R.string.OpenInExternalApp)).setColors(0xfffafafa, 0xfffafafa);
         pipItem = menuItem.addSubItem(gallery_menu_pip, R.drawable.menu_video_pip, getString(R.string.PipMinimize)).setColors(0xfffafafa, 0xfffafafa);
         allMediaItem = menuItem.addSubItem(gallery_menu_showall, R.drawable.msg_media, getString(R.string.ShowAllMedia));
@@ -10973,6 +10990,8 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         if (currentMessageObject != null) {
             videoPlayer.setPlaybackSpeed(currentVideoSpeed);
         }
+        // Carry the boost over to the newly created player for this video.
+        applyVolumeBoost();
 
         inPreview = preview;
     }
@@ -11137,6 +11156,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
 
         pipPlaceholderView = new View(parentActivity);
         aspectRatioFrameLayout.addView(pipPlaceholderView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
 
         if (sendPhotoType == SELECT_TYPE_AVATAR) {
             flashView = new View(parentActivity);
@@ -17645,10 +17665,11 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                 WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR |
                 WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM |
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
-            if (chatActivity != null && chatActivity.getCurrentEncryptedChat() != null ||
+            if (!org.telegram.messenger.GreyZone.allowScreenshots() && (
+                chatActivity != null && chatActivity.getCurrentEncryptedChat() != null ||
                 avatarsDialogId != 0 && MessagesController.getInstance(currentAccount).isPeerNoForwards(avatarsDialogId) ||
                 messageObject != null && (MessagesController.getInstance(currentAccount).isPeerNoForwards(messageObject.getDialogId()) ||
-                (messageObject.messageOwner != null && messageObject.messageOwner.noforwards)) || messageObject != null && messageObject.hasRevealedExtendedMedia()
+                (messageObject.messageOwner != null && messageObject.messageOwner.noforwards)) || messageObject != null && messageObject.hasRevealedExtendedMedia())
             ) {
                 windowLayoutParams.flags |= WindowManager.LayoutParams.FLAG_SECURE;
                 AndroidUtilities.logFlagSecure();
@@ -18271,6 +18292,16 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
     }
 
     public void closePhoto(boolean animated, boolean fromEditMode) {
+        // Never leave the screen pinned at max brightness after the viewer is gone.
+        if (brightnessBoost > 0 && parentActivity != null) {
+            try {
+                WindowManager.LayoutParams params = parentActivity.getWindow().getAttributes();
+                params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+                parentActivity.getWindow().setAttributes(params);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        }
         if (stickerMakerView != null) {
             stickerMakerView.isThanosInProgress = false;
             if (cutOutBtn.isCancelState()) {
@@ -23397,6 +23428,183 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         });
     }
 
+    private View brightnessBoostView;
+    /** 0..1 extra brightness applied on top of maxing out the window brightness. */
+    private float brightnessBoost;
+    /** 0..1 of {@link VideoPlayer#MAX_VOLUME_BOOST_MB} extra gain. */
+    private float volumeBoost;
+
+    private void applyBrightnessBoost() {
+        if (brightnessBoostView != null) {
+            brightnessBoostView.setVisibility(brightnessBoost > 0.001f ? View.VISIBLE : View.GONE);
+            // Capped well below 1 so the picture brightens instead of turning into a white square.
+            brightnessBoostView.setAlpha(brightnessBoost * 0.45f);
+        }
+        if (parentActivity != null) {
+            try {
+                WindowManager.LayoutParams params = parentActivity.getWindow().getAttributes();
+                // Overriding the window brightness already beats the user's system slider.
+                params.screenBrightness = brightnessBoost > 0.001f
+                        ? 1.0f
+                        : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+                parentActivity.getWindow().setAttributes(params);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        }
+    }
+
+    private void applyVolumeBoost() {
+        if (videoPlayer != null) {
+            videoPlayer.setVolumeBoost((int) (volumeBoost * VideoPlayer.MAX_VOLUME_BOOST_MB));
+        }
+    }
+
+    /** Volume boost only — lives in the video menu, since it makes no sense for photos. */
+    private View createBoostControls(Context context) {
+        LinearLayout layout = new LinearLayout(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setBackgroundColor(0xff222222);
+
+        ActionBarMenuSlider volumeSlider = new ActionBarMenuSlider(context, resourcesProvider) {
+            @Override
+            protected String getLeftStringValue(float value) {
+                return "Громкость +";
+            }
+            @Override
+            protected String getRightStringValue(float value) {
+                return String.format(Locale.US, "+%.0f dB", value * (VideoPlayer.MAX_VOLUME_BOOST_MB / 100f));
+            }
+        };
+        volumeSlider.setMinimumWidth(AndroidUtilities.dp(196));
+        volumeSlider.setDrawShadow(false);
+        volumeSlider.setBackgroundColor(0xff222222);
+        volumeSlider.setTextColor(0xffffffff);
+        volumeSlider.setValue(volumeBoost, false);
+        volumeSlider.setOnValueChange((value, isFinal) -> {
+            volumeBoost = value;
+            applyVolumeBoost();
+        });
+        layout.addView(volumeSlider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
+        return layout;
+    }
+
+    /**
+     * Brightness boost — added to the general menu rather than the video one, so it works
+     * for photos too. The overlay it drives sits above whatever the viewer is showing.
+     */
+    private View createBrightnessControl(Context context) {
+        ActionBarMenuSlider brightnessSlider = new ActionBarMenuSlider(context, resourcesProvider) {
+            @Override
+            protected String getLeftStringValue(float value) {
+                return "Яркость +";
+            }
+            @Override
+            protected String getRightStringValue(float value) {
+                return String.format(Locale.US, "%.0f%%", value * 100);
+            }
+        };
+        brightnessSlider.setMinimumWidth(AndroidUtilities.dp(196));
+        brightnessSlider.setDrawShadow(false);
+        brightnessSlider.setBackgroundColor(0xff222222);
+        brightnessSlider.setTextColor(0xffffffff);
+        brightnessSlider.setValue(brightnessBoost, false);
+        brightnessSlider.setOnValueChange((value, isFinal) -> {
+            brightnessBoost = value;
+            applyBrightnessBoost();
+        });
+        return brightnessSlider;
+    }
+
+    // Slider track bounds (kept usable to drag), and the absolute bounds reachable through
+    // the -/+ buttons and the "exact value" dialog.
+    private static final float VIDEO_SPEED_SLIDER_MIN = 0.1f;
+    private static final float VIDEO_SPEED_SLIDER_MAX = 4.0f;
+    private static final float VIDEO_SPEED_MIN = 0.01f;
+    private static final float VIDEO_SPEED_MAX = 10.0f;
+    private static final float VIDEO_SPEED_STEP = 0.05f;
+
+    private TextView speedValueText;
+
+    private View createSpeedFineTuneRow(Context context) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackgroundColor(0xff222222);
+        row.setPadding(AndroidUtilities.dp(12), 0, AndroidUtilities.dp(12), 0);
+
+        TextView minusButton = createSpeedStepButton(context, "−");
+        minusButton.setOnClickListener(v -> stepSpeed(-VIDEO_SPEED_STEP));
+        row.addView(minusButton, LayoutHelper.createLinear(36, 36, Gravity.CENTER_VERTICAL));
+
+        speedValueText = new TextView(context);
+        speedValueText.setGravity(Gravity.CENTER);
+        speedValueText.setTextColor(0xffffffff);
+        speedValueText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        speedValueText.setTypeface(AndroidUtilities.getTypeface(AndroidUtilities.TYPEFACE_ROBOTO_MEDIUM));
+        speedValueText.setBackground(Theme.createSelectorDrawable(0x1fffffff, 2));
+        // Tapping the value opens exact numeric entry, for speeds the slider can't reach.
+        speedValueText.setOnClickListener(v -> showCustomSpeedDialog());
+        row.addView(speedValueText, LayoutHelper.createLinear(0, 36, 1f, Gravity.CENTER_VERTICAL));
+
+        TextView plusButton = createSpeedStepButton(context, "+");
+        plusButton.setOnClickListener(v -> stepSpeed(VIDEO_SPEED_STEP));
+        row.addView(plusButton, LayoutHelper.createLinear(36, 36, Gravity.CENTER_VERTICAL));
+
+        updateSpeedValueText();
+        return row;
+    }
+
+    private TextView createSpeedStepButton(Context context, String label) {
+        TextView button = new TextView(context);
+        button.setText(label);
+        button.setGravity(Gravity.CENTER);
+        button.setTextColor(0xffffffff);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20);
+        button.setTypeface(AndroidUtilities.getTypeface(AndroidUtilities.TYPEFACE_ROBOTO_MEDIUM));
+        button.setBackground(Theme.createSelectorDrawable(0x1fffffff, 1));
+        return button;
+    }
+
+    private void stepSpeed(float delta) {
+        // Round to the step grid so repeated taps land on clean values like 1.05, 1.10, …
+        float target = Math.round((currentVideoSpeed + delta) / VIDEO_SPEED_STEP) * VIDEO_SPEED_STEP;
+        target = androidx.core.math.MathUtils.clamp(target, VIDEO_SPEED_MIN, VIDEO_SPEED_MAX);
+        chooseSpeed(target, true, false);
+    }
+
+    private void updateSpeedValueText() {
+        if (speedValueText != null) {
+            speedValueText.setText(String.format(Locale.US, "%.2fx", currentVideoSpeed));
+        }
+    }
+
+    private void showCustomSpeedDialog() {
+        if (parentActivity == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(parentActivity, new DarkThemeResourceProvider());
+        builder.setTitle(LocaleController.getString(R.string.VideoPlayerSpeed));
+        builder.setMessage(String.format(Locale.US, "Введите скорость от %.2f до %.0f", VIDEO_SPEED_MIN, VIDEO_SPEED_MAX));
+
+        EditText editText = new EditText(parentActivity);
+        editText.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        editText.setTextColor(0xffffffff);
+        editText.setText(String.format(Locale.US, "%.2f", currentVideoSpeed));
+        editText.setSelection(editText.getText().length());
+        editText.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(8), AndroidUtilities.dp(24), AndroidUtilities.dp(8));
+        builder.setView(editText);
+
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
+            try {
+                float value = Float.parseFloat(editText.getText().toString().trim().replace(',', '.'));
+                chooseSpeed(androidx.core.math.MathUtils.clamp(value, VIDEO_SPEED_MIN, VIDEO_SPEED_MAX), true, false);
+            } catch (Exception ignore) {}
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        builder.show();
+    }
+
     private void chooseSpeed(float speed, boolean isFinal, boolean closeMenu) {
         if (speed != currentVideoSpeed) {
             currentVideoSpeed = speed;
@@ -23415,6 +23623,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                 photoViewerWebView.setPlaybackSpeed(currentVideoSpeed);
             }
         }
+        updateSpeedValueText();
         setMenuItemIcon(true, isFinal);
         if (closeMenu) {
             videoItem.toggleSubMenu();

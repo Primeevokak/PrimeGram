@@ -4683,6 +4683,45 @@ public class AndroidUtilities {
         return true;
     }
 
+    /** True if the app is already exempt from Doze/App Standby battery restrictions. */
+    public static boolean isIgnoringBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true;
+        }
+        try {
+            PowerManager powerManager = (PowerManager) ApplicationLoader.applicationContext.getSystemService(Context.POWER_SERVICE);
+            return powerManager != null && powerManager.isIgnoringBatteryOptimizations(ApplicationLoader.applicationContext.getPackageName());
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    /**
+     * Opens the system dialog letting the user exempt PrimeGram from battery
+     * optimizations. On aggressive OEM firmware (MIUI/OneUI/etc.) without this
+     * exemption, the OS is much more likely to kill the background proxy
+     * service, forcing a slow cold-restart on the next push notification.
+     */
+    public static boolean requestIgnoreBatteryOptimizations(Activity activity) {
+        if (activity == null || isIgnoringBatteryOptimizations()) {
+            return false;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + activity.getPackageName()));
+            activity.startActivity(intent);
+            return true;
+        } catch (Exception e) {
+            FileLog.e(e);
+            try {
+                activity.startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            } catch (Exception e2) {
+                FileLog.e(e2);
+            }
+            return false;
+        }
+    }
+
     public static void showProxyAlert(Activity activity, final String address, final String port, final String user, final String password, final String secret) {
         final BottomSheet.Builder builder = new BottomSheet.Builder(activity);
         builder.setApplyTopPadding(false);

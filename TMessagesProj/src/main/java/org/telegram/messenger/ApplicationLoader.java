@@ -217,6 +217,9 @@ public class ApplicationLoader extends Application {
                         ConnectionsManager.getInstance(a).checkConnection();
                         FileLoader.getInstance(a).onNetworkChanged(isSlow);
                     }
+                    try {
+                        VpnSDK.onNetworkChanged();
+                    } catch (Throwable ignore) {}
                 }
             };
             IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
@@ -257,13 +260,14 @@ public class ApplicationLoader extends Application {
         SharedPreferences mainconfig = applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
         if (mainconfig.getBoolean("primegram_tgws_enabled", true)) {
             try {
+                // postInitApplication() runs on the UI thread (see PushListenerController /
+                // GcmPushListenerService, which call it from AndroidUtilities.runOnUIThread on
+                // every cold-start push). Blocking here to wait for the socket to bind used to
+                // stall push processing by up to 1.5s on every cold start. The service binds
+                // its socket within milliseconds in practice, and if ConnectionsManager still
+                // races ahead of it, onConnectionStateChanged() already detects an unbound
+                // socket and restarts the service — so no synchronous wait is needed here.
                 TgWsProxyService.startService(ApplicationLoader.applicationContext);
-                long startWait = System.currentTimeMillis();
-                while (!TgWsProxyService.isSocketBound && (System.currentTimeMillis() - startWait < 1500)) {
-                    try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException ignored) {}
-                }
             } catch (Exception e) {
                 FileLog.e("Failed to start TgWsProxyService", e);
             }
@@ -312,6 +316,11 @@ public class ApplicationLoader extends Application {
         }
 
         super.onCreate();
+
+        // Must run before any GIF/round-video decoder is created this process,
+        // so it can catch "hw_accel crashed last run" before the feature gets
+        // a chance to crash again. See CrashSafeToggle's javadoc.
+        org.telegram.ui.Components.AnimatedFileNative.armHwAccelForThisSession();
 
         VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
         VpnSDK.setLogListener(new kotlin.jvm.functions.Function1<String, kotlin.Unit>() {

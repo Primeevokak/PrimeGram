@@ -492,10 +492,14 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     VpnSDK.stopProxy();
                     listAdapter.notifyItemChanged(emergencyProxyRow);
                 } else {
+                    android.widget.Toast.makeText(getParentActivity(), "Получаем ключ...", android.widget.Toast.LENGTH_SHORT).show();
                     VpnSDK.registerOrAuth(2, success -> {
                         AndroidUtilities.runOnUIThread(() -> {
                             if (listAdapter != null) {
                                 listAdapter.notifyItemChanged(emergencyProxyRow);
+                            }
+                            if (!success && getParentActivity() != null) {
+                                android.widget.Toast.makeText(getParentActivity(), "Не удалось получить ключ. Проверьте соединение и попробуйте ещё раз.", android.widget.Toast.LENGTH_LONG).show();
                             }
                         });
                     });
@@ -508,15 +512,21 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 builder.setView(editText);
                 builder.setPositiveButton(getString(R.string.OK), (dialog, which) -> {
                     String url = editText.getText().toString().trim();
-                    if (url.startsWith("vless://")) {
-                        boolean ok = VpnSDK.setCustomVlessConfig(url);
-                        if (ok) {
-                            if (listAdapter != null) {
-                                listAdapter.notifyItemChanged(emergencyProxyRow);
-                            }
-                        } else {
-                            android.widget.Toast.makeText(getParentActivity(), "Ошибка парсинга", android.widget.Toast.LENGTH_SHORT).show();
-                        }
+                    if (!url.startsWith("vless://")) {
+                        android.widget.Toast.makeText(getParentActivity(), "Ссылка должна начинаться с vless://", android.widget.Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    boolean ok = VpnSDK.setCustomVlessConfig(url);
+                    if (listAdapter != null) {
+                        listAdapter.notifyItemChanged(emergencyProxyRow);
+                    }
+                    if (ok) {
+                        android.widget.Toast.makeText(getParentActivity(), "Ключ подключён, прокси активен", android.widget.Toast.LENGTH_SHORT).show();
+                    } else if ("invalid_url".equals(VpnSDK.getLastCustomVlessError())) {
+                        android.widget.Toast.makeText(getParentActivity(), "Не удалось разобрать ссылку — проверьте формат vless://", android.widget.Toast.LENGTH_LONG).show();
+                    } else {
+                        String err = VpnSDK.getLastCustomVlessError();
+                        android.widget.Toast.makeText(getParentActivity(), "Ссылка распознана, но подключиться не удалось" + (err != null ? ": " + err : "") + ". Проверьте ключ и сервер.", android.widget.Toast.LENGTH_LONG).show();
                     }
                 });
                 builder.setNegativeButton(getString(R.string.Cancel), null);
@@ -1054,7 +1064,16 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 case VIEW_TYPE_TEXT_CHECK: {
                     TextCheckCell checkCell = (TextCheckCell) holder.itemView;
                     if (position == emergencyProxyRow) {
-                        checkCell.setTextAndCheck("Включить VLESS-сервер", VpnSDK.isProxyRunning(), true);
+                        boolean vlessRunning = VpnSDK.isProxyRunning();
+                        String label = "Включить VLESS-сервер";
+                        if (!vlessRunning) {
+                            if (!VpnSDK.hasCachedXrayConfig()) {
+                                label += " (ключ не получен)";
+                            } else {
+                                label += " (ключ есть, выключен)";
+                            }
+                        }
+                        checkCell.setTextAndCheck(label, vlessRunning, true);
                     } else if (position == tgwsProxyRow) {
                         SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
                         boolean enabled = mainconfig.getBoolean("primegram_tgws_enabled", true);

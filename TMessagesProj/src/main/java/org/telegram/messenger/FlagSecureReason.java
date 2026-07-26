@@ -74,6 +74,10 @@ public class FlagSecureReason {
     }
 
     public static boolean isSecuredNow(Window window) {
+        // PrimeGram grey zone: opt-in override of screenshot blocking.
+        if (GreyZone.allowScreenshots()) {
+            return false;
+        }
         return currentSecureReasons != null && currentSecureReasons.get(window) != null;
     }
 

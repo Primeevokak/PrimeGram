@@ -11674,6 +11674,14 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         return bitmap;
     }
 
+    /**
+     * PrimeGram: the encoder settings Telegram would pick for this file, exposed so the
+     * round-video sender can start from them instead of guessing a bitrate.
+     */
+    public static VideoEditedInfo primeCreateCompressionSettings(String videoPath) {
+        return createCompressionSettings(videoPath, 0);
+    }
+
     private static VideoEditedInfo createCompressionSettings(String videoPath, long videoOffset) {
         int[] params = new int[AnimatedFileDrawable.PARAM_NUM_COUNT];
         AnimatedFileDrawable.getVideoInfo(videoPath, params, videoOffset);

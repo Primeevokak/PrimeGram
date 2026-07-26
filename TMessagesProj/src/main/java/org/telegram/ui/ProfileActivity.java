@@ -13462,6 +13462,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                             phoneNumber = null;
                         }
                         isFragmentPhoneNumber = phoneNumber != null && phoneNumber.matches("888\\d{8}");
+                        // PrimeGram: display-only masking of your own number, for screenshots.
+                        text = org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(text, userId == getUserConfig().getClientUserId());
                         detailCell.setTextAndValue(text, LocaleController.getString(isFragmentPhoneNumber ? R.string.AnonymousNumber : R.string.PhoneMobile), false);
                     } else if (position == noteRow) {
                         final TLRPC.UserFull userInfo = getMessagesController().getUserFull(userId);

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import vpn.tunnel.VpnTunnelState
 import vpn.tunnel.VpnStatistics
@@ -250,21 +251,108 @@ object VpnSDK {
             return false
         }
         VpnSDK.logD(TAG, "Starting xray with cached server config (size=${cached.length})")
-        if (XrayProxy.start(cached)) return true
+        if (XrayProxy.start(cached)) {
+            startProxyWatchdog()
+            return true
+        }
         VpnSDK.logW(TAG, "Cached xray config failed to start, clearing cache: ${XrayProxy.lastError}")
         VpnNetworkFactory.getRegistrationRepository().clearCachedConfig()
         return false
     }
 
+    private var watchdogJob: kotlinx.coroutines.Job? = null
+    private const val WATCHDOG_INTERVAL_MS = 20_000L
+
+    /**
+     * Periodically verifies the local xray SOCKS5 port is actually accepting
+     * connections (not just that libxray's internal flag says "started") and
+     * restarts it from the cached config if it wedged. Without this, a dead
+     * xray runtime looks identical to a healthy one to every caller of
+     * [isProxyRunning], and nothing else in the app ever notices or recovers.
+     */
+    private fun startProxyWatchdog() {
+        if (watchdogJob?.isActive == true) return
+        watchdogJob = scope.launch {
+            // Seed the cached health flag immediately: callers read the cache, and until the
+            // first real check runs it would otherwise report a freshly started proxy as dead.
+            XrayProxy.refreshHealth()
+            while (true) {
+                delay(WATCHDOG_INTERVAL_MS)
+                if (!XrayProxy.isRunning()) {
+                    // stopProxy() was called, or xray reported itself stopped — nothing to heal.
+                    break
+                }
+                if (!XrayProxy.refreshHealth()) {
+                    VpnSDK.logW(TAG, "Watchdog: xray unhealthy, restarting from cached config")
+                    val cached = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
+                    if (cached != null) {
+                        XrayProxy.stop()
+                        if (!XrayProxy.start(cached)) {
+                            VpnSDK.logE(TAG, "Watchdog: restart failed: ${XrayProxy.lastError}")
+                        }
+                    } else {
+                        VpnSDK.logW(TAG, "Watchdog: no cached config to restart from, stopping watchdog")
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopProxyWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = null
+    }
+
+    /**
+     * Call when the underlying network changes (wifi↔mobile, Doze exit,
+     * airplane mode toggle) so a wedged xray socket is caught immediately
+     * instead of waiting up to [WATCHDOG_INTERVAL_MS] for the next tick.
+     */
+    @JvmStatic
+    fun onNetworkChanged() {
+        if (!isInitialized) return
+        if (XrayProxy.isRunning()) {
+            scope.launch {
+                if (!XrayProxy.refreshHealth()) {
+                    VpnSDK.logD(TAG, "onNetworkChanged: xray unhealthy after network change, restarting")
+                    val cached = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
+                    if (cached != null) {
+                        XrayProxy.stop()
+                        XrayProxy.start(cached)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Reason [setCustomVlessConfig] last returned `false`, distinguishing a
+     * malformed vless:// link from one that parsed fine but the key/server
+     * itself didn't work (expired key, unreachable server, etc.) — those are
+     * different problems and telling the user the wrong one is worse than
+     * saying nothing. `null` after a successful call.
+     */
+    @Volatile
+    @JvmStatic
+    var lastCustomVlessError: String? = null
+        private set
+
     @JvmStatic
     fun setCustomVlessConfig(vlessUrl: String): Boolean {
         checkInitialized()
-        val json = parseVlessUrlToJson(vlessUrl) ?: return false
+        val json = parseVlessUrlToJson(vlessUrl)
+        if (json == null) {
+            lastCustomVlessError = "invalid_url"
+            return false
+        }
         VpnNetworkFactory.getRegistrationRepository().setCustomConfigJson(json)
         if (isProxyRunning()) {
             stopProxy()
         }
-        return startProxy()
+        val ok = startProxy()
+        lastCustomVlessError = if (ok) null else (XrayProxy.lastError ?: "connect_failed")
+        return ok
     }
 
     private fun parseVlessUrlToJson(url: String): String? {
@@ -365,11 +453,22 @@ object VpnSDK {
     @JvmStatic
     fun stopProxy() {
         VpnSDK.logD(TAG, "Stopping xray proxy…")
+        stopProxyWatchdog()
         XrayProxy.stop()
     }
 
     @JvmStatic
     fun isProxyRunning(): Boolean = XrayProxy.isRunning()
+
+    /**
+     * Real liveness check (actually connects to the local SOCKS5 port), unlike
+     * [isProxyRunning] which only reflects libxray's internal "did I start" flag
+     * and can stay true after the runtime wedged. Callers that gate a fallback
+     * or rotation decision on "is the emergency proxy usable right now" should
+     * use this, not [isProxyRunning].
+     */
+    @JvmStatic
+    fun isProxyHealthy(): Boolean = XrayProxy.isHealthyCached()
 
     /** Port of the local SOCKS5 proxy. Valid only when [isProxyRunning] returns true. */
     @JvmStatic
@@ -407,11 +506,48 @@ object VpnSDK {
                 VpnSDK.logD(TAG, "registerOrAuth already in flight, dropping duplicate call")
                 return@launch
             }
+            var success = false
             try {
-                val success = runRegisterWithRetries(maxAttempts)
+                success = runRegisterWithRetries(maxAttempts)
                 withContext(Dispatchers.Main) { callback?.onResult(success) }
             } finally {
                 registerMutex.unlock()
+            }
+            if (success) {
+                backgroundRetryJob?.cancel()
+                backgroundRetryJob = null
+            } else {
+                scheduleBackgroundRetry()
+            }
+        }
+    }
+
+    private var backgroundRetryJob: kotlinx.coroutines.Job? = null
+    private const val BACKGROUND_RETRY_INITIAL_MS = 30_000L
+    private const val BACKGROUND_RETRY_MAX_MS = 10 * 60_000L
+
+    /**
+     * [registerOrAuth]'s own retries are a short burst (seconds) meant to
+     * ride out a blip while the caller is waiting on a callback. If the
+     * backend is down/unreachable for longer than that, the previous
+     * behaviour was to give up silently until the user manually reopened
+     * settings and toggled something — leaving them without a working key
+     * indefinitely. This keeps trying in the background with a slow backoff
+     * until it succeeds or the user explicitly disables the proxy.
+     */
+    private fun scheduleBackgroundRetry() {
+        if (backgroundRetryJob?.isActive == true) return
+        backgroundRetryJob = scope.launch {
+            var delayMs = BACKGROUND_RETRY_INITIAL_MS
+            while (true) {
+                delay(delayMs)
+                VpnSDK.logD(TAG, "Background retry of registerOrAuth after earlier failure")
+                val success = registerMutex.withLock { runRegisterWithRetries(2) }
+                if (success) {
+                    VpnSDK.logD(TAG, "Background retry succeeded")
+                    return@launch
+                }
+                delayMs = (delayMs * 2).coerceAtMost(BACKGROUND_RETRY_MAX_MS)
             }
         }
     }
@@ -451,6 +587,7 @@ object VpnSDK {
             VpnSDK.logW(TAG, "Failed to restart xray with new config: ${XrayProxy.lastError}")
         } else {
             VpnSDK.logD(TAG, "Xray restarted with fresh server config")
+            startProxyWatchdog()
         }
         return ok
     }

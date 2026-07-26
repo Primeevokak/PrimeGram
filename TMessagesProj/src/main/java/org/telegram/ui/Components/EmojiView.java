@@ -194,6 +194,12 @@ public class EmojiView extends FrameLayout implements
     private final static int TAB_EMOJI = 0;
     private final static int TAB_GIFS = 1;
     private final static int TAB_STICKERS = 2;
+    // Appended after the three original tabs, at the end of allTabs/currentTabs — deliberately
+    // NOT renumbering TAB_GIFS/TAB_STICKERS, since those values are compared directly against
+    // pager.getCurrentItem() in many places throughout this file. Music also intentionally does
+    // not participate in the legacy `currentPage` "remember last open tab" setting (see onOpen());
+    // it's reachable by swiping/tapping like any tab, it's just never the one restored on open.
+    private final static int TAB_MUSIC = 3;
 
     public int emojiCacheType = AnimatedEmojiDrawable.CACHE_TYPE_KEYBOARD;
 
@@ -296,6 +302,8 @@ public class EmojiView extends FrameLayout implements
             } if (allTabs.get(i).type == TAB_GIFS && allowGifs) {
                 currentTabs.add(allTabs.get(i));
             }  if (allTabs.get(i).type == TAB_STICKERS && allowStickers) {
+                currentTabs.add(allTabs.get(i));
+            } if (allTabs.get(i).type == TAB_MUSIC && org.telegram.messenger.music.MusicSettingsStore.isTabEnabled()) {
                 currentTabs.add(allTabs.get(i));
             }
         }
@@ -2303,6 +2311,11 @@ public class EmojiView extends FrameLayout implements
             stickersTabHolder.type = TAB_STICKERS;
             stickersTabHolder.view = stickersContainer;
             allTabs.add(stickersTabHolder);
+
+            Tab musicTabHolder = new Tab();
+            musicTabHolder.type = TAB_MUSIC;
+            musicTabHolder.view = new MusicPanelView(context, currentAccount, EmojiView.this.fragment, () -> delegate != null ? delegate.getDialogId() : 0, resourcesProvider);
+            allTabs.add(musicTabHolder);
             stickersSearchGridAdapter = new StickersSearchGridAdapter(context);
             stickersGridView.setAdapter(stickersGridAdapter = new StickersGridAdapter(context));
             stickersGridView.setOnTouchListener((v, event) -> ContentPreviewViewer.getInstance().onTouch(event, stickersGridView, EmojiView.this.getMeasuredHeight(), stickersOnItemClickListener, contentPreviewViewerDelegate, resourcesProvider));
@@ -8467,6 +8480,9 @@ public class EmojiView extends FrameLayout implements
 
         @Override
         public boolean canScrollToTab(int position) {
+            if (position >= currentTabs.size() || currentTabs.get(position).type == TAB_MUSIC) {
+                return true;
+            }
             if ((position == 1 || position == 2) && stickersBanned) {
                 showStickerBanHint(true, false, position == 1);
                 return false;
@@ -8488,6 +8504,9 @@ public class EmojiView extends FrameLayout implements
         }
 
         public CharSequence getPageTitle(int position) {
+            if (position < currentTabs.size() && currentTabs.get(position).type == TAB_MUSIC) {
+                return "Музыка";
+            }
             switch (position) {
                 case 0:
                     return getString(R.string.Emoji);

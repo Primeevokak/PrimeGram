@@ -85,6 +85,12 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
         int count;
         String name;
         int nameHash;
+        /**
+         * PrimeGram: identity of a local (client-only) tag. Non-zero only in local mode.
+         * Needed because several local tags may share one emoji, and the reaction hash
+         * alone would then treat them as the same chip.
+         */
+        long localKey;
 
         public static Item get(ReactionsLayoutInBubble.VisibleReaction reaction, int count, String name) {
             Item item = new Item();
@@ -96,7 +102,7 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
         }
 
         public long hash() {
-            return reaction.hash;
+            return localKey != 0 ? localKey : reaction.hash;
         }
 
         @Override
@@ -107,6 +113,40 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
             Item that = (Item) obj;
             return this.count == that.count && this.reaction.hash == that.reaction.hash && this.nameHash == that.nameHash;
         }
+    }
+
+    /**
+     * PrimeGram: renders client-only tags instead of Telegram's saved-message reaction tags.
+     *
+     * <p>Each local tag is an emoji plus a name, which lets it reuse this component's reaction
+     * button wholesale — same chip shape, same chosen-state animation, same layout hooks in
+     * ChatActivity — instead of a parallel look-alike widget.
+     */
+    private boolean localMode;
+    private ArrayList<LocalTag> localTags = new ArrayList<>();
+
+    public static class LocalTag {
+        public final String name;
+        public final String emoji;
+        public final int count;
+
+        public LocalTag(String name, String emoji, int count) {
+            this.name = name;
+            this.emoji = emoji;
+            this.count = count;
+        }
+    }
+
+    /** Switches this list to client-only tags and replaces its contents. */
+    public void setLocalTags(ArrayList<LocalTag> tags) {
+        localMode = true;
+        localTags = tags == null ? new ArrayList<>() : tags;
+        updateTags(true);
+    }
+
+    /** Called when a local tag chip is picked; null means the filter was cleared. */
+    protected boolean setLocalFilter(String tagName) {
+        return false;
     }
 
     private BlurredBackgroundDrawableViewFactory blurredFactory;
@@ -269,12 +309,19 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
             if (position < 0 || position >= items.size()) {
                 return;
             }
-            if (!UserConfig.getInstance(currentAccount).isPremium()) {
+            // Local tags are ours, not a Telegram Premium feature — no paywall for them.
+            if (!localMode && !UserConfig.getInstance(currentAccount).isPremium()) {
                 new PremiumFeatureBottomSheet(fragment, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true).show();
                 return;
             }
-            long hash = items.get(position).hash();
-            if (!setFilter(chosen == hash ? null : items.get(position).reaction)) {
+            final Item clicked = items.get(position);
+            long hash = clicked.hash();
+            final boolean unselecting = chosen == hash;
+            if (localMode) {
+                if (!setLocalFilter(unselecting ? null : clicked.name)) {
+                    return;
+                }
+            } else if (!setFilter(unselecting ? null : clicked.reaction)) {
                 return;
             }
             for (int i = 0; i < listView.getChildCount(); i++) {
@@ -300,7 +347,7 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
             }
         });
         listView.setOnItemLongClickListener((view, position) -> {
-            if (position < 0 || position >= items.size() || !UserConfig.getInstance(currentAccount).isPremium())
+            if (position < 0 || position >= items.size() || localMode || !UserConfig.getInstance(currentAccount).isPremium())
                 return false;
             if (!UserConfig.getInstance(currentAccount).isPremium()) {
                 new PremiumFeatureBottomSheet(fragment, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true).show();
@@ -601,10 +648,22 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
         items.clear();
 
         final MessagesController ms = MessagesController.getInstance(currentAccount);
-        TLRPC.TL_messages_savedReactionsTags savedReactionsTags = ms.getSavedReactionTags(topicId);
+        TLRPC.TL_messages_savedReactionsTags savedReactionsTags = localMode ? null : ms.getSavedReactionTags(topicId);
         boolean hasChosen = false;
 
-        if (savedReactionsTags != null) {
+        if (localMode) {
+            for (int i = 0; i < localTags.size(); ++i) {
+                LocalTag tag = localTags.get(i);
+                ReactionsLayoutInBubble.VisibleReaction r =
+                        ReactionsLayoutInBubble.VisibleReaction.fromEmojicon(tag.emoji);
+                Item item = Item.get(r, tag.count, tag.name);
+                item.localKey = tag.name.hashCode() * 31L + 17;
+                if (item.hash() == chosen) {
+                    hasChosen = true;
+                }
+                items.add(item);
+            }
+        } else if (savedReactionsTags != null) {
             for (int i = 0; i < savedReactionsTags.tags.size(); ++i) {
                 TLRPC.TL_savedReactionTag tag = savedReactionsTags.tags.get(i);
                 ReactionsLayoutInBubble.VisibleReaction r = ReactionsLayoutInBubble.VisibleReaction.fromTL(tag.reaction);

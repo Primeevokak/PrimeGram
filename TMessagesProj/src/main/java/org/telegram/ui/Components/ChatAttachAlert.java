@@ -4013,6 +4013,29 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
                 }
                 messageSendPreview.setStars(amount);
             }
+            // PrimeGram: re-encode a gallery video into a round video message. Offered only
+            // when every selected item is a video, since the format only carries video.
+            final ChatActivity roundChatActivity = chatActivity;
+            if (editingMessageObject == null && roundChatActivity != null && photoLayout != null) {
+                final java.util.Collection<MediaController.PhotoEntry> roundEntries = primeRoundVideoEntries();
+                if (roundEntries != null) {
+                    options.add(R.drawable.input_video, "Отправить кружком", () -> {
+                        if (org.telegram.messenger.PrimeRoundVideoSender.send(roundChatActivity, roundEntries, null)) {
+                            // The files are on their way, so the picker must forget them —
+                            // otherwise the alert closes with a live selection and Telegram
+                            // offers to discard media that has already been sent.
+                            if (photoLayout != null) {
+                                photoLayout.clearSelectedPhotos();
+                            }
+                            if (messageSendPreview != null) {
+                                messageSendPreview.dismiss(true);
+                                messageSendPreview = null;
+                            }
+                            dismiss();
+                        }
+                    });
+                }
+            }
             options.setupSelectors();
             messageSendPreview.setItemOptions(options);
 
@@ -4901,6 +4924,36 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
             }));
         }
         showLayout(colorsLayout);
+    }
+
+    /**
+     * PrimeGram: the current selection, but only if it is entirely videos — otherwise null,
+     * so the "send as round video" option never appears where it cannot work.
+     */
+    private java.util.Collection<MediaController.PhotoEntry> primeRoundVideoEntries() {
+        try {
+            if (photoLayout == null) {
+                return null;
+            }
+            java.util.HashMap<Object, Object> selected = photoLayout.getSelectedPhotos();
+            if (selected == null || selected.isEmpty()) {
+                return null;
+            }
+            java.util.ArrayList<MediaController.PhotoEntry> entries = new java.util.ArrayList<>();
+            for (Object value : selected.values()) {
+                if (!(value instanceof MediaController.PhotoEntry)) {
+                    return null;
+                }
+                MediaController.PhotoEntry entry = (MediaController.PhotoEntry) value;
+                if (!entry.isVideo) {
+                    return null;
+                }
+                entries.add(entry);
+            }
+            return entries.isEmpty() ? null : entries;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private void openDocumentsLayout(boolean show) {

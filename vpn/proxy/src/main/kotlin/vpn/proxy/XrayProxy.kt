@@ -47,6 +47,46 @@ object XrayProxy {
         false
     }
 
+    /**
+     * Real liveness check: [isRunning] only reflects libxray's internal
+     * "did I start" flag, which stays true even if the Go runtime wedged or
+     * the SOCKS5 listener stopped accepting connections. This actually
+     * connects to the local SOCKS5 port to verify something is listening.
+     */
+    fun isHealthy(timeoutMs: Int = 300): Boolean {
+        if (!isRunning()) return false
+        return try {
+            java.net.Socket().use { socket ->
+                socket.connect(java.net.InetSocketAddress(socksHost, socksPort), timeoutMs)
+                true
+            }
+        } catch (e: Exception) {
+            logE("Health check failed: local SOCKS5 port not accepting connections", e)
+            false
+        }
+    }
+
+    /** Last result of [isHealthy], refreshed by the watchdog. See [isHealthyCached]. */
+    @Volatile
+    private var lastHealthy: Boolean = false
+
+    /**
+     * Non-blocking answer for callers on the main thread.
+     *
+     * [isHealthy] opens a real socket, so calling it from a UI callback — which is what the
+     * connection-state observer used to do — stalls the frame for up to [timeoutMs] every
+     * time the connection state flickers. Those callers read this cached value instead, and
+     * the watchdog keeps it fresh from its own thread.
+     */
+    fun isHealthyCached(): Boolean = isRunning() && lastHealthy
+
+    /** Runs the real check and stores the result. Must not be called from the main thread. */
+    fun refreshHealth(timeoutMs: Int = 300): Boolean {
+        val healthy = isHealthy(timeoutMs)
+        lastHealthy = healthy
+        return healthy
+    }
+
     fun start(configJson: String): Boolean {
         if (isRunning()) {
             logD("Already running")

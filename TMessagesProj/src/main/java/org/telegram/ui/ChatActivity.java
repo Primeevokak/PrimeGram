@@ -142,6 +142,7 @@ import org.telegram.messenger.BotInlineKeyboard;
 import org.telegram.messenger.BotWebViewVibrationEffect;
 import org.telegram.messenger.BuildConfig;
 import org.telegram.messenger.BuildVars;
+import org.telegram.messenger.BulkMessageProcessor;
 import org.telegram.messenger.ChannelBoostsController;
 import org.telegram.messenger.ChatMessageSharedResources;
 import org.telegram.messenger.ChatMessagesMetadataController;
@@ -1239,6 +1240,9 @@ public class ChatActivity extends BaseFragment implements
 
     public final static int OPTION_VIEW_STATISTICS = 115;
 
+    /** PrimeGram: attach a local, device-only label to this message. */
+    public final static int OPTION_PRIME_ADD_TAG = 900;
+
     private final static int[] allowedNotificationsDuringChatListAnimations = new int[]{
             NotificationCenter.messagesRead,
             NotificationCenter.threadMessagesRead,
@@ -1622,6 +1626,21 @@ public class ChatActivity extends BaseFragment implements
     private final static int tag_message = 28;
     private final static int boost_group = 29;
 
+    /** PrimeGram: bulk-delete every message of this chat/topic, paged server-side. */
+    private final static int prime_bulk_delete = 900;
+    /** PrimeGram: leave this channel automatically after a chosen period. */
+    private final static int prime_temp_sub = 901;
+    /** PrimeGram: browse this chat's locally tagged messages. */
+    private final static int prime_chat_tags = 902;
+
+    /**
+     * PrimeGram: upstream capped manual selection at 100 because a single delete/forward
+     * request can't carry more. Both paths batch now — forwarding was already chunked
+     * inside SendMessagesHelper, deletion is chunked in AlertsCreator — so the cap only
+     * needs to stay low enough that copying the selection can't blow up memory.
+     */
+    private final static int MAX_SELECTED_MESSAGES = 1000;
+
     private final static int bot_help = 30;
     private final static int bot_settings = 31;
     private final static int call = 32;
@@ -1737,7 +1756,7 @@ public class ChatActivity extends BaseFragment implements
                         return;
                     }
                     if (messageObject.contentType == 0) {
-                        if (selected && selectedMessagesIds[0].size() + selectedMessagesIds[1].size() >= 100) {
+                        if (selected && selectedMessagesIds[0].size() + selectedMessagesIds[1].size() >= MAX_SELECTED_MESSAGES) {
                             limitReached = true;
                         } else {
                             limitReached = false;
@@ -3796,6 +3815,12 @@ public class ChatActivity extends BaseFragment implements
                         return;
                     }
                     showDialog(AlertsCreator.createTTLAlert(getParentActivity(), currentEncryptedChat, themeDelegate).create());
+                } else if (id == prime_bulk_delete) {
+                    showBulkDeleteAlert();
+                } else if (id == prime_temp_sub) {
+                    showTempSubAlert();
+                } else if (id == prime_chat_tags) {
+                    presentFragment(new MessageTagsActivity(dialog_id));
                 } else if (id == clear_history || id == delete_chat || id == auto_delete_timer) {
                     if (getParentActivity() == null) {
                         return;
@@ -4404,6 +4429,23 @@ public class ChatActivity extends BaseFragment implements
             if (!isTopic && !ChatObject.isMonoForum(currentChat)) {
                 clearHistoryItem = headerItem.lazilyAddSubItem(clear_history, R.drawable.msg_clear,
                     LocaleController.getString(UserObject.isBotForum(currentUser) ? R.string.ClearAllHistory : R.string.ClearHistory));
+            }
+            // PrimeGram: delete every message one batch at a time. Unlike "clear history"
+            // this also works inside a forum topic, where selecting messages by hand was
+            // the only option before.
+            if (chatMode == 0 && canBulkDeleteHere()) {
+                headerItem.lazilyAddSubItem(prime_bulk_delete, R.drawable.msg_delete,
+                    isTopic ? "Удалить все сообщения темы" : "Удалить все сообщения");
+            }
+            // PrimeGram: only offered where leaving is actually possible — a channel or group
+            // we are currently a member of and did not create.
+            // PrimeGram: only worth a menu slot once this chat actually has tagged messages.
+            if (chatMode == 0 && !org.telegram.messenger.MessageTagsStore.getTagsInDialog(dialog_id).isEmpty()) {
+                headerItem.lazilyAddSubItem(prime_chat_tags, R.drawable.msg_pin, "Сообщения по тегу");
+            }
+            if (chatMode == 0 && !isTopic && ChatObject.isChannel(currentChat) && !currentChat.creator && !ChatObject.isNotInChat(currentChat)) {
+                headerItem.lazilyAddSubItem(prime_temp_sub, R.drawable.msg_autodelete,
+                    org.telegram.messenger.TempSubStore.get(dialog_id) != null ? "Временная подписка: изменить" : "Временная подписка");
             }
             boolean addedSettings = false;
             if (!isTopic) {
@@ -8000,6 +8042,8 @@ public class ChatActivity extends BaseFragment implements
         }
         chatActivityEnterView.setInAppInsetsController(windowInsetsStateHolder);
         chatActivityEnterView.setDialogId(dialog_id, currentAccount);
+        // PrimeGram: the formatting toolbar exists only in real chats, and only when asked for.
+        chatActivityEnterView.primeSetToolbarAllowed(chatMode == 0 || chatMode == MODE_SCHEDULED);
         if (chatInfo != null) {
             chatActivityEnterView.setChatInfo(chatInfo);
         }
@@ -8862,6 +8906,39 @@ public class ChatActivity extends BaseFragment implements
             }
         }
 
+        if (getDialogId() != getUserConfig().getClientUserId() && chatMode == 0) {
+            // PrimeGram: the same chip row as Saved Messages, driven by client-only tags.
+            actionBarSearchTags = new SearchTagsList(context, ChatActivity.this, currentAccount, 0, themeDelegate) {
+                @Override
+                protected boolean setLocalFilter(String tagName) {
+                    applyLocalTagFilter(tagName);
+                    return true;
+                }
+
+                @Override
+                public void updateTags(boolean notify) {
+                    super.updateTags(notify);
+                    show(searchItem != null && searchItem.isSearchFieldVisible() && hasFilters() && searchingHashtag == null);
+                }
+
+                @Override
+                protected void onShownUpdate(boolean finish) {
+                    checkUi_topFade();
+                    checkUi_messagesSearchListPadding();
+                    if (finish) {
+                        invalidateChatListViewTopPadding = true;
+                        updateChatListViewTopPadding();
+                    }
+                }
+            };
+            actionBarSearchTags.setVisibility(View.GONE);
+            actionBarSearchTags.setBlurredFactory(
+                glassBackgroundDrawableFactory,
+                BlurredBackgroundProviderImpl.topPanelChatActivityTags(resourceProvider)
+            );
+            contentView.addView(actionBarSearchTags, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 38, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, -dp(3), 0, 0));
+        }
+
         if (getDialogId() == getUserConfig().getClientUserId()) {
             actionBarSearchTags = new SearchTagsList(context, ChatActivity.this, currentAccount, getSavedDialogId(), themeDelegate) {
                 @Override
@@ -9268,6 +9345,100 @@ public class ChatActivity extends BaseFragment implements
     }
 
     private LongSparseArray<ArrayList<MessageObject>> filteredMessagesByDays;
+    /** PrimeGram: name of the local tag currently filtering the list, or null. */
+    private String primeTagFilter;
+    private final ArrayList<MessageObject> primeTagResults = new ArrayList<>();
+
+    /** Rebuilds the chip row from this chat's local tags. Called when search opens. */
+    private void updateLocalTagChips() {
+        if (actionBarSearchTags == null || getDialogId() == getUserConfig().getClientUserId()) {
+            return;
+        }
+        try {
+            java.util.List<String> tags = org.telegram.messenger.MessageTagsStore.getTagsInDialog(dialog_id);
+            ArrayList<SearchTagsList.LocalTag> localTags = new ArrayList<>();
+            for (String tag : tags) {
+                localTags.add(new SearchTagsList.LocalTag(
+                        tag,
+                        org.telegram.messenger.MessageTagsStore.getEmoji(tag),
+                        org.telegram.messenger.MessageTagsStore.getMessageIds(tag, dialog_id).size()));
+            }
+            actionBarSearchTags.setLocalTags(localTags);
+        } catch (Throwable t) {
+            FileLog.e("updateLocalTagChips", t);
+        }
+    }
+
+    /**
+     * PrimeGram: shows only the messages carrying {@code tagName}, or restores the full list
+     * when it is null.
+     *
+     * <p>Tagged messages may be far outside the loaded window, so the ids are resolved against
+     * the server rather than the in-memory list. Anything the server no longer has — deleted
+     * since it was tagged — simply does not come back, which is the correct outcome.
+     */
+    private void applyLocalTagFilter(String tagName) {
+        primeTagFilter = tagName;
+        if (tagName == null) {
+            primeTagResults.clear();
+            setFilterMessages(false);
+            updateSearchButtons(0, 0, -1);
+            return;
+        }
+        AndroidUtilities.hideKeyboard(searchItem != null ? searchItem.getSearchField() : null);
+
+        ArrayList<Integer> ids = org.telegram.messenger.MessageTagsStore.getMessageIds(tagName, dialog_id);
+        if (ids.isEmpty()) {
+            primeTagResults.clear();
+            updateFilteredMessages(true);
+            setFilterMessages(true);
+            return;
+        }
+
+        TLObject req;
+        if (ChatObject.isChannel(currentChat)) {
+            TLRPC.TL_channels_getMessages request = new TLRPC.TL_channels_getMessages();
+            request.channel = getMessagesController().getInputChannel(currentChat.id);
+            for (int id : ids) {
+                request.id.add(id);
+            }
+            req = request;
+        } else {
+            TLRPC.TL_messages_getMessages request = new TLRPC.TL_messages_getMessages();
+            for (int id : ids) {
+                request.id.add(id);
+            }
+            req = request;
+        }
+        getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (!tagName.equals(primeTagFilter)) {
+                return; // the user moved on to a different tag while this was in flight
+            }
+            primeTagResults.clear();
+            if (response instanceof TLRPC.messages_Messages) {
+                TLRPC.messages_Messages res = (TLRPC.messages_Messages) response;
+                getMessagesController().putUsers(res.users, false);
+                getMessagesController().putChats(res.chats, false);
+                for (int i = 0; i < res.messages.size(); i++) {
+                    TLRPC.Message message = res.messages.get(i);
+                    if (message == null || message instanceof TLRPC.TL_messageEmpty) {
+                        continue;
+                    }
+                    MessageObject messageObject = new MessageObject(currentAccount, message, true, true);
+                    messageObject.setQuery(null);
+                    primeTagResults.add(messageObject);
+                }
+            }
+            updateFilteredMessages(true);
+            setFilterMessages(true);
+            updateSearchButtons(0, 0, primeTagResults.size());
+            if (primeTagResults.isEmpty()) {
+                BulletinFactory.of(ChatActivity.this)
+                        .createErrorBulletin("Помеченные сообщения не найдены — возможно, они удалены").show();
+            }
+        }));
+    }
+
     private LongSparseArray<MessageObject> filteredMessagesDict;
 
     private void putFilteredDate(int index, MessageObject baseMsg) {
@@ -9304,7 +9475,11 @@ public class ChatActivity extends BaseFragment implements
     }
 
     private void updateFilteredMessages(boolean notify) {
-        ArrayList<MessageObject> results = new ArrayList<>(MediaDataController.getInstance(currentAccount).getFoundMessageObjects());
+        // PrimeGram: a chosen local tag supplies the filtered list instead of the server
+        // search, which knows nothing about client-only tags.
+        ArrayList<MessageObject> results = primeTagFilter != null
+                ? new ArrayList<>(primeTagResults)
+                : new ArrayList<>(MediaDataController.getInstance(currentAccount).getFoundMessageObjects());
         if (filteredMessagesDict == null) {
             filteredMessagesDict = new LongSparseArray<>();
         }
@@ -12115,6 +12290,44 @@ public class ChatActivity extends BaseFragment implements
         updatePinnedMessageView(true);
         updateVisibleRows();
         updateSelectedMessageReactions();
+    }
+
+    /**
+     * True when the selection can't actually be forwarded by the server (protected content)
+     * and the user opted into the grey-zone workaround.
+     */
+    private boolean shouldResendAsCopy(ArrayList<MessageObject> messages) {
+        if (!org.telegram.messenger.GreyZone.bypassNoForwards() || messages == null || messages.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < messages.size(); i++) {
+            MessageObject message = messages.get(i);
+            if (message != null && message.messageOwner != null && message.messageOwner.noforwards) {
+                return true;
+            }
+        }
+        // Chat-level restriction: isPeerNoForwards() is already overridden by the grey zone,
+        // so ask the underlying chat/user flags directly.
+        if (currentChat != null && currentChat.noforwards) {
+            return true;
+        }
+        TLRPC.UserFull userFull = currentUser != null ? getMessagesController().getUserFull(currentUser.id) : null;
+        return userFull != null && (userFull.noforwards_peer_enabled || userFull.noforwards_my_enabled);
+    }
+
+    private void resendAsCopy(ArrayList<MessageObject> messages, long toDialogId) {
+        org.telegram.messenger.MessageCopyResender.resend(currentAccount, messages, toDialogId, (sent, skipped) -> {
+            if (getParentActivity() == null) {
+                return;
+            }
+            String text;
+            if (skipped == 0) {
+                text = "Отправлено копией: " + sent;
+            } else {
+                text = "Отправлено копией: " + sent + ", не удалось: " + skipped;
+            }
+            BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.copy, text).show();
+        });
     }
 
     private void openForward(boolean fromActionBar) {
@@ -18971,7 +19184,7 @@ public class ChatActivity extends BaseFragment implements
                     }
                 }
             } else {
-                if (selectedMessagesIds[0].size() + selectedMessagesIds[1].size() >= 100) {
+                if (selectedMessagesIds[0].size() + selectedMessagesIds[1].size() >= MAX_SELECTED_MESSAGES) {
                     AndroidUtilities.shakeView(selectedMessagesCountTextView);
                     Vibrator vibrator = (Vibrator) ApplicationLoader.applicationContext.getSystemService(Context.VIBRATOR_SERVICE);
                     if (vibrator != null) {
@@ -26066,6 +26279,57 @@ public class ChatActivity extends BaseFragment implements
         return sponsoredMessagesCount;
     }
 
+    /**
+     * PrimeGram grey zone: pulls the messages we want to keep on screen out of a deletion batch.
+     *
+     * <p>Only incoming, already-sent messages of a normal conversation qualify — our own
+     * messages, scheduled drafts and Saved Messages are deleted for real, because nobody hid
+     * anything from us there. The survivors are flagged so the cell paints them faded with a
+     * "удалено" chip; everything else continues down the untouched deletion path.
+     *
+     * @return the ids that should still be deleted (the original list when nothing was kept)
+     */
+    private ArrayList<Integer> retainDeletedMessages(ArrayList<Integer> markAsDeletedMessages, int loadIndex) {
+        try {
+            if (chatMode != 0 || !org.telegram.messenger.GreyZone.isEnabled(org.telegram.messenger.GreyZone.SAVE_DELETED)) {
+                return markAsDeletedMessages;
+            }
+            if (dialog_id == getUserConfig().getClientUserId() || messagesDict == null || messagesDict[loadIndex] == null) {
+                return markAsDeletedMessages;
+            }
+            ArrayList<Integer> stillDelete = new ArrayList<>(markAsDeletedMessages.size());
+            boolean anyKept = false;
+            for (int a = 0, N = markAsDeletedMessages.size(); a < N; a++) {
+                Integer mid = markAsDeletedMessages.get(a);
+                MessageObject obj = messagesDict[loadIndex].get(mid);
+                if (obj != null && !obj.isOutOwner() && obj.getId() > 0 && !obj.isSponsored() && !obj.scheduled) {
+                    obj.primeDeleted = true;
+                    anyKept = true;
+                } else {
+                    stillDelete.add(mid);
+                }
+            }
+            if (!anyKept) {
+                return markAsDeletedMessages;
+            }
+            if (chatListView != null) {
+                for (int a = 0, N = chatListView.getChildCount(); a < N; a++) {
+                    View child = chatListView.getChildAt(a);
+                    if (child instanceof ChatMessageCell) {
+                        MessageObject cellMessage = ((ChatMessageCell) child).getMessageObject();
+                        if (cellMessage != null && cellMessage.primeDeleted) {
+                            child.invalidate();
+                        }
+                    }
+                }
+            }
+            return stillDelete;
+        } catch (Throwable t) {
+            FileLog.e("retainDeletedMessages", t);
+            return markAsDeletedMessages;
+        }
+    }
+
     private void processDeletedMessages(ArrayList<Integer> markAsDeletedMessages, long channelId, boolean sent) {
         processDeletedMessages(markAsDeletedMessages, channelId, sent, true);
     }
@@ -26083,6 +26347,10 @@ public class ChatActivity extends BaseFragment implements
                 return;
             }
         } else if (channelId != 0) {
+            return;
+        }
+        markAsDeletedMessages = retainDeletedMessages(markAsDeletedMessages, loadIndex);
+        if (markAsDeletedMessages.isEmpty()) {
             return;
         }
         if (replyingMessageObject != null && markAsDeletedMessages.contains(replyingMessageObject.getId())) {
@@ -30352,6 +30620,370 @@ public class ChatActivity extends BaseFragment implements
         }
     }
 
+    /**
+     * PrimeGram: deletes the whole chat/topic without materialising every message.
+     * A chat can hold hundreds of thousands of messages, so instead of selecting them one
+     * by one we page through ids server-side and delete in API-sized batches.
+     */
+    /** PrimeGram: pick an existing local tag for this message, or create a new one. */
+    private void showAddTagDialog(MessageObject message) {
+        if (getParentActivity() == null || message == null) {
+            return;
+        }
+        final long dialogId = message.getDialogId();
+        final int messageId = message.getId();
+        final java.util.List<String> tags = org.telegram.messenger.MessageTagsStore.getAllTags();
+        final java.util.Set<String> own = org.telegram.messenger.MessageTagsStore.getTagsFor(dialogId, messageId);
+
+        if (tags.isEmpty()) {
+            promptNewTag(message, dialogId, messageId);
+            return;
+        }
+        // Tags already on this message come first, marked with a cross: tapping one removes
+        // it. Without this the picker only ever added, and a tag put on by mistake could not
+        // be taken off from the message it was on.
+        final java.util.ArrayList<String> labelList = new java.util.ArrayList<>();
+        final java.util.ArrayList<String> actionTags = new java.util.ArrayList<>();
+        final java.util.ArrayList<Boolean> isRemoval = new java.util.ArrayList<>();
+
+        labelList.add("Новый тег…");
+        actionTags.add(null);
+        isRemoval.add(false);
+
+        for (String tag : own) {
+            labelList.add("✕   " + tag);
+            actionTags.add(tag);
+            isRemoval.add(true);
+        }
+        for (String tag : tags) {
+            if (own.contains(tag)) {
+                continue;
+            }
+            labelList.add("+   " + tag);
+            actionTags.add(tag);
+            isRemoval.add(false);
+        }
+
+        final String[] labels = labelList.toArray(new String[0]);
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(own.isEmpty() ? "Пометить тегом" : "Теги сообщения");
+        builder.setItems(labels, (dialog, which) -> {
+            if (which == 0) {
+                promptNewTag(message, dialogId, messageId);
+                return;
+            }
+            String tag = actionTags.get(which);
+            if (isRemoval.get(which)) {
+                org.telegram.messenger.MessageTagsStore.removeTag(tag, dialogId, messageId);
+                invalidateMessageCell(message);
+                BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.contact_check, "Тег «" + tag + "» снят").show();
+            } else {
+                applyTag(tag, message, dialogId, messageId);
+            }
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void promptNewTag(MessageObject message, long dialogId, int messageId) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle("Новый тег");
+
+        EditTextBoldCursor editText = new EditTextBoldCursor(getParentActivity());
+        editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
+        editText.setTextColor(Theme.getColor(Theme.key_dialogTextBlack, themeDelegate));
+        editText.setHintTextColor(Theme.getColor(Theme.key_dialogTextHint, themeDelegate));
+        editText.setHint("Например: 🔥 важное");
+        editText.setCursorColor(Theme.getColor(Theme.key_dialogTextBlack, themeDelegate));
+        editText.setCursorSize(AndroidUtilities.dp(20));
+        editText.setSingleLine(true);
+        editText.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
+
+        LinearLayout container = new LinearLayout(getParentActivity());
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(4), AndroidUtilities.dp(24), 0);
+        container.addView(editText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        // Icon picker: the chip in search draws this emoji, so a tag without one would be
+        // indistinguishable from every other tag at a glance.
+        final String[] chosenEmoji = new String[]{org.telegram.messenger.MessageTagsStore.DEFAULT_EMOJI};
+        final String[] presets = {"🏷", "🔥", "⭐", "❗", "📌", "💡", "✅", "❤"};
+        final EditTextBoldCursor[] customEmojiRef = new EditTextBoldCursor[1];
+        final LinearLayout emojiRow = new LinearLayout(getParentActivity());
+        emojiRow.setOrientation(LinearLayout.HORIZONTAL);
+        final TextView[] emojiViews = new TextView[presets.length];
+        for (int i = 0; i < presets.length; i++) {
+            final int index = i;
+            TextView emojiView = new TextView(getParentActivity());
+            emojiView.setText(presets[i]);
+            emojiView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20);
+            emojiView.setGravity(Gravity.CENTER);
+            emojiView.setOnClickListener(v -> {
+                chosenEmoji[0] = presets[index];
+                // Picking from the row overrides whatever was typed, so clear the field.
+                if (customEmojiRef[0] != null && customEmojiRef[0].length() > 0) {
+                    customEmojiRef[0].setText("");
+                }
+                for (int j = 0; j < emojiViews.length; j++) {
+                    emojiViews[j].setBackground(j == index
+                            ? Theme.createRoundRectDrawable(AndroidUtilities.dp(8), Theme.getColor(Theme.key_dialogButtonSelector))
+                            : null);
+                }
+            });
+            emojiViews[i] = emojiView;
+            emojiRow.addView(emojiView, LayoutHelper.createLinear(0, 38, 1f));
+        }
+        emojiViews[0].setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(8), Theme.getColor(Theme.key_dialogButtonSelector)));
+        container.addView(emojiRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 12, 0, 0));
+
+        // Anything the keyboard can produce works as an icon, not just the presets above.
+        // Typing here wins over the row, and clears the row's selection so the dialog never
+        // shows two icons as chosen at once.
+        final EditTextBoldCursor customEmoji = new EditTextBoldCursor(getParentActivity());
+        customEmoji.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
+        customEmoji.setTextColor(Theme.getColor(Theme.key_dialogTextBlack, themeDelegate));
+        customEmoji.setHintTextColor(Theme.getColor(Theme.key_dialogTextHint, themeDelegate));
+        customEmoji.setHint("Своя иконка — вставьте любой эмодзи или символ");
+        customEmoji.setCursorColor(Theme.getColor(Theme.key_dialogTextBlack, themeDelegate));
+        customEmoji.setCursorSize(AndroidUtilities.dp(18));
+        customEmoji.setSingleLine(true);
+        customEmoji.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
+        customEmoji.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                String value = s.toString().trim();
+                if (TextUtils.isEmpty(value)) {
+                    chosenEmoji[0] = presets[0];
+                    for (int j = 0; j < emojiViews.length; j++) {
+                        emojiViews[j].setBackground(j == 0
+                                ? Theme.createRoundRectDrawable(AndroidUtilities.dp(8), Theme.getColor(Theme.key_dialogButtonSelector))
+                                : null);
+                    }
+                } else {
+                    chosenEmoji[0] = value;
+                    for (TextView emojiView : emojiViews) {
+                        emojiView.setBackground(null);
+                    }
+                }
+            }
+        });
+        customEmojiRef[0] = customEmoji;
+        container.addView(customEmoji, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 10, 0, 0));
+
+        builder.setView(container);
+
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
+            String tag = editText.getText().toString().trim();
+            if (!TextUtils.isEmpty(tag)) {
+                org.telegram.messenger.MessageTagsStore.setEmoji(tag, chosenEmoji[0]);
+            }
+            applyTag(tag, message, dialogId, messageId);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void applyTag(String tag, MessageObject message, long dialogId, int messageId) {
+        if (TextUtils.isEmpty(tag) || TextUtils.isEmpty(tag.trim())) {
+            return;
+        }
+        String preview = message.messageText != null ? message.messageText.toString() : "";
+        if (preview.length() > 80) {
+            preview = preview.substring(0, 80);
+        }
+        boolean added = org.telegram.messenger.MessageTagsStore.addTag(tag.trim(), dialogId, messageId, preview);
+        if (added) {
+            invalidateMessageCell(message);
+        }
+        BulletinFactory.of(ChatActivity.this).createSimpleBulletin(
+                added ? R.raw.contact_check : R.raw.error,
+                added ? "Тег «" + tag.trim() + "» добавлен" : "Этот тег уже стоит").show();
+    }
+
+    /** Repaints the on-screen cell of one message so a mark shows up without a full reload. */
+    private void invalidateMessageCell(MessageObject message) {
+        if (chatListView == null || message == null) {
+            return;
+        }
+        for (int a = 0, N = chatListView.getChildCount(); a < N; a++) {
+            View child = chatListView.getChildAt(a);
+            if (child instanceof ChatMessageCell) {
+                MessageObject cellMessage = ((ChatMessageCell) child).getMessageObject();
+                if (cellMessage != null && cellMessage.getId() == message.getId() && cellMessage.getDialogId() == message.getDialogId()) {
+                    child.invalidate();
+                }
+            }
+        }
+    }
+
+    /** PrimeGram: pick how long to stay in this channel before the client leaves on its own. */
+    private void showTempSubAlert() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final long[] durations = {
+                60 * 60 * 1000L,
+                6 * 60 * 60 * 1000L,
+                24 * 60 * 60 * 1000L,
+                3 * 24 * 60 * 60 * 1000L,
+                7 * 24 * 60 * 60 * 1000L,
+                30 * 24 * 60 * 60 * 1000L
+        };
+        final org.telegram.messenger.TempSubStore.Entry existing = org.telegram.messenger.TempSubStore.get(dialog_id);
+        final ArrayList<String> labels = new ArrayList<>();
+        labels.add("1 час");
+        labels.add("6 часов");
+        labels.add("1 день");
+        labels.add("3 дня");
+        labels.add("Неделя");
+        labels.add("Месяц");
+        if (existing != null) {
+            labels.add("Отменить автоотписку");
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle("Временная подписка");
+        builder.setItems(labels.toArray(new String[0]), (dialog, which) -> {
+            if (existing != null && which == labels.size() - 1) {
+                org.telegram.messenger.TempSubStore.cancel(dialog_id);
+                BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.contact_check, "Автоотписка отменена").show();
+                return;
+            }
+            long expiresAt = System.currentTimeMillis() + durations[which];
+            org.telegram.messenger.TempSubStore.schedule(dialog_id, expiresAt, currentChat != null ? currentChat.title : null);
+            BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.contact_check,
+                    "Отпишемся через " + labels.get(which).toLowerCase()).show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    /**
+     * PrimeGram: whether bulk delete can actually do anything here.
+     *
+     * <p>Without this the entry showed up in channels where the user is a plain subscriber.
+     * Worse than useless: {@code deleteMessages} marks messages deleted locally before the
+     * request goes out, so the chat emptied on screen while the server refused every id and
+     * the messages came back on the next sync. Somebody watching that would reasonably
+     * conclude the client had eaten a channel's history.
+     */
+    private boolean canBulkDeleteHere() {
+        try {
+            if (currentEncryptedChat != null) {
+                return false;
+            }
+            if (currentUser != null) {
+                return true; // private chat or Saved Messages: own messages are always deletable
+            }
+            if (currentChat == null) {
+                return false;
+            }
+            if (ChatObject.isChannel(currentChat) && !currentChat.megagroup) {
+                // Broadcast channel: nothing is "ours", so admin rights are the only way in.
+                return currentChat.creator || ChatObject.canUserDoAdminAction(currentChat, ChatObject.ACTION_DELETE_MESSAGES);
+            }
+            // Groups: members may delete their own messages, admins everyone's.
+            return true;
+        } catch (Throwable t) {
+            FileLog.e("canBulkDeleteHere", t);
+            return false;
+        }
+    }
+
+    private void showBulkDeleteAlert() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final boolean isTopicChat = isTopic;
+        final boolean canRevoke = currentChat != null && ChatObject.canBlockUsers(currentChat)
+                || currentUser != null && !UserObject.isUserSelf(currentUser);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(isTopicChat ? "Удалить все сообщения темы" : "Удалить все сообщения");
+        builder.setMessage(isTopicChat
+                ? "Все сообщения этой темы будут удалены. Действие нельзя отменить."
+                : "Все сообщения этого чата будут удалены. Действие нельзя отменить.");
+
+        final boolean[] forAll = new boolean[]{false};
+        if (canRevoke) {
+            CheckBoxCell cell = new CheckBoxCell(getParentActivity(), 1, themeDelegate);
+            cell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
+            cell.setText(LocaleController.getString(R.string.DeleteForAll), "", false, false);
+            cell.setPadding(LocaleController.isRTL ? AndroidUtilities.dp(16) : AndroidUtilities.dp(8), 0, LocaleController.isRTL ? AndroidUtilities.dp(8) : AndroidUtilities.dp(16), 0);
+            cell.setOnClickListener(v -> {
+                CheckBoxCell c = (CheckBoxCell) v;
+                forAll[0] = !forAll[0];
+                c.setChecked(forAll[0], true);
+            });
+            builder.setView(cell);
+        }
+
+        builder.setPositiveButton(LocaleController.getString(R.string.Delete), (dialog, which) -> runBulkDelete(forAll[0]));
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        AlertDialog alertDialog = builder.create();
+        showDialog(alertDialog);
+        TextView button = (TextView) alertDialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(Theme.getColor(Theme.key_text_RedBold, themeDelegate));
+        }
+    }
+
+    private void runBulkDelete(boolean forAll) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final AlertDialog progress = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER, themeDelegate);
+        progress.setCanCancel(true);
+        final BulkMessageProcessor[] processor = new BulkMessageProcessor[1];
+        progress.setOnCancelListener(d -> {
+            if (processor[0] != null) {
+                processor[0].cancel();
+            }
+        });
+        progress.show();
+
+        processor[0] = BulkMessageProcessor.deleteAll(currentAccount, dialog_id, (int) getTopicId(), forAll, new BulkMessageProcessor.Callback() {
+            @Override
+            public void onProgress(int processed) {}
+
+            @Override
+            public void onFinished(int processed, boolean cancelled, String error) {
+                progress.dismiss();
+                if (getParentActivity() == null) {
+                    return;
+                }
+                if (error != null) {
+                    BulletinFactory.of(ChatActivity.this).createErrorBulletin("Не удалось удалить: " + error).show();
+                } else {
+                    BulletinFactory.of(ChatActivity.this)
+                            .createSimpleBulletin(R.raw.ic_delete, "Удалено сообщений: " + processed).show();
+                }
+            }
+        });
+        processor[0].setOwnOnly(onlyOwnMessagesDeletable());
+        processor[0].start();
+    }
+
+    /**
+     * True when the account may delete only what it sent here. Group members without the
+     * delete-messages right are in exactly this position, and feeding the processor other
+     * people's ids would hide their messages locally while the server keeps them.
+     */
+    private boolean onlyOwnMessagesDeletable() {
+        if (currentChat == null) {
+            return false;
+        }
+        return !(currentChat.creator || ChatObject.canUserDoAdminAction(currentChat, ChatObject.ACTION_DELETE_MESSAGES));
+    }
+
     private void createDeleteMessagesAlert(final MessageObject finalSelectedObject, final MessageObject.GroupedMessages finalSelectedGroup) {
         createDeleteMessagesAlert(finalSelectedObject, finalSelectedGroup, false);
     }
@@ -33089,6 +33721,10 @@ public class ChatActivity extends BaseFragment implements
                 createDeleteMessagesAlert(selectedObject, selectedObjectGroup, true);
                 break;
             }
+            case OPTION_PRIME_ADD_TAG: {
+                showAddTagDialog(selectedObject);
+                break;
+            }
             case OPTION_FORWARD: {
                 if (getMessagesController().isFrozen()) {
                     AccountFrozenAlert.show(currentAccount);
@@ -34177,7 +34813,13 @@ public class ChatActivity extends BaseFragment implements
                         params.suggestionParams = messageSuggestionParams;
                         getSendMessagesHelper().sendMessage(params);
                     }
-                    getSendMessagesHelper().sendMessage(fmessages, did, false, false, notify, scheduleDate, scheduleRepeatPeriod, null, -1, price == null ? 0 : price, getSendMonoForumPeerId(), getSendMessageSuggestionParams());
+                    if (shouldResendAsCopy(fmessages)) {
+                        // Protected content can't be forwarded server-side, so re-upload it
+                        // as the user's own message instead. See MessageCopyResender.
+                        resendAsCopy(fmessages, did);
+                    } else {
+                        getSendMessagesHelper().sendMessage(fmessages, did, false, false, notify, scheduleDate, scheduleRepeatPeriod, null, -1, price == null ? 0 : price, getSendMonoForumPeerId(), getSendMessageSuggestionParams());
+                    }
                 }
                 fragment.finishFragment();
                 createUndoView();
@@ -36014,6 +36656,37 @@ public class ChatActivity extends BaseFragment implements
             } else {
                 processExternalUrl(0, str, url, cell, false, false);
             }
+        }
+    }
+
+    /**
+     * PrimeGram: opens the live preview sheet for a plain http(s) link.
+     *
+     * <p>Telegram's own links are excluded on purpose — t.me and tg:// resolve inside the app,
+     * so rendering them in a web view would show a download page instead of the chat.
+     *
+     * @return true when the preview took over and the caller should not build its menu
+     */
+    private boolean primeShowLinkPreview(ChatMessageCell cell, String str) {
+        try {
+            if (str == null || getContext() == null || !org.telegram.messenger.PrimeLinkPreviewSettings.isEnabled()) {
+                return false;
+            }
+            String lower = str.toLowerCase();
+            if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                return false;
+            }
+            if (Browser.isInternalUri(Uri.parse(str), null) || Browser.extractUsername(str) != null) {
+                return false;
+            }
+            if (cell != null) {
+                cell.resetPressedLink(-1);
+            }
+            showDialog(new org.telegram.ui.Components.PrimeLinkPreviewSheet(getContext(), ChatActivity.this, str, themeDelegate));
+            return true;
+        } catch (Throwable t) {
+            FileLog.e("primeShowLinkPreview", t);
+            return false;
         }
     }
 
@@ -38347,6 +39020,8 @@ public class ChatActivity extends BaseFragment implements
             updateSearchListEmptyView();
 
             searchingReaction = null;
+            primeTagFilter = null;
+            primeTagResults.clear();
             updateSearchUpDownButtonVisibility(true);
             updatePagedownButtonVisibility(true);
             if (actionBarSearchTags != null) {
@@ -38362,6 +39037,9 @@ public class ChatActivity extends BaseFragment implements
         @Override
         public void onSearchExpand() {
             searching = true;
+            // PrimeGram: local tags are read from preferences, so the chip row is rebuilt
+            // every time search opens rather than kept in sync from afar.
+            updateLocalTagChips();
             updatePagedownButtonVisibility(true);
             updateSearchUpDownButtonVisibility(true);
             if ((threadMessageId != 0 && chatMode != MODE_SAVED || UserObject.isReplyUser(currentUser)) && !preventReopenSearchWithText) {
@@ -44088,6 +44766,12 @@ public class ChatActivity extends BaseFragment implements
     }
 
     public void didLongPressLink(ChatMessageCell cell, MessageObject messageObject, CharacterStyle span, String str) {
+        // PrimeGram: for an ordinary web link, holding it shows the page itself rather than a
+        // list of verbs. The stock menu still handles everything else — hashtags, mail,
+        // tg:// deep links and timestamps, none of which have a page to render.
+        if (primeShowLinkPreview(cell, str)) {
+            return;
+        }
         final ItemOptions options = ItemOptions.makeOptions(ChatActivity.this, cell, true);
         final ScrimOptions dialog = new ScrimOptions(getContext(), themeDelegate);
         options.setOnDismiss(dialog::dismissFast);
@@ -44219,6 +44903,7 @@ public class ChatActivity extends BaseFragment implements
                 ArticleViewer.addBookmark(str, currentAccount, contentView, null, themeDelegate);
             });
         }
+
 
         dialog.setItemOptions(options);
         if (str != null && str.startsWith("mailto:")) {
@@ -45504,6 +46189,11 @@ public class ChatActivity extends BaseFragment implements
                     items.add(LocaleController.getString(R.string.Copy));
                     options.add(OPTION_COPY);
                     icons.add(R.drawable.msg_copy);
+                }
+                if (!selectedObject.isSponsored() && chatMode == MODE_DEFAULT) {
+                    items.add("Пометить тегом");
+                    options.add(OPTION_PRIME_ADD_TAG);
+                    icons.add(R.drawable.msg_pin);
                 }
                 if (!isThreadChat() && chatMode != MODE_SCHEDULED && currentChat != null && primaryMessage != null && (currentChat.has_link || primaryMessage.hasReplies()) && currentChat.megagroup && primaryMessage.canViewThread()) {
                     if (primaryMessage.hasReplies()) {

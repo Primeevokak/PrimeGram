@@ -1,14 +1,19 @@
 package org.telegram.ui;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -19,6 +24,10 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
+import android.webkit.PermissionRequest;
+import android.webkit.URLUtil;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -31,6 +40,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
@@ -49,34 +59,65 @@ import java.util.ArrayList;
 
 public class PrimeBrowserActivity extends BaseFragment {
 
+    private static final String MOBILE_USER_AGENT = null; // null = keep the WebView default
+    private static final String DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
     private class BrowserTab {
         WebView webView;
         String currentUrl = "";
         String title = "Главная";
+        /** URL actually handed to the WebView, so switching tabs doesn't needlessly reload. */
+        String loadedUrl = "";
+        boolean desktopMode;
 
         void init(Context context) {
             if (webView != null) return;
             webView = new WebView(context);
-            webView.getSettings().setJavaScriptEnabled(true);
-            webView.getSettings().setDomStorageEnabled(true);
-            webView.getSettings().setDatabaseEnabled(true);
-            webView.getSettings().setUseWideViewPort(true);
-            webView.getSettings().setLoadWithOverviewMode(true);
-            webView.getSettings().setSupportZoom(true);
-            webView.getSettings().setBuiltInZoomControls(true);
-            webView.getSettings().setDisplayZoomControls(false);
+            WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+            settings.setUseWideViewPort(true);
+            settings.setLoadWithOverviewMode(true);
+            settings.setSupportZoom(true);
+            settings.setBuiltInZoomControls(true);
+            settings.setDisplayZoomControls(false);
+            // Without these, many sites silently fail to open popups/logins or render
+            // at a broken zoom level — the previous build shipped none of them.
+            settings.setJavaScriptCanOpenWindowsAutomatically(true);
+            settings.setSupportMultipleWindows(false);
+            settings.setAllowFileAccess(false);
+            settings.setAllowContentAccess(true);
+            settings.setGeolocationEnabled(false);
+            settings.setMediaPlaybackRequiresUserGesture(true);
+            settings.setTextZoom(100);
 
-            if (Build.VERSION.SDK_INT >= 19) {
-                webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            }
-            if (Build.VERSION.SDK_INT >= 21) {
-                webView.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-                CookieManager cookieManager = CookieManager.getInstance();
-                cookieManager.setAcceptThirdPartyCookies(webView, true);
-            }
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            cookieManager.setAcceptThirdPartyCookies(webView, true);
+
+            applyUserAgent();
 
             webView.setWebViewClient(new PrimeWebViewClient(this));
             webView.setWebChromeClient(new PrimeWebChromeClient(this));
+            webView.setDownloadListener(new PrimeDownloadListener());
+            webView.setOnLongClickListener(v -> showLinkContextMenu(webView, v));
+        }
+
+        void applyUserAgent() {
+            if (webView == null) return;
+            webView.getSettings().setUserAgentString(desktopMode ? DESKTOP_USER_AGENT : MOBILE_USER_AGENT);
+        }
+
+        /** Creates the WebView if needed and actually loads the URL. */
+        void load(Context context, String url) {
+            init(context);
+            currentUrl = url;
+            loadedUrl = url;
+            webView.loadUrl(url);
         }
 
         void destroy() {
@@ -87,6 +128,7 @@ public class PrimeBrowserActivity extends BaseFragment {
                 webView.loadUrl("about:blank");
                 webView.destroy();
                 webView = null;
+                loadedUrl = "";
             }
         }
     }
@@ -111,6 +153,15 @@ public class PrimeBrowserActivity extends BaseFragment {
     private LinearLayout tabSwitcherList;
     private boolean isTabSwitcherOpen = false;
 
+    private static final int REQUEST_CODE_FILE_CHOOSER = 4001;
+    private static final int REQUEST_CODE_WEB_PERMISSION = 4002;
+
+    /** Pending <input type="file"> callback while the system picker is open. */
+    private ValueCallback<Uri[]> filePathCallback;
+    /** Pending getUserMedia() request while the runtime permission dialog is open. */
+    private PermissionRequest pendingPermissionRequest;
+    private String[] pendingPermissionResources;
+
     public PrimeBrowserActivity(String url) {
         super();
         BrowserTab tab = new BrowserTab();
@@ -126,10 +177,35 @@ public class PrimeBrowserActivity extends BaseFragment {
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (filePathCallback != null) {
+            filePathCallback.onReceiveValue(null);
+            filePathCallback = null;
+        }
         for (BrowserTab tab : tabs) {
             tab.destroy();
         }
         tabs.clear();
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        // Otherwise page audio/video keeps playing after you leave the browser.
+        BrowserTab tab = getCurrentTab();
+        if (tab != null && tab.webView != null) {
+            tab.webView.onPause();
+            tab.webView.pauseTimers();
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        BrowserTab tab = getCurrentTab();
+        if (tab != null && tab.webView != null) {
+            tab.webView.onResume();
+            tab.webView.resumeTimers();
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -274,8 +350,8 @@ public class PrimeBrowserActivity extends BaseFragment {
 
         backButton = createBottomButton(context, R.drawable.ic_ab_back);
         backButton.setOnClickListener(v -> {
-            BrowserTab tab = tabs.get(currentTabIndex);
-            if (tab.webView != null && tab.webView.canGoBack() && tab.webView.getVisibility() == View.VISIBLE) {
+            BrowserTab tab = getCurrentTab();
+            if (tab != null && tab.webView != null && tab.webView.canGoBack() && tab.webView.getVisibility() == View.VISIBLE) {
                 tab.webView.goBack();
             }
         });
@@ -283,8 +359,8 @@ public class PrimeBrowserActivity extends BaseFragment {
         forwardButton = createBottomButton(context, R.drawable.ic_ab_back);
         forwardButton.setRotation(180);
         forwardButton.setOnClickListener(v -> {
-            BrowserTab tab = tabs.get(currentTabIndex);
-            if (tab.webView != null && tab.webView.canGoForward() && tab.webView.getVisibility() == View.VISIBLE) {
+            BrowserTab tab = getCurrentTab();
+            if (tab != null && tab.webView != null && tab.webView.canGoForward() && tab.webView.getVisibility() == View.VISIBLE) {
                 tab.webView.goForward();
             }
         });
@@ -300,11 +376,17 @@ public class PrimeBrowserActivity extends BaseFragment {
         tabsCountLayout.addView(tabsCountText, LayoutHelper.createFrame(24, 24, Gravity.CENTER));
         tabsCountLayout.setOnClickListener(v -> toggleTabSwitcher(context));
 
+        // refreshButton was declared and referenced by updateNavButtons(), but never actually
+        // created or added to the bar — the browser simply had no way to reload a page.
+        refreshButton = createBottomButton(context, R.drawable.msg_reset);
+        refreshButton.setOnClickListener(v -> reloadCurrentPage());
+
         ImageView homeButton = createBottomButton(context, R.drawable.msg_home);
         homeButton.setOnClickListener(v -> loadUrl(""));
 
         bottomBar.addView(backButton, LayoutHelper.createLinear(0, 48, 1.0f));
         bottomBar.addView(forwardButton, LayoutHelper.createLinear(0, 48, 1.0f));
+        bottomBar.addView(refreshButton, LayoutHelper.createLinear(0, 48, 1.0f));
         bottomBar.addView(tabsCountLayout, LayoutHelper.createLinear(0, 48, 1.0f));
         bottomBar.addView(homeButton, LayoutHelper.createLinear(0, 48, 1.0f));
 
@@ -318,6 +400,19 @@ public class PrimeBrowserActivity extends BaseFragment {
                 return true;
             }
             return false;
+        });
+
+        // Tapping the address bar should let you type a new query straight away instead of
+        // making you clear a long URL by hand first.
+        addressEditText.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) {
+                addressEditText.post(addressEditText::selectAll);
+            } else {
+                BrowserTab tab = getCurrentTab();
+                if (tab != null && !TextUtils.isEmpty(tab.currentUrl)) {
+                    addressEditText.setText(tab.currentUrl);
+                }
+            }
         });
 
         addressEditText.addTextChangedListener(new TextWatcher() {
@@ -381,10 +476,13 @@ public class PrimeBrowserActivity extends BaseFragment {
 
     private void switchTab(Context context, int index) {
         if (index < 0 || index >= tabs.size()) return;
-        
-        BrowserTab oldTab = tabs.get(currentTabIndex);
-        if (oldTab.webView != null) {
-            oldTab.webView.setVisibility(View.GONE);
+
+        // currentTabIndex can be stale right after a tab was removed.
+        if (currentTabIndex >= 0 && currentTabIndex < tabs.size()) {
+            BrowserTab oldTab = tabs.get(currentTabIndex);
+            if (oldTab.webView != null) {
+                oldTab.webView.setVisibility(View.GONE);
+            }
         }
         
         currentTabIndex = index;
@@ -392,8 +490,12 @@ public class PrimeBrowserActivity extends BaseFragment {
         
         if (!TextUtils.isEmpty(currentTab.currentUrl)) {
             currentTab.init(context);
-            if (currentTab.webView.getParent() == null) {
-                middleContainer.addView(currentTab.webView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+            attachWebView(currentTab);
+            // A tab can carry a URL that was never handed to a WebView (opened from a link,
+            // or restored after its WebView was destroyed) — load it now instead of showing
+            // a blank page with a filled-in address bar.
+            if (!currentTab.currentUrl.equals(currentTab.loadedUrl)) {
+                currentTab.load(context, currentTab.currentUrl);
             }
             currentTab.webView.setVisibility(View.VISIBLE);
             homeContainer.setVisibility(View.GONE);
@@ -421,9 +523,16 @@ public class PrimeBrowserActivity extends BaseFragment {
         }
         BrowserTab tab = tabs.remove(index);
         tab.destroy();
-        
-        if (currentTabIndex >= tabs.size()) {
-            currentTabIndex = tabs.size() - 1;
+
+        // Keep pointing at the same tab the user was on: removing an entry before it
+        // shifts every later index down by one, which used to silently switch tabs.
+        if (index < currentTabIndex) {
+            currentTabIndex--;
+        } else if (index == currentTabIndex) {
+            currentTabIndex = Math.min(index, tabs.size() - 1);
+        }
+        if (currentTabIndex < 0) {
+            currentTabIndex = 0;
         }
         updateTabSwitcher(context);
     }
@@ -500,62 +609,115 @@ public class PrimeBrowserActivity extends BaseFragment {
             loadUrl("");
             return;
         }
-        
-        if (!input.contains(".") || input.contains(" ")) {
-            String engine = MessagesController.getGlobalMainSettings().getString("primegram_search_engine", "Google");
-            if (engine.equals("Yandex")) {
-                input = "https://yandex.ru/search/?text=" + Uri.encode(input);
-            } else if (engine.equals("DuckDuckGo")) {
-                input = "https://duckduckgo.com/?q=" + Uri.encode(input);
-            } else if (engine.equals("Perplexity")) {
-                input = "https://www.perplexity.ai/search?q=" + Uri.encode(input);
-            } else {
-                input = "https://google.com/search?q=" + Uri.encode(input);
+        loadUrl(normalizeInput(input));
+    }
+
+    /** Turns raw address-bar text into either a URL to open or a search-engine query. */
+    private String normalizeInput(String input) {
+        if (input.startsWith("http://") || input.startsWith("https://") || input.startsWith("about:")) {
+            return input;
+        }
+        // Anything with a scheme we don't render ourselves (mailto:, tel:, magnet:, …)
+        // is passed through untouched — shouldOverrideUrlLoading hands it to the system.
+        int schemeEnd = input.indexOf(':');
+        if (schemeEnd > 1 && !input.contains(" ") && input.indexOf('.') > schemeEnd) {
+            return input;
+        }
+        if (looksLikeDomain(input)) {
+            return "https://" + input;
+        }
+        String engine = MessagesController.getGlobalMainSettings().getString("primegram_search_engine", "Google");
+        String query = Uri.encode(input);
+        switch (engine) {
+            case "Yandex":
+                return "https://yandex.ru/search/?text=" + query;
+            case "DuckDuckGo":
+                return "https://duckduckgo.com/?q=" + query;
+            case "Perplexity":
+                return "https://www.perplexity.ai/search?q=" + query;
+            default:
+                return "https://www.google.com/search?q=" + query;
+        }
+    }
+
+    private boolean looksLikeDomain(String input) {
+        if (input.contains(" ")) {
+            return false;
+        }
+        if (input.equals("localhost") || input.startsWith("localhost:")) {
+            return true;
+        }
+        String host = input;
+        int slash = host.indexOf('/');
+        if (slash != -1) {
+            host = host.substring(0, slash);
+        }
+        int colon = host.indexOf(':');
+        if (colon != -1) {
+            host = host.substring(0, colon);
+        }
+        int lastDot = host.lastIndexOf('.');
+        if (lastDot <= 0 || lastDot == host.length() - 1) {
+            return false;
+        }
+        // Require a plausible TLD so "1.5" or "версия 2.0" go to search, not to a URL.
+        String tld = host.substring(lastDot + 1);
+        if (tld.length() < 2) {
+            return false;
+        }
+        for (int i = 0; i < tld.length(); i++) {
+            if (!Character.isLetter(tld.charAt(i))) {
+                return false;
             }
-        } else if (!input.startsWith("http://") && !input.startsWith("https://")) {
-            input = "https://" + input;
         }
-        loadUrl(input);
-        
-        BrowserTab currentTab = tabs.get(currentTabIndex);
-        if (currentTab.webView == null) {
-            currentTab.init(context);
-            middleContainer.addView(currentTab.webView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        }
-        currentTab.webView.setVisibility(View.VISIBLE);
-        homeContainer.setVisibility(View.GONE);
+        return true;
     }
 
     private void loadUrl(String url) {
         BrowserTab tab = tabs.get(currentTabIndex);
-        tab.currentUrl = url;
         if (TextUtils.isEmpty(url)) {
+            tab.currentUrl = "";
+            tab.loadedUrl = "";
             if (tab.webView != null) tab.webView.setVisibility(View.GONE);
             homeContainer.setVisibility(View.VISIBLE);
             addressEditText.setText("");
             lockIcon.setImageResource(R.drawable.msg_search);
             tab.title = "Главная";
         } else {
-            if (tab.webView != null) {
-                tab.webView.setVisibility(View.VISIBLE);
-                tab.webView.loadUrl(url);
-            }
+            // The old code only called loadUrl() when a WebView already existed, so opening
+            // a link into a fresh tab (or the very first search from the home screen) just
+            // put the URL in the address bar and never navigated anywhere.
+            Context context = getParentActivity() != null ? getParentActivity() : ApplicationLoader.applicationContext;
+            tab.load(context, url);
+            attachWebView(tab);
+            tab.webView.setVisibility(View.VISIBLE);
             homeContainer.setVisibility(View.GONE);
             if (!addressEditText.isFocused()) {
                 addressEditText.setText(url);
             }
         }
         addressEditText.clearFocus();
+        AndroidUtilities.hideKeyboard(addressEditText);
         updateNavButtons();
+    }
+
+    /** Makes sure the tab's WebView is in the view hierarchy exactly once. */
+    private void attachWebView(BrowserTab tab) {
+        if (tab.webView == null || middleContainer == null) {
+            return;
+        }
+        if (tab.webView.getParent() == null) {
+            middleContainer.addView(tab.webView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        }
     }
 
     private void updateNavButtons() {
         if (tabsCountText != null) {
             tabsCountText.setText(String.valueOf(tabs.size()));
         }
-        BrowserTab tab = tabs.get(currentTabIndex);
+        BrowserTab tab = getCurrentTab();
         if (tab == null) return;
-        
+
         boolean isWebVisible = !TextUtils.isEmpty(tab.currentUrl);
         
         if (backButton != null) {
@@ -576,42 +738,209 @@ public class PrimeBrowserActivity extends BaseFragment {
         }
     }
 
+    private BrowserTab getCurrentTab() {
+        if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
+            return null;
+        }
+        return tabs.get(currentTabIndex);
+    }
+
+    private void reloadCurrentPage() {
+        BrowserTab tab = getCurrentTab();
+        if (tab == null || TextUtils.isEmpty(tab.currentUrl)) {
+            return;
+        }
+        if (tab.webView == null) {
+            loadUrl(tab.currentUrl);
+        } else {
+            tab.webView.reload();
+        }
+    }
+
+    @Override
+    public boolean onBackPressed(boolean invoked) {
+        // Previously the system back button closed the whole browser even mid-navigation,
+        // losing the page stack. Consume it for in-page history and open overlays first.
+        if (isTabSwitcherOpen) {
+            if (invoked && getParentActivity() != null) {
+                toggleTabSwitcher(getParentActivity());
+            }
+            return false;
+        }
+        BrowserTab tab = getCurrentTab();
+        if (tab != null && tab.webView != null && tab.webView.getVisibility() == View.VISIBLE && tab.webView.canGoBack()) {
+            if (invoked) {
+                tab.webView.goBack();
+            }
+            return false;
+        }
+        return super.onBackPressed(invoked);
+    }
+
     private void showBrowserMenu(View view) {
-        BrowserTab tab = tabs.get(currentTabIndex);
-        if (TextUtils.isEmpty(tab.currentUrl)) return;
-        ItemOptions.makeOptions((ViewGroup) fragmentView, view)
-            .add(R.drawable.msg_copy, "Копировать ссылку", () -> {
+        BrowserTab tab = getCurrentTab();
+        if (tab == null) return;
+        boolean hasPage = !TextUtils.isEmpty(tab.currentUrl);
+
+        ItemOptions options = ItemOptions.makeOptions((ViewGroup) fragmentView, view);
+        options.add(R.drawable.msg_search, "Новая вкладка", () -> {
+            if (getParentActivity() != null) {
+                addNewTab(getParentActivity());
+            }
+        });
+
+        if (hasPage) {
+            options.add(R.drawable.msg_reset, LocaleController.getString(R.string.Refresh), this::reloadCurrentPage);
+            options.add(R.drawable.msg_copy, "Копировать ссылку", () -> {
                 AndroidUtilities.addToClipboard(tab.currentUrl);
-            })
-            .add(R.drawable.msg_openin, "Открыть в системном браузере", () -> {
+                showToast("Ссылка скопирована");
+            });
+            options.add(R.drawable.msg_share, "Поделиться", () -> shareUrl(tab.currentUrl));
+            options.add(R.drawable.msg_language, tab.desktopMode ? "Мобильная версия" : "Версия для ПК", () -> {
+                tab.desktopMode = !tab.desktopMode;
+                tab.applyUserAgent();
+                reloadCurrentPage();
+            });
+            options.add(R.drawable.msg_openin, "Открыть в системном браузере", () -> {
                 Browser.openUrlInSystemBrowser(getParentActivity(), tab.currentUrl);
-            })
-            .show();
+            });
+        }
+        options.show();
+    }
+
+    /** Long-pressing a link/image offers open-in-new-tab, copy and share, like a real browser. */
+    private boolean showLinkContextMenu(WebView webView, View anchor) {
+        WebView.HitTestResult result = webView.getHitTestResult();
+        if (result == null) {
+            return false;
+        }
+        int type = result.getType();
+        String extra = result.getExtra();
+        if (TextUtils.isEmpty(extra)) {
+            return false;
+        }
+        boolean isLink = type == WebView.HitTestResult.SRC_ANCHOR_TYPE
+                || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE;
+        boolean isImage = type == WebView.HitTestResult.IMAGE_TYPE
+                || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE;
+        if (!isLink && !isImage) {
+            return false;
+        }
+
+        ItemOptions options = ItemOptions.makeOptions((ViewGroup) fragmentView, anchor);
+        if (isLink) {
+            options.add(R.drawable.msg_search, "Открыть в новой вкладке", () -> openInNewTab(extra));
+        }
+        options.add(R.drawable.msg_copy, isImage && !isLink ? "Копировать адрес картинки" : "Копировать ссылку", () -> {
+            AndroidUtilities.addToClipboard(extra);
+            showToast("Ссылка скопирована");
+        });
+        options.add(R.drawable.msg_share, "Поделиться", () -> shareUrl(extra));
+        options.show();
+        return true;
+    }
+
+    private void openInNewTab(String url) {
+        Context context = getParentActivity();
+        if (context == null) {
+            return;
+        }
+        BrowserTab newTab = new BrowserTab();
+        newTab.currentUrl = url;
+        tabs.add(newTab);
+        switchTab(context, tabs.size() - 1);
+    }
+
+    private void shareUrl(String url) {
+        if (getParentActivity() == null || TextUtils.isEmpty(url)) {
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("text/plain");
+            intent.putExtra(Intent.EXTRA_TEXT, url);
+            getParentActivity().startActivity(Intent.createChooser(intent, "Поделиться ссылкой"));
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+    }
+
+    private void showToast(String text) {
+        if (getParentActivity() != null) {
+            Toast.makeText(getParentActivity(), text, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private class PrimeWebViewClient extends WebViewClient {
         private BrowserTab tab;
         PrimeWebViewClient(BrowserTab tab) { this.tab = tab; }
-        
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            return handleUrl(request.getUrl() != null ? request.getUrl().toString() : null);
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
-            if (url.startsWith("http://") || url.startsWith("https://")) {
+            return handleUrl(url);
+        }
+
+        private boolean handleUrl(String url) {
+            if (TextUtils.isEmpty(url)) {
+                return false;
+            }
+            if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("about:")) {
                 tab.currentUrl = url;
-                if (tabs.indexOf(tab) == currentTabIndex) {
+                tab.loadedUrl = url;
+                if (tabs.indexOf(tab) == currentTabIndex && !addressEditText.isFocused()) {
                     addressEditText.setText(url);
                 }
                 return false;
-            } else if (url.startsWith("tg://") || url.startsWith("intent://")) {
+            }
+            if (url.startsWith("tg://") || url.startsWith("tg:")) {
                 Browser.openUrl(getParentActivity(), url, false);
                 return true;
             }
-            return false;
+            // Everything else (mailto:, tel:, sms:, geo:, market:, intent:, custom app
+            // schemes…) used to fall through and leave the page stuck on a blank frame.
+            return openExternally(url);
+        }
+
+        private boolean openExternally(String url) {
+            Activity activity = getParentActivity();
+            if (activity == null) {
+                return true;
+            }
+            try {
+                Intent intent;
+                if (url.startsWith("intent:")) {
+                    intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                    if (intent != null && activity.getPackageManager().resolveActivity(intent, 0) == null) {
+                        String fallback = intent.getStringExtra("browser_fallback_url");
+                        if (!TextUtils.isEmpty(fallback)) {
+                            loadUrl(fallback);
+                            return true;
+                        }
+                        showToast("Приложение для этой ссылки не найдено");
+                        return true;
+                    }
+                } else {
+                    intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                }
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                activity.startActivity(intent);
+            } catch (Exception e) {
+                FileLog.e(e);
+                showToast("Не удалось открыть ссылку");
+            }
+            return true;
         }
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             super.onPageStarted(view, url, favicon);
             tab.currentUrl = url;
+            tab.loadedUrl = url;
             if (tabs.indexOf(tab) == currentTabIndex) {
                 if (!addressEditText.isFocused()) addressEditText.setText(url);
                 lockIcon.setImageResource(url.startsWith("https://") ? R.drawable.ic_lock_white : R.drawable.msg_search);
@@ -623,10 +952,31 @@ public class PrimeBrowserActivity extends BaseFragment {
         @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
-            tab.title = view.getTitle();
+            String pageTitle = view.getTitle();
+            tab.title = TextUtils.isEmpty(pageTitle) ? url : pageTitle;
+            tab.currentUrl = url;
+            tab.loadedUrl = url;
             if (tabs.indexOf(tab) == currentTabIndex) {
                 progressBar.setVisibility(View.GONE);
+                if (!addressEditText.isFocused()) addressEditText.setText(url);
                 updateNavButtons();
+            }
+        }
+
+        @Override
+        public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+            super.onReceivedError(view, request, error);
+            // Only report failures of the main document — subresource errors are noise.
+            if (request != null && request.isForMainFrame()) {
+                if (tabs.indexOf(tab) == currentTabIndex) {
+                    progressBar.setVisibility(View.GONE);
+                }
+                // A themed page instead of the system's stock "webpage not available",
+                // which is unstyled and shows the raw error code.
+                String reason = error != null && error.getDescription() != null
+                        ? error.getDescription().toString()
+                        : "Сайт не отвечает или недоступен";
+                org.telegram.ui.Components.PrimeWebErrorPage.show(view, request.getUrl() != null ? request.getUrl().toString() : tab.currentUrl, reason);
             }
         }
     }
@@ -634,7 +984,7 @@ public class PrimeBrowserActivity extends BaseFragment {
     private class PrimeWebChromeClient extends WebChromeClient {
         private BrowserTab tab;
         PrimeWebChromeClient(BrowserTab tab) { this.tab = tab; }
-        
+
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
             if (tabs.indexOf(tab) == currentTabIndex) {
@@ -642,11 +992,161 @@ public class PrimeBrowserActivity extends BaseFragment {
                 progressBar.setVisibility(newProgress == 100 ? View.GONE : View.VISIBLE);
             }
         }
-        
+
         @Override
         public void onReceivedTitle(WebView view, String title) {
             super.onReceivedTitle(view, title);
             tab.title = title;
+        }
+
+        /** Without this, every <input type="file"> on the web is a dead button. */
+        @Override
+        public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
+            Activity activity = getParentActivity();
+            if (activity == null) {
+                return false;
+            }
+            if (filePathCallback != null) {
+                filePathCallback.onReceiveValue(null);
+            }
+            filePathCallback = callback;
+            try {
+                Intent intent = params.createIntent();
+                if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                }
+                activity.startActivityForResult(intent, REQUEST_CODE_FILE_CHOOSER);
+                return true;
+            } catch (Exception e) {
+                FileLog.e(e);
+                filePathCallback = null;
+                return false;
+            }
+        }
+
+        /** Camera/microphone access for sites (video calls, voice input, QR scanners). */
+        @Override
+        public void onPermissionRequest(PermissionRequest request) {
+            AndroidUtilities.runOnUIThread(() -> {
+                Activity activity = getParentActivity();
+                if (activity == null) {
+                    request.deny();
+                    return;
+                }
+                ArrayList<String> androidPermissions = new ArrayList<>();
+                for (String resource : request.getResources()) {
+                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                        androidPermissions.add(Manifest.permission.RECORD_AUDIO);
+                    } else if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+                        androidPermissions.add(Manifest.permission.CAMERA);
+                    }
+                }
+                if (androidPermissions.isEmpty()) {
+                    request.deny();
+                    return;
+                }
+                ArrayList<String> missing = new ArrayList<>();
+                for (String permission : androidPermissions) {
+                    if (activity.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+                        missing.add(permission);
+                    }
+                }
+                if (missing.isEmpty()) {
+                    request.grant(request.getResources());
+                    return;
+                }
+                pendingPermissionRequest = request;
+                pendingPermissionResources = request.getResources();
+                activity.requestPermissions(missing.toArray(new String[0]), REQUEST_CODE_WEB_PERMISSION);
+            });
+        }
+
+        @Override
+        public void onPermissionRequestCanceled(PermissionRequest request) {
+            if (pendingPermissionRequest == request) {
+                pendingPermissionRequest = null;
+                pendingPermissionResources = null;
+            }
+        }
+    }
+
+    /** Routes file downloads to the system DownloadManager instead of silently doing nothing. */
+    private class PrimeDownloadListener implements DownloadListener {
+        @Override
+        public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
+            if (getParentActivity() == null) {
+                return;
+            }
+            if (url == null || url.startsWith("blob:") || url.startsWith("data:")) {
+                // DownloadManager can't fetch these; hand them to the system instead.
+                showToast("Этот файл нельзя скачать напрямую");
+                return;
+            }
+            try {
+                String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                request.setMimeType(mimeType);
+                request.addRequestHeader("User-Agent", userAgent);
+                String cookies = CookieManager.getInstance().getCookie(url);
+                if (!TextUtils.isEmpty(cookies)) {
+                    request.addRequestHeader("Cookie", cookies);
+                }
+                request.setTitle(fileName);
+                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+
+                DownloadManager manager = (DownloadManager) getParentActivity().getSystemService(Context.DOWNLOAD_SERVICE);
+                if (manager != null) {
+                    manager.enqueue(request);
+                    showToast("Загрузка: " + fileName);
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+                showToast("Не удалось начать загрузку");
+            }
+        }
+    }
+
+    @Override
+    public void onActivityResultFragment(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_CODE_FILE_CHOOSER) {
+            if (filePathCallback == null) {
+                return;
+            }
+            Uri[] results = null;
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                if (data.getClipData() != null) {
+                    int count = data.getClipData().getItemCount();
+                    results = new Uri[count];
+                    for (int i = 0; i < count; i++) {
+                        results[i] = data.getClipData().getItemAt(i).getUri();
+                    }
+                } else if (data.getData() != null) {
+                    results = new Uri[]{data.getData()};
+                }
+            }
+            filePathCallback.onReceiveValue(results);
+            filePathCallback = null;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResultFragment(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode == REQUEST_CODE_WEB_PERMISSION && pendingPermissionRequest != null) {
+            boolean granted = grantResults.length > 0;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    granted = false;
+                    break;
+                }
+            }
+            if (granted) {
+                pendingPermissionRequest.grant(pendingPermissionResources);
+            } else {
+                pendingPermissionRequest.deny();
+            }
+            pendingPermissionRequest = null;
+            pendingPermissionResources = null;
         }
     }
 

@@ -58,6 +58,10 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.DocumentObject;
 import org.telegram.messenger.Emoji;
 import org.telegram.messenger.FileLoader;
+import org.telegram.messenger.MediaController;
+import org.telegram.ui.Components.BulletinFactory;
+
+import java.io.File;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.ImageReceiver;
@@ -841,6 +845,7 @@ public class ContentPreviewViewer {
                 };
 
                 addVoteOptions(previewMenu);
+                addPrimeGramDocumentActions(previewMenu);
                 for (int i = 0; i < items.size(); i++) {
                     ActionBarMenuSubItem item = ActionBarMenuItem.addItem(previewMenu, icons.get(i), items.get(i), false, resourcesProvider);
                     item.setTag(i);
@@ -984,6 +989,7 @@ public class ContentPreviewViewer {
                 };
 
                 final boolean hasVoteOptions = addVoteOptions(previewMenu);
+                addPrimeGramDocumentActions(previewMenu);
                 for (int i = 0; i < items.size(); i++) {
                     ActionBarMenuSubItem item = ActionBarMenuItem.addItem(!hasVoteOptions && i == 0, i == items.size() - 1, previewMenu, icons.get(i), items.get(i), false, resourcesProvider);
                     if (actions.get(i) == 4) {
@@ -2443,6 +2449,78 @@ public class ContentPreviewViewer {
             } else {
                 imageView.setImage(null, null, null, null, null, 0);
             }
+        }
+    }
+
+    /**
+     * PrimeGram: adds "save" and "copy id" to the long-press preview menu of a
+     * sticker/emoji/GIF, which upstream only lets you send or favourite.
+     */
+    private void addPrimeGramDocumentActions(ActionBarPopupWindow.ActionBarPopupWindowLayout previewMenu) {
+        if (previewMenu == null || currentDocument == null) {
+            return;
+        }
+        final TLRPC.Document document = currentDocument;
+
+        ActionBarMenuSubItem saveItem = ActionBarMenuItem.addItem(previewMenu, R.drawable.msg_download, LocaleController.getString(R.string.AccActionDownload), false, resourcesProvider);
+        saveItem.setOnClickListener(v -> {
+            savePrimeGramDocument(document);
+            dismissPopupWindow();
+        });
+
+        ActionBarMenuSubItem copyIdItem = ActionBarMenuItem.addItem(previewMenu, R.drawable.msg_copy, "Копировать ID", false, resourcesProvider);
+        copyIdItem.setOnClickListener(v -> {
+            AndroidUtilities.addToClipboard(String.valueOf(document.id));
+            if (parentActivity != null) {
+                BulletinFactory.of(containerView, resourcesProvider)
+                        .createCopyBulletin(LocaleController.getString(R.string.TextCopied)).show();
+            }
+            dismissPopupWindow();
+        });
+    }
+
+    private void savePrimeGramDocument(TLRPC.Document document) {
+        try {
+            File file = FileLoader.getInstance(currentAccount).getPathToAttach(document, true);
+            if (file == null || !file.exists()) {
+                // Not cached yet — pull it down; the user can save once it's here.
+                FileLoader.getInstance(currentAccount).loadFile(document, document, FileLoader.PRIORITY_HIGH, 0);
+                if (parentActivity != null) {
+                    BulletinFactory.of(containerView, resourcesProvider)
+                            .createErrorBulletin(LocaleController.getString(R.string.PleaseDownload)).show();
+                }
+                return;
+            }
+            final boolean isVideo = MessageObject.isVideoSticker(document);
+            final boolean isGif = MessageObject.isGifDocument(document);
+            final boolean isPhoto = MessageObject.isStaticStickerDocument(document);
+            final boolean isLottie = "application/x-tgsticker".equals(document.mime_type);
+
+            // Animated (.tgs) stickers aren't media the gallery understands — keep them as files.
+            final int type;
+            if (isLottie) {
+                type = 2; // downloads
+            } else if (isVideo || isGif) {
+                type = 1; // video
+            } else if (isPhoto) {
+                type = 0; // pictures
+            } else {
+                type = 2;
+            }
+            final boolean toGallery = type != 2;
+            MediaController.saveFile(file.toString(), parentActivity, type, file.getName(), document.mime_type, uri -> {
+                if (parentActivity == null) {
+                    return;
+                }
+                BulletinFactory factory = BulletinFactory.of(containerView, resourcesProvider);
+                if (toGallery) {
+                    factory.createDownloadBulletin(isVideo || isGif ? BulletinFactory.FileType.VIDEO : BulletinFactory.FileType.PHOTO, resourcesProvider).show();
+                } else {
+                    factory.createDownloadBulletin(BulletinFactory.FileType.UNKNOWN, resourcesProvider).show();
+                }
+            });
+        } catch (Exception e) {
+            FileLog.e(e);
         }
     }
 

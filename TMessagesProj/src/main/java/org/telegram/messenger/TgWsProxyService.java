@@ -430,18 +430,26 @@ public class TgWsProxyService extends Service {
         AndroidUtilities.runOnUIThread(() -> {
             try {
                 android.content.SharedPreferences preferences = org.telegram.messenger.ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", android.content.Context.MODE_PRIVATE);
-                if (preferences.getBoolean("proxy_enabled", false)) {
+                // Only tear down the native proxy setting if the user actually asked us to stop
+                // (primegram_tgws_enabled == false). Any other death (OS/OEM kill, low memory,
+                // START_STICKY restart) is transient: leaving proxy_enabled=true means MTProto
+                // just retries against 127.0.0.1 until the service comes back, instead of
+                // permanently falling back to a direct connection that a censored network blocks.
+                boolean userDisabled = !preferences.getBoolean("primegram_tgws_enabled", true);
+                if (userDisabled && preferences.getBoolean("proxy_enabled", false)) {
                     String proxyIp = preferences.getString("proxy_ip", "");
                     if ("127.0.0.1".equals(proxyIp)) {
                         android.content.SharedPreferences.Editor editor = preferences.edit();
                         editor.putBoolean("proxy_enabled", false);
                         editor.apply();
                         org.telegram.tgnet.ConnectionsManager.setProxySettings(false, "", 0, "", "", "");
-                        logInfo("Disabled native Telegram proxy because TgWsProxyService was stopped.");
+                        logInfo("Disabled native Telegram proxy because user turned off the built-in proxy.");
                     }
+                } else if (!userDisabled) {
+                    logInfo("TgWsProxyService stopped unexpectedly, keeping proxy_enabled so it self-heals on restart.");
                 }
             } catch (Exception e) {
-                logError("Failed to disable native proxy in onDestroy", e);
+                logError("Failed to update native proxy state in onDestroy", e);
             }
         });
     }
@@ -481,19 +489,39 @@ public class TgWsProxyService extends Service {
                 AndroidUtilities.runOnUIThread(() -> {
                     try {
                         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
-                        if (preferences.getBoolean("proxy_enabled", false)) {
-                            String proxyAddress = preferences.getString("proxy_ip", "");
-                            if ("127.0.0.1".equals(proxyAddress)) {
-                                String proxyUsername = preferences.getString("proxy_user", "");
-                                String proxyPassword = preferences.getString("proxy_pass", "");
-                                String proxySecret = preferences.getString("proxy_secret", "");
-                                
-                                SharedPreferences.Editor editor = preferences.edit();
-                                editor.putInt("proxy_port", finalPort);
-                                editor.apply();
-                                
-                                ConnectionsManager.setProxySettings(true, proxyAddress, finalPort, proxyUsername, proxyPassword, proxySecret);
+                        // Self-heal: as long as the user hasn't turned the built-in proxy off and
+                        // hasn't picked a different manual proxy, re-announce ourselves to
+                        // ConnectionsManager on every successful (re)bind — including after a
+                        // restart that followed an unexpected kill, when proxy_enabled may have
+                        // been left true (see onDestroy) or, on a fresh process, defaulted false.
+                        boolean userDisabled = !preferences.getBoolean("primegram_tgws_enabled", true);
+                        String proxyAddress = preferences.getString("proxy_ip", "");
+                        boolean isOurAddress = proxyAddress.isEmpty() || "127.0.0.1".equals(proxyAddress);
+                        if (!userDisabled && isOurAddress) {
+                            String proxyUsername = preferences.getString("proxy_user", "");
+                            String proxyPassword = preferences.getString("proxy_pass", "");
+                            String proxySecret = preferences.getString("proxy_secret", "");
+
+                            SharedPreferences.Editor editor = preferences.edit();
+                            editor.putBoolean("proxy_enabled", true);
+                            editor.putString("proxy_ip", "127.0.0.1");
+                            editor.putInt("proxy_port", finalPort);
+                            editor.apply();
+
+                            ConnectionsManager.setProxySettings(true, "127.0.0.1", finalPort, proxyUsername, proxyPassword, proxySecret);
+                            // Applying the settings is not enough on a cold start: by the time
+                            // the socket binds, ConnectionsManager has usually already failed a
+                            // few connects against the not-yet-listening port and backed off.
+                            // Without this kick it sits out the backoff, which is what made the
+                            // dialog list appear only after ~20 seconds.
+                            for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                                try {
+                                    if (UserConfig.getInstance(a).isClientActivated()) {
+                                        ConnectionsManager.getInstance(a).checkConnection();
+                                    }
+                                } catch (Throwable ignore) {}
                             }
+                            logInfo("Re-applied native proxy settings after (re)bind on port " + finalPort);
                         }
                     } catch (Throwable t) {
                         FileLog.e(t);
@@ -513,11 +541,19 @@ public class TgWsProxyService extends Service {
                         if (running.get()) {
                             logInfo("Accept interrupted or socket closed, will re-bind if running.");
                         }
+                    } catch (Throwable t) {
+                        // A single bad client connection must never take down the accept loop.
+                        isSocketBound = false;
+                        logError("Unexpected error accepting/dispatching a client, continuing", t);
                     }
                 }
-            } catch (IOException e) {
+            } catch (Throwable t) {
+                // Catch everything here, not just IOException: any uncaught exception used to
+                // silently kill this whole thread, after which the watchdog (which only closes
+                // sockets, expecting this loop to notice and re-bind) had nobody left to react —
+                // the proxy would stay dead until the whole service was restarted externally.
                 isSocketBound = false;
-                logError("server error, resting before retry...", e);
+                logError("server error, resting before retry...", t);
                 try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
             }
         }

@@ -48,9 +48,35 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_EMERGENCY_PROXY = 18;
     private static final int ID_TGWS_PROXY = 20;
     private static final int ID_HW_ACCEL = 19;
+    private static final int ID_BATTERY_OPTIMIZATION = 21;
+    private static final int ID_MUSIC_SETTINGS = 22;
+    private static final int ID_HIDE_PHONE = 23;
+    private static final int ID_FAKE_PHONE = 24;
+    private static final int ID_GREY_ZONE = 25;
+    private static final int ID_MESSAGE_TAGS = 26;
+    private static final int ID_SEARCH_PLUS = 27;
+    private static final int ID_TEMP_SUBS = 28;
+    private static final int ID_TEXT_TOOLBAR = 29;
+    private static final int ID_BOT_LOGIN = 30;
+    private static final int ID_LINK_PREVIEW = 31;
+    private static final int ID_SESSION_NAME = 32;
     @Override
     protected CharSequence getTitle() {
         return "Настройки PrimeGram";
+    }
+
+    private String vlessKeyStatusText(boolean running) {
+        if (running) {
+            return "Статус: активен, трафик защищён.";
+        }
+        if (!VpnSDK.hasCachedXrayConfig()) {
+            return "Статус: ключ ещё не получен от сервера.";
+        }
+        String lastError = VpnSDK.getProxyLastError();
+        if (lastError != null && !lastError.isEmpty()) {
+            return "Статус: ключ есть, но прокси не запустился (" + lastError + ").";
+        }
+        return "Статус: ключ получен, прокси выключен.";
     }
 
     @Override
@@ -65,21 +91,73 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
         items.add(UItem.asHeader("Соединение"));
         UItem proxyItem = UItem.asCheck(ID_EMERGENCY_PROXY, "Включить VLESS-сервер");
-        proxyItem.checked = VpnSDK.isProxyRunning();
+        boolean vlessRunning = VpnSDK.isProxyRunning();
+        proxyItem.checked = vlessRunning;
         items.add(proxyItem);
-        items.add(UItem.asShadow("В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси (AmneziaWG) для обхода блокировок. Сервер работает локально на 127.0.0.2:17808"));
+        items.add(UItem.asShadow(vlessKeyStatusText(vlessRunning) + " В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси для обхода блокировок. Сервер работает локально на 127.0.0.2:17808"));
 
         UItem tgwsItem = UItem.asCheck(ID_TGWS_PROXY, "Включить TgWs-сервер");
         tgwsItem.checked = preferences.getBoolean("primegram_tgws_enabled", true);
         items.add(tgwsItem);
         items.add(UItem.asShadow("Включает локальный сервер TgWsProxy. Сервер работает локально на 127.0.0.1:1080"));
 
+        boolean batteryOptOk = AndroidUtilities.isIgnoringBatteryOptimizations();
+        items.add(UItem.asButton(ID_BATTERY_OPTIMIZATION, "Отключить оптимизацию батареи",
+                batteryOptOk ? "Разрешено" : "Не разрешено — нажмите, чтобы включить"));
+        items.add(UItem.asShadow("На некоторых прошивках (MIUI, OneUI и т.п.) система агрессивно закрывает фоновые процессы, из-за чего прокси отключается и уведомления приходят с задержкой. Разрешение \"Без ограничений\" для батареи устраняет эту проблему."));
+
+        items.add(UItem.asHeader("Приватность"));
+        UItem hidePhoneItem = UItem.asCheck(ID_HIDE_PHONE, "Скрывать свой номер в профиле");
+        hidePhoneItem.checked = org.telegram.messenger.PrimeGramPrivacy.isHidePhoneEnabled();
+        items.add(hidePhoneItem);
+        String fake = org.telegram.messenger.PrimeGramPrivacy.getFakePhone();
+        items.add(UItem.asButton(ID_FAKE_PHONE, "Свой номер для показа",
+                fake.isEmpty() ? "Нажмите, чтобы ввести" : fake));
+        items.add(UItem.asShadow("Меняет только то, что показано на вашем экране — удобно для скриншотов. Номер на сервере и у собеседников не меняется."));
+
+        items.add(UItem.asButton(ID_GREY_ZONE, "Серая зона",
+                org.telegram.messenger.GreyZone.isAccepted() ? "Включена" : "Требует подтверждения"));
+        items.add(UItem.asShadow("Функции, снимающие ограничения собеседника, и режим призрака. Разработчик их не одобряет — используются на ваш страх и риск."));
+
+        items.add(UItem.asHeader("Теги сообщений"));
+        items.add(UItem.asButton(ID_MESSAGE_TAGS, "Помеченные сообщения",
+                String.valueOf(org.telegram.messenger.MessageTagsStore.count())));
+        items.add(UItem.asShadow("Задержите сообщение в чате и выберите «Пометить тегом». Тег виден прямо на сообщении в чате и хранится только на этом устройстве — собеседник его не видит."));
+
+        items.add(UItem.asHeader("Инструменты"));
+        items.add(UItem.asCheck(ID_TEXT_TOOLBAR, "Панель форматирования")
+                .setChecked(org.telegram.messenger.PrimeToolbarSettings.isEnabled()));
+        items.add(UItem.asShadow("Ряд кнопок над полем ввода: жирный, курсив, моноширинный, зачёркнутый, подчёркнутый, спойлер, ссылка, цитата, сброс форматирования и копирование. Работает по выделенному тексту. Панель занимает место над полем ввода — поэтому выключена по умолчанию."));
+        items.add(UItem.asCheck(ID_LINK_PREVIEW, "Предпросмотр ссылок")
+                .setChecked(org.telegram.messenger.PrimeLinkPreviewSettings.isEnabled()));
+        items.add(UItem.asShadow("Задержите ссылку в чате — страница откроется в маленьком окне. Тап по окну открывает её во встроенном браузере. Учтите: страница загружается по-настоящему, то есть тратит трафик и сайт узнаёт о посещении."));
+        items.add(UItem.asButton(ID_SEARCH_PLUS, "Поиск+", "ID, телефон, ссылка"));
+        items.add(UItem.asShadow("Находит профиль по числовому ID, номеру телефона, @username или ссылке t.me — там, где обычный поиск отказывается искать."));
+        items.add(UItem.asButton(ID_TEMP_SUBS, "Временные подписки",
+                String.valueOf(org.telegram.messenger.TempSubStore.getAll().size())));
+        items.add(UItem.asShadow("Подпишитесь на канал на срок от часа до месяца — клиент отпишется сам. Включается в меню самого канала."));
+        items.add(UItem.asButton(ID_SESSION_NAME, "Имя клиента в сессиях",
+                org.telegram.messenger.PrimeClientIdentity.getSessionName()));
+        items.add(UItem.asShadow("Заголовок строки в списке активных сессий. Подпись «Telegram Web» под ним приходит от сервера по api_id и не меняется. Сервер ждёт здесь имя браузера — если его не узнать, пишет «Unknown Browser», поэтому в значении стоит оставить Chrome, Safari, Firefox, Edge или Opera. Применяется после перезапуска."));
+        items.add(UItem.asButton(ID_BOT_LOGIN, "Вход в бота", "по токену BotFather"));
+        items.add(UItem.asShadow("Вход в аккаунт бота по токену. Бот занимает отдельный слот аккаунта — сессия бота отдельна от вашей, это устройство протокола Telegram."));
+
+        items.add(UItem.asHeader("Музыка"));
+        items.add(UItem.asButton(ID_MUSIC_SETTINGS, "Настройки вкладки «Музыка»",
+                org.telegram.messenger.music.MusicSettingsStore.isTabEnabled() ? "Включена" : "Выключена"));
+        items.add(UItem.asShadow("Отправка текущего трека (Spotify, Яндекс Музыка, SoundCloud, VK, Last.fm, Telegram) карточкой, аудиофайлом или текстом. Вкладка появляется в панели эмодзи."));
+
         items.add(UItem.asHeader("Экспериментальные настройки"));
-        boolean hwAccel = preferences.getBoolean("primegram_hw_accel", false);
-        UItem hwAccelItem = UItem.asCheck(ID_HW_ACCEL, "Аппаратное ускорение (MediaCodec/OpenGL)");
+        boolean hwAccel = org.telegram.messenger.CrashSafeToggle.isEnabled("primegram_hw_accel");
+        UItem hwAccelItem = UItem.asCheck(ID_HW_ACCEL, "Аппаратное ускорение видео (MediaCodec)");
         hwAccelItem.checked = hwAccel;
         items.add(hwAccelItem);
-        items.add(UItem.asShadow("Включает обработку видео, стикеров и эффектов размытия на видеоядре вместо центрального процессора. Заметно экономит батарею, но может вызвать артефакты на несовместимых устройствах."));
+        if (org.telegram.messenger.CrashSafeToggle.wasAutoDisabled("primegram_hw_accel")) {
+            items.add(UItem.asShadow("Отключено автоматически: при последнем запуске с этой опцией приложение аварийно завершилось. Попробуйте включить снова — если проблема повторится на этом устройстве, лучше оставить выключенным."));
+            org.telegram.messenger.CrashSafeToggle.acknowledgeAutoDisabled("primegram_hw_accel");
+        } else {
+            items.add(UItem.asShadow("Включает аппаратное декодирование видео/GIF/кружочков вместо программного. Может немного сэкономить батарею, но на некоторых устройствах декодер бывает нестабилен — приложение автоматически откатит настройку, если из-за неё случится сбой. Изменения применяются после перезапуска приложения."));
+        }
 
         items.add(UItem.asHeader("Лента"));
         boolean feedExcludeMuted = preferences.getBoolean("primegram_feed_exclude_muted", false);
@@ -148,11 +226,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 VpnSDK.stopProxy();
                 listView.adapter.update(true);
             } else {
+                android.widget.Toast.makeText(getContext(), "Получаем ключ...", android.widget.Toast.LENGTH_SHORT).show();
                 VpnSDK.registerOrAuth(2, success -> {
-                    if (success) {
-                        if (listView != null && listView.adapter != null) {
-                            listView.adapter.update(true);
-                        }
+                    if (listView != null && listView.adapter != null) {
+                        listView.adapter.update(true);
+                    }
+                    if (!success) {
+                        android.widget.Toast.makeText(getContext(), "Не удалось получить ключ. Проверьте соединение и попробуйте ещё раз.", android.widget.Toast.LENGTH_LONG).show();
                     }
                 });
             }
@@ -173,10 +253,17 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             preferences.edit().putBoolean("primegram_auto_updates", !enabled).apply();
             listView.adapter.update(true);
         } else if (item.id == ID_HW_ACCEL) {
-            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-            boolean enabled = preferences.getBoolean("primegram_hw_accel", false);
-            preferences.edit().putBoolean("primegram_hw_accel", !enabled).apply();
+            boolean newValue = !org.telegram.messenger.CrashSafeToggle.isEnabled("primegram_hw_accel");
+            org.telegram.messenger.CrashSafeToggle.setEnabled("primegram_hw_accel", newValue);
             listView.adapter.update(true);
+            if (getParentActivity() != null) {
+                AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+                builder.setTitle("Требуется перезапуск");
+                builder.setMessage("Изменение вступит в силу после перезапуска PrimeGram.");
+                builder.setPositiveButton("Перезапустить сейчас", (dialog, which) -> restartApp());
+                builder.setNegativeButton("Позже", null);
+                showDialog(builder.create());
+            }
         } else if (item.id == ID_FEED_EXCLUDE_MUTED) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             boolean enabled = preferences.getBoolean("primegram_feed_exclude_muted", false);
@@ -231,7 +318,119 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 perms.add(android.Manifest.permission.CALL_PHONE);
                 getParentActivity().requestPermissions(perms.toArray(new String[0]), 100);
             }
+        } else if (item.id == ID_BATTERY_OPTIMIZATION) {
+            AndroidUtilities.requestIgnoreBatteryOptimizations(getParentActivity());
+        } else if (item.id == ID_MUSIC_SETTINGS) {
+            presentFragment(new MusicSettingsActivity());
+        } else if (item.id == ID_HIDE_PHONE) {
+            org.telegram.messenger.PrimeGramPrivacy.setHidePhoneEnabled(!org.telegram.messenger.PrimeGramPrivacy.isHidePhoneEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_FAKE_PHONE) {
+            showPhoneInputDialog();
+        } else if (item.id == ID_GREY_ZONE) {
+            presentFragment(new GreyZoneActivity());
+        } else if (item.id == ID_MESSAGE_TAGS) {
+            presentFragment(new MessageTagsActivity());
+        } else if (item.id == ID_TEXT_TOOLBAR) {
+            org.telegram.messenger.PrimeToolbarSettings.setEnabled(!org.telegram.messenger.PrimeToolbarSettings.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_LINK_PREVIEW) {
+            org.telegram.messenger.PrimeLinkPreviewSettings.setEnabled(!org.telegram.messenger.PrimeLinkPreviewSettings.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_SEARCH_PLUS) {
+            presentFragment(new SearchPlusActivity());
+        } else if (item.id == ID_TEMP_SUBS) {
+            presentFragment(new TempSubActivity());
+        } else if (item.id == ID_SESSION_NAME) {
+            showSessionNameDialog();
+        } else if (item.id == ID_BOT_LOGIN) {
+            presentFragment(new BotLoginActivity());
         }
+    }
+
+    private void showSessionNameDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Имя клиента в сессиях");
+        builder.setMessage("Заголовок строки в списке активных сессий. Сервер ждёт здесь имя браузера, поэтому оставьте в значении Chrome, Safari, Firefox, Edge или Opera — иначе получится «Unknown Browser». Пустое поле вернёт настоящую модель устройства.");
+
+        final EditTextBoldCursor editText = new EditTextBoldCursor(getParentActivity());
+        editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
+        editText.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setHintTextColor(Theme.getColor(Theme.key_dialogTextHint));
+        editText.setHint(org.telegram.messenger.PrimeClientIdentity.getDefaultName());
+        editText.setCursorColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setCursorSize(AndroidUtilities.dp(20));
+        editText.setCursorWidth(1.5f);
+        editText.setSingleLine(true);
+        editText.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
+        editText.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4));
+        editText.setText(org.telegram.messenger.PrimeClientIdentity.getSessionName());
+        editText.setSelection(editText.getText().length());
+
+        LinearLayout container = new LinearLayout(getParentActivity());
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(4), AndroidUtilities.dp(24), 0);
+        container.addView(editText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        builder.setView(container);
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
+            org.telegram.messenger.PrimeClientIdentity.setSessionName(editText.getText().toString());
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showPhoneInputDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Свой номер для показа");
+        builder.setMessage("Введите текст, который будет показан вместо вашего номера. Оставьте пустым — тогда цифры просто скроются.");
+
+        final EditTextBoldCursor editText = new EditTextBoldCursor(getParentActivity());
+        editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
+        editText.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setHintTextColor(Theme.getColor(Theme.key_dialogTextHint));
+        editText.setHint("+7 900 000-00-00");
+        editText.setCursorColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setCursorSize(AndroidUtilities.dp(20));
+        editText.setCursorWidth(1.5f);
+        editText.setSingleLine(true);
+        // A visible underline: without a background the field reads as empty space.
+        editText.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
+        editText.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4));
+        editText.setText(org.telegram.messenger.PrimeGramPrivacy.getFakePhone());
+        editText.setSelection(editText.getText().length());
+
+        LinearLayout container = new LinearLayout(getParentActivity());
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(4), AndroidUtilities.dp(24), 0);
+        container.addView(editText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        builder.setView(container);
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
+            org.telegram.messenger.PrimeGramPrivacy.setFakePhone(editText.getText().toString());
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void restartApp() {
+        Activity activity = getParentActivity();
+        if (activity == null) {
+            return;
+        }
+        android.content.Intent intent = activity.getPackageManager().getLaunchIntentForPackage(activity.getPackageName());
+        if (intent == null) {
+            return;
+        }
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        activity.startActivity(intent);
+        Runtime.getRuntime().exit(0);
     }
 
     @Override

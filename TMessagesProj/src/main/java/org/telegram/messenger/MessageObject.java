@@ -221,6 +221,12 @@ public class MessageObject {
     public int dateKeyInt;
     public String monthKey;
     public boolean deleted;
+    /**
+     * PrimeGram grey zone: the other side deleted this message, but {@link GreyZone#SAVE_DELETED}
+     * asked us to keep showing it. Distinct from {@link #deleted}, which means "gone from the
+     * list" — this one stays in the list, dimmed and marked.
+     */
+    public boolean primeDeleted;
     public boolean deletedByThanos;
     public float audioProgress;
     public float forceSeekTo = -1;
@@ -11540,7 +11546,8 @@ public class MessageObject {
     public boolean canForwardMessage() {
         if (isQuickReply() || isEphemeral()) return false;
         if (type == TYPE_GIFT_STARS || type == TYPE_GIFT_THEME_UPDATE || type == TYPE_SUGGEST_BIRTHDAY || type == TYPE_GIFT_OFFER || type == TYPE_SHARING_OFFER || type == TYPE_COMMUNITY_CHANGED) return false;
-        return !(messageOwner instanceof TLRPC.TL_message_secret) && !needDrawBluredPreview() && !isLiveLocation() && type != MessageObject.TYPE_PHONE_CALL && !isSponsored() && !messageOwner.noforwards;
+        final boolean noforwards = messageOwner.noforwards && !GreyZone.bypassNoForwards();
+        return !(messageOwner instanceof TLRPC.TL_message_secret) && !needDrawBluredPreview() && !isLiveLocation() && type != MessageObject.TYPE_PHONE_CALL && !isSponsored() && !noforwards;
     }
 
     public boolean canEditMedia() {

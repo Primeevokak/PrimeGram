@@ -6125,6 +6125,43 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         return foundContacts;
     }
 
+    private void maybeShowBatteryOptimizationPrompt() {
+        if (org.telegram.messenger.AndroidUtilities.isIgnoringBatteryOptimizations()) {
+            return;
+        }
+        SharedPreferences prefs = MessagesController.getGlobalMainSettings();
+        if (prefs.getBoolean("primegram_battery_opt_prompted", false)) {
+            return;
+        }
+        // Shown through the current fragment rather than straight off the Activity: a dialog
+        // put up during onResume(), while the activity window is still settling, ended up
+        // with its buttons rendered but not receiving touches.
+        AndroidUtilities.runOnUIThread(() -> {
+            try {
+                if (org.telegram.messenger.AndroidUtilities.isIgnoringBatteryOptimizations()) {
+                    return;
+                }
+                if (prefs.getBoolean("primegram_battery_opt_prompted", false)) {
+                    return;
+                }
+                BaseFragment fragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
+                if (fragment == null || fragment.getParentActivity() == null) {
+                    return; // try again on a later resume
+                }
+                AlertDialog.Builder builder = new AlertDialog.Builder(fragment.getParentActivity(), fragment.getResourceProvider());
+                builder.setTitle("Разрешить работу в фоне");
+                builder.setMessage("Чтобы прокси PrimeGram не отключался, а уведомления приходили без задержек, разрешите приложению работать без ограничений батареи. Это можно сделать позже в Настройках PrimeGram.");
+                builder.setPositiveButton("Разрешить", (dialog, which) -> org.telegram.messenger.AndroidUtilities.requestIgnoreBatteryOptimizations(LaunchActivity.this));
+                builder.setNegativeButton("Не сейчас", null);
+                fragment.showDialog(builder.create());
+                // Only remember it was shown once it actually made it on screen.
+                prefs.edit().putBoolean("primegram_battery_opt_prompted", true).apply();
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        }, 1200);
+    }
+
     private boolean firstAppUpdateCheck = true;
     public void checkAppUpdate(boolean force, Browser.Progress progress) {
         if (!force && !BuildVars.CHECK_UPDATES) {
@@ -7050,6 +7087,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         super.onResume();
         updateSidebarVisibility();
         isResumed = true;
+        // PrimeGram: sweep expired temporary subscriptions. Self-throttling and a no-op when
+        // nothing is scheduled, so running it on every resume costs nothing.
+        try {
+            org.telegram.messenger.TempSubStore.checkExpired(currentAccount);
+        } catch (Throwable ignore) {}
         pipActivityHandler.onResume();
         if (onResumeStaticCallback != null) {
             onResumeStaticCallback.run();
@@ -7118,6 +7160,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             showUpdateActivity(UserConfig.selectedAccount, SharedConfig.pendingAppUpdate, true);
         }
         checkAppUpdate(false, null);
+        maybeShowBatteryOptimizationPrompt();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             ApplicationLoader.canDrawOverlays = Settings.canDrawOverlays(this);
@@ -9438,6 +9481,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // 2. Proxy Status Button
         ImageView proxyButton = createProxyButton(context);
         bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+
+        // 3. Ghost mode toggle — only exists once the grey zone has been accepted.
+        if (org.telegram.messenger.GreyZone.isAccepted()) {
+            ghostModeButton = createSidebarIcon(context, R.drawable.msg_ghost_24, "Режим призрака", v -> {
+                boolean on = !org.telegram.messenger.GreyZone.isGhostModeOn();
+                org.telegram.messenger.GreyZone.setGhostMode(on);
+                updateGhostModeButton();
+                BulletinFactory.of(Bulletin.BulletinWindow.make(LaunchActivity.this), null)
+                        .createSimpleBulletin(on ? R.raw.ic_ban : R.raw.contact_check,
+                                on ? "Режим призрака включён" : "Режим призрака выключен").show();
+            });
+            bottomContainer.addView(ghostModeButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+            updateGhostModeButton();
+        }
         
         
         // 4. Saved Messages Button
@@ -9523,6 +9580,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         gd.setStroke(AndroidUtilities.dp(2), color);
         return gd;
+    }
+
+    private ImageView ghostModeButton;
+
+    /** Makes it obvious at a glance whether ghost mode is currently hiding you. */
+    private void updateGhostModeButton() {
+        if (ghostModeButton == null) {
+            return;
+        }
+        boolean on = org.telegram.messenger.GreyZone.isGhostModeOn();
+        ghostModeButton.setColorFilter(new android.graphics.PorterDuffColorFilter(
+                on ? Theme.getColor(Theme.key_featuredStickers_addButton) : Theme.getColor(Theme.key_chats_menuItemIcon),
+                android.graphics.PorterDuff.Mode.MULTIPLY));
+        ghostModeButton.setAlpha(on ? 1f : 0.6f);
     }
 
     private ImageView createSidebarIcon(Context context, int iconRes, String tooltip, View.OnClickListener onClick) {

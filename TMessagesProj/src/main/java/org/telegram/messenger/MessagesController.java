@@ -6730,6 +6730,13 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public boolean isPeerNoForwards(long dialogId) {
+        // PrimeGram grey zone: opt-in override of the peer's copy/forward restriction.
+        // This only lifts the local UI gate — saving, copying and screenshotting work
+        // because the content is already on the device. A true server-side forward of
+        // protected content is still refused by Telegram.
+        if (GreyZone.bypassNoForwards()) {
+            return false;
+        }
         return dialogId > 0 ? isUserNoForwards(dialogId) : isChatNoForwards(-dialogId);
     }
 
@@ -10518,7 +10525,11 @@ public class MessagesController extends BaseController implements NotificationCe
 
         if (getUserConfig().isClientActivated()) {
             if (!ignoreSetOnline && getConnectionsManager().getPauseTime() == 0 && ApplicationLoader.isScreenOn && !ApplicationLoader.mainInterfacePausedStageQueue) {
-                if (ApplicationLoader.mainInterfacePausedStageQueueTime != 0 && Math.abs(ApplicationLoader.mainInterfacePausedStageQueueTime - System.currentTimeMillis()) > 1000) {
+                if (ApplicationLoader.mainInterfacePausedStageQueueTime != 0 && Math.abs(ApplicationLoader.mainInterfacePausedStageQueueTime - System.currentTimeMillis()) > 1000
+                        // PrimeGram grey zone: never announce ourselves as online. The
+                        // "offline" branch below is left alone, so the account still goes
+                        // offline properly instead of getting stuck as online.
+                        && !GreyZone.isEnabled(GreyZone.GHOST_DONT_ONLINE)) {
                     if (statusSettingState != 1 && (lastStatusUpdateTime == 0 || Math.abs(System.currentTimeMillis() - lastStatusUpdateTime) >= 55000 || offlineSent)) {
                         statusSettingState = 1;
 
@@ -11377,6 +11388,10 @@ public class MessagesController extends BaseController implements NotificationCe
 
     public boolean sendTyping(long dialogId, long threadMsgId, int action, String emojicon, int classGuid) {
         if (action < 0 || action >= sendingTypings.length || dialogId == 0) {
+            return false;
+        }
+        // PrimeGram grey zone: suppress the "typing…" / "choosing sticker" indicator.
+        if (GreyZone.isEnabled(GreyZone.GHOST_DONT_TYPING)) {
             return false;
         }
         final long selfId = UserConfig.getInstance(UserConfig.selectedAccount).getClientUserId();
@@ -14506,6 +14521,11 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     private void completeReadTask(ReadTask task) {
+        // PrimeGram grey zone: don't tell the other side the message was read. The chat is
+        // still marked read locally — only the outgoing receipt is dropped.
+        if (GreyZone.isEnabled(GreyZone.GHOST_DONT_READ)) {
+            return;
+        }
         if (task.replyId != 0 && task.monoForumPeerId == 0) {
             TLRPC.TL_messages_readDiscussion req = new TLRPC.TL_messages_readDiscussion();
             req.msg_id = (int) task.replyId;

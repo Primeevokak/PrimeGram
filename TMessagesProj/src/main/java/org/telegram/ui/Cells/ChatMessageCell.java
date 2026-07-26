@@ -18475,6 +18475,11 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         }
         if ((messageObject.messageOwner.flags & TLRPC.MESSAGE_FLAG_HAS_VIEWS) != 0) {
             currentViewsString = String.format("%s", LocaleController.formatShortNumber(Math.max(1, messageObject.messageOwner.views), null));
+            // PrimeGram: how many times the post was forwarded, shown next to the view count.
+            // Appended to the same string so every width below is computed for us.
+            if (messageObject.messageOwner.forwards > 0) {
+                currentViewsString += "  ↗" + LocaleController.formatShortNumber(messageObject.messageOwner.forwards, null);
+            }
             viewsTextWidth = (int) Math.ceil(Theme.chat_timePaint.measureText(currentViewsString));
             float drawableWidth = Theme.chat_msgInViewsDrawable.getIntrinsicWidth() * (Theme.chat_timePaint.getTextSize() - dp(2)) / Theme.chat_msgInViewsDrawable.getIntrinsicHeight();
             timeWidth += viewsTextWidth + drawableWidth + dp(10);
@@ -20036,7 +20041,17 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     @SuppressLint("WrongCall")
     @Override
     protected void onDraw(Canvas canvas) {
+        // PrimeGram: a message the sender deleted stays in place, faded, instead of vanishing.
+        final boolean primeDim = PrimeMessageMarks.shouldDim(currentMessageObject);
+        int primeRestore = -1;
+        if (primeDim) {
+            primeRestore = canvas.saveLayerAlpha(0, 0, getMeasuredWidth(), getMeasuredHeight(), (int) (0xFF * PrimeMessageMarks.DELETED_ALPHA));
+        }
         drawInternal(canvas);
+        if (primeRestore != -1) {
+            canvas.restoreToCount(primeRestore);
+        }
+        PrimeMessageMarks.draw(canvas, this, currentMessageObject);
     }
     public void drawInternal(Canvas canvas) {
         if (currentMessageObject == null) {

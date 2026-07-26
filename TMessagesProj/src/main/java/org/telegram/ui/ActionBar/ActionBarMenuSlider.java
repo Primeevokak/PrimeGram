@@ -529,6 +529,24 @@ public class ActionBarMenuSlider extends FrameLayout {
         public static final float MIN_SPEED = 0.2f;
         public static final float MAX_SPEED = 3.0f;
 
+        // Per-instance bounds so the video player can offer a wider/finer range without
+        // changing the audio player, which shares this widget.
+        private float minSpeed = MIN_SPEED;
+        private float maxSpeed = MAX_SPEED;
+
+        public void setSpeedRange(float min, float max) {
+            this.minSpeed = min;
+            this.maxSpeed = max;
+        }
+
+        public float getMinSpeed() {
+            return minSpeed;
+        }
+
+        public float getMaxSpeed() {
+            return maxSpeed;
+        }
+
         public SpeedSlider(Context context, Theme.ResourcesProvider resourcesProvider) {
             super(context, resourcesProvider);
 
@@ -549,12 +567,12 @@ public class ActionBarMenuSlider extends FrameLayout {
 
                 @Override
                 protected float getMinValue() {
-                    return MIN_SPEED;
+                    return minSpeed;
                 }
 
                 @Override
                 protected float getMaxValue() {
-                    return MAX_SPEED;
+                    return maxSpeed;
                 }
 
                 @Override
@@ -586,7 +604,7 @@ public class ActionBarMenuSlider extends FrameLayout {
         }
 
         public float getSpeed(float value) {
-            return MIN_SPEED + (MAX_SPEED - MIN_SPEED) * value;
+            return minSpeed + (maxSpeed - minSpeed) * value;
         }
 
         public float getSpeed() {
@@ -594,24 +612,27 @@ public class ActionBarMenuSlider extends FrameLayout {
         }
 
         public void setSpeed(float speed, boolean animated) {
-            setValue((speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED), animated);
+            // Speed can legitimately sit outside the slider's range when set through a
+            // precise-entry dialog; clamp the thumb instead of letting it run off the track.
+            final float clamped = MathUtils.clamp(speed, minSpeed, maxSpeed);
+            setValue((clamped - minSpeed) / (maxSpeed - minSpeed), animated);
         }
 
         @Override
         protected String getLeftStringValue(float value) {
             if (label != null) return label;
-            return SpeedIconDrawable.formatNumber(MIN_SPEED + value * (MAX_SPEED - MIN_SPEED)) + "x";
+            return SpeedIconDrawable.formatNumber(minSpeed + value * (maxSpeed - minSpeed)) + "x";
         }
 
         @Override
         protected String getRightStringValue(float value) {
             if (label == null) return null;
-            return SpeedIconDrawable.formatNumber(MIN_SPEED + value * (MAX_SPEED - MIN_SPEED)) + "x";
+            return SpeedIconDrawable.formatNumber(minSpeed + value * (maxSpeed - minSpeed)) + "x";
         }
 
         @Override
         protected int getColorValue(float value) {
-            final float speed = MIN_SPEED + value * (MAX_SPEED - MIN_SPEED);
+            final float speed = minSpeed + value * (maxSpeed - minSpeed);
             return ColorUtils.blendARGB(
                 Theme.getColor(Theme.key_color_lightblue, resourcesProvider),
                 Theme.getColor(Theme.key_color_blue, resourcesProvider),
@@ -622,7 +643,7 @@ public class ActionBarMenuSlider extends FrameLayout {
         @Override
         public void setStops(float[] stops) {
             for (int i = 0; i < stops.length; ++i)
-                stops[i] = (stops[i] - MIN_SPEED) / (MAX_SPEED - MIN_SPEED);
+                stops[i] = (stops[i] - minSpeed) / (maxSpeed - minSpeed);
             super.setStops(stops);
         }
     }
