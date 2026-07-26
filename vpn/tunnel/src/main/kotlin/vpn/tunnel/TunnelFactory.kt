@@ -17,19 +17,34 @@ object TunnelFactory {
     var lastServerIP: String? = null
         private set
 
+    @Volatile
+    private var appContext: Context? = null
+
+    /**
+     * Records the context but builds nothing.
+     *
+     * Constructing [GoBackend] loads the AmneziaWG gomobile library and boots a Go runtime.
+     * Doing that from Application.onCreate cost every cold start that time — including for
+     * the great majority of launches, which never bring up a tunnel at all. The backend is
+     * now created on first real use, off the startup path.
+     */
     @Synchronized
     fun setup(context: Context) {
-        val handler = NoopTunnelActionHandler()
-        val backend = GoBackend(context.applicationContext, handler)
-
-        val vpnTunnel = VpnTunnel()
-        val adapter = AwgBackendAdapter(backend, vpnTunnel)
-        tunnelManager = TunnelManager(adapter)
+        appContext = context.applicationContext
     }
 
+    /** Builds the backend on first use. Do not call from the main thread. */
+    @Synchronized
     fun getTunnelManager(): VpnTunnelManager<VpnConfig.Awg> {
-        return tunnelManager
+        tunnelManager?.let { return it }
+        val context = appContext
             ?: throw IllegalStateException("TunnelFactory is not initialized. Call setup() first.")
+        val handler = NoopTunnelActionHandler()
+        val backend = GoBackend(context, handler)
+        val adapter = AwgBackendAdapter(backend, VpnTunnel())
+        val manager = TunnelManager(adapter)
+        tunnelManager = manager
+        return manager
     }
 
     private fun parseEndpointHost(rawConfig: String): String? {

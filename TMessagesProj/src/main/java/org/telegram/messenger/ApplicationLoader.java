@@ -194,6 +194,7 @@ public class ApplicationLoader extends Application {
         }
         applicationInited = true;
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
+        PrimeStartupTrace.mark("postInitApplication: native libs");
 
         try {
             LocaleController.getInstance(); //TODO improve
@@ -316,6 +317,7 @@ public class ApplicationLoader extends Application {
         }
 
         super.onCreate();
+        PrimeStartupTrace.mark("Application.onCreate");
 
         // Must run before any GIF/round-video decoder is created this process,
         // so it can catch "hw_accel crashed last run" before the feature gets
@@ -323,6 +325,7 @@ public class ApplicationLoader extends Application {
         org.telegram.ui.Components.AnimatedFileNative.armHwAccelForThisSession();
 
         VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
+        PrimeStartupTrace.mark("VpnSDK.setup done");
         VpnSDK.setLogListener(new kotlin.jvm.functions.Function1<String, kotlin.Unit>() {
             @Override
             public kotlin.Unit invoke(String msg) {
@@ -361,6 +364,7 @@ public class ApplicationLoader extends Application {
         }
 
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
+        PrimeStartupTrace.mark("tgnet native libs loaded");
 
         try {
             ConnectionsManager.native_setJava(false);
@@ -387,6 +391,7 @@ public class ApplicationLoader extends Application {
 
         LauncherIconController.tryFixLauncherIconIfNeeded();
         ProxyRotationController.init();
+        PrimeStartupTrace.mark("Application.onCreate end");
     }
 
     public static void applyXrayProxyToConnectionsManager() {

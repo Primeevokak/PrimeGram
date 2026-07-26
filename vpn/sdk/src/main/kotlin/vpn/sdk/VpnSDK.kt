@@ -122,10 +122,19 @@ object VpnSDK {
         isInitialized = true
         VpnSDK.logD(TAG, "Initialized")
 
-        TunnelFactory.getTunnelManager().tunnelState
-            .onEach { state -> notifyListeners(state) }
-            .flowOn(Dispatchers.Main.immediate)
-            .launchIn(scope)
+        // Off the startup path on purpose: touching the tunnel manager builds the AmneziaWG
+        // Go backend, and this runs inside Application.onCreate. Subscribing a moment later
+        // costs nothing — there is no tunnel to report on until the user starts one.
+        scope.launch(Dispatchers.IO) {
+            try {
+                TunnelFactory.getTunnelManager().tunnelState
+                    .onEach { state -> notifyListeners(state) }
+                    .flowOn(Dispatchers.Main.immediate)
+                    .launchIn(scope)
+            } catch (t: Throwable) {
+                VpnSDK.logE(TAG, "Tunnel state subscription failed: ${t.message}")
+            }
+        }
     }
 
     @JvmStatic

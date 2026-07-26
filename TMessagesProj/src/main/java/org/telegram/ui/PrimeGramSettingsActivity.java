@@ -60,6 +60,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_BOT_LOGIN = 30;
     private static final int ID_LINK_PREVIEW = 31;
     private static final int ID_SESSION_NAME = 32;
+    private static final int ID_STARTUP_TRACE = 33;
     @Override
     protected CharSequence getTitle() {
         return "Настройки PrimeGram";
@@ -201,6 +202,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asButton(ID_LIMIT_CAPTION, "Лимит символов в описании медиа", String.valueOf(messagesController.captionLengthLimitPremium)));
         items.add(UItem.asButton(ID_LIMIT_ABOUT, "Лимит символов в разделе «О себе»", String.valueOf(messagesController.aboutLengthLimitPremium)));
         items.add(UItem.asShadow("Символьные ограничения для описания медиафайлов и био вашего аккаунта."));
+        items.add(UItem.asButton(ID_STARTUP_TRACE, "Трасса запуска", "диагностика"));
+        items.add(UItem.asShadow("Сколько миллисекунд занял каждый этап последнего холодного старта: загрузка нативных библиотек, открытие базы, появление списка чатов. Нужна, чтобы оптимизировать по замерам, а не по догадкам."));
+
         items.add(UItem.asHeader("Разрешения и поддержка"));
         items.add(UItem.asButton(ID_GRANT_PERMISSIONS, "Выдать системные разрешения", "Контакты, Звонки, Память"));
         items.add(UItem.asShadow("Нажмите, чтобы вручную выдать приложению базовые разрешения (если отключили их запрос при старте)."));
@@ -341,11 +345,29 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             presentFragment(new SearchPlusActivity());
         } else if (item.id == ID_TEMP_SUBS) {
             presentFragment(new TempSubActivity());
+        } else if (item.id == ID_STARTUP_TRACE) {
+            showStartupTrace();
         } else if (item.id == ID_SESSION_NAME) {
             showSessionNameDialog();
         } else if (item.id == ID_BOT_LOGIN) {
             presentFragment(new BotLoginActivity());
         }
+    }
+
+    private void showStartupTrace() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final String trace = org.telegram.messenger.PrimeStartupTrace.dump();
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Трасса запуска");
+        builder.setMessage(trace);
+        builder.setPositiveButton("Скопировать", (dialog, which) -> {
+            AndroidUtilities.addToClipboard(trace);
+            org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this).createCopyBulletin("Скопировано").show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
     }
 
     private void showSessionNameDialog() {

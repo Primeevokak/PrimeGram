@@ -293,19 +293,21 @@ public class MessagesStorage extends BaseController {
 
     public void openDatabase(int openTries) {
         if (!NativeLoader.loaded()) {
-            int tryCount = 0;
-            while (!NativeLoader.loaded()) {
+            // PrimeGram: poll finely instead of in one-second steps. Nothing can be read from
+            // the database until the native libraries are up, so the whole dialog list waits
+            // on this loop — and a 1000 ms granularity meant libraries that finished at, say,
+            // 1050 ms still cost a full extra second before the first query could run.
+            final long deadline = SystemClock.elapsedRealtime() + 6000;
+            while (!NativeLoader.loaded() && SystemClock.elapsedRealtime() < deadline) {
                 try {
-                    Thread.sleep(1000);
+                    Thread.sleep(10);
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                tryCount++;
-                if (tryCount > 5) {
+                    Thread.currentThread().interrupt();
                     break;
                 }
             }
         }
+        PrimeStartupTrace.mark("MessagesStorage.openDatabase begin (account " + currentAccount + ")");
         File filesDir = ApplicationLoader.getFilesDirFixed();
         if (currentAccount != 0) {
             filesDir = new File(filesDir, "account" + currentAccount + "/");
@@ -415,6 +417,7 @@ public class MessagesStorage extends BaseController {
 
         }
 
+        PrimeStartupTrace.mark("MessagesStorage.openDatabase end (account " + currentAccount + ")");
         AndroidUtilities.runOnUIThread(() -> {
             //TODO add progress view and uncomment
             showClearDatabaseAlert = false;//getDatabaseSize() > 150 * 1024 * 1024;

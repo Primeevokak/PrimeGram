@@ -2992,6 +2992,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     public static void loadDialogs(AccountInstance accountInstance) {
         int currentAccount = accountInstance.getCurrentAccount();
         if (!dialogsLoaded[currentAccount]) {
+            org.telegram.messenger.PrimeStartupTrace.mark("DialogsActivity.loadDialogs requested");
             MessagesController messagesController = accountInstance.getMessagesController();
             messagesController.loadGlobalNotificationsSettings();
             messagesController.loadDialogs(0, 0, 100, true);
@@ -10548,6 +10549,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         if (id == NotificationCenter.dialogsNeedReload) {
             if (viewPages == null || dialogsListFrozen) {
                 return;
+            }
+            // The first reload that actually carries dialogs is the moment the user sees
+            // their chats — the number worth optimising against.
+            if (!getMessagesController().getDialogs(folderId).isEmpty()) {
+                org.telegram.messenger.PrimeStartupTrace.finish("dialogs visible");
             }
             for (int a = 0; a < viewPages.length; a++) {
                 final ViewPage viewPage = viewPages[a];

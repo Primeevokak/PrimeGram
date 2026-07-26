@@ -40,6 +40,17 @@ object XrayProxy {
         proxyLogger?.invoke("E/$TAG: $msg" + (if (t != null) " - ${t.message}" else ""))
     }
 
+    /**
+     * Set by [start] / [stop]. Lets callers ask "is xray up?" without touching libXray, whose
+     * first use loads a gomobile native library and boots a Go runtime — hundreds of
+     * milliseconds that must never land on the main thread just to answer a status question.
+     */
+    @Volatile
+    private var startRequested: Boolean = false
+
+    /** True only if xray was actually started; never triggers the native load by itself. */
+    fun isStartedLocally(): Boolean = startRequested
+
     fun isRunning(): Boolean = try {
         libXray.LibXray.getXrayState()
     } catch (e: Throwable) {
@@ -78,7 +89,7 @@ object XrayProxy {
      * time the connection state flickers. Those callers read this cached value instead, and
      * the watchdog keeps it fresh from its own thread.
      */
-    fun isHealthyCached(): Boolean = isRunning() && lastHealthy
+    fun isHealthyCached(): Boolean = startRequested && lastHealthy
 
     /** Runs the real check and stores the result. Must not be called from the main thread. */
     fun refreshHealth(timeoutMs: Int = 300): Boolean {
@@ -90,8 +101,10 @@ object XrayProxy {
     fun start(configJson: String): Boolean {
         if (isRunning()) {
             logD("Already running")
+            startRequested = true
             return true
         }
+        startRequested = true
         return try {
             val request = buildRunRequest(configJson)
             val responseBase64 = libXray.LibXray.runXrayFromJSON(request)
@@ -114,6 +127,7 @@ object XrayProxy {
     }
 
     fun stop() {
+        startRequested = false
         try {
             stopLogcatReader()
             libXray.LibXray.stopXray()
