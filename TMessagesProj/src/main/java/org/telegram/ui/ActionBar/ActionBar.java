@@ -1511,12 +1511,17 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
         if (menu != null && menu.searchFieldVisible()) {
             return defaultLeft;
         }
-        int rightLimit = barWidth - (menu != null && menu.getVisibility() != GONE ? menu.getMeasuredWidth() : 0);
-        int centered = (barWidth - viewWidth) / 2;
-        if (centered < defaultLeft || centered + viewWidth > rightLimit) {
+        // Centred between the back button and the menu, not across the whole bar. The first
+        // version measured against the full width and gave up whenever the result would have
+        // slid under the menu - which on the chat list, where the menu is wide, was always, so
+        // the setting looked like it did nothing. Centring within the free space cannot overlap
+        // anything by construction, and it is what "по центру" means when one side is occupied.
+        final int rightLimit = barWidth - (menu != null && menu.getVisibility() != GONE ? menu.getMeasuredWidth() : 0);
+        final int available = rightLimit - defaultLeft;
+        if (available <= viewWidth) {
             return defaultLeft;
         }
-        return centered;
+        return defaultLeft + (available - viewWidth) / 2;
     }
 
     @Override

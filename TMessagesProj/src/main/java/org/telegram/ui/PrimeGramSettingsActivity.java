@@ -1756,6 +1756,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             stickerSizeCards.setOnSelected(index -> {
                 org.telegram.messenger.PrimeTweaks.setInt(
                         org.telegram.messenger.PrimeTweaks.STICKER_SIZE, STICKER_SIZE_VALUES[index]);
+                // The slider is the same setting seen another way, so it has to follow.
+                if (stickerSizeSlider != null) {
+                    stickerSizeSlider.setValue(STICKER_SIZE_VALUES[index]);
+                }
                 updateLivePreview();
             });
         }
