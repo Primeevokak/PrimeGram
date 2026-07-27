@@ -635,6 +635,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         if (primeSidebarView != null) {
                             primeSidebarView.setTranslationX(newTranslation);
                         }
+                        updateSidebarScrim();
                         View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
                         if (abView != null) {
                             abView.setTranslationX(newTranslation + AndroidUtilities.dp(72));
@@ -667,6 +668,15 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         drawerLayoutContainer.setClipToPadding(false);
 
         frameLayout.addView(drawerLayoutContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        // Dim whatever is behind the sidebar while it is open. Without this the panel reads as a
+        // strip glued onto the chat list rather than as something layered above it. Not clickable,
+        // so touches still fall through to drawerLayoutContainer's close-on-tap handling.
+        primeSidebarScrim = new View(this);
+        primeSidebarScrim.setBackgroundColor(0x66000000);
+        primeSidebarScrim.setAlpha(0f);
+        primeSidebarScrim.setVisibility(View.GONE);
+        frameLayout.addView(primeSidebarScrim, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         // Initialize PrimeGram Sidebar & Trigger
         createPrimeSidebar();
@@ -7316,18 +7326,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         } else if (id == NotificationCenter.mainUserInfoChanged) {
             updateSidebarAccounts();
         } else if (id == NotificationCenter.proxySettingsChanged) {
-            if (primeSidebarView != null) {
-                LinearLayout sidebarContent = (LinearLayout) ((ViewGroup) primeSidebarView).getChildAt(0);
-                if (sidebarContent != null && sidebarContent.getChildCount() > 1) {
-                    LinearLayout bottomContainer = (LinearLayout) sidebarContent.getChildAt(1);
-                    if (bottomContainer != null && bottomContainer.getChildCount() > 2) {
-                        View proxyBtn = bottomContainer.getChildAt(2);
-                        if (proxyBtn instanceof ImageView) {
-                            updateProxyButtonState((ImageView) proxyBtn);
-                        }
-                    }
-                }
-            }
+            // Held by reference rather than walked to by child index: the old getChildAt(0)/(1)/(2)
+            // chain silently pointed at the wrong view the moment anything was inserted into the
+            // sidebar, and the cast to LinearLayout would have thrown.
+            updateProxyButtonState(sidebarProxyButton);
         } else if (id == NotificationCenter.attachMenuBotsDidLoad) {
 
         } else if (id == NotificationCenter.needShowAlert) {
@@ -9327,6 +9329,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     // ─── PrimeGram Sidebar Implementation ───
 
     public View primeSidebarView;
+    public View primeSidebarScrim;
     public View primeSidebarTrigger;
     public boolean isSidebarOpen = false;
     public boolean isDraggingSidebar;
@@ -9334,6 +9337,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     public float dragStartY;
     public float dragStartTranslationX;
     private LinearLayout sidebarAccountsContainer;
+    private ImageView sidebarProxyButton;
 
     private boolean isSidebarEnabled() {
         return MessagesController.getGlobalMainSettings().getBoolean("primegram_sidebar_enabled", true);
@@ -9365,13 +9369,14 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (primeSidebarView != null) {
             primeSidebarView.setVisibility(show ? View.VISIBLE : View.GONE);
         }
-        
+
         if (show) {
             setSidebarOpen(isSidebarOpen, false);
         } else {
             if (primeSidebarView != null) {
                 primeSidebarView.setTranslationX(-AndroidUtilities.dp(72));
             }
+            updateSidebarScrim();
             View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
             if (abView != null) {
                 abView.setTranslationX(0);
@@ -9387,22 +9392,44 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         }
     }
 
+    /**
+     * Keeps the dim behind the panel in step with how far it has actually slid out, so a drag that
+     * is abandoned half-way looks half-open rather than fully open or fully closed.
+     */
+    private void updateSidebarScrim() {
+        if (primeSidebarScrim == null) {
+            return;
+        }
+        float progress = 0f;
+        if (primeSidebarView != null && primeSidebarView.getVisibility() == View.VISIBLE) {
+            progress = 1f + primeSidebarView.getTranslationX() / AndroidUtilities.dp(72);
+            progress = Math.max(0f, Math.min(1f, progress));
+        }
+        primeSidebarScrim.setAlpha(progress);
+        primeSidebarScrim.setVisibility(progress <= 0.01f ? View.GONE : View.VISIBLE);
+    }
+
     public void setSidebarOpen(boolean open, boolean animate) {
         if (!isSidebarEnabled()) return;
         isSidebarOpen = open;
-        
+
         float targetSidebarTranslation = open ? 0 : -AndroidUtilities.dp(72);
         float targetContentTranslation = 0; // open ? AndroidUtilities.dp(72) : 0;
-        
+
         if (animate) {
             if (primeSidebarView != null) {
+                if (open && primeSidebarScrim != null) {
+                    primeSidebarScrim.setVisibility(View.VISIBLE);
+                }
                 primeSidebarView.animate()
                     .translationX(targetSidebarTranslation)
                     .setDuration(200)
                     .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .setUpdateListener(a -> updateSidebarScrim())
+                    .withEndAction(this::onSidebarSettled)
                     .start();
             }
-            
+
             View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
             if (abView != null) {
                 abView.animate()
@@ -9419,6 +9446,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             if (abView != null) {
                 abView.setTranslationX(targetContentTranslation);
             }
+            onSidebarSettled();
+        }
+    }
+
+    /**
+     * Takes the closed panel out of the draw pass entirely. It carries an elevation shadow and an
+     * outline clip, and while the chat list is on screen it was staying VISIBLE just off the left
+     * edge - so every frame of every scroll paid for a panel nobody could see. The drag handlers
+     * set it back to VISIBLE before they move it.
+     */
+    private void onSidebarSettled() {
+        updateSidebarScrim();
+        if (primeSidebarView != null && !isSidebarOpen && primeSidebarView.getVisibility() == View.VISIBLE) {
+            primeSidebarView.setVisibility(View.INVISIBLE);
         }
     }
 
@@ -9428,10 +9469,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         LinearLayout sidebar = new LinearLayout(context);
         sidebar.setOrientation(LinearLayout.VERTICAL);
         sidebar.setGravity(Gravity.CENTER_HORIZONTAL);
-        
-        int bgColor = Theme.getColor(Theme.key_chats_menuBackground);
-        sidebar.setBackgroundColor(bgColor);
-        
+
         android.widget.ScrollView scrollView = new android.widget.ScrollView(context);
         scrollView.setVerticalScrollBarEnabled(false);
         scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -9441,11 +9479,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         sidebarAccountsContainer.setGravity(Gravity.CENTER_HORIZONTAL);
         scrollView.addView(sidebarAccountsContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
         
-        sidebar.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1.0f, 0, 16, 0, 16));
-        
-        View rightDivider = new View(context);
-        rightDivider.setBackgroundColor(Theme.getColor(Theme.key_divider));
-        
+        sidebar.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1.0f, 0, 16, 0, 8));
+
         FrameLayout rootFrame = new FrameLayout(context) {
             @Override
             protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
@@ -9453,11 +9488,33 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 post(() -> updateSidebarAccounts());
             }
         };
+        // A flat rectangle with a hairline on its right edge looked like part of the list. Rounding
+        // only the right corners and letting the panel cast a shadow is what makes it read as a
+        // separate surface sliding over the content. clipToOutline keeps children inside the
+        // rounding; the outline is also what the elevation shadow is traced from.
+        final int panelRadius = AndroidUtilities.dp(18);
+        android.graphics.drawable.GradientDrawable panelBackground = new android.graphics.drawable.GradientDrawable();
+        panelBackground.setColor(Theme.getColor(Theme.key_chats_menuBackground));
+        panelBackground.setCornerRadii(new float[]{0, 0, panelRadius, panelRadius, panelRadius, panelRadius, 0, 0});
+        rootFrame.setBackground(panelBackground);
+        rootFrame.setElevation(AndroidUtilities.dp(6));
+        rootFrame.setClipToOutline(true);
+        rootFrame.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                // Extended past the left edge so the shadow is only cast on the right, where the
+                // panel actually overlaps the content.
+                outline.setRoundRect(-panelRadius, 0, view.getWidth(), view.getHeight(), panelRadius);
+            }
+        });
         rootFrame.addView(sidebar, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        rootFrame.addView(rightDivider, LayoutHelper.createFrame(1, LayoutHelper.MATCH_PARENT, Gravity.RIGHT));
-        
+
         primeSidebarView = rootFrame;
-        
+
+        View bottomDivider = new View(context);
+        bottomDivider.setBackgroundColor(Theme.multAlpha(Theme.getColor(Theme.key_divider), 0.65f));
+        sidebar.addView(bottomDivider, LayoutHelper.createLinear(28, 1, Gravity.CENTER_HORIZONTAL, 0, 0, 0, 8));
+
         LinearLayout bottomContainer = new LinearLayout(context);
         bottomContainer.setOrientation(LinearLayout.VERTICAL);
         bottomContainer.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -9482,7 +9539,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         bottomContainer.addView(walletButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
         
         // 2. Proxy Status Button
-        ImageView proxyButton = createProxyButton(context);
+        ImageView proxyButton = sidebarProxyButton = createProxyButton(context);
         bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
 
         // 3. Ghost mode toggle. Always built, shown or hidden by updateGhostModeButton() —
@@ -9537,26 +9594,31 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 
                 FrameLayout avatarFrame = new FrameLayout(context);
                 avatarFrame.setPadding(AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6));
-                
+
                 BackupImageView avatarImageView = new BackupImageView(context);
                 avatarImageView.setRoundRadius(AndroidUtilities.dp(20));
-                
+
                 AvatarDrawable avatarDrawable = new AvatarDrawable();
                 avatarDrawable.setInfo(user);
                 avatarImageView.setForUserOrChat(user, avatarDrawable);
-                
+
                 avatarFrame.setOnClickListener(v -> {
                     if (accountNum != currentAccount) {
                         switchToAccount(accountNum, true);
                     }
                 });
-                
+
+                // A 2dp ring is nearly invisible at 52dp. A filled pill behind the active avatar
+                // reads at a glance, and dimming the others makes the contrast do the work instead
+                // of the stroke.
                 if (accountNum == currentAccount) {
-                    avatarFrame.setBackground(createGlowingBorder(context));
+                    avatarFrame.setBackground(createSidebarSelectionPill());
+                    avatarImageView.setAlpha(1f);
                 } else {
-                    avatarFrame.setBackground(null);
+                    avatarFrame.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(16), 0, Theme.getColor(Theme.key_listSelector)));
+                    avatarImageView.setAlpha(0.6f);
                 }
-                
+
                 avatarFrame.addView(avatarImageView, LayoutHelper.createFrame(40, 40, Gravity.CENTER));
                 sidebarAccountsContainer.addView(avatarFrame, LayoutHelper.createLinear(52, 52, 0, 4, 0, 4));
             }
@@ -9566,22 +9628,25 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         addAccountButton.setImageResource(R.drawable.msg_add);
         addAccountButton.setScaleType(ImageView.ScaleType.CENTER);
         addAccountButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
-        
+
         addAccountButton.setOnClickListener(v -> {
             presentFragment(new LoginActivity());
         });
-        
+
         FrameLayout addFrame = new FrameLayout(context);
         addFrame.setPadding(AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6));
+        addFrame.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(16), 0, Theme.getColor(Theme.key_listSelector)));
         addFrame.addView(addAccountButton, LayoutHelper.createFrame(40, 40, Gravity.CENTER));
         sidebarAccountsContainer.addView(addFrame, LayoutHelper.createLinear(52, 52, 0, 4, 0, 4));
     }
 
-    private android.graphics.drawable.Drawable createGlowingBorder(Context context) {
-        int color = Theme.getColor(Theme.key_chats_actionBackground);
+    /** Filled accent pill marking the account the app is currently signed in as. */
+    private android.graphics.drawable.Drawable createSidebarSelectionPill() {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        gd.setStroke(AndroidUtilities.dp(2), color);
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setCornerRadius(AndroidUtilities.dp(16));
+        gd.setColor(Theme.multAlpha(Theme.getColor(Theme.key_chats_actionBackground), 0.20f));
+        gd.setStroke(AndroidUtilities.dp(1.5f), Theme.multAlpha(Theme.getColor(Theme.key_chats_actionBackground), 0.55f));
         return gd;
     }
 
@@ -9618,14 +9683,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         imageView.setImageResource(iconRes);
         imageView.setScaleType(ImageView.ScaleType.CENTER);
         imageView.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
-        
-        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        gd.setColor(Theme.getColor(Theme.key_listSelector));
-        sld.addState(new int[]{android.R.attr.state_pressed}, gd);
-        
-        imageView.setBackground(sld);
+
+        // Was a pressed-state-only oval: it snapped in and out with no ripple, which is the main
+        // reason the panel felt cheaper than exteraGram's next to the rest of the app.
+        imageView.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(14), 0, Theme.getColor(Theme.key_listSelector)));
         imageView.setOnClickListener(onClick);
         
         if (Build.VERSION.SDK_INT >= 26) {
@@ -9642,14 +9703,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         proxyButton.setOnClickListener(v -> {
             presentFragment(new ProxyListActivity());
         });
-        
-        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        gd.setColor(Theme.getColor(Theme.key_listSelector));
-        sld.addState(new int[]{android.R.attr.state_pressed}, gd);
-        proxyButton.setBackground(sld);
-        
+
+        proxyButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(14), 0, Theme.getColor(Theme.key_listSelector)));
+
+
         updateProxyButtonState(proxyButton);
         
         return proxyButton;
@@ -9674,13 +9731,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ImageView themeButton = new ImageView(context);
         themeButton.setScaleType(ImageView.ScaleType.CENTER);
         
-        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        gd.setColor(Theme.getColor(Theme.key_listSelector));
-        sld.addState(new int[]{android.R.attr.state_pressed}, gd);
-        themeButton.setBackground(sld);
-        
+        themeButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(14), 0, Theme.getColor(Theme.key_listSelector)));
+
         updateSidebarThemeIcon(themeButton);
         
         themeButton.setOnClickListener(v -> {

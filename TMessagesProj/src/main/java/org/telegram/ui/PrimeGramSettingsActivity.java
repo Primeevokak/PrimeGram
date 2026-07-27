@@ -91,6 +91,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_SQUARE_FAB = 61;
     private static final int ID_HW_BENCHMARK = 62;
     private static final int ID_HIDE_STICKER_TIME = 63;
+    private static final int ID_SHOW_ID_AND_DC = 64;
 
     /**
      * Plain on/off tweaks all behave identically, so they share one handler. Returns the
@@ -110,6 +111,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_HIDE_SEND_AS_PEER) return org.telegram.messenger.PrimeTweaks.HIDE_SEND_AS_PEER;
         if (id == ID_SQUARE_FAB) return org.telegram.messenger.PrimeTweaks.SQUARE_FAB;
         if (id == ID_HIDE_STICKER_TIME) return org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME;
+        if (id == ID_SHOW_ID_AND_DC) return org.telegram.messenger.PrimeTweaks.SHOW_ID_AND_DC;
         return null;
     }
 
@@ -396,6 +398,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(stickerSizeItem);
         items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину."));
 
+        items.add(UItem.asHeader("Профиль"));
+        UItem showIdItem = UItem.asCheck(ID_SHOW_ID_AND_DC, "Показывать ID и дата-центр");
+        showIdItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SHOW_ID_AND_DC);
+        items.add(showIdItem);
+        items.add(UItem.asShadow("Строка с числовым ID собеседника, канала или группы — по нажатию копируется. Дата-центр показывается только когда у собеседника есть аватар: узнать его больше неоткуда."));
+
         items.add(UItem.asHeader("Реакции"));
         UItem reactChannelsItem = UItem.asCheck(ID_HIDE_REACTIONS_CHANNELS, "Скрыть в каналах");
         reactChannelsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_CHANNELS);
@@ -541,6 +549,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             SharedPreferences prefs = MessagesController.getGlobalMainSettings();
             boolean on = prefs.getBoolean(org.telegram.ui.Cells.PrimeMessageMarks.ONLINE_DOTS_KEY, true);
             prefs.edit().putBoolean(org.telegram.ui.Cells.PrimeMessageMarks.ONLINE_DOTS_KEY, !on).apply();
+            org.telegram.ui.Cells.PrimeMessageMarks.invalidateOnlineDots();
             listView.adapter.update(true);
         } else if (item.id == ID_ADBLOCK) {
             org.telegram.messenger.browser.PrimeAdBlock.setEnabled(!org.telegram.messenger.browser.PrimeAdBlock.isEnabled());

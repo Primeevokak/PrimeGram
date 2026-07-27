@@ -69,12 +69,15 @@ public class MessageTagsStore {
                 } catch (Exception ignore) {}
             }
             index = built;
+            hasAnyCached = !built.isEmpty();
+            hasAnyKnown = true;
         }
         return index;
     }
 
     private static synchronized void invalidateIndex() {
         index = null;
+        hasAnyKnown = false;
     }
 
     /**
@@ -92,13 +95,23 @@ public class MessageTagsStore {
         }
     }
 
-    /** True when at least one message anywhere is tagged — lets callers skip work entirely. */
+    /**
+     * True when at least one message anywhere is tagged — lets callers skip work entirely.
+     *
+     * <p>Answered from a plain volatile field rather than through {@link #index()}, because the
+     * draw path calls this for every visible cell on every frame and index() is synchronized:
+     * entering and leaving that monitor a thousand times a second buys nothing when almost
+     * nobody has tagged a message at all.
+     */
+    private static volatile boolean hasAnyCached;
+    private static volatile boolean hasAnyKnown;
+
     public static boolean hasAny() {
-        try {
-            return !index().isEmpty();
-        } catch (Throwable t) {
-            return false;
+        if (!hasAnyKnown) {
+            // Once per process, and once more after any edit: builds the index and sets the flag.
+            index();
         }
+        return hasAnyCached;
     }
 
     private static JSONArray readArray() {

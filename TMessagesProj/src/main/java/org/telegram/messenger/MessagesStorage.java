@@ -236,7 +236,39 @@ public class MessagesStorage extends BaseController {
         // background accounts at priority 8 outrank the thread trying to draw the first frame, and
         // they all hit the same flash device at once. Background accounts drop below the UI.
         storageQueue.setPriority(instance == UserConfig.selectedAccount ? 8 : 3);
+        if (instance != UserConfig.selectedAccount) {
+            PrimeStartupTrace.mark("storage created for account " + instance + " by " + primeCallerFrames());
+        }
         storageQueue.postRunnable(() -> openDatabase(1));
+    }
+
+    /**
+     * Names whoever constructed a storage for an account that is not the one on screen. Building
+     * one spawns a thread and opens a SQLite file, so on a single-account install this should never
+     * fire; when it does, the trace has to say which call site to go fix.
+     */
+    private static String primeCallerFrames() {
+        try {
+            StackTraceElement[] stack = new Throwable().getStackTrace();
+            StringBuilder sb = new StringBuilder();
+            int printed = 0;
+            for (StackTraceElement e : stack) {
+                String cls = e.getClassName();
+                if (cls.endsWith(".MessagesStorage") || cls.endsWith(".BaseController") || cls.endsWith(".AccountInstance")) {
+                    continue;
+                }
+                if (printed > 0) {
+                    sb.append(" < ");
+                }
+                sb.append(cls.substring(cls.lastIndexOf('.') + 1)).append('.').append(e.getMethodName());
+                if (++printed >= 4) {
+                    break;
+                }
+            }
+            return sb.toString();
+        } catch (Throwable ignore) {
+            return "?";
+        }
     }
 
     /**
@@ -454,6 +486,10 @@ public class MessagesStorage extends BaseController {
     }
 
     private boolean recoverDatabase() {
+        // The expensive branch: on failure this wipes the cache and forces a full re-sync from the
+        // server, which is what turns a cold start into minutes. If the trace shows this, the
+        // slowness is a corrupt database, not slow code.
+        PrimeStartupTrace.mark("!! recoverDatabase (account " + currentAccount + ") - local cache is being rebuilt");
         database.close();
         boolean restored = DatabaseMigrationHelper.recoverDatabase(cacheFile, walCacheFile, shmCacheFile, currentAccount);
         FileLog.e("Database restored = " + restored);
@@ -16839,7 +16875,11 @@ public class MessagesStorage extends BaseController {
                         fullUsers = loadUserInfos(fullUsersToLoad);
                     }
                 }
+                // Splits the wait into "how long the SQL took" and "how long the controller took to
+                // turn it into a visible list" - the trace could not tell those apart before.
+                PrimeStartupTrace.mark("MessagesStorage.getDialogs query done (account " + currentAccount + ", " + dialogs.dialogs.size() + " dialogs)");
                 getMessagesController().processLoadedDialogs(dialogs, encryptedChats, fullUsers, folderId, offset, count, 1, false, false, true);
+                PrimeStartupTrace.mark("MessagesStorage.getDialogs handed to controller (account " + currentAccount + ")");
             } catch (Exception e) {
                 dialogs.dialogs.clear();
                 dialogs.users.clear();

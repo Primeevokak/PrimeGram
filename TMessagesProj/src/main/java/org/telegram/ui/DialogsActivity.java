@@ -7037,30 +7037,52 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
     }
 
+    private boolean primePromoScheduled;
+
+    /**
+     * Runs three minutes after the chat list first appears. Re-checks everything, because by then
+     * the fragment may be gone, the screen may have moved on, or the user may have been shown this
+     * from another instance - and only stamps the month once it is actually on screen.
+     */
+    private void showPrimePromoDialog() {
+        if (getParentActivity() == null || isPaused || getVisibleDialog() != null) {
+            return;
+        }
+        android.content.SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        if (System.currentTimeMillis() - preferences.getLong("primegram_last_promo_time", 0) <= 2592000000L) {
+            return;
+        }
+        preferences.edit().putLong("primegram_last_promo_time", System.currentTimeMillis()).apply();
+        org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity(), getResourceProvider());
+        builder.setTitle("PrimeGram");
+        builder.setMessage("Спасибо, что пользуетесь PrimeGram! Подписывайтесь на наш канал, чтобы не пропустить свежие обновления, и поддержите разработку проекта, если он вам нравится! ❤️");
+        builder.setPositiveButton("Наш канал", (dialog, which) -> {
+            org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/prime_gram");
+        });
+        builder.setNegativeButton("Поддержать", (dialog, which) -> {
+            org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "http://t.me/send?start=IVqCWWqPk6AA");
+        });
+        builder.setNeutralButton("Закрыть", null);
+        showDialog(builder.create());
+    }
+
     @Override
     public void onResume() {
         super.onResume();
-        
+
         // PrimeGram: Monthly Promo
         android.content.SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         long lastPromoTime = preferences.getLong("primegram_last_promo_time", 0);
         long currentTime = System.currentTimeMillis();
         int launchCount = preferences.getInt("primegram_app_launch_count", 1);
         
-        // Show only from the 2nd app launch onwards, to avoid system dialogs overlapping it
-        if (launchCount >= 2 && currentTime - lastPromoTime > 2592000000L && getParentActivity() != null) {
-            preferences.edit().putLong("primegram_last_promo_time", currentTime).apply();
-            org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity(), getResourceProvider());
-            builder.setTitle("PrimeGram");
-            builder.setMessage("Спасибо, что пользуетесь PrimeGram! Подписывайтесь на наш канал, чтобы не пропустить свежие обновления, и поддержите разработку проекта, если он вам нравится! ❤️");
-            builder.setPositiveButton("Наш канал", (dialog, which) -> {
-                org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/prime_gram"); // Замените ссылку, если она другая
-            });
-            builder.setNegativeButton("Поддержать", (dialog, which) -> {
-                org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "http://t.me/send?start=IVqCWWqPk6AA");
-            });
-            builder.setNeutralButton("Закрыть", null);
-            showDialog(builder.create());
+        // Show only from the 2nd app launch onwards, and three minutes in. Right after a fresh
+        // install Android and Telegram both queue their own dialogs - notification permission,
+        // battery optimisation - and ours was appearing underneath them and being dismissed along
+        // with them, unread. Waiting until that burst is over is the only way it gets seen.
+        if (launchCount >= 2 && currentTime - lastPromoTime > 2592000000L && !primePromoScheduled) {
+            primePromoScheduled = true;
+            AndroidUtilities.runOnUIThread(this::showPrimePromoDialog, 3 * 60 * 1000L);
         }
         if (dialogStoriesCell != null) {
             dialogStoriesCell.onResume();

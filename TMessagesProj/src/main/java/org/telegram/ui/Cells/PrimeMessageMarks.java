@@ -100,13 +100,28 @@ public class PrimeMessageMarks {
     private static Paint onlineDotPaint;
     private static Paint onlineDotStrokePaint;
 
+    /**
+     * Cached, because this is read once per visible cell per frame from the draw path. Reaching
+     * into SharedPreferences there means taking its lock roughly a thousand times a second while
+     * scrolling, for a value that changes when the user opens settings. {@link #invalidateOnlineDots()}
+     * is what makes a change take effect.
+     */
+    private static int onlineDotsEnabled = -1;
+
     public static boolean isOnlineDotsEnabled() {
-        try {
-            return org.telegram.messenger.MessagesController.getGlobalMainSettings()
-                    .getBoolean(ONLINE_DOTS_KEY, true);
-        } catch (Throwable t) {
-            return false;
+        if (onlineDotsEnabled == -1) {
+            try {
+                onlineDotsEnabled = org.telegram.messenger.MessagesController.getGlobalMainSettings()
+                        .getBoolean(ONLINE_DOTS_KEY, true) ? 1 : 0;
+            } catch (Throwable t) {
+                return false;
+            }
         }
+        return onlineDotsEnabled == 1;
+    }
+
+    public static void invalidateOnlineDots() {
+        onlineDotsEnabled = -1;
     }
 
     /**

@@ -83,6 +83,7 @@ public class PrimeTweaks {
     private static boolean disableNumberRounding;
     private static boolean timeWithSeconds;
     private static boolean relativeLastSeen;
+    private static boolean showPeerId;
     private static int avatarCorners = AVATAR_CORNERS_DEFAULT;
     private static int stickerSize = STICKER_SIZE_DEFAULT;
 
@@ -143,6 +144,7 @@ public class PrimeTweaks {
             disableNumberRounding = p.getBoolean(DISABLE_NUMBER_ROUNDING, false);
             timeWithSeconds = p.getBoolean(TIME_WITH_SECONDS, false);
             relativeLastSeen = p.getBoolean(RELATIVE_LAST_SEEN, false);
+            showPeerId = p.getBoolean(SHOW_ID_AND_DC, false);
             avatarCorners = p.getInt(AVATAR_CORNERS, AVATAR_CORNERS_DEFAULT);
             stickerSize = p.getInt(STICKER_SIZE, STICKER_SIZE_DEFAULT);
             loaded = true;
@@ -240,6 +242,12 @@ public class PrimeTweaks {
     public static boolean hideStickerTime() {
         ensureLoaded();
         return hideStickerTime;
+    }
+
+    /** Adds a copyable "ID · DCn" row to profiles. Off by default - it is a power-user thing. */
+    public static boolean showPeerId() {
+        ensureLoaded();
+        return showPeerId;
     }
 
     public static boolean hideShareButton() {

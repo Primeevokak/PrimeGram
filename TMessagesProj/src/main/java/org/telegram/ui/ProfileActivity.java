@@ -651,6 +651,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private int userInfoRow;
     private int channelInfoRow;
     private int usernameRow;
+    /** PrimeGram: the peer's numeric id and, for users, the datacenter their photos live on. */
+    private int primeIdRow;
     private int notificationsDividerRow;
     private int notificationsRow;
     private int bizHoursRow;
@@ -4449,6 +4451,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 openAddMember();
             } else if (position == usernameRow) {
                 processOnClickOrPress(position, view, x, y);
+            } else if (position == primeIdRow) {
+                AndroidUtilities.addToClipboard(primeIdText());
+                BulletinFactory.of(this).createCopyBulletin(getString(R.string.TextCopied)).show();
             } else if (position == linkedCommunityRow) {
                 if (currentChat != null) {
                     showDialog(new CommunitySheet(this, currentChat.linked_community_id));
@@ -7256,6 +7261,32 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             }
         });
         presentFragment(fragment);
+    }
+
+    /**
+     * The peer's numeric id, plus the datacenter its avatar is served from when that is known.
+     * The DC is only discoverable from a photo - a peer with no avatar simply has no DC to show,
+     * so the label drops the DC part rather than printing a placeholder.
+     */
+    private String primeIdText() {
+        final long id = userId != 0 ? userId : -chatId;
+        return String.valueOf(id);
+    }
+
+    private String primeIdLabel() {
+        int dc = 0;
+        if (userId != 0) {
+            final TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null && user.photo != null) {
+                dc = user.photo.dc_id;
+            }
+        } else if (chatId != 0) {
+            final TLRPC.Chat chat = getMessagesController().getChat(chatId);
+            if (chat != null && chat.photo != null) {
+                dc = chat.photo.dc_id;
+            }
+        }
+        return dc > 0 ? "ID · DC" + dc : "ID";
     }
 
     private boolean processOnClickOrPress(final int position, final View view, final float x, final float y) {
@@ -10489,6 +10520,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         locationRow = -1;
         channelInfoRow = -1;
         usernameRow = -1;
+        primeIdRow = -1;
         settingsTimerRow = -1;
         settingsKeyRow = -1;
         notificationsDividerRow = -1;
@@ -10681,6 +10713,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 if (user != null && username != null) {
                     usernameRow = rowCount++;
                 }
+                if (user != null && org.telegram.messenger.PrimeTweaks.showPeerId()) {
+                    primeIdRow = rowCount++;
+                }
                 if (userInfo != null) {
                     if (userInfo.birthday != null) {
                         birthdayRow = rowCount++;
@@ -10846,6 +10881,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 } else {
                     emptyRow = rowCount++;
                 }
+            }
+            if (currentChat != null && org.telegram.messenger.PrimeTweaks.showPeerId()) {
+                primeIdRow = rowCount++;
             }
             if (actionsView == null) {
                 if (infoHeaderRow != -1) {
@@ -13472,6 +13510,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         // PrimeGram: display-only masking of your own number, for screenshots.
                         text = org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(text, userId == getUserConfig().getClientUserId());
                         detailCell.setTextAndValue(text, LocaleController.getString(isFragmentPhoneNumber ? R.string.AnonymousNumber : R.string.PhoneMobile), false);
+                    } else if (position == primeIdRow) {
+                        detailCell.setTextAndValue(primeIdText(), primeIdLabel(), true);
                     } else if (position == noteRow) {
                         final TLRPC.UserFull userInfo = getMessagesController().getUserFull(userId);
                         if (userInfo == null) return;
@@ -14259,7 +14299,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         position == clearLogsRow || position == switchBackendRow || position == setAvatarRow ||
                         position == addToGroupButtonRow || position == premiumRow || position == premiumGiftingRow ||
                         position == businessRow || position == liteModeRow || position == birthdayRow || position == channelRow ||
-                        position == starsRow || position == tonRow || position == linkedCommunityRow;
+                        position == starsRow || position == tonRow || position == linkedCommunityRow ||
+                        position == primeIdRow;
             }
             if (holder.itemView instanceof UserCell) {
                 UserCell userCell = (UserCell) holder.itemView;
@@ -14287,7 +14328,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             if (position == infoHeaderRow || position == membersHeaderRow || position == settingsSectionRow2 ||
                     position == numberSectionRow || position == helpHeaderRow || position == debugHeaderRow || position == botPermissionsHeader) {
                 return VIEW_TYPE_HEADER;
-            } else if (position == phoneRow || position == locationRow || position == numberRow || position == birthdayRow) {
+            } else if (position == phoneRow || position == locationRow || position == numberRow || position == birthdayRow || position == primeIdRow) {
                 return VIEW_TYPE_TEXT_DETAIL;
             } else if (position == usernameRow || position == setUsernameRow) {
                 return VIEW_TYPE_TEXT_DETAIL_MULTILINE;
