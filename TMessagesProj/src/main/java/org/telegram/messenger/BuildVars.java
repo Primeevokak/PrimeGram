@@ -54,7 +54,10 @@ public class BuildVars {
             // calling thread before it is queued - including on the main one. Restored to the
             // stored value; PrimeGram settings has a switch for turning it on when a trace is
             // actually needed.
-            LOGS_ENABLED = sharedPreferences.getBoolean("logsEnabled", DEBUG_VERSION);
+            // Default false in every build, not just release. Upstream defaults this to
+            // DEBUG_VERSION, but here logging is something we ask for when we need a trace and
+            // it should stay off until somebody turns it on by hand.
+            LOGS_ENABLED = sharedPreferences.getBoolean("logsEnabled", false);
             if (LOGS_ENABLED) {
                 final Thread.UncaughtExceptionHandler pastHandler = Thread.getDefaultUncaughtExceptionHandler();
                 Thread.setDefaultUncaughtExceptionHandler((thread, exception) -> {

@@ -31039,8 +31039,16 @@ public class ChatActivity extends BaseFragment implements
             AndroidUtilities.cancelRunOnUIThread(primeTempSubTick);
             primeTempSubTick = null;
         }
-        final org.telegram.messenger.TempSubStore.Entry entry =
+        org.telegram.messenger.TempSubStore.Entry entry =
                 chatMode == 0 ? org.telegram.messenger.TempSubStore.get(dialog_id) : null;
+        // Left by hand while a timer was running: the schedule has nothing left to do, and a
+        // countdown to leaving a channel you already left is a lie on screen. The sweep would
+        // have dropped it eventually anyway - this just does it at the moment it becomes wrong,
+        // so rejoining later does not inherit somebody's old timer.
+        if (entry != null && currentChat != null && ChatObject.isNotInChat(currentChat)) {
+            org.telegram.messenger.TempSubStore.cancel(dialog_id);
+            entry = null;
+        }
         if (entry == null) {
             if (primeTempSubPanel != null && topPanelLayout != null) {
                 topPanelLayout.setViewVisible(primeTempSubPanel, false);

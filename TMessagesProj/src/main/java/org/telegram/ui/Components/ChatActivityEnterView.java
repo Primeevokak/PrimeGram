@@ -14398,6 +14398,13 @@ public class ChatActivityEnterView extends FrameLayout implements
             primeToolbarScroll.addView(primeToolbarRow, new FrameLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT));
             primeToolbarScroll.setVisibility(GONE);
             addView(primeToolbarScroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, PRIME_TOOLBAR_HEIGHT, Gravity.LEFT | Gravity.BOTTOM));
+            // The input grows and shrinks as you type, so its height is not something to read
+            // once - the bar has to follow it.
+            textFieldContainer.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (primeToolbarScroll != null && primeToolbarScroll.getVisibility() == VISIBLE) {
+                    primeToolbarUpdatePosition();
+                }
+            });
 
             addPrimeToolbarText("B", Typeface.BOLD, () -> withSelection(EditTextCaption::makeSelectedBold));
             addPrimeToolbarText("I", Typeface.ITALIC, () -> withSelection(EditTextCaption::makeSelectedItalic));
@@ -14511,19 +14518,35 @@ public class ChatActivityEnterView extends FrameLayout implements
                 && hasSelection
                 && org.telegram.messenger.PrimeToolbarSettings.isEnabled();
         primeToolbarScroll.setVisibility(visible ? VISIBLE : GONE);
-        // Not just invisible: a GONE view still receives no touches, but leaving it VISIBLE with
-        // zero height would keep it on top of the input in the z-order.
         primeToolbarScroll.setClickable(visible);
-        final ViewGroup.LayoutParams raw = textFieldContainer.getLayoutParams();
-        if (!(raw instanceof MarginLayoutParams)) {
+        if (visible) {
+            primeToolbarUpdatePosition();
+        }
+    }
+
+    /**
+     * Floats the bar clear of the input instead of making room for it.
+     *
+     * <p>It used to sit at the bottom with the input given a matching bottom margin. That fought
+     * this view's own measurement, which positions the input from the bottom edge, and the bar
+     * ended up drawn over the text. Translating it up by the height of the input takes the layout
+     * out of the argument entirely: nothing moves, nothing is measured differently, and the bar is
+     * simply above the field.
+     *
+     * <p>It does cover a strip of the conversation while it is up. That is the right trade for
+     * something visible only while text is selected - the alternative shoves the whole chat
+     * whenever somebody double-taps a word.
+     */
+    private void primeToolbarUpdatePosition() {
+        if (primeToolbarScroll == null || textFieldContainer == null) {
             return;
         }
-        final MarginLayoutParams params = (MarginLayoutParams) raw;
-        final int wanted = visible ? dp(PRIME_TOOLBAR_HEIGHT) : 0;
-        if (params.bottomMargin != wanted) {
-            params.bottomMargin = wanted;
-            textFieldContainer.setLayoutParams(params);
-        }
+        final int height = textFieldContainer.getHeight() > 0
+                ? textFieldContainer.getHeight()
+                : textFieldContainer.getMeasuredHeight();
+        // A clear gap, not a flush stack: touching the field it belongs to would read as part of
+        // the input rather than as a bar over it.
+        primeToolbarScroll.setTranslationY(-(height + dp(6)));
     }
 
     @Override
