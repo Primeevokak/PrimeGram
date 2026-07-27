@@ -3109,14 +3109,26 @@ public class LocaleController {
         saveRemoteLocaleStrings(currentLocaleInfo, difference, currentAccount, null);
     }
 
+    /**
+     * Writes a downloaded language pack out and applies it.
+     * <p>
+     * Callers must be on a background thread. The heavy part - parsing the existing language XML,
+     * merging in thousands of strings, writing the file back out and reading it again - is exactly
+     * the shape of work that has no business on the main thread, and the method is already built
+     * for it: everything that touches the interface is posted back with runOnUIThread at the end.
+     * The call sites used to wrap the whole thing in runOnUIThread instead, which undid that and
+     * froze the app for the best part of a second on the first start after install.
+     */
     public void saveRemoteLocaleStrings(LocaleInfo localeInfo, final TLRPC.TL_langPackDifference difference, int currentAccount, Runnable onDone) {
         if (difference == null || difference.strings.isEmpty() || localeInfo == null || localeInfo.isLocal()) {
             FileLog.d("saveRemoteLocaleStrings: empty difference=" + (difference == null || difference.strings.isEmpty()) + "; locale is local or null=" + (localeInfo == null || localeInfo.isLocal()));
-            recreateFormatters();
-            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.reloadInterface);
-            if (onDone != null) {
-                onDone.run();
-            }
+            AndroidUtilities.runOnUIThread(() -> {
+                recreateFormatters();
+                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.reloadInterface);
+                if (onDone != null) {
+                    onDone.run();
+                }
+            });
             return;
         }
         final String langCode = difference.lang_code.replace('-', '_').toLowerCase();
@@ -3351,7 +3363,7 @@ public class LocaleController {
                     requested[0]++;
                     ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
                         if (response != null) {
-                            AndroidUtilities.runOnUIThread(() -> saveRemoteLocaleStrings(localeInfo, (TLRPC.TL_langPackDifference) response, currentAccount, onPartlyDone));
+                            Utilities.globalQueue.postRunnable(() -> saveRemoteLocaleStrings(localeInfo, (TLRPC.TL_langPackDifference) response, currentAccount, onPartlyDone));
                         }
                     }, ConnectionsManager.RequestFlagWithoutLogin);
                 }
@@ -3362,7 +3374,7 @@ public class LocaleController {
                 requested[0]++;
                 ConnectionsManager.getInstance(currentAccount).sendRequest(req, (TLObject response, TLRPC.TL_error error) -> {
                     if (response != null) {
-                        AndroidUtilities.runOnUIThread(() -> {
+                        Utilities.globalQueue.postRunnable(() -> {
                             saveRemoteLocaleStrings(localeInfo, (TLRPC.TL_langPackDifference) response, currentAccount, onPartlyDone);
                         });
                     }
@@ -3379,7 +3391,7 @@ public class LocaleController {
                 requested[0]++;
                 return ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
                     if (response != null) {
-                        AndroidUtilities.runOnUIThread(() -> {
+                        Utilities.globalQueue.postRunnable(() -> {
                             saveRemoteLocaleStrings(localeInfo, (TLRPC.TL_langPackDifference) response, currentAccount, onPartlyDone);
                         });
                     }
@@ -3394,7 +3406,7 @@ public class LocaleController {
                 requested[0]++;
                 return ConnectionsManager.getInstance(currentAccount).sendRequest(req, (TLObject response, TLRPC.TL_error error) -> {
                     if (response != null) {
-                        AndroidUtilities.runOnUIThread(() -> {
+                        Utilities.globalQueue.postRunnable(() -> {
                             saveRemoteLocaleStrings(localeInfo, (TLRPC.TL_langPackDifference) response, currentAccount, onPartlyDone);
                         });
                     }

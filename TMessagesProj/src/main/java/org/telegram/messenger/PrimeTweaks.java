@@ -47,9 +47,23 @@ public class PrimeTweaks {
     public static final String REMOVE_MESSAGE_TAIL = "prime_remove_message_tail";
     public static final String EDITED_AS_ICON = "prime_edited_as_icon";
     public static final String SENDER_MINI_AVATARS = "prime_sender_mini_avatars";
-    /** Avatar rounding in percent of half the size: 50 is a circle, 0 a square. */
-    public static final String AVATAR_CORNERS = "prime_avatar_corners";
-    public static final int AVATAR_CORNERS_DEFAULT = 50;
+    /**
+     * Avatar rounding, as a fraction of the radius that would draw a full circle:
+     * {@link #AVATAR_CORNERS_MAX} is a circle, 0 a square, and every value between is a real
+     * shape rather than one of a handful of presets.
+     * <p>
+     * The first version of this setting used a 0-50 scale under {@link #AVATAR_CORNERS_OLD}.
+     * That is ten times coarser, so it is read once and multiplied up; the old key is left alone
+     * in case someone downgrades.
+     */
+    public static final String AVATAR_CORNERS = "prime_avatar_corners_fine";
+    private static final String AVATAR_CORNERS_OLD = "prime_avatar_corners";
+    public static final int AVATAR_CORNERS_MAX = 500;
+    public static final int AVATAR_CORNERS_DEFAULT = AVATAR_CORNERS_MAX;
+
+    // ---- message menu ----
+    public static final String MENU_SAVE_TO_SAVED = "prime_menu_save_to_saved";
+    public static final String MENU_DETAILS = "prime_menu_details";
 
     // ---- chats ----
     public static final String HIDE_REACTIONS_CHANNELS = "prime_hide_reactions_channels";
@@ -94,6 +108,8 @@ public class PrimeTweaks {
     private static boolean centerTitle;
     private static int doubleTapAction = DOUBLE_TAP_REACTION;
     private static int avatarCorners = AVATAR_CORNERS_DEFAULT;
+    private static boolean menuSaveToSaved;
+    private static boolean menuDetails;
     private static int stickerSize = STICKER_SIZE_DEFAULT;
 
     /**
@@ -157,7 +173,9 @@ public class PrimeTweaks {
             forceSnow = p.getBoolean(FORCE_SNOW, false);
             centerTitle = p.getBoolean(CENTER_TITLE, false);
             doubleTapAction = p.getInt(DOUBLE_TAP_ACTION, DOUBLE_TAP_REACTION);
-            avatarCorners = p.getInt(AVATAR_CORNERS, AVATAR_CORNERS_DEFAULT);
+            avatarCorners = p.getInt(AVATAR_CORNERS, p.getInt(AVATAR_CORNERS_OLD, 50) * 10);
+            menuSaveToSaved = p.getBoolean(MENU_SAVE_TO_SAVED, false);
+            menuDetails = p.getBoolean(MENU_DETAILS, false);
             stickerSize = p.getInt(STICKER_SIZE, STICKER_SIZE_DEFAULT);
             loaded = true;
         } catch (Throwable t) {
@@ -329,10 +347,31 @@ public class PrimeTweaks {
         return relativeLastSeen;
     }
 
-    /** 50 means a circle; smaller values square the avatar off. */
+    /** Adds "В избранное" to the message menu - a one-tap forward to Saved Messages. */
+    public static boolean menuSaveToSaved() {
+        ensureLoaded();
+        return menuSaveToSaved;
+    }
+
+    /** Adds "Подробности" to the message menu - ids and timestamps, copyable. */
+    public static boolean menuDetails() {
+        ensureLoaded();
+        return menuDetails;
+    }
+
+    /** {@link #AVATAR_CORNERS_MAX} means a circle; smaller values square the avatar off. */
     public static int avatarCorners() {
         ensureLoaded();
         return avatarCorners;
+    }
+
+    /**
+     * Applies a corner value without writing it down, so dragging a slider reshapes every avatar
+     * on screen at once. The value still has to be stored afterwards to survive a restart.
+     */
+    public static void setAvatarCornersLive(int value) {
+        ensureLoaded();
+        avatarCorners = Math.max(0, Math.min(AVATAR_CORNERS_MAX, value));
     }
 
     /**
@@ -342,13 +381,13 @@ public class PrimeTweaks {
      */
     public static int avatarRadius(int circleRadiusPx) {
         ensureLoaded();
-        if (avatarCorners >= 50 || circleRadiusPx <= 0) {
+        if (avatarCorners >= AVATAR_CORNERS_MAX || circleRadiusPx <= 0) {
             return circleRadiusPx;
         }
         if (avatarCorners <= 0) {
             return 0;
         }
-        return Math.max(1, Math.round(circleRadiusPx * avatarCorners / 50f));
+        return Math.max(1, Math.round(circleRadiusPx * avatarCorners / (float) AVATAR_CORNERS_MAX));
     }
 
     public static int stickerSize() {

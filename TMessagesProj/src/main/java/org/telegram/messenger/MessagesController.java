@@ -1564,6 +1564,24 @@ public class MessagesController extends BaseController implements NotificationCe
         return getInstance(0).emojiPreferences;
     }
 
+    private static long[] primeParseLongs(String csv) {
+        String[] parts = csv.split(",");
+        long[] result = new long[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            result[i] = Long.parseLong(parts[i]);
+        }
+        return result;
+    }
+
+    private static int[] primeParseInts(String csv) {
+        String[] parts = csv.split(",");
+        int[] result = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            result[i] = Integer.parseInt(parts[i]);
+        }
+        return result;
+    }
+
     public MessagesController(int num) {
         super(num);
         ImageLoader.getInstance();
@@ -1821,12 +1839,18 @@ public class MessagesController extends BaseController implements NotificationCe
         paidReactionsPrivacyTime = mainPreferences.getLong("paidReactionsAnonymousTime", 0);
         tonStakeddiceStakeAmountMin = mainPreferences.getLong("tonStakeddiceStakeAmountMin", 100000000L);
         tonStakeddiceStakeAmountMax = mainPreferences.getLong("tonStakeddiceStakeAmountMax", 50000000000L);
-        tonStakediceStakeSuggestedAmounts = Arrays.stream(mainPreferences.getString("tonStakediceStakeSuggestedAmounts", "100000000,1000000000,2000000000,5000000000,10000000000,20000000000").split(",")).mapToLong(Long::parseLong).toArray();
-        stargiftsCraftAttributesPermilles = Arrays.stream(mainPreferences.getString("stargiftsCraftAttributesPermilles", "90,,80,200,,70,190,460,,60,180,450,1000").split(",,"))
-                .map(r -> Arrays.stream(r.split(","))
-                    .mapToInt(Integer::parseInt)
-                    .toArray())
-                .toArray(int[][]::new);
+        // Parsed with plain loops rather than streams on purpose. There are twenty numbers here in
+        // total, so the parsing itself is free either way - but this constructor runs on the main
+        // thread during a cold start, and the first stream in the process drags the whole
+        // java.util.stream machinery in with it. On a cold, unprofiled start that class loading
+        // measured seconds, all of it before the first frame.
+        tonStakediceStakeSuggestedAmounts = primeParseLongs(
+                mainPreferences.getString("tonStakediceStakeSuggestedAmounts", "100000000,1000000000,2000000000,5000000000,10000000000,20000000000"));
+        String[] permilleGroups = mainPreferences.getString("stargiftsCraftAttributesPermilles", "90,,80,200,,70,190,460,,60,180,450,1000").split(",,");
+        stargiftsCraftAttributesPermilles = new int[permilleGroups.length][];
+        for (int i = 0; i < permilleGroups.length; i++) {
+            stargiftsCraftAttributesPermilles[i] = primeParseInts(permilleGroups[i]);
+        }
         config.load(mainPreferences);
 
         final boolean paidReactionsActual = (System.currentTimeMillis() - paidReactionsPrivacyTime) < 1000 * 60 * 60 * 2;
@@ -19577,7 +19601,8 @@ public class MessagesController extends BaseController implements NotificationCe
 
             } else if (baseUpdate instanceof TL_update.TL_updateLangPack) {
                 TL_update.TL_updateLangPack update = (TL_update.TL_updateLangPack) baseUpdate;
-                AndroidUtilities.runOnUIThread(() -> LocaleController.getInstance().saveRemoteLocaleStringsForCurrentLocale(update.difference, currentAccount));
+                // off the main thread: this parses and rewrites the whole language file
+                Utilities.globalQueue.postRunnable(() -> LocaleController.getInstance().saveRemoteLocaleStringsForCurrentLocale(update.difference, currentAccount));
             } else if (baseUpdate instanceof TL_update.TL_updateLangPackTooLong) {
                 TL_update.TL_updateLangPackTooLong update = (TL_update.TL_updateLangPackTooLong) baseUpdate;
                 LocaleController.getInstance().reloadCurrentRemoteLocale(currentAccount, update.lang_code, false, null);

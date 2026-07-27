@@ -1242,6 +1242,10 @@ public class ChatActivity extends BaseFragment implements
 
     /** PrimeGram: attach a local, device-only label to this message. */
     public final static int OPTION_PRIME_ADD_TAG = 900;
+    /** PrimeGram: forward this message to Saved Messages without choosing a chat first. */
+    public final static int OPTION_PRIME_SAVE = 901;
+    /** PrimeGram: show the ids and timestamps behind this message. */
+    public final static int OPTION_PRIME_DETAILS = 902;
 
     private final static int[] allowedNotificationsDuringChatListAnimations = new int[]{
             NotificationCenter.messagesRead,
@@ -30662,6 +30666,72 @@ public class ChatActivity extends BaseFragment implements
      * by one we page through ids server-side and delete in API-sized batches.
      */
     /** PrimeGram: pick an existing local tag for this message, or create a new one. */
+    /**
+     * PrimeGram: sends this message to Saved Messages straight away.
+     * <p>
+     * "Forward" already does this, but it opens the chat picker first and Saved Messages is the
+     * destination people pick most. A whole grouped album goes as one, otherwise saving a photo
+     * set would leave the rest behind.
+     */
+    private void primeSaveToSavedMessages(MessageObject message, MessageObject.GroupedMessages group) {
+        if (message == null) {
+            return;
+        }
+        ArrayList<MessageObject> toSend = new ArrayList<>();
+        if (group != null && !group.messages.isEmpty()) {
+            toSend.addAll(group.messages);
+        } else {
+            toSend.add(message);
+        }
+        final long selfId = getUserConfig().getClientUserId();
+        getSendMessagesHelper().sendMessage(toSend, selfId, false, false, true, 0, 0);
+        BulletinFactory.of(this).createSimpleBulletin(R.raw.saved_messages,
+                AndroidUtilities.replaceTags(LocaleController.getString(R.string.FwdMessagesToSavedMessages))).show();
+    }
+
+    /**
+     * PrimeGram: the numbers behind a message - its id, who sent it, when it was sent and edited.
+     * <p>
+     * Useful when reporting something, when a bot's behaviour has to be tied to a specific
+     * message, or simply to see whether the thing in front of you was edited after the fact. The
+     * whole block copies with one tap because the point of it is to be pasted somewhere else.
+     */
+    private void primeShowMessageDetails(MessageObject message) {
+        if (message == null || getParentActivity() == null) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("ID сообщения: ").append(message.getId()).append('\n');
+        sb.append("Чат: ").append(message.getDialogId()).append('\n');
+        long from = message.getFromChatId();
+        if (from != 0 && from != message.getDialogId()) {
+            sb.append("Отправитель: ").append(from).append('\n');
+        }
+        if (message.messageOwner != null) {
+            sb.append("Отправлено: ").append(LocaleController.formatDateTime(message.messageOwner.date, true)).append('\n');
+            if (message.messageOwner.edit_date != 0) {
+                sb.append("Изменено: ").append(LocaleController.formatDateTime(message.messageOwner.edit_date, true)).append('\n');
+            }
+            if (message.messageOwner.views != 0) {
+                sb.append("Просмотров: ").append(message.messageOwner.views).append('\n');
+            }
+            if (message.messageOwner.fwd_from != null) {
+                sb.append("Переслано: да\n");
+            }
+        }
+        final String text = sb.toString().trim();
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Подробности");
+        builder.setMessage(text);
+        builder.setPositiveButton(LocaleController.getString(R.string.Copy), (dialog, which) -> {
+            AndroidUtilities.addToClipboard(text);
+            BulletinFactory.of(this).createCopyBulletin(LocaleController.getString(R.string.TextCopied)).show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Close), null);
+        showDialog(builder.create());
+    }
+
     private void showAddTagDialog(MessageObject message) {
         if (getParentActivity() == null || message == null) {
             return;
@@ -33759,6 +33829,14 @@ public class ChatActivity extends BaseFragment implements
             }
             case OPTION_PRIME_ADD_TAG: {
                 showAddTagDialog(selectedObject);
+                break;
+            }
+            case OPTION_PRIME_SAVE: {
+                primeSaveToSavedMessages(selectedObject, selectedObjectGroup);
+                break;
+            }
+            case OPTION_PRIME_DETAILS: {
+                primeShowMessageDetails(selectedObject);
                 break;
             }
             case OPTION_FORWARD: {
@@ -46628,6 +46706,39 @@ public class ChatActivity extends BaseFragment implements
                 options.add(OPTION_DELETE);
                 icons.add(deleteIconRes);
             }
+        }
+        primeFillMessageMenu(message, icons, items, options, noforwardsOrPaidMedia);
+    }
+
+    /**
+     * PrimeGram: our own entries, appended after everything upstream decided to show.
+     * <p>
+     * They go last on purpose. The menu is long already, and putting extras above the actions
+     * people actually reach for - reply, copy, delete - would cost more than the extras are worth.
+     * Both are off by default and switched on in Settings.
+     */
+    private void primeFillMessageMenu(
+        MessageObject message,
+        ArrayList<Integer> icons,
+        ArrayList<CharSequence> items,
+        ArrayList<Integer> options,
+        boolean noforwardsOrPaidMedia
+    ) {
+        if (message == null || message.getId() <= 0 || message.isSending() || message.isSendError()) {
+            return;
+        }
+        if (org.telegram.messenger.PrimeTweaks.menuSaveToSaved()
+                && !noforwardsOrPaidMedia
+                && message.getDialogId() != getUserConfig().getClientUserId()
+                && chatMode != MODE_SCHEDULED) {
+            items.add("В избранное");
+            options.add(OPTION_PRIME_SAVE);
+            icons.add(R.drawable.msg_saved);
+        }
+        if (org.telegram.messenger.PrimeTweaks.menuDetails()) {
+            items.add("Подробности");
+            options.add(OPTION_PRIME_DETAILS);
+            icons.add(R.drawable.msg_info);
         }
     }
 

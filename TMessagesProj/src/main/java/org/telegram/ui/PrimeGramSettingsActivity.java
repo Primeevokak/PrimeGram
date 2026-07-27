@@ -101,6 +101,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_AVATAR_CORNERS = 71;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
+    private static final int ID_MENU_SAVE = 74;
+    private static final int ID_MENU_DETAILS = 75;
     /** One id per blocking list, taken from a range nothing else uses. */
     private static final int ID_ADBLOCK_LIST_BASE = 200;
 
@@ -128,6 +130,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_REMOVE_TAIL) return org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL;
         if (id == ID_HIDE_ARCHIVE_FOLDER) return org.telegram.messenger.PrimeTweaks.HIDE_ARCHIVE_FOLDER;
         if (id == ID_HIDE_ALL_CHATS) return org.telegram.messenger.PrimeTweaks.HIDE_ALL_CHATS;
+        if (id == ID_MENU_SAVE) return org.telegram.messenger.PrimeTweaks.MENU_SAVE_TO_SAVED;
+        if (id == ID_MENU_DETAILS) return org.telegram.messenger.PrimeTweaks.MENU_DETAILS;
         return null;
     }
 
@@ -433,7 +437,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(stickerSizeItem);
         items.add(UItem.asButton(ID_DOUBLE_TAP, "Двойное нажатие",
                 DOUBLE_TAP_NAMES[Math.max(0, Math.min(DOUBLE_TAP_NAMES.length - 1, org.telegram.messenger.PrimeTweaks.doubleTapAction()))]));
-        items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину."));
+        UItem menuSaveItem = UItem.asCheck(ID_MENU_SAVE, "Пункт «В избранное»");
+        menuSaveItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.MENU_SAVE_TO_SAVED);
+        items.add(menuSaveItem);
+        UItem menuDetailsItem = UItem.asCheck(ID_MENU_DETAILS, "Пункт «Подробности»");
+        menuDetailsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.MENU_DETAILS);
+        items.add(menuDetailsItem);
+        items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину.\n\nДва последних пункта добавляются в меню долгого нажатия по сообщению, в самый низ: «В избранное» пересылает в «Избранное» без выбора чата (альбом целиком), «Подробности» показывает ID сообщения, отправителя и время отправки и правки — всё копируется одной кнопкой."));
 
         items.add(UItem.asHeader("Профиль"));
         UItem showIdItem = UItem.asCheck(ID_SHOW_ID_AND_DC, "Показывать ID и дата-центр");
@@ -451,8 +461,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem noTailItem = UItem.asCheck(ID_REMOVE_TAIL, "Пузыри без хвостика");
         noTailItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL);
         items.add(noTailItem);
-        items.add(UItem.asButton(ID_AVATAR_CORNERS, "Форма аватарок", avatarCornersName()));
-        items.add(UItem.asShadow("Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате. Заголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется везде сразу — в списке чатов, в шапке чата, в профиле, в настройках. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами."));
+        if (avatarCornersCell() != null) {
+            items.add(UItem.asCustom(ID_AVATAR_CORNERS, avatarCornersCell()));
+        }
+        items.add(UItem.asShadow("Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате. Заголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами. Скругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере выше показаны сразу четыре размера."));
 
         items.add(UItem.asHeader("Реакции"));
         UItem reactChannelsItem = UItem.asCheck(ID_HIDE_REACTIONS_CHANNELS, "Скрыть в каналах");
@@ -588,8 +600,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showStickerSizePicker();
         } else if (item.id == ID_DOUBLE_TAP) {
             showDoubleTapPicker();
-        } else if (item.id == ID_AVATAR_CORNERS) {
-            showAvatarCornersPicker();
         } else if (item.id == ID_ADBLOCK_UPDATE) {
             updateAdBlockLists();
         } else if (item.id == ID_HW_BENCHMARK) {
@@ -1027,34 +1037,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         });
     }
 
-    private static final int[] AVATAR_CORNER_VALUES = {50, 40, 30, 20, 10, 0};
-    private static final String[] AVATAR_CORNER_NAMES = {
-            "Круглые — как в оригинале", "Почти круглые", "Скруглённые", "Слегка скруглённые", "Почти квадратные", "Квадратные"
-    };
+    /** Built once and reused: it carries the slider's position, so rebuilding it would reset it. */
+    private org.telegram.ui.Cells.PrimeAvatarCornersCell avatarCornersCell;
 
-    private static String avatarCornersName() {
-        int current = org.telegram.messenger.PrimeTweaks.avatarCorners();
-        int best = 0;
-        for (int i = 1; i < AVATAR_CORNER_VALUES.length; i++) {
-            if (Math.abs(AVATAR_CORNER_VALUES[i] - current) < Math.abs(AVATAR_CORNER_VALUES[best] - current)) {
-                best = i;
-            }
+    private org.telegram.ui.Cells.PrimeAvatarCornersCell avatarCornersCell() {
+        if (avatarCornersCell == null && getContext() != null) {
+            avatarCornersCell = new org.telegram.ui.Cells.PrimeAvatarCornersCell(getContext(), "Форма аватарок", null);
         }
-        return AVATAR_CORNER_NAMES[best];
-    }
-
-    private void showAvatarCornersPicker() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Форма аватарок");
-        builder.setItems(AVATAR_CORNER_NAMES, (dialog, which) -> {
-            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.AVATAR_CORNERS, AVATAR_CORNER_VALUES[which]);
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
+        return avatarCornersCell;
     }
 
     private static final String[] DOUBLE_TAP_NAMES = {"Реакция", "Ответить", "Ничего"};
