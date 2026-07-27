@@ -31023,7 +31023,6 @@ public class ChatActivity extends BaseFragment implements
         primeTempSubPanel.setBackground(Theme.createSelectorDrawable(
                 getThemedColor(Theme.key_listSelector), Theme.RIPPLE_MASK_ALL));
         primeTempSubPanel.setOnClickListener(v -> showTempSubAlert());
-        primeTempSubPanel.setVisibility(View.GONE);
         topPanelLayout.addView(primeTempSubPanel, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 32));
         topPanelLayout.setPriority(primeTempSubPanel, 15);
         topPanelLayout.setDebugName(primeTempSubPanel, "prime temp sub");
@@ -31043,18 +31042,22 @@ public class ChatActivity extends BaseFragment implements
         final org.telegram.messenger.TempSubStore.Entry entry =
                 chatMode == 0 ? org.telegram.messenger.TempSubStore.get(dialog_id) : null;
         if (entry == null) {
-            if (primeTempSubPanel != null) {
-                primeTempSubPanel.setVisibility(View.GONE);
+            if (primeTempSubPanel != null && topPanelLayout != null) {
+                topPanelLayout.setViewVisible(primeTempSubPanel, false);
             }
             return;
         }
         primeCreateTempSubPanel();
-        if (primeTempSubPanel == null) {
+        if (primeTempSubPanel == null || topPanelLayout == null) {
             return;
         }
         final long remaining = entry.expiresAt - System.currentTimeMillis();
         primeTempSubPanel.setText("Отписка через " + org.telegram.ui.Components.PrimeTempSubPicker.formatRemaining(remaining));
-        primeTempSubPanel.setVisibility(View.VISIBLE);
+        // Through the container, never setVisibility: this layout tracks each child in a holder
+        // and positions everything from that. A child shown behind its back is excluded from the
+        // running height, so the panels above keep the space it occupies and are translated on
+        // top of it - which is exactly how this ended up drawn inside the pinned message.
+        topPanelLayout.setViewVisible(primeTempSubPanel, true);
         primeTempSubTick = this::primeUpdateTempSubPanel;
         AndroidUtilities.runOnUIThread(primeTempSubTick, 60_000);
     }
