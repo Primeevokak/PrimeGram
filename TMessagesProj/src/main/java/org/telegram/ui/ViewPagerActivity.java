@@ -38,6 +38,18 @@ public abstract class ViewPagerActivity extends BaseFragment {
 
     abstract protected BaseFragment createBaseFragmentAt(int position);
 
+    /**
+     * Whether a swipe is allowed to land on this page.
+     *
+     * <p>Page indices are fixed - subclasses address them by constant - so a page that is switched
+     * off cannot simply be dropped from the count without renumbering everything after it. This
+     * lets a subclass refuse the page instead, which is what the gesture layer already asks about
+     * through {@code ViewPagerFixed.Adapter.canScrollTo}.
+     */
+    protected boolean canSwipeToPosition(int position) {
+        return true;
+    }
+
 
     protected void onViewPagerScrollEnd() {
 
@@ -67,6 +79,11 @@ public abstract class ViewPagerActivity extends BaseFragment {
             @Override
             public int getItemCount() {
                 return getFragmentsCount();
+            }
+
+            @Override
+            public boolean canScrollTo(int position) {
+                return canSwipeToPosition(position);
             }
 
             @Override

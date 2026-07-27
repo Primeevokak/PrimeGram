@@ -132,7 +132,7 @@ public class TgWsProxyService extends Service {
      * which is what identifies the pattern. Everything beyond that is still in the proxy log.
      */
     private static final java.util.concurrent.atomic.AtomicInteger primeTraceBudget =
-            new java.util.concurrent.atomic.AtomicInteger(40);
+            new java.util.concurrent.atomic.AtomicInteger(90);
 
     private static void primeTraceConnect(String msg) {
         if (primeTraceBudget.get() <= 0 || primeTraceBudget.getAndDecrement() <= 0) {
@@ -1552,7 +1552,7 @@ public class TgWsProxyService extends Service {
             logInfo("Session established, entering active relay bridge...");
 
             // Запускаем двунаправленный мост с ре-шифрованием
-            bridgeConnections(client, in, out, tlsSocket, wsIn, wsOut, cryptoCtx, splitter);
+            bridgeConnections(client, in, out, tlsSocket, wsIn, wsOut, cryptoCtx, splitter, dcId, isMedia);
 
         } catch (Exception e) {
             logError("handleClient error", e);
@@ -1802,11 +1802,88 @@ public class TgWsProxyService extends Service {
         }
     }
 
+    /**
+     * A live relay session, watched for one-sided silence.
+     *
+     * <p>A cold start showed two stretches of roughly fifty seconds each in which the tunnel
+     * logged nothing at all. That is ambiguous: it looks the same whether the app had gone quiet
+     * or whether it was sending requests into a connection the edge had already dropped, since
+     * both reads block forever (the bridge sets no read timeout, on purpose - MTProto connections
+     * are long-lived and idle for minutes at a time). Recording what each side last did makes the
+     * two cases tell themselves apart.
+     */
+    private static class SessionActivity {
+        final int dcId;
+        final boolean isMedia;
+        volatile long lastClientSend;
+        volatile long lastServerFrame;
+        volatile long stallReportedAt;
+
+        SessionActivity(int dcId, boolean isMedia, long now) {
+            this.dcId = dcId;
+            this.isMedia = isMedia;
+            this.lastClientSend = now;
+            this.lastServerFrame = now;
+        }
+    }
+
+    private static final java.util.Set<SessionActivity> liveSessions =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private static volatile Thread stallWatcher;
+
+    /**
+     * Reports sessions that have sent recently but heard nothing back for a while.
+     *
+     * <p>Purely an observer: it never touches the sockets. Closing a connection that merely looks
+     * dead would be a guess, and a wrong guess costs a working session.
+     */
+    private static void ensureStallWatcher() {
+        if (stallWatcher != null) {
+            return;
+        }
+        synchronized (TgWsProxyService.class) {
+            if (stallWatcher != null) {
+                return;
+            }
+            Thread t = new Thread(() -> {
+                while (true) {
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                    final long now = System.currentTimeMillis();
+                    for (SessionActivity s : liveSessions) {
+                        final long silence = now - s.lastServerFrame;
+                        // Only interesting when we are waiting on an answer: the client spoke
+                        // after the last frame came back, and nothing has come back since.
+                        if (silence < 10_000 || s.lastClientSend <= s.lastServerFrame) {
+                            continue;
+                        }
+                        if (now - s.stallReportedAt < 15_000) {
+                            continue;
+                        }
+                        s.stallReportedAt = now;
+                        primeTraceConnect("!! proxy: DC" + s.dcId + (s.isMedia ? "m" : "")
+                                + " sent " + (now - s.lastClientSend) + " ms ago, nothing back for "
+                                + silence + " ms");
+                    }
+                }
+            }, "prime-proxy-stall-watch");
+            t.setDaemon(true);
+            t.start();
+            stallWatcher = t;
+        }
+    }
+
     private void bridgeConnections(Socket client, InputStream in, OutputStream out,
                                    SSLSocket tlsSocket, InputStream wsIn, OutputStream wsOut,
-                                   CryptoCtx ctx, MsgSplitter splitter) {
+                                   CryptoCtx ctx, MsgSplitter splitter, int dcId, boolean isMedia) {
         AtomicBoolean closed = new AtomicBoolean(false);
         MsgSplitter wsSplitter = new MsgSplitter(PROTO_INTERMEDIATE_INT);
+        final SessionActivity activity = new SessionActivity(dcId, isMedia, System.currentTimeMillis());
+        liveSessions.add(activity);
+        ensureStallWatcher();
 
         // Reset read timeouts to 0 (infinite) during active relay bridge,
         // relying on TCP keepalive.
@@ -1857,6 +1934,7 @@ public class TgWsProxyService extends Service {
                             synchronized (wsOut) {
                                 sendWsFrame(wsOut, encBuf, 0, encLen);
                             }
+                            activity.lastClientSend = System.currentTimeMillis();
                         }
                     }
                 }
@@ -1879,6 +1957,7 @@ public class TgWsProxyService extends Service {
                 byte[] frame = recvWsFrame(wsIn, wsOut);
                 if (frame == null) break;
 
+                activity.lastServerFrame = System.currentTimeMillis();
                 if (firstFrame) {
                     firstFrame = false;
                     // Separates "the tunnel is slow to carry anything" from "the tunnel carries
@@ -1924,12 +2003,16 @@ public class TgWsProxyService extends Service {
             logError("Error in ws-to-client thread", e);
         } finally {
             closed.set(true);
+            liveSessions.remove(activity);
             try { client.close(); } catch (IOException ignored) {}
-            
+
+            // Every ending is recorded, not just the quick ones: a session that dies at forty
+            // seconds is exactly the case the old threshold could not see.
+            primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " session ended after "
+                    + (System.currentTimeMillis() - sessionStartTime) + " ms"
+                    + (firstFrame ? ", no server frame ever arrived" : ""));
+
             if (System.currentTimeMillis() - sessionStartTime < 5000) {
-                primeTraceConnect("!! proxy: session died after "
-                        + (System.currentTimeMillis() - sessionStartTime) + " ms"
-                        + (firstFrame ? " without ever receiving a server frame" : ""));
                 noteFastSessionFailure();
             } else {
                 // A session that lasted means the domain is fine; forget earlier stumbles so

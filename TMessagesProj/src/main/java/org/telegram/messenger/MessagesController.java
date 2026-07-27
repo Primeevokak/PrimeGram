@@ -10566,7 +10566,22 @@ public class MessagesController extends BaseController implements NotificationCe
      */
     private static int primeRecentStickersLimit(int serverValue) {
         try {
-            int wanted = getGlobalMainSettings().getInt(PRIME_RECENT_STICKERS_KEY, 0);
+            // Opened straight from the context rather than through getGlobalMainSettings(), which
+            // is getInstance(0).mainPreferences. One caller is the MessagesController constructor
+            // itself, and Instance[0] is only assigned once that constructor returns - so asking
+            // for the instance from inside it started building a second one, which reached the
+            // same line and started a third. It recursed until the stack overflowed; the catch
+            // below swallowed the error and returned, which is the only reason this looked like
+            // a 1.6-second pause rather than a crash.
+            //
+            // "mainconfig" with no suffix is account 0's file, so this reads the same values the
+            // settings screen writes - the limit stays global on purpose.
+            android.content.Context context = ApplicationLoader.applicationContext;
+            if (context == null) {
+                return serverValue;
+            }
+            int wanted = context.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE)
+                    .getInt(PRIME_RECENT_STICKERS_KEY, 0);
             return wanted > 0 ? Math.max(serverValue, wanted) : serverValue;
         } catch (Throwable t) {
             return serverValue;

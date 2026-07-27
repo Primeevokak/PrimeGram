@@ -669,6 +669,15 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
     }
 
     /**
+     * PrimeGram: hiding the Feed removed its tab button but left the page in the pager, so a
+     * swipe from Chats or from Settings still landed on it. Hidden has to mean unreachable.
+     */
+    @Override
+    protected boolean canSwipeToPosition(int position) {
+        return position != POSITION_FEED || !isFeedHidden();
+    }
+
+    /**
      * Builds the Profile and Settings tabs ahead of time so switching to them is instant.
      * <p>
      * This used to run 300 ms after the tab bar appeared and build both in one go, on the main
