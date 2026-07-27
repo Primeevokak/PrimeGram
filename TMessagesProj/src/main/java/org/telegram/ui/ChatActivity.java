@@ -1886,6 +1886,16 @@ public class ChatActivity extends BaseFragment implements
         @Override
         public boolean hasDoubleTap(View view, int position) {
             if (chatMode == MODE_QUICK_REPLIES) return false;
+            final int primeAction = org.telegram.messenger.PrimeTweaks.doubleTapAction();
+            if (primeAction == org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_NOTHING) {
+                return false;
+            }
+            if (primeAction == org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_REPLY) {
+                // Replying has none of the preconditions a reaction has - no reaction has to be
+                // configured, and the chat does not have to allow reactions - so the checks below
+                // would wrongly refuse it. It only needs a message we are allowed to reply to.
+                return primeDoubleTapReplyTarget(view) != null;
+            }
             String reactionStringSetting = getMediaDataController().getDoubleTapReaction();
             TLRPC.TL_availableReaction reaction = getMediaDataController().getReactionsMap().get(reactionStringSetting);
             if (reaction == null && (reactionStringSetting == null || !reactionStringSetting.startsWith("animated_"))) {
@@ -1912,6 +1922,17 @@ public class ChatActivity extends BaseFragment implements
         @Override
         public void onDoubleTap(View view, int position, float x, float y) {
             if (getParentActivity() == null || isSecretChat() || isInScheduleMode() || isInPreviewMode() || chatMode == MODE_QUICK_REPLIES) {
+                return;
+            }
+            final int primeAction = org.telegram.messenger.PrimeTweaks.doubleTapAction();
+            if (primeAction == org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_NOTHING) {
+                return;
+            }
+            if (primeAction == org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_REPLY) {
+                MessageObject replyTarget = primeDoubleTapReplyTarget(view);
+                if (replyTarget != null) {
+                    showFieldPanelForReply(replyTarget);
+                }
                 return;
             }
             MessageObject messageObject;
@@ -35782,6 +35803,29 @@ public class ChatActivity extends BaseFragment implements
 
     public boolean canSendMessage() {
         return currentEncryptedChat == null && (bottomChannelButtonsLayout == null || bottomChannelButtonsLayout.getVisibility() != View.VISIBLE);
+    }
+
+    /**
+     * PrimeGram: the message a double tap should reply to, or null when replying is not possible
+     * here. Mirrors what swipe-to-reply allows - a real, already-sent message in a chat we can
+     * write to - so the two gestures never disagree about whether a reply is offered.
+     */
+    private MessageObject primeDoubleTapReplyTarget(View view) {
+        MessageObject messageObject;
+        if (view instanceof ChatMessageCell) {
+            messageObject = ((ChatMessageCell) view).getPrimaryMessageObject();
+        } else if (view instanceof ChatActionCell) {
+            messageObject = ((ChatActionCell) view).getMessageObject();
+        } else {
+            return null;
+        }
+        if (messageObject == null || messageObject.isDateObject || messageObject.isSending() || messageObject.isSendError() || messageObject.isSponsored()) {
+            return null;
+        }
+        if (messageObject.getId() <= 0 || actionBar.isActionModeShowed() || isInScheduleMode() || !canSendMessage()) {
+            return null;
+        }
+        return messageObject;
     }
 
     public boolean isInScheduleMode() {

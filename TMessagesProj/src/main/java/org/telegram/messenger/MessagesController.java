@@ -1521,6 +1521,21 @@ public class MessagesController extends BaseController implements NotificationCe
         return localInstance;
     }
 
+    /**
+     * The controller for this account only if something already built it, and null otherwise.
+     * <p>
+     * Unlike {@link #getInstance(int)} this never constructs one - and constructing one is not
+     * cheap: it reads a few hundred preferences and brings up a storage thread with its own SQLite
+     * database behind it. Loops over every account slot should ask for this instead, so an empty
+     * or untouched slot costs nothing.
+     */
+    public static MessagesController getInstanceIfCreated(int num) {
+        if (num < 0 || num >= Instance.length) {
+            return null;
+        }
+        return Instance[num];
+    }
+
     public SharedPreferences getMainSettings() {
         return mainPreferences;
     }

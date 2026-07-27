@@ -34,6 +34,12 @@ public class PrimeTweaks {
     // ---- profile ----
     public static final String SHOW_ID_AND_DC = "prime_show_id_dc";
 
+    /** What a double tap on a message does: 0 reaction (stock), 1 reply, 2 nothing. */
+    public static final String DOUBLE_TAP_ACTION = "prime_double_tap_action";
+    public static final int DOUBLE_TAP_REACTION = 0;
+    public static final int DOUBLE_TAP_REPLY = 1;
+    public static final int DOUBLE_TAP_NOTHING = 2;
+
     // ---- appearance ----
     public static final String FORCE_SNOW = "prime_force_snow";
     public static final String SQUARE_FAB = "prime_square_fab";
@@ -86,6 +92,7 @@ public class PrimeTweaks {
     private static boolean showPeerId;
     private static boolean forceSnow;
     private static boolean centerTitle;
+    private static int doubleTapAction = DOUBLE_TAP_REACTION;
     private static int avatarCorners = AVATAR_CORNERS_DEFAULT;
     private static int stickerSize = STICKER_SIZE_DEFAULT;
 
@@ -149,6 +156,7 @@ public class PrimeTweaks {
             showPeerId = p.getBoolean(SHOW_ID_AND_DC, false);
             forceSnow = p.getBoolean(FORCE_SNOW, false);
             centerTitle = p.getBoolean(CENTER_TITLE, false);
+            doubleTapAction = p.getInt(DOUBLE_TAP_ACTION, DOUBLE_TAP_REACTION);
             avatarCorners = p.getInt(AVATAR_CORNERS, AVATAR_CORNERS_DEFAULT);
             stickerSize = p.getInt(STICKER_SIZE, STICKER_SIZE_DEFAULT);
             loaded = true;
@@ -266,6 +274,11 @@ public class PrimeTweaks {
         return centerTitle;
     }
 
+    public static int doubleTapAction() {
+        ensureLoaded();
+        return doubleTapAction;
+    }
+
     public static boolean hideShareButton() {
         ensureLoaded();
         return hideShareButton;
@@ -320,6 +333,22 @@ public class PrimeTweaks {
     public static int avatarCorners() {
         ensureLoaded();
         return avatarCorners;
+    }
+
+    /**
+     * Takes the radius that would draw a full circle - half the avatar's size - and returns the
+     * radius the user actually asked for. At 50 it hands the value straight back, so avatars stay
+     * round and the drawing code takes its usual circle path.
+     */
+    public static int avatarRadius(int circleRadiusPx) {
+        ensureLoaded();
+        if (avatarCorners >= 50 || circleRadiusPx <= 0) {
+            return circleRadiusPx;
+        }
+        if (avatarCorners <= 0) {
+            return 0;
+        }
+        return Math.max(1, Math.round(circleRadiusPx * avatarCorners / 50f));
     }
 
     public static int stickerSize() {

@@ -311,38 +311,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsView.addTabToIgnoreClick(tabs[INDEX_CALLS]);
         tabsView.addTabToIgnoreClick(tabs[INDEX_FEED]);
 
-        AndroidUtilities.runOnUIThread(() -> {
-            try {
-                int[] positionsToPreload = {POSITION_PROFILE, POSITION_CALLS_OR_SETTINGS};
-                for (int pos : positionsToPreload) {
-                    if (fragmentsArr.get(pos) == null) {
-                        BaseFragment fragment = createBaseFragmentAt(pos);
-                        putFragmentAtPosition(pos, fragment);
-                    }
-                    ViewPagerActivity.FragmentState state = fragmentsArr.get(pos);
-                    if (state != null) {
-                        try {
-                            java.lang.reflect.Field field = state.getClass().getDeclaredField("onCreateCalled");
-                            field.setAccessible(true);
-                            boolean called = field.getBoolean(state);
-                            if (!called) {
-                                state.fragment.onFragmentCreate();
-                                field.setBoolean(state, true);
-                            }
-                        } catch (Exception ignore) {}
-
-                        state.fragment.setParentLayout(getParentLayout());
-                        if (state.fragment.getFragmentView() == null) {
-                            state.fragment.createView(context);
-                            if (!state.fragment.hasOwnBackground() && state.fragment.getFragmentView().getBackground() == null) {
-                                state.fragment.getFragmentView().setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-                            }
-                        }
-                    }
-                }
-            } catch (Exception ignore) {
-            }
-        }, 300);
+        primeSchedulePreload(context);
 
         for (int index = 0; index < tabs.length; index++) {
             if (index == INDEX_CONTACTS) {
@@ -697,6 +666,62 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
     @Override
     protected int getFragmentsCount() {
         return TABS_COUNT;
+    }
+
+    /**
+     * Builds the Profile and Settings tabs ahead of time so switching to them is instant.
+     * <p>
+     * This used to run 300 ms after the tab bar appeared and build both in one go, on the main
+     * thread, while the chat list was still loading - a measured 713 ms freeze landing squarely on
+     * the slowest part of startup. Two changes fix that without giving up the preloading:
+     * <ul>
+     *   <li>it waits for the main thread to have nothing left to do, rather than for a timer that
+     *       has no idea what else is happening;</li>
+     *   <li>it builds one tab per idle turn, so the cost is two short pauses at a moment when
+     *       nothing is waiting on us, instead of one long one at the worst possible moment.</li>
+     * </ul>
+     */
+    private void primeSchedulePreload(Context context) {
+        final int[] positionsToPreload = {POSITION_PROFILE, POSITION_CALLS_OR_SETTINGS};
+        final int[] next = {0};
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            if (next[0] >= positionsToPreload.length || getParentActivity() == null || isFinishing()) {
+                return false; // done, or the screen went away under us - stop being called
+            }
+            primePreloadTab(context, positionsToPreload[next[0]++]);
+            return next[0] < positionsToPreload.length;
+        });
+    }
+
+    private void primePreloadTab(Context context, int pos) {
+        try {
+            if (fragmentsArr.get(pos) == null) {
+                BaseFragment fragment = createBaseFragmentAt(pos);
+                putFragmentAtPosition(pos, fragment);
+            }
+            ViewPagerActivity.FragmentState state = fragmentsArr.get(pos);
+            if (state == null) {
+                return;
+            }
+            try {
+                java.lang.reflect.Field field = state.getClass().getDeclaredField("onCreateCalled");
+                field.setAccessible(true);
+                if (!field.getBoolean(state)) {
+                    state.fragment.onFragmentCreate();
+                    field.setBoolean(state, true);
+                }
+            } catch (Exception ignore) {
+            }
+
+            state.fragment.setParentLayout(getParentLayout());
+            if (state.fragment.getFragmentView() == null) {
+                state.fragment.createView(context);
+                if (!state.fragment.hasOwnBackground() && state.fragment.getFragmentView().getBackground() == null) {
+                    state.fragment.getFragmentView().setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                }
+            }
+        } catch (Exception ignore) {
+        }
     }
 
     @Override

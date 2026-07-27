@@ -1604,6 +1604,29 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
         }
     }
 
+    /**
+     * Drops the archive row from the main chat list when the user asked us to.
+     * The folder itself is untouched - it is still reachable from the side panel,
+     * and every chat inside it keeps working. Only the row in the list goes away.
+     */
+    private ArrayList<TLRPC.Dialog> primeWithoutArchive(ArrayList<TLRPC.Dialog> array) {
+        if (folderId != 0 || dialogsType != DialogsActivity.DIALOGS_TYPE_DEFAULT || array.isEmpty()) {
+            return array;
+        }
+        if (!org.telegram.messenger.PrimeTweaks.hideArchiveFolder()) {
+            return array;
+        }
+        // the archive is pinned above everything else, so it is the very first row when it exists
+        if (!(array.get(0) instanceof TLRPC.TL_dialogFolder)) {
+            return array;
+        }
+        ArrayList<TLRPC.Dialog> filtered = new ArrayList<>(array.size() - 1);
+        for (int i = 1, N = array.size(); i < N; i++) {
+            filtered.add(array.get(i));
+        }
+        return filtered;
+    }
+
     private void updateItemList() {
         if (communityId != 0) {
             updateItemListForCommunity();
@@ -1624,6 +1647,8 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
                 array = new ArrayList<>();
             }
         }
+
+        array = primeWithoutArchive(array);
 
         dialogsCount = array.size();
         isEmpty = false;

@@ -111,15 +111,15 @@ public class PrimeHwBenchmark {
         }
         result.fileName = sample.getName();
 
-        int[] probe = new int[7];
+        int[] probe = new int[org.telegram.ui.Components.AnimatedFileDrawable.PARAM_NUM_COUNT];
         try {
             AnimatedFileNative.getVideoInfo(sample.getAbsolutePath(), probe, 0);
         } catch (Throwable t) {
             result.failure = "Не удалось прочитать файл: " + t.getMessage();
             return result;
         }
-        result.width = probe[0];
-        result.height = probe[1];
+        result.width = probe[org.telegram.ui.Components.AnimatedFileDrawable.PARAM_NUM_WIDTH];
+        result.height = probe[org.telegram.ui.Components.AnimatedFileDrawable.PARAM_NUM_HEIGHT];
         if (result.width <= 0 || result.height <= 0) {
             result.failure = "Файл не содержит видеодорожки, пригодной для теста.";
             return result;

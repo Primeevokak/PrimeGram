@@ -230,7 +230,7 @@ public class SharingLocationsAlert extends BottomSheet implements NotificationCe
 
     private LocationController.SharingLocationInfo getLocation(int position) {
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            ArrayList<LocationController.SharingLocationInfo> infos = LocationController.getInstance(a).sharingLocationsUI;
+            ArrayList<LocationController.SharingLocationInfo> infos = LocationController.getSharingLocationsUI(a);
             if (position >= infos.size()) {
                 position -= infos.size();
             } else {

@@ -40,7 +40,13 @@ public class SMSJobsNotification extends Service {
     public static boolean check(int currentAccount) {
         boolean showNotification = ApplicationLoader.mainInterfacePaused;
         if (showNotification) {
-            showNotification = MessagesController.getInstance(currentAccount).smsjobsStickyNotificationEnabled;
+            // An account nothing has touched yet cannot have joined the SMS programme, so there is
+            // nothing to show for it. Asking getInstance() here would build the whole per-account
+            // stack - controller, storage thread, SQLite database - for every empty slot, purely
+            // to read a flag that is false. That is how eight databases used to open at once the
+            // moment the app went to the background.
+            MessagesController controller = MessagesController.getInstanceIfCreated(currentAccount);
+            showNotification = controller != null && controller.smsjobsStickyNotificationEnabled;
         }
         if (showNotification) {
             showNotification = (

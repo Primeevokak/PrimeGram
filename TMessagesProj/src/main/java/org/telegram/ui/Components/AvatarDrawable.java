@@ -592,7 +592,15 @@ public class AvatarDrawable extends Drawable {
                 AndroidUtilities.rectTmp.set(0, 0, size, size);
                 canvas.drawRoundRect(AndroidUtilities.rectTmp, roundRadius, roundRadius, backgroundPaint);
             } else {
-                canvas.drawCircle(size / 2.0f, size / 2.0f, size / 2.0f, backgroundPaint);
+                // no radius asked for means "a circle" - which is where the user's corner setting
+                // gets a say, so the letters behind a missing photo match the photos around them
+                final int primeRadius = org.telegram.messenger.PrimeTweaks.avatarRadius(size / 2);
+                if (primeRadius * 2 >= size) {
+                    canvas.drawCircle(size / 2.0f, size / 2.0f, size / 2.0f, backgroundPaint);
+                } else {
+                    AndroidUtilities.rectTmp.set(0, 0, size, size);
+                    canvas.drawRoundRect(AndroidUtilities.rectTmp, primeRadius, primeRadius, backgroundPaint);
+                }
             }
             if (rotate45Background) {
                 canvas.restore();

@@ -324,6 +324,7 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
     private boolean forceCrossfade;
     private boolean useRoundRadius = true;
     private final int[] roundRadius = new int[4];
+    private final int[] primeAvatarRadius = new int[4];
     private int[] emptyRoundRadius;
     private boolean isRoundRect = true;
     private Object mark;
@@ -1281,6 +1282,9 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
             roundRadius = this.roundRadius;
         }
         if (!useRoundRadius) roundRadius = emptyRoundRadius;
+        if (backgroundThreadDrawHolder == null) {
+            roundRadius = primeAvatarRoundRadius(roundRadius, staticThumbDrawable, imageW);
+        }
         if (drawable instanceof BitmapDrawable) {
             BitmapDrawable bitmapDrawable = (BitmapDrawable) drawable;
             if (drawable instanceof RLottieDrawable) {
@@ -1946,6 +1950,9 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
                 colorFilter = this.colorFilter;
             }
             if (!useRoundRadius) roundRadius = emptyRoundRadius;
+            if (!drawInBackground) {
+                roundRadius = primeAvatarRoundRadius(roundRadius, staticThumbDrawable, imageW);
+            }
 
             if (animation != null) {
                 animation.setRoundRadius(roundRadius);
@@ -2524,6 +2531,42 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
 
     public boolean isForcePreview() {
         return forcePreview;
+    }
+
+    /**
+     * Squares off avatars when the user asked for it.
+     * <p>
+     * An avatar is drawn as a circle by asking for a round radius equal to half the image, and it
+     * always carries an {@link org.telegram.ui.Components.AvatarDrawable} as its placeholder. Both
+     * have to hold before we touch anything, so thumbnails, round videos and stickers - which ask
+     * for radii of their own - are left exactly as their caller wanted them.
+     * <p>
+     * The result is kept in a field instead of a fresh array because this runs on every drawn
+     * frame of every avatar on screen.
+     */
+    private int[] primeAvatarRoundRadius(int[] radius, Drawable placeholder, float width) {
+        if (radius == null || radius.length != 4) {
+            return radius;
+        }
+        final int r = radius[0];
+        if (r <= 0 || radius[1] != r || radius[2] != r || radius[3] != r) {
+            return radius;
+        }
+        if (!(placeholder instanceof org.telegram.ui.Components.AvatarDrawable)) {
+            return radius;
+        }
+        final int size = (int) width;
+        if (size <= 0 || r * 2 + 2 < size) {
+            return radius; // already squarer than a circle - somebody else is in charge here
+        }
+        final int wanted = PrimeTweaks.avatarRadius(size / 2);
+        if (wanted >= r) {
+            return radius;
+        }
+        if (primeAvatarRadius[0] != wanted) {
+            primeAvatarRadius[0] = primeAvatarRadius[1] = primeAvatarRadius[2] = primeAvatarRadius[3] = wanted;
+        }
+        return primeAvatarRadius;
     }
 
     public void setRoundRadius(int value) {
@@ -3290,8 +3333,11 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
         holder.threadIndex = threadIndex;
         holder.animation = getAnimation();
         holder.lottieDrawable = getLottieAnimation();
+        // squared off here rather than while drawing: the background draw threads must not share
+        // the scratch array, and this copy already runs on the thread that owns us
+        int[] preparedRadius = primeAvatarRoundRadius(roundRadius, staticThumbDrawable, imageW);
         for (int i = 0; i < 4; i++) {
-            holder.roundRadius[i] = roundRadius[i];
+            holder.roundRadius[i] = preparedRadius[i];
         }
         holder.mediaDrawable = currentMediaDrawable;
         holder.mediaShader = mediaShader;

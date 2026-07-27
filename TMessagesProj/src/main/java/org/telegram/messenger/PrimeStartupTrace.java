@@ -84,12 +84,33 @@ public class PrimeStartupTrace {
                         }
                     });
                     Thread.sleep(700);
-                    synchronized (answered) {
-                        if (!answered[0]) {
-                            // Still not run: sample the stack while it is actually stuck, which is
-                            // the only moment the culprit is visible.
-                            mark("!! main thread stuck in " + topAppFrames(mainThread.getStackTrace()));
+                    // Still not run: sample the stack while it is actually stuck, which is the
+                    // only moment the culprit is visible. Keep sampling for as long as it stays
+                    // stuck - one sample at the start of a thirty-second freeze says where it
+                    // began and nothing about where it spent the time.
+                    String lastStack = null;
+                    int repeats = 0;
+                    while (!finished) {
+                        synchronized (answered) {
+                            if (answered[0]) {
+                                break;
+                            }
                         }
+                        String stack = topAppFrames(mainThread.getStackTrace());
+                        if (stack.equals(lastStack)) {
+                            repeats++;
+                        } else {
+                            if (lastStack != null && repeats > 0) {
+                                mark("!! ... still there " + repeats + " samples later");
+                            }
+                            mark("!! main thread stuck in " + stack);
+                            lastStack = stack;
+                            repeats = 0;
+                        }
+                        Thread.sleep(2000);
+                    }
+                    if (lastStack != null && repeats > 0) {
+                        mark("!! ... stayed there for " + repeats + " more samples (~" + (repeats * 2) + " s)");
                     }
                 } catch (Throwable ignore) {
                     return;
@@ -100,24 +121,43 @@ public class PrimeStartupTrace {
         watchdog.start();
     }
 
-    /** The first few frames that belong to this app, so the mark points at our code, not the VM. */
+    /**
+     * Where the main thread actually is, in the shortest form that still answers the question.
+     * <p>
+     * The innermost frame goes first whatever it belongs to - that is what tells a lock apart from
+     * a socket read from a database query, and it is the one frame we can never afford to filter
+     * out. After it come the frames that belong to this app, which say who asked for it.
+     */
     private static String topAppFrames(StackTraceElement[] stack) {
+        if (stack == null || stack.length == 0) {
+            return "?";
+        }
         StringBuilder sb = new StringBuilder();
+        sb.append(shortFrame(stack[0]));
         int printed = 0;
-        for (StackTraceElement e : stack) {
-            String cls = e.getClassName();
-            if (!cls.startsWith("org.telegram") && !cls.startsWith("android.database") && !cls.startsWith("android.app.SharedPreferences")) {
+        for (int i = 1; i < stack.length; i++) {
+            String cls = stack[i].getClassName();
+            if (!cls.startsWith("org.telegram") && !cls.startsWith("android.database")
+                    && !cls.startsWith("android.app.SharedPreferences") && !cls.startsWith("android.content.res")) {
                 continue;
             }
-            if (printed > 0) {
-                sb.append(" < ");
-            }
-            sb.append(cls.substring(cls.lastIndexOf('.') + 1)).append('.').append(e.getMethodName()).append(':').append(e.getLineNumber());
+            sb.append(" < ").append(shortFrame(stack[i]));
             if (++printed >= 5) {
                 break;
             }
         }
-        return sb.length() == 0 ? (stack.length > 0 ? stack[0].toString() : "?") : sb.toString();
+        if (printed == 0) {
+            // nothing of ours on the stack at all - print raw frames so the mark is not a dead end
+            for (int i = 1; i < stack.length && i <= 4; i++) {
+                sb.append(" < ").append(shortFrame(stack[i]));
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String shortFrame(StackTraceElement e) {
+        String cls = e.getClassName();
+        return cls.substring(cls.lastIndexOf('.') + 1) + "." + e.getMethodName() + ":" + e.getLineNumber();
     }
 
     /** The collected trace, for showing in the debug UI. */

@@ -126,7 +126,9 @@ public class PrimeAdBlock {
             return null;
         }
         host = host.toLowerCase(Locale.ROOT);
-        if (!matchesBuiltIn(host) && !(isDnsBlockingEnabled() && PrimeDns.isRefusedByResolver(host))) {
+        if (!matchesBuiltIn(host)
+                && !PrimeAdBlockLists.blocks(host)
+                && !(isDnsBlockingEnabled() && PrimeDns.isRefusedByResolver(host))) {
             return null;
         }
         blockedCount++;

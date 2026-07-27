@@ -801,9 +801,9 @@ public class FragmentContextView extends FrameLayout implements NotificationCent
                     account = fragment.getCurrentAccount();
                 } else if (LocationController.getLocationsCount() == 1) {
                     for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-                        ArrayList<LocationController.SharingLocationInfo> arrayList = LocationController.getInstance(a).sharingLocationsUI;
+                        ArrayList<LocationController.SharingLocationInfo> arrayList = LocationController.getSharingLocationsUI(a);
                         if (!arrayList.isEmpty()) {
-                            LocationController.SharingLocationInfo info = LocationController.getInstance(a).sharingLocationsUI.get(0);
+                            LocationController.SharingLocationInfo info = arrayList.get(0);
                             did = info.did;
                             account = info.messageObject.currentAccount;
                             break;
@@ -1687,7 +1687,7 @@ public class FragmentContextView extends FrameLayout implements NotificationCent
                 String str;
                 ArrayList<LocationController.SharingLocationInfo> infos = new ArrayList<>();
                 for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-                    infos.addAll(LocationController.getInstance(a).sharingLocationsUI);
+                    infos.addAll(LocationController.getSharingLocationsUI(a));
                 }
                 if (infos.size() == 1) {
                     LocationController.SharingLocationInfo info = infos.get(0);

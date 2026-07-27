@@ -201,6 +201,7 @@ public class ApplicationLoader extends Application {
         } catch (Exception e) {
             e.printStackTrace();
         }
+        PrimeStartupTrace.mark("postInitApplication: locale");
 
         try {
             connectivityManager = (ConnectivityManager) ApplicationLoader.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -261,8 +262,11 @@ public class ApplicationLoader extends Application {
             e.printStackTrace();
         }
 
+        PrimeStartupTrace.mark("postInitApplication: receivers");
         SharedConfig.loadConfig();
+        PrimeStartupTrace.mark("postInitApplication: SharedConfig.loadConfig");
         SharedConfig.loadProxyList();
+        PrimeStartupTrace.mark("postInitApplication: proxy list");
         SharedPreferences mainconfig = applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
         if (mainconfig.getBoolean("primegram_tgws_enabled", true)) {
             try {
@@ -278,7 +282,9 @@ public class ApplicationLoader extends Application {
                 FileLog.e("Failed to start TgWsProxyService", e);
             }
         }
+        PrimeStartupTrace.mark("postInitApplication: proxy service started");
         SharedPrefsHelper.init(applicationContext);
+        PrimeStartupTrace.mark("postInitApplication: SharedPrefsHelper");
         // PrimeGram: this used to build the whole per-account stack for every slot, logged in or
         // not - a MessagesController, a MessagesStorage (which opens and migrates a SQLite
         // database) and a native ConnectionsManager each. Empty slots paid the same price as real
@@ -300,7 +306,9 @@ public class ApplicationLoader extends Application {
                 deferredAccounts.add(a);
             }
         }
+        PrimeStartupTrace.mark("postInitApplication: user configs read");
         initAccountStack(primaryAccount);
+        PrimeStartupTrace.mark("postInitApplication: account stack built");
         SharedConfig.pushStringStatus = "__FIREBASE_GENERATING_SINCE_" + ConnectionsManager.getInstance(primaryAccount).getCurrentTime() + "__";
         PrimeStartupTrace.mark("postInitApplication: account " + primaryAccount + " ready, " + deferredAccounts.size() + " deferred");
 

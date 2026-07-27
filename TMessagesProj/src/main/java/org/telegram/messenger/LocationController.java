@@ -938,10 +938,30 @@ public class LocationController extends BaseController implements NotificationCe
         });
     }
 
+    private static final ArrayList<SharingLocationInfo> EMPTY_SHARING = new ArrayList<>();
+
+    /**
+     * The live locations an account is sharing, without ever constructing that account's
+     * controller. Callers iterate every slot to answer "is anything being shared", and going
+     * through getInstance() there opens a database per slot for an answer that is always empty
+     * for a slot nobody is logged into.
+     */
+    public static ArrayList<SharingLocationInfo> getSharingLocationsUI(int account) {
+        if (!UserConfig.getInstance(account).isClientActivated()) {
+            return EMPTY_SHARING;
+        }
+        LocationController existing = Instance[account];
+        return existing == null ? EMPTY_SHARING : existing.sharingLocationsUI;
+    }
+
     public static int getLocationsCount() {
         int count = 0;
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            count += LocationController.getInstance(a).sharingLocationsUI.size();
+            // getInstance() constructs a LocationController, and its constructor calls
+            // loadSharingLocations(), which queries that account's database - so counting live
+            // location shares used to open every slot's database. An account nobody is logged
+            // into cannot be sharing a location, so skipping it changes no answer.
+            count += getSharingLocationsUI(a).size();
         }
         return count;
     }

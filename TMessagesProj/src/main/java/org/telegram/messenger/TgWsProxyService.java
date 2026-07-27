@@ -80,23 +80,46 @@ public class TgWsProxyService extends Service {
     private static final List<String> logBuffer = new ArrayList<>();
     private static LogListener logListener;
 
-    public static synchronized void addLog(String line) {
-        String formatted = String.format("[%tT] %s", System.currentTimeMillis(), line);
-        logBuffer.add(formatted);
-        if (logBuffer.size() > 200) {
-            logBuffer.remove(0);
+    /**
+     * The log has a lock of its own, and that is the whole point of it existing.
+     * <p>
+     * These three methods used to be {@code static synchronized}, which locks the class object -
+     * the same monitor the domain selection below holds for as long as it probes, and that can run
+     * into tens of seconds when every candidate is unreachable. Anything that wrote a line to the
+     * log during that window waited for the probe to finish. If that caller happened to be the
+     * main thread, the app froze for as long as the network took to give up.
+     */
+    private static final Object logLock = new Object();
+
+    /** Guards the chosen domain and its cached address. Never held while writing to the log. */
+    private static final Object domainLock = new Object();
+
+    public static void addLog(String line) {
+        final String formatted = String.format("[%tT] %s", System.currentTimeMillis(), line);
+        final LogListener listener;
+        synchronized (logLock) {
+            logBuffer.add(formatted);
+            if (logBuffer.size() > 200) {
+                logBuffer.remove(0);
+            }
+            listener = logListener;
         }
-        if (logListener != null) {
-            logListener.onLogAdded(formatted);
+        // outside the lock: the listener draws on screen, and the log must never wait on the UI
+        if (listener != null) {
+            listener.onLogAdded(formatted);
         }
     }
 
-    public static synchronized List<String> getLogBuffer() {
-        return new ArrayList<>(logBuffer);
+    public static List<String> getLogBuffer() {
+        synchronized (logLock) {
+            return new ArrayList<>(logBuffer);
+        }
     }
 
-    public static synchronized void setLogListener(LogListener listener) {
-        logListener = listener;
+    public static void setLogListener(LogListener listener) {
+        synchronized (logLock) {
+            logListener = listener;
+        }
     }
 
     private static void logInfo(String msg) {
@@ -940,7 +963,7 @@ public class TgWsProxyService extends Service {
             return;
         }
         fastFailureCount.set(0);
-        synchronized (TgWsProxyService.class) {
+        synchronized (domainLock) {
             logInfo("Resetting currentBaseDomain after " + FAST_FAILURE_THRESHOLD + " short-lived sessions");
             currentBaseDomain = null;
             cachedBaseAddress = null;
@@ -1087,7 +1110,7 @@ public class TgWsProxyService extends Service {
         } catch (InterruptedException ignored) {}
 
         String baseDomain;
-        synchronized (TgWsProxyService.class) {
+        synchronized (domainLock) {
             if (currentBaseDomain == null) {
                 if (System.currentTimeMillis() - lastDomainSelectionTime > 30_000) {
                     logInfo("Selecting base domain from candidates using pair-wise latency tests...");
@@ -1176,7 +1199,7 @@ public class TgWsProxyService extends Service {
 
         if (System.currentTimeMillis() < ipFailUntil.getOrDefault(wsDomain, 0L)) {
             logInfo(wsDomain + " is in IP fail cooldown, skipping.");
-            synchronized (TgWsProxyService.class) {
+            synchronized (domainLock) {
                 if (baseDomain.equals(currentBaseDomain)) {
                     currentBaseDomain = null;
                     cachedBaseAddress = null;
@@ -1232,7 +1255,7 @@ public class TgWsProxyService extends Service {
                 // socket stalled every other DC too. A domain has to fail twice in a row before
                 // we give up on it; any success resets the count.
                 if (consecutiveConnectFailures.incrementAndGet() >= 2) {
-                    synchronized (TgWsProxyService.class) {
+                    synchronized (domainLock) {
                         if (baseDomain.equals(currentBaseDomain)) {
                             currentBaseDomain = null;
                             cachedBaseAddress = null;
@@ -2059,7 +2082,7 @@ public class TgWsProxyService extends Service {
         // If it's a proxy subdomain request, reuse the cached base IP to ensure all DC connections
         // route through the exact same Cloudflare edge server IP (avoiding geographic "impossible travel" IP mismatch).
         if (currentBaseDomain != null && host.endsWith(currentBaseDomain)) {
-            synchronized (TgWsProxyService.class) {
+            synchronized (domainLock) {
                 if (cachedBaseAddress == null) {
                     try {
                         InetAddress[] resolved = resolveWithFallbackDns(host);

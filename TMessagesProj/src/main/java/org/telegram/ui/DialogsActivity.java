@@ -6894,9 +6894,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     filterTabsView.resetTabId();
                     selectWithStableId = true;
                 }
+                // when the user hides "All chats" we simply never add that tab; the ids we pass
+                // stay equal to the filter index, so everything downstream keeps lining up
+                final boolean hideAllChatsTab = org.telegram.messenger.PrimeTweaks.hideAllChats() && filters.size() > 1;
                 filterTabsView.removeTabs();
                 for (int a = 0, N = filters.size(); a < N; a++) {
                     if (filters.get(a).isDefault()) {
+                        if (hideAllChatsTab) {
+                            continue;
+                        }
                         filterTabsView.addTab(a, 0, LocaleController.getString(R.string.FilterAllChats), null, false, true, filters.get(a).locked);
                     } else {
                         final MessagesController.DialogFilter filter = filters.get(a);
@@ -6925,7 +6931,34 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     }
                     viewPages[a].listView.setScrollingTouchSlop(RecyclerView.TOUCH_SLOP_PAGING);
                 }
+                if (hideAllChatsTab) {
+                    // the page we were on may be the tab that just disappeared - move to the first folder
+                    int firstVisible = -1;
+                    for (int a = 0, N = filters.size(); a < N; a++) {
+                        if (!filters.get(a).isDefault()) {
+                            firstVisible = a;
+                            break;
+                        }
+                    }
+                    if (firstVisible >= 0) {
+                        for (int a = 0; a < viewPages.length; a++) {
+                            int type = viewPages[a].selectedType;
+                            if (type >= 0 && type < filters.size() && filters.get(type).isDefault()) {
+                                viewPages[a].selectedType = firstVisible;
+                                if (a == 0) {
+                                    updateCurrentTab = true;
+                                }
+                            }
+                        }
+                    }
+                }
                 filterTabsView.finishAddingTabs(animatedUpdateItems);
+                if (hideAllChatsTab) {
+                    int currentId = filterTabsView.getCurrentTabId();
+                    if (currentId >= 0 && currentId < filters.size() && filters.get(currentId).isDefault()) {
+                        filterTabsView.selectFirstTab();
+                    }
+                }
                 if (updateCurrentTab) {
                     switchToCurrentSelectedMode(false);
                 }
@@ -7044,6 +7077,22 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
      * the fragment may be gone, the screen may have moved on, or the user may have been shown this
      * from another instance - and only stamps the month once it is actually on screen.
      */
+    /**
+     * PrimeGram never asks for a system permission by itself.
+     * <p>
+     * Upstream fires several prompts at the chat list the moment it appears: contacts, storage,
+     * notifications, the Xiaomi lock-screen permission and the "show calls on the lock screen"
+     * one. They stack on top of each other and on top of the system's own dialogs, so the user
+     * taps them away without reading, and whatever we wanted to show at the same moment is buried
+     * underneath. Granting them all lives in one place instead - Settings, "Выдать системные
+     * разрешения" - where nothing is competing for the screen and the user is the one who started
+     * it.
+     * <p>
+     * The prompts are gated rather than deleted so the upstream flow stays visible in the diff and
+     * merges cleanly.
+     */
+    private static final boolean PRIME_AUTO_PERMISSION_PROMPTS = false;
+
     private void showPrimePromoDialog() {
         if (getParentActivity() == null || isPaused || getVisibleDialog() != null) {
             return;
@@ -7115,7 +7164,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             tosAccepted = true;
         }
         final NotificationManager notificationManager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
-        if (tosAccepted && folderId == 0 && communityId == 0 && checkPermission && !onlySelect && Build.VERSION.SDK_INT >= 23) {
+        if (PRIME_AUTO_PERMISSION_PROMPTS && tosAccepted && folderId == 0 && communityId == 0 && checkPermission && !onlySelect && Build.VERSION.SDK_INT >= 23) {
             Activity activity = getParentActivity();
             if (activity != null) {
                 checkPermission = false;
@@ -7160,7 +7209,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     }
                 }, afterSignup && (hasNotContactsPermission || hasNotNotificationsPermission) ? 4000 : 0);
             }
-        } else if (!onlySelect && folderId == 0 && communityId == 0 && XiaomiUtilities.isMIUI() && !XiaomiUtilities.isCustomPermissionGranted(XiaomiUtilities.OP_SHOW_WHEN_LOCKED)) {
+        } else if (PRIME_AUTO_PERMISSION_PROMPTS && !onlySelect && folderId == 0 && communityId == 0 && XiaomiUtilities.isMIUI() && !XiaomiUtilities.isCustomPermissionGranted(XiaomiUtilities.OP_SHOW_WHEN_LOCKED)) {
             if (getParentActivity() == null) {
                 return;
             }
@@ -7187,7 +7236,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     .setNegativeButton(getString(R.string.ContactsPermissionAlertNotNow), (dialog, which) -> MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askedAboutMiuiLockscreen", true).commit())
                     .create());
             }
-        } else if (folderId == 0 && communityId == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !notificationManager.canUseFullScreenIntent()) {
+        } else if (PRIME_AUTO_PERMISSION_PROMPTS && folderId == 0 && communityId == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !notificationManager.canUseFullScreenIntent()) {
             if (getParentActivity() == null) {
                 return;
             }

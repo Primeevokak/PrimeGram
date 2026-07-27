@@ -95,6 +95,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_FORCE_SNOW = 65;
     private static final int ID_CENTER_TITLE = 66;
     private static final int ID_REMOVE_TAIL = 67;
+    private static final int ID_DOUBLE_TAP = 68;
+    private static final int ID_HIDE_ARCHIVE_FOLDER = 69;
+    private static final int ID_HIDE_ALL_CHATS = 70;
+    private static final int ID_AVATAR_CORNERS = 71;
+    private static final int ID_ADBLOCK_UPDATE = 72;
+    private static final int ID_LOCKSCREEN_CALLS = 73;
+    /** One id per blocking list, taken from a range nothing else uses. */
+    private static final int ID_ADBLOCK_LIST_BASE = 200;
 
     /**
      * Plain on/off tweaks all behave identically, so they share one handler. Returns the
@@ -118,6 +126,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_FORCE_SNOW) return org.telegram.messenger.PrimeTweaks.FORCE_SNOW;
         if (id == ID_CENTER_TITLE) return org.telegram.messenger.PrimeTweaks.CENTER_TITLE;
         if (id == ID_REMOVE_TAIL) return org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL;
+        if (id == ID_HIDE_ARCHIVE_FOLDER) return org.telegram.messenger.PrimeTweaks.HIDE_ARCHIVE_FOLDER;
+        if (id == ID_HIDE_ALL_CHATS) return org.telegram.messenger.PrimeTweaks.HIDE_ALL_CHATS;
         return null;
     }
 
@@ -309,6 +319,19 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asShadow("Режет запросы к рекламным и следящим доменам во встроенном браузере. Главная страница сайта не блокируется никогда — только её содержимое, поэтому ошибка в списке может стоить картинки, но не самого сайта. Заблокировано за сеанс: "
                 + org.telegram.messenger.browser.PrimeAdBlock.getBlockedCount() + "."));
 
+        if (org.telegram.messenger.browser.PrimeAdBlock.isEnabled()) {
+            items.add(UItem.asHeader("Списки блокировки"));
+            for (int i = 0; i < org.telegram.messenger.browser.PrimeAdBlockLists.LIST_IDS.length; i++) {
+                UItem listItem = UItem.asCheck(ID_ADBLOCK_LIST_BASE + i,
+                        org.telegram.messenger.browser.PrimeAdBlockLists.LIST_NAMES[i]);
+                listItem.subtext = org.telegram.messenger.browser.PrimeAdBlockLists.LIST_DESCRIPTIONS[i];
+                listItem.checked = org.telegram.messenger.browser.PrimeAdBlockLists.isListEnabled(i);
+                items.add(listItem);
+            }
+            items.add(UItem.asButton(ID_ADBLOCK_UPDATE, "Обновить списки", adBlockListsStatus()));
+            items.add(UItem.asShadow("Те же списки, на которые подписаны AdGuard и uBlock Origin. Из них берутся только правила вида «весь домен целиком» — наш блокировщик видит имя хоста и ничего больше, поэтому правила по адресу страницы и правила, прячущие пустые блоки, пропускаются, а не применяются наполовину.\n\nСписки скачиваются напрямую, мимо нашего туннеля: туннель возит протокол Telegram и только его. Если до серверов списков не достучаться — так и будет написано."));
+        }
+
         UItem dnsItem = UItem.asCheck(ID_DNS_ENABLED, "Свой DNS (DNS-over-HTTPS)");
         dnsItem.checked = org.telegram.messenger.browser.PrimeDns.isEnabled();
         items.add(dnsItem);
@@ -375,7 +398,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem noUnarchiveSwipeItem = UItem.asCheck(ID_DISABLE_UNARCHIVE_SWIPE, "Не разархивировать свайпом");
         noUnarchiveSwipeItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.DISABLE_UNARCHIVE_SWIPE);
         items.add(noUnarchiveSwipeItem);
-        items.add(UItem.asShadow("Истории убираются там же, где принимается решение о их показе, поэтому пустого места не остаётся. Кнопка «Написать» прячется только в списке чатов — при выборе чата для пересылки она остаётся, иначе подтвердить отправку было бы нечем. Свайп внутри архива блокируется только для действия «Архивировать»; если у вас на свайп назначено «Прочитать» или «Закрепить», оно продолжит работать."));
+        UItem hideArchiveItem = UItem.asCheck(ID_HIDE_ARCHIVE_FOLDER, "Убрать строку «Архив»");
+        hideArchiveItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_ARCHIVE_FOLDER);
+        items.add(hideArchiveItem);
+        UItem hideAllChatsItem = UItem.asCheck(ID_HIDE_ALL_CHATS, "Убрать вкладку «Все чаты»");
+        hideAllChatsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_ALL_CHATS);
+        items.add(hideAllChatsItem);
+        items.add(UItem.asShadow("Истории убираются там же, где принимается решение о их показе, поэтому пустого места не остаётся. Кнопка «Написать» прячется только в списке чатов — при выборе чата для пересылки она остаётся, иначе подтвердить отправку было бы нечем. Свайп внутри архива блокируется только для действия «Архивировать»; если у вас на свайп назначено «Прочитать» или «Закрепить», оно продолжит работать.\n\nСтрока «Архив» пропадает только из списка — сам архив и всё, что в нём лежит, остаётся на месте и открывается из бокового меню. Вкладка «Все чаты» убирается, если у вас есть хотя бы одна папка: без папок убирать нечего, иначе не осталось бы ни одной вкладки."));
 
         items.add(UItem.asHeader("В чатах"));
         UItem hideShareItem = UItem.asCheck(ID_HIDE_SHARE_BUTTON, "Скрыть кнопку «Поделиться»");
@@ -402,6 +431,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem stickerSizeItem = UItem.asButton(ID_STICKER_SIZE, "Размер стикеров",
                 String.valueOf(org.telegram.messenger.PrimeTweaks.stickerSize()));
         items.add(stickerSizeItem);
+        items.add(UItem.asButton(ID_DOUBLE_TAP, "Двойное нажатие",
+                DOUBLE_TAP_NAMES[Math.max(0, Math.min(DOUBLE_TAP_NAMES.length - 1, org.telegram.messenger.PrimeTweaks.doubleTapAction()))]));
         items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину."));
 
         items.add(UItem.asHeader("Профиль"));
@@ -420,7 +451,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem noTailItem = UItem.asCheck(ID_REMOVE_TAIL, "Пузыри без хвостика");
         noTailItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL);
         items.add(noTailItem);
-        items.add(UItem.asShadow("Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате. Заголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева."));
+        items.add(UItem.asButton(ID_AVATAR_CORNERS, "Форма аватарок", avatarCornersName()));
+        items.add(UItem.asShadow("Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате. Заголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется везде сразу — в списке чатов, в шапке чата, в профиле, в настройках. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами."));
 
         items.add(UItem.asHeader("Реакции"));
         UItem reactChannelsItem = UItem.asCheck(ID_HIDE_REACTIONS_CHANNELS, "Скрыть в каналах");
@@ -502,8 +534,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
         if (section == SECTION_ABOUT) {
         items.add(UItem.asHeader("Разрешения и поддержка"));
-        items.add(UItem.asButton(ID_GRANT_PERMISSIONS, "Выдать системные разрешения", "Контакты, Звонки, Память"));
-        items.add(UItem.asShadow("Нажмите, чтобы вручную выдать приложению базовые разрешения (если отключили их запрос при старте)."));
+        items.add(UItem.asButton(ID_GRANT_PERMISSIONS, "Выдать системные разрешения", "Контакты, звонки, память, уведомления"));
+        items.add(UItem.asButton(ID_LOCKSCREEN_CALLS, "Звонки на заблокированном экране", primeLockScreenCallsStatus()));
+        items.add(UItem.asShadow("PrimeGram не спрашивает разрешения сам: у оригинала они вываливаются на список чатов друг поверх друга и поверх системных окон, и их закрывают не читая. Здесь их выдаёте вы, когда сами этого захотели.\n\nБез второго пункта входящий звонок не покажет экран вызова, пока телефон заблокирован — придёт только уведомление."));
         
         items.add(UItem.asButton(ID_SUPPORT_PROJECT, "Поддержать проект (USDT TON)", "Отправить донат через @wallet"));
         items.add(UItem.asShadow("Спасибо за вашу поддержку! Это помогает развивать PrimeGram."));
@@ -516,6 +549,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             presentFragment(new PrimeGramSettingsActivity(item.id - ID_SECTION_BASE));
             return;
         }
+        if (item.id >= ID_ADBLOCK_LIST_BASE
+                && item.id < ID_ADBLOCK_LIST_BASE + org.telegram.messenger.browser.PrimeAdBlockLists.LIST_IDS.length) {
+            int index = item.id - ID_ADBLOCK_LIST_BASE;
+            boolean nowEnabled = !org.telegram.messenger.browser.PrimeAdBlockLists.isListEnabled(index);
+            org.telegram.messenger.browser.PrimeAdBlockLists.setListEnabled(index, nowEnabled);
+            listView.adapter.update(true);
+            if (nowEnabled) {
+                // a list nobody downloaded blocks nothing, and that reads as a broken switch
+                updateAdBlockLists();
+            }
+            return;
+        }
         MessagesController messagesController = MessagesController.getInstance(currentAccount);
         String tweakKey = primeTweakKeyFor(item.id);
         if (tweakKey != null) {
@@ -525,9 +570,28 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 // like it did nothing until the user waits it out.
                 org.telegram.ui.ActionBar.Theme.primeInvalidateHoliday();
             }
+            if (item.id == ID_HIDE_ARCHIVE_FOLDER) {
+                org.telegram.messenger.NotificationCenter.getGlobalInstance()
+                        .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
+            }
+            if (item.id == ID_HIDE_ALL_CHATS) {
+                // the tab strip is only rebuilt when the folder set changes, so say it did
+                for (int a = 0; a < org.telegram.messenger.UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                    if (org.telegram.messenger.UserConfig.getInstance(a).isClientActivated()) {
+                        org.telegram.messenger.NotificationCenter.getInstance(a)
+                                .postNotificationName(org.telegram.messenger.NotificationCenter.dialogFiltersUpdated);
+                    }
+                }
+            }
             listView.adapter.update(true);
         } else if (item.id == ID_STICKER_SIZE) {
             showStickerSizePicker();
+        } else if (item.id == ID_DOUBLE_TAP) {
+            showDoubleTapPicker();
+        } else if (item.id == ID_AVATAR_CORNERS) {
+            showAvatarCornersPicker();
+        } else if (item.id == ID_ADBLOCK_UPDATE) {
+            updateAdBlockLists();
         } else if (item.id == ID_HW_BENCHMARK) {
             runHwBenchmark();
         } else if (item.id == ID_ARCHIVE_ON_PULL) {
@@ -685,6 +749,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 if (android.os.Build.VERSION.SDK_INT >= 33) {
                     perms.add(android.Manifest.permission.READ_MEDIA_IMAGES);
                     perms.add(android.Manifest.permission.READ_MEDIA_VIDEO);
+                    // asked here rather than at the chat list, where it landed on top of everything
+                    perms.add(android.Manifest.permission.POST_NOTIFICATIONS);
                 } else {
                     perms.add(android.Manifest.permission.READ_EXTERNAL_STORAGE);
                     perms.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE);
@@ -693,6 +759,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 perms.add(android.Manifest.permission.CALL_PHONE);
                 getParentActivity().requestPermissions(perms.toArray(new String[0]), 100);
             }
+        } else if (item.id == ID_LOCKSCREEN_CALLS) {
+            openLockScreenCallSettings();
         } else if (item.id == ID_BATTERY_OPTIMIZATION) {
             AndroidUtilities.requestIgnoreBatteryOptimizations(getParentActivity());
         } else if (item.id == ID_MUSIC_SETTINGS) {
@@ -836,6 +904,169 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         builder.setTitle("Размер стикеров");
         builder.setItems(options, (dialog, which) -> {
             org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.STICKER_SIZE, min + which);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    /**
+     * Whether the system will let an incoming call take over a locked screen. Two different
+     * permissions answer that question depending on the phone: Android 14 introduced its own
+     * full-screen-intent switch, and MIUI has had a separate one of its own for years.
+     */
+    private static String primeLockScreenCallsStatus() {
+        try {
+            if (org.telegram.messenger.XiaomiUtilities.isMIUI()
+                    && !org.telegram.messenger.XiaomiUtilities.isCustomPermissionGranted(org.telegram.messenger.XiaomiUtilities.OP_SHOW_WHEN_LOCKED)) {
+                return "Не разрешено";
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                android.app.NotificationManager nm = (android.app.NotificationManager)
+                        ApplicationLoader.applicationContext.getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+                if (nm != null && !nm.canUseFullScreenIntent()) {
+                    return "Не разрешено";
+                }
+            }
+        } catch (Throwable ignore) {
+            return "";
+        }
+        return "Разрешено";
+    }
+
+    private void openLockScreenCallSettings() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        try {
+            if (org.telegram.messenger.XiaomiUtilities.isMIUI()) {
+                android.content.Intent intent = org.telegram.messenger.XiaomiUtilities.getPermissionManagerIntent();
+                if (intent != null) {
+                    getParentActivity().startActivity(intent);
+                    return;
+                }
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+                intent.setData(android.net.Uri.parse("package:" + ApplicationLoader.applicationContext.getPackageName()));
+                getParentActivity().startActivity(intent);
+                return;
+            }
+            // older Android has no separate switch - the app settings page is the closest thing
+            android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(android.net.Uri.parse("package:" + ApplicationLoader.applicationContext.getPackageName()));
+            getParentActivity().startActivity(intent);
+        } catch (Throwable t) {
+            org.telegram.messenger.FileLog.e(t);
+        }
+    }
+
+    /** What the "Обновить списки" row says on its right-hand side. */
+    private static String adBlockListsStatus() {
+        if (!org.telegram.messenger.browser.PrimeAdBlockLists.hasAnyListEnabled()) {
+            return "Список не выбран";
+        }
+        long updated = org.telegram.messenger.browser.PrimeAdBlockLists.lastUpdateTime();
+        if (updated <= 0) {
+            return "Ещё не загружено";
+        }
+        int rules = org.telegram.messenger.browser.PrimeAdBlockLists.ruleCount();
+        long ageMs = System.currentTimeMillis() - updated;
+        String age;
+        if (ageMs < 60 * 60 * 1000L) {
+            age = "только что";
+        } else if (ageMs < 24 * 60 * 60 * 1000L) {
+            age = (ageMs / (60 * 60 * 1000L)) + " ч назад";
+        } else {
+            age = (ageMs / (24 * 60 * 60 * 1000L)) + " дн назад";
+        }
+        return rules + " доменов, " + age;
+    }
+
+    private AlertDialog adBlockProgressDialog;
+
+    private void updateAdBlockLists() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        if (!org.telegram.messenger.browser.PrimeAdBlockLists.hasAnyListEnabled()) {
+            org.telegram.ui.Components.BulletinFactory.of(this)
+                    .createErrorBulletin("Сначала выберите хотя бы один список.").show();
+            return;
+        }
+        if (adBlockProgressDialog != null) {
+            return;
+        }
+        adBlockProgressDialog = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
+        adBlockProgressDialog.setCanCancel(false);
+        adBlockProgressDialog.show();
+        org.telegram.messenger.browser.PrimeAdBlockLists.update(new org.telegram.messenger.browser.PrimeAdBlockLists.UpdateCallback() {
+            @Override
+            public void onProgress(String message) {
+                if (adBlockProgressDialog != null) {
+                    adBlockProgressDialog.setMessage(message);
+                }
+            }
+
+            @Override
+            public void onFinished(boolean ok, String message) {
+                if (adBlockProgressDialog != null) {
+                    adBlockProgressDialog.dismiss();
+                    adBlockProgressDialog = null;
+                }
+                if (getParentActivity() == null) {
+                    return;
+                }
+                listView.adapter.update(true);
+                AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+                builder.setTitle(ok ? "Списки обновлены" : "Не получилось");
+                builder.setMessage(message);
+                builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
+                showDialog(builder.create());
+            }
+        });
+    }
+
+    private static final int[] AVATAR_CORNER_VALUES = {50, 40, 30, 20, 10, 0};
+    private static final String[] AVATAR_CORNER_NAMES = {
+            "Круглые — как в оригинале", "Почти круглые", "Скруглённые", "Слегка скруглённые", "Почти квадратные", "Квадратные"
+    };
+
+    private static String avatarCornersName() {
+        int current = org.telegram.messenger.PrimeTweaks.avatarCorners();
+        int best = 0;
+        for (int i = 1; i < AVATAR_CORNER_VALUES.length; i++) {
+            if (Math.abs(AVATAR_CORNER_VALUES[i] - current) < Math.abs(AVATAR_CORNER_VALUES[best] - current)) {
+                best = i;
+            }
+        }
+        return AVATAR_CORNER_NAMES[best];
+    }
+
+    private void showAvatarCornersPicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Форма аватарок");
+        builder.setItems(AVATAR_CORNER_NAMES, (dialog, which) -> {
+            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.AVATAR_CORNERS, AVATAR_CORNER_VALUES[which]);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private static final String[] DOUBLE_TAP_NAMES = {"Реакция", "Ответить", "Ничего"};
+
+    private void showDoubleTapPicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Двойное нажатие по сообщению");
+        builder.setItems(DOUBLE_TAP_NAMES, (dialog, which) -> {
+            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_ACTION, which);
             listView.adapter.update(true);
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
