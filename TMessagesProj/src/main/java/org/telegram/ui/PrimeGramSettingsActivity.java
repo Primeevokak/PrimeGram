@@ -105,6 +105,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_MENU_DETAILS = 75;
     private static final int ID_SENDER_MINI_AVATARS = 76;
     private static final int ID_ADMIN_SHORTCUTS = 77;
+    private static final int ID_TRANSLATE_PROVIDER = 78;
+    private static final int ID_SAVE_ROUND_VOICE = 79;
+    private static final int ID_SEND_UNCOMPRESSED = 80;
+    private static final int ID_CACHE = 81;
+    private static final int ID_VIDEO_QUALITY = 82;
+    private static final int ID_PRELOAD_VIDEO_MOBILE = 83;
     /** One id per blocking list, taken from a range nothing else uses. */
     private static final int ID_ADBLOCK_LIST_BASE = 200;
 
@@ -136,6 +142,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_MENU_DETAILS) return org.telegram.messenger.PrimeTweaks.MENU_DETAILS;
         if (id == ID_SENDER_MINI_AVATARS) return org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS;
         if (id == ID_ADMIN_SHORTCUTS) return org.telegram.messenger.PrimeTweaks.ADMIN_SHORTCUTS;
+        if (id == ID_SAVE_ROUND_VOICE) return org.telegram.messenger.PrimeTweaks.SAVE_ROUND_AND_VOICE;
+        if (id == ID_SEND_UNCOMPRESSED) return org.telegram.messenger.PrimeTweaks.SEND_UNCOMPRESSED;
         return null;
     }
 
@@ -187,50 +195,87 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asButton(ID_SECTION_BASE + SECTION_ADVANCED, "Дополнительно", "Обновления, эксперименты, диагностика"));
         items.add(UItem.asButton(ID_SECTION_BASE + SECTION_ABOUT, "Разрешения и поддержка", ""));
         items.add(UItem.asShadow("PrimeGram " + org.telegram.messenger.BuildVars.BUILD_VERSION_STRING));
+
     }
 
     private CharSequence sectionTitle() {
+
         switch (section) {
+
             case SECTION_INTERFACE: return "Интерфейс";
+
             case SECTION_CONNECTION: return "Соединение";
+
             case SECTION_PRIVACY: return "Приватность";
+
             case SECTION_TOOLS: return "Инструменты";
+
             case SECTION_MEDIA: return "Медиа и музыка";
+
             case SECTION_ADVANCED: return "Дополнительно";
+
             case SECTION_PREMIUM: return "Локальный Premium";
+
             case SECTION_ABOUT: return "Разрешения и поддержка";
+
             default: return "Настройки PrimeGram";
+
         }
+
     }
+
     @Override
+
     protected CharSequence getTitle() {
+
         return sectionTitle();
+
     }
 
     private String vlessKeyStatusText(boolean running) {
+
         if (running) {
+
             return "Статус: активен, трафик защищён.";
+
         }
+
         if (!VpnSDK.hasCachedXrayConfig()) {
+
             return "Статус: ключ ещё не получен от сервера.";
+
         }
+
         String lastError = VpnSDK.getProxyLastError();
+
         if (lastError != null && !lastError.isEmpty()) {
+
             return "Статус: ключ есть, но прокси не запустился (" + lastError + ").";
+
         }
+
         return "Статус: ключ получен, прокси выключен.";
+
     }
 
     @Override
+
     protected void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {
+
         if (section == SECTION_ROOT) {
+
             fillRoot(items);
+
             return;
+
         }
+
         final SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+
         final MessagesController messagesController = MessagesController.getInstance(currentAccount);
 
         if (section == SECTION_INTERFACE) {
+
         items.add(UItem.asHeader("Интерфейс"));
         boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         UItem checkItem = UItem.asCheck(ID_SIDEBAR_ENABLED, "Боковая панель на основном экране");
@@ -325,6 +370,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         adBlockItem.checked = org.telegram.messenger.browser.PrimeAdBlock.isEnabled();
         items.add(adBlockItem);
         items.add(UItem.asShadow("Режет запросы к рекламным и следящим доменам во встроенном браузере. Главная страница сайта не блокируется никогда — только её содержимое, поэтому ошибка в списке может стоить картинки, но не самого сайта. Заблокировано за сеанс: "
+
                 + org.telegram.messenger.browser.PrimeAdBlock.getBlockedCount() + "."));
 
         if (org.telegram.messenger.browser.PrimeAdBlock.isEnabled()) {
@@ -454,6 +500,27 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         adminItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.ADMIN_SHORTCUTS);
         items.add(adminItem);
         items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину.\n\nДва последних пункта добавляются в меню долгого нажатия по сообщению, в самый низ: «В избранное» пересылает в «Избранное» без выбора чата (альбом целиком), «Подробности» показывает ID сообщения, отправителя и время отправки и правки — всё копируется одной кнопкой.\n\nАдмин-действия — «Забанить» и «Удалить все сообщения» — появляются только в группах, где у вас есть право блокировать участников, и только на чужих сообщениях. Оба спрашивают подтверждение. Автора-канал они не трогают: это другой запрос, и он остаётся в профиле."));
+
+        items.add(UItem.asHeader("Медиа"));
+        UItem uncompressedItem = UItem.asCheck(ID_SEND_UNCOMPRESSED, "Отправлять без сжатия");
+        uncompressedItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SEND_UNCOMPRESSED);
+        items.add(uncompressedItem);
+        UItem saveRoundItem = UItem.asCheck(ID_SAVE_ROUND_VOICE, "Сохранять кружочки и голосовые");
+        saveRoundItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SAVE_ROUND_AND_VOICE);
+        items.add(saveRoundItem);
+        items.add(UItem.asButton(ID_VIDEO_QUALITY, "Качество видео",
+                VIDEO_QUALITY_NAMES[videoQualityIndex()]));
+        UItem preloadItem = UItem.asCheck(ID_PRELOAD_VIDEO_MOBILE, "Догружать видео на мобильной сети");
+        preloadItem.checked = org.telegram.messenger.DownloadController.getInstance(currentAccount).primeMobilePreloadVideo();
+        items.add(preloadItem);
+        items.add(UItem.asButton(ID_CACHE, "Кэш медиа", cacheSizeText()));
+        items.add(UItem.asShadow("Отправка без сжатия переключает главную кнопку в режим «файлом» — тот же, что в меню вложений. На контакты, музыку и геопозицию это не влияет: для них «файлом» ничего не значит.\n\nСохранение кружочков и голосовых добавляет пункт в меню долгого нажатия: кружочек уходит в галерею, голосовое — в загрузки. Одноразовые сообщения не сохраняются: отправитель выбрал исчезающее сообщение, и обходить это мы не будем.\n\nКачество видео ограничивает то, что скачивается, а не только то, что играет: скачивается ровно та дорожка, которую выбирает плеер. Если ни одна не помещается в лимит, берётся обычная — лимит не должен оставить видео непроигрываемым. Уже скачанное не перекачивается заново, даже если оно крупнее лимита. Настройка применяется к сообщениям, открытым после её изменения.\n\nВыключенная догрузка на мобильной сети переводит автозагрузку в режим «Свой» — иначе правка задела бы заодно Wi-Fi и роуминг, у которых с готовыми пресетами общий объект. Остальные значения при этом переносятся как были.\n\nКэш — только скачанное для просмотра. Файлы, которые вы сами сохранили в загрузки или галерею, кнопка не трогает."));
+
+        items.add(UItem.asHeader("Перевод"));
+        items.add(UItem.asButton(ID_TRANSLATE_PROVIDER, "Чем переводить",
+                TRANSLATE_PROVIDER_NAMES[Math.max(0, Math.min(TRANSLATE_PROVIDER_NAMES.length - 1,
+                        org.telegram.messenger.PrimeTweaks.translateProvider()))]));
+        items.add(UItem.asShadow("Перевод через Telegram идёт по тому же соединению, что и всё остальное, и подчиняется ограничениям аккаунта. Google и Yandex работают по обычной сети — это выручает, когда туннель тормозит, и не требует Premium. Сети у них разные, так что если один недоступен, стоит попробовать другой.\n\nВзамен они теряют форматирование: жирный шрифт, ссылки и упоминания в переведённом тексте пропадут. Поэтому по умолчанию стоит Telegram. Статьи Instant View переводятся через Telegram в любом случае — там перевод возвращает не текст, а свёрстанную страницу."));
 
         items.add(UItem.asHeader("Профиль"));
         UItem showIdItem = UItem.asCheck(ID_SHOW_ID_AND_DC, "Показывать ID и дата-центр");
@@ -616,6 +683,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showStickerSizePicker();
         } else if (item.id == ID_DOUBLE_TAP) {
             showDoubleTapPicker();
+        } else if (item.id == ID_TRANSLATE_PROVIDER) {
+            showTranslateProviderPicker();
+        } else if (item.id == ID_CACHE) {
+            showCacheDialog();
+        } else if (item.id == ID_VIDEO_QUALITY) {
+            showVideoQualityPicker();
+        } else if (item.id == ID_PRELOAD_VIDEO_MOBILE) {
+            togglePreloadVideoOnMobile();
         } else if (item.id == ID_ADBLOCK_UPDATE) {
             updateAdBlockLists();
         } else if (item.id == ID_HW_BENCHMARK) {
@@ -1009,6 +1084,114 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return rules + " доменов, " + age;
     }
 
+    /**
+     * Cache sizes by kind, or null until the first measurement lands.
+     *
+     * <p>Measuring walks every cache directory, so it runs on a background thread and the row
+     * shows a placeholder until it finishes rather than blocking the screen from opening.
+     */
+    private long[] cacheSizes;
+    private boolean measuringCache;
+
+    private CharSequence cacheSizeText() {
+        if (cacheSizes == null) {
+            measureCache();
+            return "…";
+        }
+        long total = 0;
+        for (long size : cacheSizes) {
+            total += size;
+        }
+        return AndroidUtilities.formatFileSize(total);
+    }
+
+    private void measureCache() {
+        if (measuringCache) {
+            return;
+        }
+        measuringCache = true;
+        org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> {
+            final long[] measured = org.telegram.messenger.PrimeCache.measure();
+            AndroidUtilities.runOnUIThread(() -> {
+                measuringCache = false;
+                cacheSizes = measured;
+                if (listView != null && listView.adapter != null) {
+                    listView.adapter.update(true);
+                }
+            });
+        });
+    }
+
+    private void showCacheDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        if (cacheSizes == null) {
+            measureCache();
+            org.telegram.ui.Components.BulletinFactory.of(this)
+                    .createErrorBulletin("Считаю размер, секунду…").show();
+            return;
+        }
+        final long[] sizes = cacheSizes;
+        long total = 0;
+        for (long size : sizes) {
+            total += size;
+        }
+        if (total <= 0) {
+            org.telegram.ui.Components.BulletinFactory.of(this)
+                    .createSimpleBulletin(R.raw.done, "Кэш уже пуст").show();
+            return;
+        }
+        // One entry per kind plus a clear-everything row, rather than checkboxes: this dialog
+        // has no multi-choice variant, and picking one kind at a time is what people actually do.
+        final CharSequence[] options = new CharSequence[org.telegram.messenger.PrimeCache.KIND_COUNT + 1];
+        for (int i = 0; i < org.telegram.messenger.PrimeCache.KIND_COUNT; i++) {
+            options[i] = org.telegram.messenger.PrimeCache.KIND_NAMES[i] + " — " + AndroidUtilities.formatFileSize(sizes[i]);
+        }
+        options[org.telegram.messenger.PrimeCache.KIND_COUNT] = "Очистить всё — " + AndroidUtilities.formatFileSize(total);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Кэш медиа");
+        builder.setItems(options, (dialog, which) -> {
+            final boolean[] kinds = new boolean[org.telegram.messenger.PrimeCache.KIND_COUNT];
+            if (which >= org.telegram.messenger.PrimeCache.KIND_COUNT) {
+                java.util.Arrays.fill(kinds, true);
+            } else {
+                if (sizes[which] <= 0) {
+                    return;
+                }
+                kinds[which] = true;
+            }
+            clearCache(kinds);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void clearCache(boolean[] kinds) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final AlertDialog progress = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
+        progress.setCanCancel(false);
+        progress.show();
+        org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> {
+            org.telegram.messenger.PrimeCache.clear(kinds);
+            final long[] measured = org.telegram.messenger.PrimeCache.measure();
+            AndroidUtilities.runOnUIThread(() -> {
+                progress.dismiss();
+                cacheSizes = measured;
+                if (listView != null && listView.adapter != null) {
+                    listView.adapter.update(true);
+                }
+                if (getParentActivity() != null) {
+                    org.telegram.ui.Components.BulletinFactory.of(this)
+                            .createSimpleBulletin(R.raw.done, "Кэш очищен").show();
+                }
+            });
+        });
+    }
+
     private AlertDialog adBlockProgressDialog;
 
     private void updateAdBlockLists() {
@@ -1061,6 +1244,58 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             avatarCornersCell = new org.telegram.ui.Cells.PrimeAvatarCornersCell(getContext(), "Форма аватарок", null);
         }
         return avatarCornersCell;
+    }
+
+    private static final String[] TRANSLATE_PROVIDER_NAMES = {"Telegram", "Google", "Yandex"};
+
+    /** 0 means no ceiling; the rest are the shorter side in pixels. */
+    private static final int[] VIDEO_QUALITY_VALUES = {0, 1080, 720, 480, 360};
+    private static final String[] VIDEO_QUALITY_NAMES = {"Максимальное", "До 1080p", "До 720p", "До 480p", "До 360p"};
+
+    private int videoQualityIndex() {
+        final int current = org.telegram.messenger.PrimeTweaks.maxVideoHeight();
+        for (int i = 0; i < VIDEO_QUALITY_VALUES.length; i++) {
+            if (VIDEO_QUALITY_VALUES[i] == current) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private void showVideoQualityPicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Качество видео");
+        builder.setItems(VIDEO_QUALITY_NAMES, (dialog, which) -> {
+            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.MAX_VIDEO_HEIGHT,
+                    VIDEO_QUALITY_VALUES[which]);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void togglePreloadVideoOnMobile() {
+        final org.telegram.messenger.DownloadController controller =
+                org.telegram.messenger.DownloadController.getInstance(currentAccount);
+        controller.primeSetMobilePreloadVideo(!controller.primeMobilePreloadVideo());
+        listView.adapter.update(true);
+    }
+
+    private void showTranslateProviderPicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Чем переводить");
+        builder.setItems(TRANSLATE_PROVIDER_NAMES, (dialog, which) -> {
+            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.TRANSLATE_PROVIDER, which);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
     }
 
     private static final String[] DOUBLE_TAP_NAMES = {"Реакция", "Ответить", "Ничего"};

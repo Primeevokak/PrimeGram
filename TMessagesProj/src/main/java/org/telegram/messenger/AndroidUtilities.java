@@ -4213,6 +4213,11 @@ public class AndroidUtilities {
                     parentFragment.showDialog(builder.create());
                 }
             } else {
+                // Reached from the Files tab, Downloads and search results, which do not go
+                // through openForView and so had none of its handling.
+                if (primeOpenHtmlInBrowser(f, fileName, document.mime_type, activity)) {
+                    return;
+                }
                 String realMimeType = null;
                 try {
                     Intent intent = new Intent(Intent.ACTION_VIEW);

@@ -4434,16 +4434,37 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
         }
         applyCaption();
 
+        final int button = primeSendButton();
         if (animatorEphemeralMessageVisibility.getValue()) {
             setButtonPressed(true);
-            delegate.didPressedButton(7, true, notify, scheduleDate, scheduleRepeatPeriod, effectId, invertMedia, false, 0);
+            delegate.didPressedButton(button, true, notify, scheduleDate, scheduleRepeatPeriod, effectId, invertMedia, false, 0);
             return true;
         } else {
             return AlertsCreator.ensurePaidMessageConfirmation(currentAccount, getDialogId(), (currentAttachLayout == null ? 1 : currentAttachLayout.getSelectedItemsCount()) + getAdditionalMessagesCount(), payStars -> {
                 setButtonPressed(true);
-                delegate.didPressedButton(7, true, notify, scheduleDate, scheduleRepeatPeriod, effectId, invertMedia, false, payStars);
+                delegate.didPressedButton(button, true, notify, scheduleDate, scheduleRepeatPeriod, effectId, invertMedia, false, payStars);
             });
         }
+    }
+
+    /**
+     * PrimeGram: which send mode the main button uses.
+     *
+     * <p>7 compresses, 4 sends the originals as files - the same two the "Send without
+     * compression" menu entry switches between. With the setting on, the button starts on 4 so
+     * quality is kept without reaching into the menu for every batch.
+     *
+     * <p>Narrowed to the gallery layout on purpose: the same button also sends contacts,
+     * locations, music and polls, and "as a file" means nothing for those.
+     */
+    private int primeSendButton() {
+        if (!org.telegram.messenger.PrimeTweaks.sendUncompressed()) {
+            return 7;
+        }
+        if (currentAttachLayout != photoLayout || editingMessageObject != null) {
+            return 7;
+        }
+        return 4;
     }
 
     public void setButtonPressed(boolean pressed) {

@@ -362,6 +362,10 @@ public class TgWsProxyService extends Service {
                             restartProxySockets();
                         }
                         maintainWsPool();
+                        // The only thing still running when the app is swiped away, so this is
+                        // where a temporary subscription can expire without the user reopening
+                        // the client. Returns immediately unless something is actually due.
+                        TempSubStore.checkExpiredInBackground();
                     }
                 } catch (InterruptedException e) {
                     break;
@@ -411,6 +415,7 @@ public class TgWsProxyService extends Service {
             r.run();
         }, "tgws-proxy"));
         sslSocketFactory = buildTrustAllSslFactory();
+        primeWatchForeground();
 
         ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivityManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -1034,6 +1039,41 @@ public class TgWsProxyService extends Service {
             }
         }
         logInfo("Warming up WS pool for recently active DCs");
+    }
+
+    /**
+     * Rebuilds the pool when the app returns to the foreground.
+     *
+     * <p>Backgrounding makes tgnet drop its connections, and reopening the app makes it rebuild
+     * them - which is what puts "Connecting to proxy" on screen. That banner is honest: the proxy
+     * service never stopped, but tgnet's connection through it has to be made again, and a fresh
+     * WebSocket costs a TLS handshake plus an upgrade that measurements put at about 1.7 seconds.
+     *
+     * <p>The pool exists to absorb exactly that, but pooled sockets are only handed out for 30
+     * seconds, so any longer absence left it useless. Warming here means the sockets are usually
+     * ready before tgnet asks for them, and the banner passes quickly or never appears.
+     */
+    private static void primeWatchForeground() {
+        try {
+            org.telegram.ui.Components.ForegroundDetector.getInstance().addListener(
+                    new org.telegram.ui.Components.ForegroundDetector.Listener() {
+                        @Override
+                        public void onBecameForeground() {
+                            final TgWsProxyService service = instance;
+                            if (service != null && service.running.get()) {
+                                service.warmupActiveDcs();
+                            }
+                        }
+
+                        @Override
+                        public void onBecameBackground() {
+                        }
+                    });
+        } catch (Throwable t) {
+            // The detector needs the Application to have registered its activity callbacks; if we
+            // are somehow earlier than that, the pool simply keeps its old timing.
+            FileLog.e("TgWsProxyService.primeWatchForeground", t);
+        }
     }
 
     private void maintainWsPool() {

@@ -404,6 +404,31 @@ public class DownloadController extends BaseController implements NotificationCe
         }));
     }
 
+    /**
+     * PrimeGram: turns "preload the rest of a large video" on or off for mobile data.
+     *
+     * <p>Switches the mobile preset to Custom first, exactly as the stock auto-download screen
+     * does when anything is edited. That is not cosmetic: while Low, Medium or High is selected,
+     * {@link #getCurrentMobilePreset()} hands back an object shared with the Wi-Fi and roaming
+     * settings, and writing to it would change those too. The current values are copied across
+     * so nothing else about the preset moves.
+     */
+    public void primeSetMobilePreloadVideo(boolean value) {
+        if (currentMobilePreset != 3) {
+            mobilePreset.set(getCurrentMobilePreset());
+        }
+        mobilePreset.preloadVideo = value;
+        SharedPreferences.Editor editor = MessagesController.getMainSettings(currentAccount).edit();
+        editor.putString("mobilePreset", mobilePreset.toString());
+        editor.putInt("currentMobilePreset", currentMobilePreset = 3);
+        editor.commit();
+        checkAutodownloadSettings();
+    }
+
+    public boolean primeMobilePreloadVideo() {
+        return getCurrentMobilePreset().preloadVideo;
+    }
+
     public Preset getCurrentMobilePreset() {
         if (currentMobilePreset == 0) {
             return lowPreset;

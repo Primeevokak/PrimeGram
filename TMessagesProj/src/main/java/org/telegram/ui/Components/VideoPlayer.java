@@ -949,11 +949,58 @@ public class VideoPlayer implements Player.Listener, VideoListener, AnalyticsLis
         return null;
     }
 
+    /**
+     * PrimeGram: the best quality that fits under {@code cap} (the shorter side, in pixels).
+     *
+     * <p>Returns null when nothing fits, and the caller then falls through to the stock choice -
+     * a cap must never leave a video unplayable just because every available rendition is larger
+     * than the ceiling.
+     *
+     * <p>Anything already downloaded wins outright, even if it is over the cap: the point of the
+     * setting is to spend less traffic, and re-fetching a smaller copy of a file already on disk
+     * would spend more.
+     */
+    private static VideoUri primeCappedQuality(ArrayList<Quality> qualities, int cap) {
+        VideoUri best = null;
+        for (final Quality q : qualities) {
+            for (final VideoUri v : q.uris) {
+                if (v.isCached() && Math.min(v.width, v.height) <= cap) {
+                    return v;
+                }
+            }
+        }
+        for (final Quality q : qualities) {
+            for (final VideoUri v : q.uris) {
+                if (Math.min(v.width, v.height) > cap) {
+                    continue;
+                }
+                final boolean better = best == null
+                        || v.width * v.height > best.width * best.height
+                        || v.width * v.height == best.width * best.height && v.bitrate < best.bitrate;
+                if (better) {
+                    best = v;
+                }
+            }
+        }
+        return best;
+    }
+
     public static VideoUri getQualityForPlayer(ArrayList<Quality> qualities) {
         for (final Quality q : qualities) {
             for (final VideoUri v : q.uris) {
                 if (v.original && v.isCached())
                     return v;
+            }
+        }
+
+        // This is also the quality that gets downloaded and saved - DownloadController sizes a
+        // video by highestQuality, and MediaController saves qualityToSave - so capping here is
+        // what makes a "download quality" setting mean anything.
+        final int cap = org.telegram.messenger.PrimeTweaks.maxVideoHeight();
+        if (cap > 0) {
+            final VideoUri capped = primeCappedQuality(qualities, cap);
+            if (capped != null) {
+                return capped;
             }
         }
 

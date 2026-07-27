@@ -7103,7 +7103,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // PrimeGram: sweep expired temporary subscriptions. Self-throttling and a no-op when
         // nothing is scheduled, so running it on every resume costs nothing.
         try {
-            org.telegram.messenger.TempSubStore.checkExpired(currentAccount);
+            org.telegram.messenger.TempSubStore.checkExpired();
         } catch (Throwable ignore) {}
         pipActivityHandler.onResume();
         if (onResumeStaticCallback != null) {

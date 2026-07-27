@@ -1250,6 +1250,8 @@ public class ChatActivity extends BaseFragment implements
     public final static int OPTION_PRIME_BAN = 903;
     /** PrimeGram: delete every message this sender posted in the group. */
     public final static int OPTION_PRIME_DELETE_ALL_FROM = 904;
+    /** PrimeGram: save a round video or a voice message, which stock offers no way to keep. */
+    public final static int OPTION_PRIME_SAVE_MEDIA = 905;
 
     private final static int[] allowedNotificationsDuringChatListAnimations = new int[]{
             NotificationCenter.messagesRead,
@@ -3375,6 +3377,10 @@ public class ChatActivity extends BaseFragment implements
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (primeTempSubTick != null) {
+            AndroidUtilities.cancelRunOnUIThread(primeTempSubTick);
+            primeTempSubTick = null;
+        }
         if (messageMetricsView != null) {
             messageMetricsView.finish();
         }
@@ -7138,7 +7144,7 @@ public class ChatActivity extends BaseFragment implements
         if (currentChat != null) {
             pendingRequestsDelegate = new ChatActivityMemberRequestsDelegate(this, currentChat);
             topPanelLayout.addView(pendingRequestsDelegate.getView(), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 40));
-            topPanelLayout.setPriority(pendingRequestsDelegate.getView(), 3);
+            topPanelLayout.setPriority(pendingRequestsDelegate.getView(), 30);
             topPanelLayout.setDebugName(pendingRequestsDelegate.getView(), "pendingRequestsDelegate");
             pendingRequestsDelegate.setDelegate((v, a) -> topPanelLayout.setViewVisible(pendingRequestsDelegate.getView(), v, a));
             pendingRequestsDelegate.setChatInfo(chatInfo, false);
@@ -7540,7 +7546,7 @@ public class ChatActivity extends BaseFragment implements
         if (!isInsideContainer) {
             fragmentLocationContextViewWrapper = new FrameLayout(context);
             topPanelLayout.addView(fragmentLocationContextViewWrapper);
-            topPanelLayout.setPriority(fragmentLocationContextViewWrapper, 6);
+            topPanelLayout.setPriority(fragmentLocationContextViewWrapper, 60);
             topPanelLayout.setDebugName(fragmentLocationContextViewWrapper, "fragment location");
             topPanelLayout.setViewVisible(fragmentLocationContextViewWrapper, true, false);
             fragmentLocationContextView = new FragmentContextView(context, this, null, true, themeDelegate) {
@@ -7551,7 +7557,7 @@ public class ChatActivity extends BaseFragment implements
             };
             fragmentContextViewWrapper = new FrameLayout(context);
             topPanelLayout.addView(fragmentContextViewWrapper);
-            topPanelLayout.setPriority(fragmentContextViewWrapper, 5);
+            topPanelLayout.setPriority(fragmentContextViewWrapper, 50);
             topPanelLayout.setDebugName(fragmentContextViewWrapper, "fragment context");
             topPanelLayout.setViewVisible(fragmentContextViewWrapper, true, false);
             fragmentContextView = new FragmentContextView(context, this, null, false, themeDelegate) {
@@ -8534,6 +8540,16 @@ public class ChatActivity extends BaseFragment implements
             }
         };
         bottomChannelButtonsLayout.getContainer().addView(bottomOverlayChatText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, 0));
+        // PrimeGram: holding the join button subscribes with an expiry instead of forever. The
+        // gesture is on the button people already reach for, so the feature is where it is needed
+        // rather than three taps deep in the header menu.
+        bottomOverlayChatText.setOnLongClickListener(view -> {
+            if (!primeCanJoinTemporarily()) {
+                return false;
+            }
+            primeShowTempSubJoinAlert();
+            return true;
+        });
         bottomOverlayChatText.setOnClickListener(view -> {
             if (getParentActivity() == null || pullingDownOffset != 0) {
                 return;
@@ -9787,7 +9803,7 @@ public class ChatActivity extends BaseFragment implements
         invalidateChatListViewTopPadding();
         topChatPanelView.setClickable(true);
         topPanelLayout.addView(topChatPanelView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
-        topPanelLayout.setPriority(topChatPanelView, 2);
+        topPanelLayout.setPriority(topChatPanelView, 20);
         topPanelLayout.setDebugName(topChatPanelView, "top chat panel view");
 
         reportSpamButton = new TextView(getContext());
@@ -9816,7 +9832,7 @@ public class ChatActivity extends BaseFragment implements
         emojiStatusSpamHint.setGravity(Gravity.CENTER);
         emojiStatusSpamHint.setPadding(0, dp(9), 0, dp(9));
         topPanelLayout.addView(emojiStatusSpamHint, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 25, 0, 25, 0));
-        topPanelLayout.setPriority(emojiStatusSpamHint, 8);
+        topPanelLayout.setPriority(emojiStatusSpamHint, 80);
         topPanelLayout.setDebugName(emojiStatusSpamHint, "emoji status spam hint");
 
         addToContactsButton = new TextView(getContext());
@@ -9889,7 +9905,7 @@ public class ChatActivity extends BaseFragment implements
         restartTopicButton.setText(LocaleController.getString(R.string.RestartTopic));
         restartTopicButton.setBackground(Theme.createSelectorDrawable(getThemedColor(Theme.key_chat_addContact) & 0x19ffffff, 3));
         topPanelLayout.addView(restartTopicButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
-        topPanelLayout.setPriority(restartTopicButton, 4);
+        topPanelLayout.setPriority(restartTopicButton, 40);
         topPanelLayout.setDebugName(restartTopicButton, "restart topic button");
         restartTopicButton.setOnClickListener(v -> {
             if (forumTopic != null) {
@@ -9947,7 +9963,7 @@ public class ChatActivity extends BaseFragment implements
             }
         };
         topPanelLayout.addView(translateButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, Gravity.LEFT | Gravity.BOTTOM));
-        topPanelLayout.setPriority(translateButton, 12);
+        topPanelLayout.setPriority(translateButton, 120);
         topPanelLayout.setDebugName(translateButton, "translate button");
     }
     private void createAddProfilePictureButton() {
@@ -9985,7 +10001,7 @@ public class ChatActivity extends BaseFragment implements
         });
         ScaleStateListAnimator.apply(addProfilePictureButton, 0.04f, 1.5f);
         topPanelLayout.addView(addProfilePictureButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, Gravity.LEFT | Gravity.BOTTOM));
-        topPanelLayout.setPriority(addProfilePictureButton, 12);
+        topPanelLayout.setPriority(addProfilePictureButton, 120);
         topPanelLayout.setDebugName(addProfilePictureButton, "add profile picture button");
     }
 
@@ -10337,7 +10353,7 @@ public class ChatActivity extends BaseFragment implements
 
         botAdView = new BotAdView(getContext(), themeDelegate);
         topPanelLayout.addView(botAdView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-        topPanelLayout.setPriority(botAdView, 10);
+        topPanelLayout.setPriority(botAdView, 100);
         topPanelLayout.setDebugName(botAdView, "bot add view");
     }
 
@@ -10352,7 +10368,7 @@ public class ChatActivity extends BaseFragment implements
         }
         bizBotButton = new BusinessBotButton(getContext(), this, themeDelegate);
         topPanelLayout.addView(bizBotButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
-        topPanelLayout.setPriority(bizBotButton, 7);
+        topPanelLayout.setPriority(bizBotButton, 70);
         topPanelLayout.setDebugName(bizBotButton, "bot biz");
     }
 
@@ -11526,7 +11542,7 @@ public class ChatActivity extends BaseFragment implements
         };
         pinnedMessageView.setTag(1);
         topPanelLayout.addView(pinnedMessageView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
-        topPanelLayout.setPriority(pinnedMessageView, 1);
+        topPanelLayout.setPriority(pinnedMessageView, 10);
         topPanelLayout.setDebugName(pinnedMessageView, "pinned message view");
         pinnedMessageView.setOnClickListener(v -> {
             wasManualScroll = true;
@@ -28243,7 +28259,7 @@ public class ChatActivity extends BaseFragment implements
 
         alertView = new FrameLayout(getContext());
         topPanelLayout.addView(alertView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
-        topPanelLayout.setPriority(alertView, 11);
+        topPanelLayout.setPriority(alertView, 110);
         topPanelLayout.setDebugName(alertView, "alert view");
 
         alertNameTextView = new TextView(getContext());
@@ -29420,7 +29436,7 @@ public class ChatActivity extends BaseFragment implements
                 chatWithAdminTextView.setPadding(AndroidUtilities.dp(14), 0, AndroidUtilities.dp(46), 0);
                 chatWithAdminTextView.setBackground(Theme.createSelectorDrawable(getThemedColor(Theme.key_listSelector), 2));
                 topPanelLayout.addView(chatWithAdminTextView, 0, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
-                topPanelLayout.setPriority(chatWithAdminTextView, 9);
+                topPanelLayout.setPriority(chatWithAdminTextView, 90);
                 topPanelLayout.setDebugName(chatWithAdminTextView, "chat with admin text view");
                 chatWithAdminTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
                 chatWithAdminTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
@@ -29852,6 +29868,7 @@ public class ChatActivity extends BaseFragment implements
         super.onResume();
         checkShowBlur(false);
         activityResumeTime = System.currentTimeMillis();
+        primeUpdateTempSubPanel();
         if (openImport && getSendMessagesHelper().getImportingHistory(dialog_id) != null) {
             ImportingAlert alert = new ImportingAlert(getParentActivity(), null, this, themeDelegate);
             alert.setOnHideListener(dialog -> {
@@ -30936,42 +30953,144 @@ public class ChatActivity extends BaseFragment implements
     }
 
     /** PrimeGram: pick how long to stay in this channel before the client leaves on its own. */
+    /** Whether the bottom button is currently a "join this channel" button we can qualify. */
+    private boolean primeCanJoinTemporarily() {
+        return chatMode == 0
+                && getParentActivity() != null
+                && pullingDownOffset == 0
+                && currentChat != null
+                && !currentChat.creator
+                && ChatObject.isChannel(currentChat)
+                && ChatObject.isNotInChat(currentChat)
+                && bottomOverlayChatText != null
+                && bottomOverlayChatText.isEnabled();
+    }
+
+    private void primeShowTempSubJoinAlert() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final org.telegram.ui.Components.PrimeTempSubPicker picker =
+                new org.telegram.ui.Components.PrimeTempSubPicker(getParentActivity(), 60 * 60 * 1000L, themeDelegate);
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle("Подписаться на время");
+        builder.setMessage("Подпишемся сейчас и отпишемся автоматически");
+        builder.setView(picker);
+        builder.setPositiveButton("Подписаться", (dialog, which) -> {
+            final long duration = picker.getDurationMs();
+            // Scheduled before joining, not after: if the join fails we are left with an entry for
+            // a channel we are not in, and the sweep drops those quietly. The reverse order could
+            // leave a real subscription with nothing scheduled to end it.
+            org.telegram.messenger.TempSubStore.schedule(dialog_id, System.currentTimeMillis() + duration,
+                    currentChat != null ? currentChat.title : null, currentAccount);
+            if (bottomOverlayChatText != null) {
+                // Через штатный обработчик: он умеет и заявки на вступление, и прогресс, и отмену.
+                bottomOverlayChatText.callOnClick();
+            }
+            primeUpdateTempSubPanel();
+            BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.contact_check,
+                    "Отпишемся через " + org.telegram.ui.Components.PrimeTempSubPicker.format(duration)).show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private TextView primeTempSubPanel;
+    private Runnable primeTempSubTick;
+
+    /**
+     * PrimeGram: the countdown strip that sits directly under the pinned message.
+     *
+     * <p>Priority 15 puts it there: the panel stack orders by priority, and the pinned message is
+     * 10 while everything else starts at 20. The whole scale was multiplied by ten to make room -
+     * there was no integer between 1 and 2.
+     */
+    private void primeCreateTempSubPanel() {
+        if (primeTempSubPanel != null || getContext() == null) {
+            return;
+        }
+        createTopPanel();
+        if (topPanelLayout == null) {
+            return;
+        }
+        primeTempSubPanel = new TextView(getContext());
+        primeTempSubPanel.setGravity(Gravity.CENTER_VERTICAL);
+        primeTempSubPanel.setPadding(dp(18), 0, dp(18), 0);
+        primeTempSubPanel.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        primeTempSubPanel.setSingleLine(true);
+        primeTempSubPanel.setEllipsize(TextUtils.TruncateAt.END);
+        primeTempSubPanel.setTextColor(getThemedColor(Theme.key_chat_topPanelTitle));
+        primeTempSubPanel.setBackground(Theme.createSelectorDrawable(
+                getThemedColor(Theme.key_listSelector), Theme.RIPPLE_MASK_ALL));
+        primeTempSubPanel.setOnClickListener(v -> showTempSubAlert());
+        primeTempSubPanel.setVisibility(View.GONE);
+        topPanelLayout.addView(primeTempSubPanel, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 32));
+        topPanelLayout.setPriority(primeTempSubPanel, 15);
+        topPanelLayout.setDebugName(primeTempSubPanel, "prime temp sub");
+    }
+
+    /**
+     * Refreshes the countdown and keeps it ticking.
+     *
+     * <p>Reschedules itself once a minute rather than once a second: the text is never finer
+     * than minutes, so a per-second timer would redraw sixty times for nothing.
+     */
+    private void primeUpdateTempSubPanel() {
+        if (primeTempSubTick != null) {
+            AndroidUtilities.cancelRunOnUIThread(primeTempSubTick);
+            primeTempSubTick = null;
+        }
+        final org.telegram.messenger.TempSubStore.Entry entry =
+                chatMode == 0 ? org.telegram.messenger.TempSubStore.get(dialog_id) : null;
+        if (entry == null) {
+            if (primeTempSubPanel != null) {
+                primeTempSubPanel.setVisibility(View.GONE);
+            }
+            return;
+        }
+        primeCreateTempSubPanel();
+        if (primeTempSubPanel == null) {
+            return;
+        }
+        final long remaining = entry.expiresAt - System.currentTimeMillis();
+        primeTempSubPanel.setText("Отписка через " + org.telegram.ui.Components.PrimeTempSubPicker.formatRemaining(remaining));
+        primeTempSubPanel.setVisibility(View.VISIBLE);
+        primeTempSubTick = this::primeUpdateTempSubPanel;
+        AndroidUtilities.runOnUIThread(primeTempSubTick, 60_000);
+    }
+
     private void showTempSubAlert() {
         if (getParentActivity() == null) {
             return;
         }
-        final long[] durations = {
-                60 * 60 * 1000L,
-                6 * 60 * 60 * 1000L,
-                24 * 60 * 60 * 1000L,
-                3 * 24 * 60 * 60 * 1000L,
-                7 * 24 * 60 * 60 * 1000L,
-                30 * 24 * 60 * 60 * 1000L
-        };
         final org.telegram.messenger.TempSubStore.Entry existing = org.telegram.messenger.TempSubStore.get(dialog_id);
-        final ArrayList<String> labels = new ArrayList<>();
-        labels.add("1 час");
-        labels.add("6 часов");
-        labels.add("1 день");
-        labels.add("3 дня");
-        labels.add("Неделя");
-        labels.add("Месяц");
-        if (existing != null) {
-            labels.add("Отменить автоотписку");
-        }
+        // Reopening an existing subscription starts from what is left of it, not from a default -
+        // the usual reason to reopen is "give me a bit more time", and that should be one drag.
+        final long initial = existing != null
+                ? Math.max(org.telegram.ui.Components.PrimeTempSubPicker.MIN_MS, existing.expiresAt - System.currentTimeMillis())
+                : 60 * 60 * 1000L;
+        final org.telegram.ui.Components.PrimeTempSubPicker picker =
+                new org.telegram.ui.Components.PrimeTempSubPicker(getParentActivity(), initial, themeDelegate);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
         builder.setTitle("Временная подписка");
-        builder.setItems(labels.toArray(new String[0]), (dialog, which) -> {
-            if (existing != null && which == labels.size() - 1) {
-                org.telegram.messenger.TempSubStore.cancel(dialog_id);
-                BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.contact_check, "Автоотписка отменена").show();
-                return;
-            }
-            long expiresAt = System.currentTimeMillis() + durations[which];
-            org.telegram.messenger.TempSubStore.schedule(dialog_id, expiresAt, currentChat != null ? currentChat.title : null);
+        builder.setMessage("Через сколько отписаться от канала");
+        builder.setView(picker);
+        builder.setPositiveButton("Подписаться", (dialog, which) -> {
+            final long duration = picker.getDurationMs();
+            org.telegram.messenger.TempSubStore.schedule(dialog_id, System.currentTimeMillis() + duration,
+                    currentChat != null ? currentChat.title : null, currentAccount);
+            primeUpdateTempSubPanel();
             BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.contact_check,
-                    "Отпишемся через " + labels.get(which).toLowerCase()).show();
+                    "Отпишемся через " + org.telegram.ui.Components.PrimeTempSubPicker.format(duration)).show();
         });
+        if (existing != null) {
+            builder.setNeutralButton("Отменить автоотписку", (dialog, which) -> {
+                org.telegram.messenger.TempSubStore.cancel(dialog_id);
+                primeUpdateTempSubPanel();
+                BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.contact_check, "Автоотписка отменена").show();
+            });
+        }
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         showDialog(builder.create());
     }
@@ -33837,6 +33956,10 @@ public class ChatActivity extends BaseFragment implements
             }
             case OPTION_PRIME_SAVE: {
                 primeSaveToSavedMessages(selectedObject, selectedObjectGroup);
+                break;
+            }
+            case OPTION_PRIME_SAVE_MEDIA: {
+                primeSaveRoundOrVoice(selectedObject);
                 break;
             }
             case OPTION_PRIME_BAN: {
@@ -46752,6 +46875,13 @@ public class ChatActivity extends BaseFragment implements
             options.add(OPTION_PRIME_DETAILS);
             icons.add(R.drawable.msg_info);
         }
+        if (org.telegram.messenger.PrimeTweaks.saveRoundAndVoice() && !noforwardsOrPaidMedia
+                && primeIsSaveableRoundOrVoice(message)) {
+            final boolean round = message.isRoundVideo();
+            items.add(round ? "Сохранить кружочек" : "Сохранить голосовое");
+            options.add(OPTION_PRIME_SAVE_MEDIA);
+            icons.add(R.drawable.msg_download);
+        }
         if (org.telegram.messenger.PrimeTweaks.adminShortcuts() && primeCanModerate(message)) {
             items.add(LocaleController.getString(R.string.BanFromTheGroupNoCaps));
             options.add(OPTION_PRIME_BAN);
@@ -46760,6 +46890,65 @@ public class ChatActivity extends BaseFragment implements
             options.add(OPTION_PRIME_DELETE_ALL_FROM);
             icons.add(R.drawable.msg_delete);
         }
+    }
+
+    /**
+     * PrimeGram: whether this is a round video or a voice message we are willing to save.
+     *
+     * <p>One-time-view messages are excluded deliberately. Stock leaves them out of every save
+     * path it has, and that is not an oversight - the sender chose a message that disappears, and
+     * a fork adding a quiet way around it would be handing users a weapon against each other.
+     */
+    private boolean primeIsSaveableRoundOrVoice(MessageObject message) {
+        if (message.isVoiceOnce() || message.isRoundOnce()) {
+            return false;
+        }
+        if (!message.isRoundVideo() && !message.isVoice()) {
+            return false;
+        }
+        return primeResolveFile(message) != null;
+    }
+
+    /** The file backing a message, whether it is still at its send path or already in the cache. */
+    private String primeResolveFile(MessageObject message) {
+        String path = message.messageOwner.attachPath;
+        if (!TextUtils.isEmpty(path)) {
+            File temp = new File(path);
+            if (temp.exists()) {
+                return path;
+            }
+        }
+        File f = FileLoader.getInstance(currentAccount).getPathToMessage(message.messageOwner);
+        return f != null && f.exists() ? f.getPath() : null;
+    }
+
+    private void primeSaveRoundOrVoice(MessageObject message) {
+        if (message == null || getParentActivity() == null) {
+            return;
+        }
+        final String path = primeResolveFile(message);
+        if (path == null) {
+            BulletinFactory.of(this).createErrorBulletin("Файл ещё не загружен").show();
+            return;
+        }
+        final boolean round = message.isRoundVideo();
+        String fileName = FileLoader.getDocumentFileName(message.getDocument());
+        if (TextUtils.isEmpty(fileName)) {
+            fileName = message.getFileName();
+        }
+        final String mime = message.getDocument() != null ? message.getDocument().mime_type : "";
+        // A round video is a normal mp4, so it belongs in the gallery (type 1). A voice message is
+        // an ogg that no gallery will show, so it goes to Downloads (type 2) instead.
+        MediaController.saveFile(path, getParentActivity(), round ? 1 : 2, fileName, mime, uri -> {
+            if (getParentActivity() == null || fragmentView == null) {
+                return;
+            }
+            // UNKNOWN, not AUDIO: AUDIO's hint carries a "saved to music" icon, and a voice
+            // message goes to Downloads, not to the music library.
+            BulletinFactory.of(this).createDownloadBulletin(
+                    round ? BulletinFactory.FileType.VIDEO : BulletinFactory.FileType.UNKNOWN,
+                    themeDelegate).show();
+        });
     }
 
     /**

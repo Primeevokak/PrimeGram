@@ -25290,7 +25290,14 @@ public class MessagesController extends BaseController implements NotificationCe
      * exception lists but must still obey the main "open in app" switch.
      */
     public boolean isWebBrowserOpenInAppByDefault() {
-        return webBrowserSettings != null && !webBrowserSettings.open_external_browser;
+        // Null means the server config has not arrived yet, not that the user chose an external
+        // browser - and on this fork it can stay null for a long while, because the config comes
+        // over the same tunnel everything else waits on. Treating that as "no" sent .html
+        // attachments to the system chooser during exactly the window where they are most likely
+        // to be opened. Opening in the app is Telegram's default, so only an explicit
+        // open_external_browser overrides it. Matches how isWebBrowserCloseButtonVisible above
+        // already reads a null config.
+        return webBrowserSettings == null || !webBrowserSettings.open_external_browser;
     }
 
 

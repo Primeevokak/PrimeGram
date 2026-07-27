@@ -528,8 +528,20 @@ public class ViewPagerFixed extends FrameLayout {
             return false;
         }
 
-        if (adapter != null && !adapter.canScrollTo(currentPosition + (forward ? +1 : -1))) {
-            return false;
+        // Pages the adapter refuses are stepped over rather than treated as a wall. A page can be
+        // switched off while keeping its index (indices are addressed by constant elsewhere), and
+        // refusing to move would then strand the pages on either side of it from each other.
+        // Nothing downstream requires the target to be adjacent: updateViewForIndex binds
+        // viewPages[1] to nextPosition whatever it is, and the drag animation only ever
+        // translates those two views.
+        int target = currentPosition + (forward ? +1 : -1);
+        if (adapter != null) {
+            while (target >= 0 && target < adapter.getItemCount() && !adapter.canScrollTo(target)) {
+                target += forward ? +1 : -1;
+            }
+            if (target < 0 || target >= adapter.getItemCount()) {
+                return false;
+            }
         }
 
         getParent().requestDisallowInterceptTouchEvent(true);
@@ -543,7 +555,7 @@ public class ViewPagerFixed extends FrameLayout {
 
         notificationsLocker.lock();
         animatingForward = forward;
-        nextPosition = currentPosition + (forward ? 1 : -1);
+        nextPosition = target;
         updateViewForIndex(1);
         if (viewPages[1] != null) {
             if (forward) {

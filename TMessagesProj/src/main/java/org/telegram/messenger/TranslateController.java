@@ -26,6 +26,7 @@ import androidx.annotation.Nullable;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.InputSerializedData;
 import org.telegram.tgnet.OutputSerializedData;
+import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.Vector;
@@ -1021,6 +1022,29 @@ public class TranslateController extends BaseController {
         int reqId = -1;
     }
 
+    /**
+     * PrimeGram: sends a translate request through whichever provider the user picked.
+     *
+     * <p>Returns the request id to cancel with, or -1 when an outside provider handled it - those
+     * cannot be cancelled, so a translation the user backed out of simply completes and its result
+     * is dropped by the same checks that already guard a reply arriving a moment too late.
+     *
+     * <p>{@code fallbackTexts} covers the request that translates real messages: it carries only
+     * peer and message ids, because the server looks the text up itself. An outside provider
+     * cannot, so the caller hands over the copies it is already holding.
+     */
+    private int primeSendTranslate(
+        TLRPC.TL_messages_translateText req,
+        ArrayList<TLRPC.TL_textWithEntities> fallbackTexts,
+        RequestDelegate callback
+    ) {
+        if (PrimeTranslator.isExternal()) {
+            PrimeTranslator.translate(req.text.isEmpty() ? fallbackTexts : req.text, req.to_lang, callback);
+            return -1;
+        }
+        return getConnectionsManager().sendRequest(req, callback);
+    }
+
     private void pushToTranslate(
         MessageObject message,
         String language,
@@ -1152,7 +1176,7 @@ public class TranslateController extends BaseController {
                 }
                 req.to_lang = normalizeLanguage(pendingTranslation1.language);
 
-                final int reqId = getConnectionsManager().sendRequest(req, (res, err) -> AndroidUtilities.runOnUIThread(() -> {
+                final int reqId = primeSendTranslate(req, pendingTranslation1.messageTexts, (res, err) -> AndroidUtilities.runOnUIThread(() -> {
                     final ArrayList<Integer> ids;
                     final ArrayList<Utilities.Callback4<Boolean, Integer, TLRPC.TL_textWithEntities, String>> callbacks;
                     final ArrayList<TLRPC.TL_textWithEntities> texts;
@@ -1408,7 +1432,7 @@ public class TranslateController extends BaseController {
                 }
                 req.to_lang = normalizeLanguage(pendingTranslation1.language);
 
-                final int reqId = getConnectionsManager().sendRequest(req, (res, err) -> AndroidUtilities.runOnUIThread(() -> {
+                final int reqId = primeSendTranslate(req, null, (res, err) -> AndroidUtilities.runOnUIThread(() -> {
                     final ArrayList<Integer> ids;
                     final ArrayList<Utilities.Callback3<Integer, PollText, String>> callbacks;
                     final ArrayList<Pair<PollText, PollText>> texts;
@@ -1942,7 +1966,7 @@ public class TranslateController extends BaseController {
         text.entities = storyItem.entities;
         req.text.add(text);
         req.to_lang = normalizeLanguage(toLang);
-        getConnectionsManager().sendRequest(req, (res, err) -> {
+        primeSendTranslate(req, null, (res, err) -> {
             if (res instanceof TLRPC.TL_messages_translateResult) {
                 ArrayList<TLRPC.TL_textWithEntities> result = ((TLRPC.TL_messages_translateResult) res).result;
                 if (result.size() <= 0) {
@@ -2080,7 +2104,7 @@ public class TranslateController extends BaseController {
         req.text.add(text);
         req.to_lang = normalizeLanguage(toLang);
         final long start = System.currentTimeMillis();
-        getConnectionsManager().sendRequest(req, (res, err) -> {
+        primeSendTranslate(req, null, (res, err) -> {
             if (res instanceof TLRPC.TL_messages_translateResult) {
                 ArrayList<TLRPC.TL_textWithEntities> result = ((TLRPC.TL_messages_translateResult) res).result;
                 if (result.size() <= 0) {

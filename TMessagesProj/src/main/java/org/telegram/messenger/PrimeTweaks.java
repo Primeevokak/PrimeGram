@@ -66,6 +66,16 @@ public class PrimeTweaks {
     public static final String MENU_DETAILS = "prime_menu_details";
     public static final String ADMIN_SHORTCUTS = "prime_admin_shortcuts";
 
+    // ---- media ----
+    public static final String SAVE_ROUND_AND_VOICE = "prime_save_round_voice";
+    public static final String SEND_UNCOMPRESSED = "prime_send_uncompressed";
+
+    /** Shorter side, in pixels, that a downloaded video may not exceed. 0 means no ceiling. */
+    public static final String MAX_VIDEO_HEIGHT = "prime_max_video_height";
+
+    /** Which service translates messages. See PrimeTranslator for the values. */
+    public static final String TRANSLATE_PROVIDER = "prime_translate_provider";
+
     // ---- chats ----
     public static final String HIDE_REACTIONS_CHANNELS = "prime_hide_reactions_channels";
     public static final String HIDE_REACTIONS_GROUPS = "prime_hide_reactions_groups";
@@ -114,6 +124,10 @@ public class PrimeTweaks {
     private static int stickerSize = STICKER_SIZE_DEFAULT;
     private static boolean senderMiniAvatars;
     private static boolean adminShortcuts;
+    private static int translateProvider = PrimeTranslator.PROVIDER_TELEGRAM;
+    private static boolean saveRoundAndVoice;
+    private static boolean sendUncompressed;
+    private static int maxVideoHeight;
 
     /**
      * The store is opened straight from the application context, deliberately not through
@@ -182,6 +196,10 @@ public class PrimeTweaks {
             stickerSize = p.getInt(STICKER_SIZE, STICKER_SIZE_DEFAULT);
             senderMiniAvatars = p.getBoolean(SENDER_MINI_AVATARS, false);
             adminShortcuts = p.getBoolean(ADMIN_SHORTCUTS, false);
+            translateProvider = p.getInt(TRANSLATE_PROVIDER, PrimeTranslator.PROVIDER_TELEGRAM);
+            saveRoundAndVoice = p.getBoolean(SAVE_ROUND_AND_VOICE, false);
+            sendUncompressed = p.getBoolean(SEND_UNCOMPRESSED, false);
+            maxVideoHeight = p.getInt(MAX_VIDEO_HEIGHT, 0);
             loaded = true;
         } catch (Throwable t) {
             // Called from UI-critical paths; stock behaviour is the only safe fallback.
@@ -362,6 +380,35 @@ public class PrimeTweaks {
     public static boolean menuDetails() {
         ensureLoaded();
         return menuDetails;
+    }
+
+    /** Offers a save entry for round videos and voice messages, which stock never saves. */
+    public static boolean saveRoundAndVoice() {
+        ensureLoaded();
+        return saveRoundAndVoice;
+    }
+
+    /**
+     * Ceiling for the shorter side of a downloaded video, or 0 for none.
+     *
+     * <p>Read from VideoPlayer's quality picker, which also decides what gets fetched and saved -
+     * so this caps traffic, not just playback.
+     */
+    public static int maxVideoHeight() {
+        ensureLoaded();
+        return maxVideoHeight;
+    }
+
+    /** Preselects "send as file" in the attachment sheet, so media keeps its original quality. */
+    public static boolean sendUncompressed() {
+        ensureLoaded();
+        return sendUncompressed;
+    }
+
+    /** {@link PrimeTranslator#PROVIDER_TELEGRAM} or {@link PrimeTranslator#PROVIDER_GOOGLE}. */
+    public static int translateProvider() {
+        ensureLoaded();
+        return translateProvider;
     }
 
     /** Adds ban and purge straight to the message menu, for groups you moderate. */
