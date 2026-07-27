@@ -87,6 +87,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HIDE_REACTIONS_CHANNELS = 57;
     private static final int ID_HIDE_REACTIONS_GROUPS = 58;
     private static final int ID_HIDE_REACTIONS_PRIVATE = 59;
+    private static final int ID_HIDE_SEND_AS_PEER = 60;
+    private static final int ID_SQUARE_FAB = 61;
+    private static final int ID_HW_BENCHMARK = 62;
 
     /**
      * Plain on/off tweaks all behave identically, so they share one handler. Returns the
@@ -103,6 +106,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_HIDE_REACTIONS_CHANNELS) return org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_CHANNELS;
         if (id == ID_HIDE_REACTIONS_GROUPS) return org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_GROUPS;
         if (id == ID_HIDE_REACTIONS_PRIVATE) return org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_PRIVATE;
+        if (id == ID_HIDE_SEND_AS_PEER) return org.telegram.messenger.PrimeTweaks.HIDE_SEND_AS_PEER;
+        if (id == ID_SQUARE_FAB) return org.telegram.messenger.PrimeTweaks.SQUARE_FAB;
         return null;
     }
 
@@ -329,6 +334,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(UItem.asShadow("Включает аппаратное декодирование видео/GIF/кружочков вместо программного. Может немного сэкономить батарею, но на некоторых устройствах декодер бывает нестабилен — приложение автоматически откатит настройку, если из-за неё случится сбой. Изменения применяются после перезапуска приложения."));
         }
 
+        items.add(UItem.asButton(ID_HW_BENCHMARK, "Стресс-тест аппаратного ускорения"));
+        items.add(UItem.asShadow("Декодирует одно и то же видео из кэша двумя путями подряд и показывает, сколько времени и процессора ушло на каждый. Работает независимо от настройки выше — тест сам включает и выключает аппаратный путь. Занимает несколько секунд, экран в это время лучше не гасить."));
+
         }
 
         if (section == SECTION_INTERFACE) {
@@ -369,6 +377,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem commaItem = UItem.asCheck(ID_COMMA_AFTER_MENTION, "Запятая после упоминания");
         commaItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.COMMA_AFTER_MENTION);
         items.add(commaItem);
+        UItem hideSendAsItem = UItem.asCheck(ID_HIDE_SEND_AS_PEER, "Скрыть выбор «отправить от имени»");
+        hideSendAsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_SEND_AS_PEER);
+        items.add(hideSendAsItem);
+        UItem squareFabItem = UItem.asCheck(ID_SQUARE_FAB, "Квадратная кнопка «Написать»");
+        squareFabItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SQUARE_FAB);
+        items.add(squareFabItem);
         UItem hideKeyboardItem = UItem.asCheck(ID_HIDE_KEYBOARD_ON_SCROLL, "Прятать клавиатуру при прокрутке");
         hideKeyboardItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_KEYBOARD_ON_SCROLL);
         items.add(hideKeyboardItem);
@@ -478,6 +492,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         } else if (item.id == ID_STICKER_SIZE) {
             showStickerSizePicker();
+        } else if (item.id == ID_HW_BENCHMARK) {
+            runHwBenchmark();
         } else if (item.id == ID_ARCHIVE_ON_PULL) {
             // Upstream already has this state - it is what the "swipe the archive row up"
             // gesture toggles. We only surface it as a setting.
@@ -738,6 +754,33 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         showNumberInputDialog(ID_LIMIT_RECENT_STICKERS, "Лимит недавних стикеров",
                 "Сколько недавно использованных стикеров помнить. Список обрезает сам клиент, так что значение работает без оглядки на сервер — но чем оно больше, тем больше стикеров хранится в базе.",
                 messagesController.maxRecentStickersCount, 30, 30, 500);
+    }
+
+    private void runHwBenchmark() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final AlertDialog progress = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
+        progress.setCanCancel(false);
+        progress.show();
+        org.telegram.messenger.PrimeHwBenchmark.run(result -> {
+            try {
+                progress.dismiss();
+            } catch (Throwable ignore) {
+            }
+            if (getParentActivity() == null) {
+                return;
+            }
+            AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+            builder.setTitle("Стресс-тест ускорения");
+            builder.setMessage(org.telegram.messenger.PrimeHwBenchmark.format(result));
+            builder.setPositiveButton("Закрыть", null);
+            if (result.ok) {
+                builder.setNeutralButton("Скопировать", (di, w) ->
+                        AndroidUtilities.addToClipboard(org.telegram.messenger.PrimeHwBenchmark.format(result)));
+            }
+            showDialog(builder.create());
+        });
     }
 
     private void showStickerSizePicker() {

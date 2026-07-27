@@ -215,6 +215,11 @@ public class ApplicationLoader extends Application {
 
                     boolean isSlow = isConnectionSlow();
                     for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                        // Without this guard the first network change would instantiate the very
+                        // per-account stacks startup just avoided building.
+                        if (!UserConfig.getInstance(a).isClientActivated()) {
+                            continue;
+                        }
                         ConnectionsManager.getInstance(a).checkConnection();
                         FileLoader.getInstance(a).onNetworkChanged(isSlow);
                     }
@@ -274,18 +279,44 @@ public class ApplicationLoader extends Application {
             }
         }
         SharedPrefsHelper.init(applicationContext);
-        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) { //TODO improve account
-            UserConfig.getInstance(a).loadConfig();
-            MessagesController.getInstance(a);
-            if (a == 0) {
-                SharedConfig.pushStringStatus = "__FIREBASE_GENERATING_SINCE_" + ConnectionsManager.getInstance(a).getCurrentTime() + "__";
-            } else {
-                ConnectionsManager.getInstance(a);
+        // PrimeGram: this used to build the whole per-account stack for every slot, logged in or
+        // not - a MessagesController, a MessagesStorage (which opens and migrates a SQLite
+        // database) and a native ConnectionsManager each. Empty slots paid the same price as real
+        // ones, so the cost of starting up scaled with MAX_ACCOUNT_COUNT rather than with how many
+        // accounts the user actually has.
+        //
+        // loadConfig() is just a SharedPreferences read, so it still runs for every slot - that is
+        // what tells us whether the slot is in use. Everything after it is skipped for empty slots
+        // and gets built on first real use instead, because all of these are lazy singletons.
+        // Only the account being displayed is on the critical path. The others are needed for
+        // notifications and for unsent messages, neither of which is worth a millisecond of the
+        // first frame, so they are built once the list of chats is on screen.
+        final int primaryAccount = UserConfig.selectedAccount;
+        final java.util.ArrayList<Integer> deferredAccounts = new java.util.ArrayList<>();
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            final UserConfig config = UserConfig.getInstance(a);
+            config.loadConfig();
+            if (a != primaryAccount && config.isClientActivated()) {
+                deferredAccounts.add(a);
             }
-            TLRPC.User user = UserConfig.getInstance(a).getCurrentUser();
-            if (user != null) {
-                MessagesController.getInstance(a).putUser(user, true);
-                SendMessagesHelper.getInstance(a).checkUnsentMessages();
+        }
+        initAccountStack(primaryAccount);
+        SharedConfig.pushStringStatus = "__FIREBASE_GENERATING_SINCE_" + ConnectionsManager.getInstance(primaryAccount).getCurrentTime() + "__";
+        PrimeStartupTrace.mark("postInitApplication: account " + primaryAccount + " ready, " + deferredAccounts.size() + " deferred");
+
+        if (!deferredAccounts.isEmpty()) {
+            // Staggered rather than all at once: each account brings up its own storage thread and
+            // its own network stack, and firing them together is what turns several accounts into
+            // a stutter. 400 ms apart keeps them out of each other's way.
+            int delay = 2000;
+            for (int account : deferredAccounts) {
+                AndroidUtilities.runOnUIThread(() -> {
+                    initAccountStack(account);
+                    ContactsController.getInstance(account).checkAppAccount();
+                    DownloadController.getInstance(account);
+                    PrimeStartupTrace.mark("background account " + account + " ready");
+                }, delay);
+                delay += 400;
             }
         }
 
@@ -296,11 +327,27 @@ public class ApplicationLoader extends Application {
         }
 
         MediaController.getInstance();
-        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) { //TODO improve account
-            ContactsController.getInstance(a).checkAppAccount();
-            DownloadController.getInstance(a);
-        }
+        // Only the displayed account here; the deferred ones do this as they come up. Note that
+        // checkAppAccount() talks to the system AccountManager over IPC, so it is far from free.
+        ContactsController.getInstance(primaryAccount).checkAppAccount();
+        DownloadController.getInstance(primaryAccount);
+        PrimeStartupTrace.mark("postInitApplication: contacts and downloads ready");
         BillingController.getInstance().startConnection();
+        PrimeStartupTrace.mark("postInitApplication end");
+    }
+
+    /**
+     * Brings one account's stack up. Every one of these is a lazy singleton, so simply asking for
+     * it is what creates it; the ordering here is the one the original startup loop used.
+     */
+    private static void initAccountStack(int account) {
+        MessagesController.getInstance(account);
+        ConnectionsManager.getInstance(account);
+        TLRPC.User user = UserConfig.getInstance(account).getCurrentUser();
+        if (user != null) {
+            MessagesController.getInstance(account).putUser(user, true);
+            SendMessagesHelper.getInstance(account).checkUnsentMessages();
+        }
     }
 
     public ApplicationLoader() {

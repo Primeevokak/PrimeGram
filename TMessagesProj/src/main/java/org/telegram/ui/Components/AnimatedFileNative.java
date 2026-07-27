@@ -52,6 +52,24 @@ public class AnimatedFileNative {
         return new AnimatedFileNative(ptr, params);
     }
 
+    /**
+     * Creates a decoder with the hardware path forced on or off, bypassing the session flag.
+     *
+     * <p>For the benchmark only. Normal playback must keep going through
+     * {@link #createDecoderFrom}, which honours the user's setting and the crash-safety
+     * machinery; this entry point deliberately skips both so the two paths can be compared
+     * back to back in one process. The native circuit breaker still applies, so a decoder
+     * asked for hardware may legitimately come back running in software - the benchmark
+     * reports what it measured, not what it requested.
+     */
+    public static AnimatedFileNative createDecoderForBenchmark(String src, int[] params, boolean hwAccel) {
+        long ptr = nCreateDecoder(src, params, 0, 0, null, false, hwAccel);
+        if (ptr == 0) {
+            return null;
+        }
+        return new AnimatedFileNative(ptr, params);
+    }
+
     public void stopDecoder() {
         checkNotDestroyed();
         stopDecoder(mNativePtr);

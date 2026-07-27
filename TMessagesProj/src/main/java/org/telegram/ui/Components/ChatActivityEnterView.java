@@ -11042,6 +11042,9 @@ public class ChatActivityEnterView extends FrameLayout implements
         if (delegate == null) {
             return;
         }
+        if (org.telegram.messenger.PrimeTweaks.hideSendAsPeer()) {
+            forceHide = true;
+        }
         createMessageEditText();
         TLRPC.Chat chat;
         TLRPC.Peer defPeer;

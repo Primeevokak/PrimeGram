@@ -79,6 +79,7 @@ public class PrimeTweaks {
     private static boolean hideReactionsPrivate;
     private static boolean hideKeyboardOnScroll;
     private static boolean commaAfterMention;
+    private static boolean hideSendAsPeer;
     private static boolean disableNumberRounding;
     private static boolean timeWithSeconds;
     private static boolean relativeLastSeen;
@@ -138,6 +139,7 @@ public class PrimeTweaks {
             hideReactionsPrivate = p.getBoolean(HIDE_REACTIONS_PRIVATE, false);
             hideKeyboardOnScroll = p.getBoolean(HIDE_KEYBOARD_ON_SCROLL, false);
             commaAfterMention = p.getBoolean(COMMA_AFTER_MENTION, false);
+            hideSendAsPeer = p.getBoolean(HIDE_SEND_AS_PEER, false);
             disableNumberRounding = p.getBoolean(DISABLE_NUMBER_ROUNDING, false);
             timeWithSeconds = p.getBoolean(TIME_WITH_SECONDS, false);
             relativeLastSeen = p.getBoolean(RELATIVE_LAST_SEEN, false);
@@ -268,6 +270,11 @@ public class PrimeTweaks {
     public static boolean commaAfterMention() {
         ensureLoaded();
         return commaAfterMention;
+    }
+
+    public static boolean hideSendAsPeer() {
+        ensureLoaded();
+        return hideSendAsPeer;
     }
 
     public static boolean disableNumberRounding() {

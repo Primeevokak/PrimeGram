@@ -25,8 +25,18 @@ public class UserConfig extends BaseController {
 
     public static int selectedAccount;
     public final static int MAX_ACCOUNT_DEFAULT_COUNT = 3;
-    // PrimeGram: 4 -> 8. Everything indexed by account is an array sized from this constant
-    // and filled lazily, so unused slots cost nothing.
+    // PrimeGram: 4 -> 8.
+    //
+    // This is safe to raise only because per-account initialisation is now lazy. Upstream built
+    // the whole stack for every slot at startup - a MessagesController, a MessagesStorage opening
+    // its own SQLite database, and a native ConnectionsManager with its own epoll instance and
+    // thread - so the cost of starting up scaled with this constant instead of with the number of
+    // accounts in use. See ApplicationLoader.postInitApplication() and setJava() in
+    // TgNetWrapper.cpp. Empty slots now cost one SharedPreferences read each.
+    //
+    // The native side must be able to address every slot: MAX_ACCOUNT_COUNT in jni/tgnet/Defines.h
+    // sizes the jniEnv array, and ConnectionsManager::getInstance() needs a case per slot. Raising
+    // this without raising those is an out-of-bounds write, not a compile error.
     public final static int MAX_ACCOUNT_COUNT = 8;
 
     private final Object sync = new Object();

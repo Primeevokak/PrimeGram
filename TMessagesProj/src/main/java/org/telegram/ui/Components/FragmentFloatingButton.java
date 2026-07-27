@@ -163,10 +163,15 @@ public class FragmentFloatingButton extends FrameLayout implements FactorAnimato
         } else {
             imageView.setColorFilter(Theme.getColor(Theme.key_chats_actionIcon, resourcesProvider), PorterDuff.Mode.SRC_IN);
             progressView.setProgressColor(Theme.getColor(Theme.key_chats_actionIcon, resourcesProvider));
-            setBackground(Theme.createSimpleSelectorCircleDrawable(dp(48),
-                Theme.getColor(Theme.key_featuredStickers_addButton, resourcesProvider),
-                Theme.getColor(Theme.key_featuredStickers_addButtonPressed, resourcesProvider)
-            ));
+            final int normal = Theme.getColor(Theme.key_featuredStickers_addButton, resourcesProvider);
+            final int pressed = Theme.getColor(Theme.key_featuredStickers_addButtonPressed, resourcesProvider);
+            if (org.telegram.messenger.PrimeTweaks.squareFab()) {
+                // Rounded square rather than a hard-edged one: a true 90-degree corner reads as
+                // an unstyled button next to everything else in the app.
+                setBackground(Theme.createSimpleSelectorRoundRectDrawable(dp(14), normal, pressed));
+            } else {
+                setBackground(Theme.createSimpleSelectorCircleDrawable(dp(48), normal, pressed));
+            }
         }
     }
 

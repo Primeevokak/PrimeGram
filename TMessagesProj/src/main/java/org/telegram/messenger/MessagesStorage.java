@@ -231,8 +231,28 @@ public class MessagesStorage extends BaseController {
     public MessagesStorage(int instance) {
         super(instance);
         storageQueue = new DispatchQueue("storageQueue_" + instance);
-        storageQueue.setPriority(8);
+        // Priority 8 is above the default 5 the UI thread runs at. That is right for the account
+        // on screen - the list of chats is waiting on this query - but wrong for the rest: several
+        // background accounts at priority 8 outrank the thread trying to draw the first frame, and
+        // they all hit the same flash device at once. Background accounts drop below the UI.
+        storageQueue.setPriority(instance == UserConfig.selectedAccount ? 8 : 3);
         storageQueue.postRunnable(() -> openDatabase(1));
+    }
+
+    /**
+     * Re-applies the storage thread priority after the displayed account changes, so the account
+     * the user just switched to stops queueing behind the one they left.
+     */
+    public static void primeUpdateStoragePriorities() {
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            MessagesStorage storage = Instance[a];
+            if (storage != null && storage.storageQueue != null) {
+                try {
+                    storage.storageQueue.setPriority(a == UserConfig.selectedAccount ? 8 : 3);
+                } catch (Throwable ignore) {
+                }
+            }
+        }
     }
 
     public SQLiteDatabase getDatabase() {

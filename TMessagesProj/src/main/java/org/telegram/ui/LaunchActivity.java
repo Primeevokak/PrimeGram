@@ -391,6 +391,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity.onCreate begin");
         isActive = true;
         activeInstanceCount++;
         if (BuildVars.DEBUG_VERSION) {
@@ -1022,6 +1023,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         //    refreshRateController = new RefreshRateController(this);
         //}
         checkFrameMetrics();
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity.onCreate end");
     }
 
     public void checkFrameMetrics() {
@@ -1368,6 +1370,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ConnectionsManager.getInstance(currentAccount).setAppPaused(true, false);
         UserConfig.selectedAccount = account;
         UserConfig.getInstance(0).saveConfig(false);
+        MessagesStorage.primeUpdateStoragePriorities();
 
         checkCurrentAccount();
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.activeAccountChanged, account);
