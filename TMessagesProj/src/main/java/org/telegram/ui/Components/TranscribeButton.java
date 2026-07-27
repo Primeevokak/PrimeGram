@@ -121,7 +121,8 @@ public class TranscribeButton {
         // configured may transcribe, so it belongs on this side of the check.
         premium = parent.getMessageObject() != null
                 && (UserConfig.getInstance(parent.getMessageObject().currentAccount).isPremium()
-                    || org.telegram.messenger.PrimeTranscription.shouldHandle(parent.getMessageObject().currentAccount));
+                    || org.telegram.messenger.PrimeTranscription.shouldHandle(parent.getMessageObject().currentAccount)
+                    || org.telegram.messenger.PrimeWhisper.shouldHandle(parent.getMessageObject().currentAccount));
 
         loadingFloat = new AnimatedFloat(parent, 250, CubicBezierInterpolator.EASE_OUT_QUINT);
         animatedDrawLock = new AnimatedFloat(parent, 250, CubicBezierInterpolator.EASE_OUT_QUINT);
@@ -679,10 +680,12 @@ public class TranscribeButton {
                 AndroidUtilities.runOnUIThread(() -> {
                     NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject, null, null, (Boolean) true, (Boolean) true);
                 });
-            } else if (org.telegram.messenger.PrimeTranscription.shouldHandle(account)) {
-                // PrimeGram: no Premium on this account and an external service is configured,
-                // so transcribe it ourselves. Premium accounts never reach this branch — the
-                // native path is better integrated and already paid for.
+            } else if (org.telegram.messenger.PrimeWhisper.shouldHandle(account)
+                    || org.telegram.messenger.PrimeTranscription.shouldHandle(account)) {
+                // PrimeGram: no Premium on this account and we have a way to do this ourselves.
+                // Premium accounts never reach this branch — the native path is better integrated
+                // and already paid for. On-device wins over the online service when both are
+                // ready: it is free, works without a connection, and sends nothing anywhere.
                 if (transcribeOperationsByDialogPosition == null) {
                     transcribeOperationsByDialogPosition = new HashMap<>();
                 }
@@ -696,7 +699,8 @@ public class TranscribeButton {
                 // server hands out are its own — a negative one can never collide with them.
                 final long localId = -Math.abs(((long) dialogId << 20) ^ messageId);
                 messageObject.messageOwner.voiceTranscriptionId = localId;
-                org.telegram.messenger.PrimeTranscription.transcribe(messageObject, new org.telegram.messenger.PrimeTranscription.Callback() {
+                final org.telegram.messenger.PrimeTranscription.Callback callback =
+                        new org.telegram.messenger.PrimeTranscription.Callback() {
                     @Override
                     public void onResult(String text) {
                         finishTranscription(messageObject, localId, text);
@@ -714,7 +718,22 @@ public class TranscribeButton {
                             BulletinFactory.of(org.telegram.ui.LaunchActivity.getLastFragment()).createErrorBulletin(message).show();
                         }
                     }
-                });
+                };
+                if (org.telegram.messenger.PrimeWhisper.shouldHandle(account)) {
+                    org.telegram.messenger.PrimeWhisper.transcribe(messageObject, new org.telegram.messenger.PrimeWhisper.Callback() {
+                        @Override
+                        public void onResult(String text) {
+                            callback.onResult(text);
+                        }
+
+                        @Override
+                        public void onError(String message) {
+                            callback.onError(message);
+                        }
+                    });
+                } else {
+                    org.telegram.messenger.PrimeTranscription.transcribe(messageObject, callback);
+                }
             } else {
                 if (BuildVars.LOGS_ENABLED) {
                     FileLog.d("sending Transcription request, msg_id=" + messageId + " dialog_id=" + dialogId);

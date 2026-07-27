@@ -5445,6 +5445,8 @@ public class ChatActivityEnterView extends FrameLayout implements
             if (delegate != null) {
                 delegate.onTextSelectionChanged(selStart, selEnd);
             }
+            // PrimeGram: the formatting bar follows the selection - see updatePrimeToolbarVisibility.
+            updatePrimeToolbarVisibility();
         }
 
         @Override
@@ -14488,14 +14490,36 @@ public class ChatActivityEnterView extends FrameLayout implements
         updatePrimeToolbarVisibility();
     }
 
+    /**
+     * Shows the formatting bar only while text is actually selected.
+     *
+     * <p>It used to be shown whenever the feature was switched on, which was wrong twice over.
+     * Every one of its buttons acts on a selection and does nothing without one, so most of the
+     * time it was a row of controls that could not work. And it sits at the bottom of this view
+     * with the input pushed up to make room, so the moment that margin failed to apply - a
+     * relayout, or this running before the input had layout params - it covered the input and ate
+     * the tap that opens the keyboard. Tying it to a selection means it is absent exactly when
+     * somebody is trying to reach the field, and present exactly when it can do something.
+     */
     public void updatePrimeToolbarVisibility() {
-        if (primeToolbarScroll == null) {
+        if (primeToolbarScroll == null || textFieldContainer == null) {
             return;
         }
-        boolean visible = primeToolbarAllowed && org.telegram.messenger.PrimeToolbarSettings.isEnabled();
+        final boolean hasSelection = messageEditText != null
+                && messageEditText.getSelectionStart() != messageEditText.getSelectionEnd();
+        final boolean visible = primeToolbarAllowed
+                && hasSelection
+                && org.telegram.messenger.PrimeToolbarSettings.isEnabled();
         primeToolbarScroll.setVisibility(visible ? VISIBLE : GONE);
-        LayoutParams params = (LayoutParams) textFieldContainer.getLayoutParams();
-        int wanted = visible ? dp(PRIME_TOOLBAR_HEIGHT) : 0;
+        // Not just invisible: a GONE view still receives no touches, but leaving it VISIBLE with
+        // zero height would keep it on top of the input in the z-order.
+        primeToolbarScroll.setClickable(visible);
+        final ViewGroup.LayoutParams raw = textFieldContainer.getLayoutParams();
+        if (!(raw instanceof MarginLayoutParams)) {
+            return;
+        }
+        final MarginLayoutParams params = (MarginLayoutParams) raw;
+        final int wanted = visible ? dp(PRIME_TOOLBAR_HEIGHT) : 0;
         if (params.bottomMargin != wanted) {
             params.bottomMargin = wanted;
             textFieldContainer.setLayoutParams(params);

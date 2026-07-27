@@ -48,7 +48,13 @@ public class BuildVars {
     static {
         if (ApplicationLoader.applicationContext != null) {
             SharedPreferences sharedPreferences = ApplicationLoader.applicationContext.getSharedPreferences("systemConfig", Context.MODE_PRIVATE);
-            LOGS_ENABLED = true;
+            // PrimeGram: this used to read the preference into a variable and then assign
+            // LOGS_ENABLED = true regardless, so every user ran a release build with full logging
+            // to disk permanently. Telegram logs a great deal, and each line is formatted on the
+            // calling thread before it is queued - including on the main one. Restored to the
+            // stored value; PrimeGram settings has a switch for turning it on when a trace is
+            // actually needed.
+            LOGS_ENABLED = sharedPreferences.getBoolean("logsEnabled", DEBUG_VERSION);
             if (LOGS_ENABLED) {
                 final Thread.UncaughtExceptionHandler pastHandler = Thread.getDefaultUncaughtExceptionHandler();
                 Thread.setDefaultUncaughtExceptionHandler((thread, exception) -> {

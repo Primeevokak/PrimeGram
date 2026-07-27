@@ -73,6 +73,24 @@ public class PrimeTweaks {
     /** Shorter side, in pixels, that a downloaded video may not exceed. 0 means no ceiling. */
     public static final String MAX_VIDEO_HEIGHT = "prime_max_video_height";
 
+    /** Round videos start on the rear camera instead of the front one. */
+    public static final String ROUND_VIDEO_REAR = "prime_round_video_rear";
+
+    /**
+     * PrimeGram's own performance work: idle preloading of tabs, warming the tunnel's connection
+     * pool, the deeper pool for media. On by default; a switch exists because every one of these
+     * trades memory or background work for speed, and a device where that trade goes badly needs
+     * a way out that is not "reinstall the old build".
+     */
+    public static final String OPTIMIZATIONS = "prime_optimizations";
+
+    /** Drops the avatar, name, number and username block from Telegram's own settings screen. */
+    public static final String HIDE_SETTINGS_HEADER = "prime_hide_settings_header";
+    /** Shows your username in place of the logo on the chat list. */
+    public static final String MAIN_TITLE_USERNAME = "prime_main_title_username";
+    /** Leaves the emoji status out of the chat list title. */
+    public static final String HIDE_EMOJI_STATUS = "prime_hide_emoji_status";
+
     /** Which service translates messages. See PrimeTranslator for the values. */
     public static final String TRANSLATE_PROVIDER = "prime_translate_provider";
 
@@ -128,6 +146,11 @@ public class PrimeTweaks {
     private static boolean saveRoundAndVoice;
     private static boolean sendUncompressed;
     private static int maxVideoHeight;
+    private static boolean roundVideoRearCamera;
+    private static boolean optimizations = true;
+    private static boolean hideSettingsHeader;
+    private static boolean mainTitleUsername;
+    private static boolean hideEmojiStatus;
 
     /**
      * The store is opened straight from the application context, deliberately not through
@@ -200,6 +223,11 @@ public class PrimeTweaks {
             saveRoundAndVoice = p.getBoolean(SAVE_ROUND_AND_VOICE, false);
             sendUncompressed = p.getBoolean(SEND_UNCOMPRESSED, false);
             maxVideoHeight = p.getInt(MAX_VIDEO_HEIGHT, 0);
+            roundVideoRearCamera = p.getBoolean(ROUND_VIDEO_REAR, false);
+            optimizations = p.getBoolean(OPTIMIZATIONS, true);
+            hideSettingsHeader = p.getBoolean(HIDE_SETTINGS_HEADER, false);
+            mainTitleUsername = p.getBoolean(MAIN_TITLE_USERNAME, false);
+            hideEmojiStatus = p.getBoolean(HIDE_EMOJI_STATUS, false);
             loaded = true;
         } catch (Throwable t) {
             // Called from UI-critical paths; stock behaviour is the only safe fallback.
@@ -386,6 +414,36 @@ public class PrimeTweaks {
     public static boolean saveRoundAndVoice() {
         ensureLoaded();
         return saveRoundAndVoice;
+    }
+
+    /** Master switch for the speed-ups this fork adds. See {@link #OPTIMIZATIONS}. */
+    public static boolean optimizations() {
+        ensureLoaded();
+        return optimizations;
+    }
+
+    /** Read while Telegram's settings list is built, so it takes effect on the next open. */
+    public static boolean hideSettingsHeader() {
+        ensureLoaded();
+        return hideSettingsHeader;
+    }
+
+    /** Read once while the chat list action bar is built. */
+    public static boolean mainTitleUsername() {
+        ensureLoaded();
+        return mainTitleUsername;
+    }
+
+    /** Read once while the chat list action bar is built. */
+    public static boolean hideEmojiStatus() {
+        ensureLoaded();
+        return hideEmojiStatus;
+    }
+
+    /** Read by the round-video recorder every time it starts, so a change applies at once. */
+    public static boolean roundVideoRearCamera() {
+        ensureLoaded();
+        return roundVideoRearCamera;
     }
 
     /**

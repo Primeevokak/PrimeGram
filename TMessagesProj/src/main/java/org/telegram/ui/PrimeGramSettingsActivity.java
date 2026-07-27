@@ -7,6 +7,7 @@ import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
@@ -20,6 +21,7 @@ import org.telegram.ui.ActionBar.Theme;
 import vpn.sdk.VpnSDK;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.ui.Components.EditTextBoldCursor;
+import org.telegram.ui.Components.IconBackgroundColors;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.UItem;
 import org.telegram.ui.Components.UniversalAdapter;
@@ -112,6 +114,26 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_VIDEO_QUALITY = 82;
     private static final int ID_PRELOAD_VIDEO_MOBILE = 83;
     private static final int ID_AUTODOWNLOAD = 84;
+    private static final int ID_WHISPER_ENABLED = 85;
+    private static final int ID_WHISPER_MODEL = 86;
+    private static final int ID_WHISPER_DOWNLOAD = 87;
+    private static final int ID_WHISPER_LANGUAGE = 88;
+    private static final int ID_ROUND_VIDEO_REAR = 89;
+    private static final int ID_CAMERA2 = 90;
+    private static final int ID_LIVE_PREVIEW = 91;
+    private static final int ID_DOUBLE_TAP_CARDS = 92;
+    private static final int ID_STICKER_SIZE_CARDS = 93;
+    private static final int ID_TRANSLATOR_CARDS = 94;
+    private static final int ID_VIDEO_QUALITY_CARDS = 95;
+    /** Ids for the explanation cells, kept clear of everything else. */
+    private static final int ID_LOGS_ENABLED = 96;
+    private static final int ID_HIDE_SETTINGS_HEADER = 97;
+    private static final int ID_MAIN_TITLE_USERNAME = 98;
+    private static final int ID_HIDE_EMOJI_STATUS = 99;
+    private static final int ID_OPTIMIZATIONS = 100;
+    private static final int ID_DOUBLE_TAP_REACTION = 101;
+    private static final int ID_STICKER_SIZE_SLIDER = 102;
+    private static final int ID_INFO_BASE = 600;
     /** One id per blocking list, taken from a range nothing else uses. */
     private static final int ID_ADBLOCK_LIST_BASE = 200;
 
@@ -142,6 +164,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_MENU_SAVE) return org.telegram.messenger.PrimeTweaks.MENU_SAVE_TO_SAVED;
         if (id == ID_MENU_DETAILS) return org.telegram.messenger.PrimeTweaks.MENU_DETAILS;
         if (id == ID_SENDER_MINI_AVATARS) return org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS;
+        if (id == ID_ROUND_VIDEO_REAR) return org.telegram.messenger.PrimeTweaks.ROUND_VIDEO_REAR;
+        if (id == ID_HIDE_SETTINGS_HEADER) return org.telegram.messenger.PrimeTweaks.HIDE_SETTINGS_HEADER;
+        if (id == ID_MAIN_TITLE_USERNAME) return org.telegram.messenger.PrimeTweaks.MAIN_TITLE_USERNAME;
+        if (id == ID_HIDE_EMOJI_STATUS) return org.telegram.messenger.PrimeTweaks.HIDE_EMOJI_STATUS;
+        if (id == ID_OPTIMIZATIONS) return org.telegram.messenger.PrimeTweaks.OPTIMIZATIONS;
         if (id == ID_ADMIN_SHORTCUTS) return org.telegram.messenger.PrimeTweaks.ADMIN_SHORTCUTS;
         if (id == ID_SAVE_ROUND_VOICE) return org.telegram.messenger.PrimeTweaks.SAVE_ROUND_AND_VOICE;
         if (id == ID_SEND_UNCOMPRESSED) return org.telegram.messenger.PrimeTweaks.SEND_UNCOMPRESSED;
@@ -186,17 +213,119 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
     }
 
+    /**
+     * PrimeGram: the hub.
+     *
+     * <p>Built from {@link SettingsActivity.SettingCell}, the same rows Telegram's own settings
+     * screen uses - a coloured icon, a title and a description underneath. The previous version
+     * used {@code UItem.asButton(id, title, value)}, which puts the second string on the *right*
+     * as blue text: at this length it truncated to "Боковая панель, л…", so the one place a
+     * description was supposed to help was the one place it could not be read.
+     */
     private void fillRoot(ArrayList<UItem> items) {
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_INTERFACE, "Интерфейс", "Боковая панель, лента"));
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_CONNECTION, "Соединение", "Прокси, VLESS, работа в фоне"));
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_PRIVACY, "Приватность", "Номер, серая зона"));
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_TOOLS, "Инструменты", "Теги, панель ввода, ссылки, боты"));
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_MEDIA, "Медиа и музыка", "Вкладка «Музыка»"));
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_PREMIUM, "Локальный Premium", "Лимиты на этом устройстве"));
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_ADVANCED, "Дополнительно", "Обновления, эксперименты, диагностика"));
-        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_ABOUT, "Разрешения и поддержка", ""));
-        items.add(UItem.asShadow("PrimeGram " + org.telegram.messenger.BuildVars.BUILD_VERSION_STRING));
+        items.add(primeHeaderCell());
+        items.add(UItem.asShadow(null));
+        items.add(section(SECTION_INTERFACE, IconBackgroundColors.BLUE, R.drawable.settings_folders,
+                "Интерфейс", "Боковая панель, лента, вкладки"));
+        items.add(section(SECTION_CONNECTION, IconBackgroundColors.GREEN, R.drawable.settings_data,
+                "Соединение", "Прокси, VLESS, работа в фоне"));
+        items.add(section(SECTION_PRIVACY, IconBackgroundColors.RED, R.drawable.settings_privacy,
+                "Приватность", "Номер, серая зона"));
+        items.add(section(SECTION_TOOLS, IconBackgroundColors.ORANGE, R.drawable.settings_features,
+                "Инструменты", "Теги, ссылки, боты"));
+        items.add(section(SECTION_MEDIA, IconBackgroundColors.CYAN, R.drawable.settings_sounds,
+                "Медиа и музыка", "Качество, кэш, расшифровка, камера"));
+        items.add(section(SECTION_PREMIUM, IconBackgroundColors.PURPLE, R.drawable.settings_premium,
+                "Локальный Premium", "Лимиты на этом устройстве"));
+        items.add(section(SECTION_ADVANCED, IconBackgroundColors.BLUE_DEEP, R.drawable.settings_power,
+                "Дополнительно", "Обновления, эксперименты, диагностика"));
+        items.add(section(SECTION_ABOUT, IconBackgroundColors.GRAY, R.drawable.settings_ask,
+                "Разрешения и поддержка", "Доступы приложения и связь с автором"));
+        items.add(UItem.asShadow(null));
+    }
 
+    /**
+     * Short explanation in the list, full one behind "Подробнее".
+     *
+     * <p>Cached by id because {@link UItem#asCustom} hands the list a view, and a new view on every
+     * rebuild would drop the scroll position and rebuild the span every time a switch is flipped.
+     */
+    private final java.util.HashMap<Integer, org.telegram.ui.Cells.PrimeInfoCell> infoCells = new java.util.HashMap<>();
+
+    private UItem info(int id, String title, CharSequence summary, CharSequence details) {
+        org.telegram.ui.Cells.PrimeInfoCell cell = infoCells.get(id);
+        if (cell == null && getContext() != null) {
+            cell = new org.telegram.ui.Cells.PrimeInfoCell(getContext(), title, summary, details);
+            infoCells.put(id, cell);
+        }
+        return cell == null ? UItem.asShadow(summary) : UItem.asCustom(ID_INFO_BASE + id, cell);
+    }
+
+    private org.telegram.ui.Components.PrimeLivePreviewCell livePreviewCell;
+
+    private org.telegram.ui.Components.PrimeLivePreviewCell livePreviewCell() {
+        if (livePreviewCell == null && getContext() != null && getParentLayout() != null) {
+            livePreviewCell = new org.telegram.ui.Components.PrimeLivePreviewCell(
+                    getContext(), getParentLayout(), 0, null);
+        }
+        return livePreviewCell;
+    }
+
+    /** Pushes a settings change into the preview without rebuilding the whole list. */
+    private void updateLivePreview() {
+        if (livePreviewCell != null) {
+            livePreviewCell.update();
+        }
+    }
+
+    private View primeHeaderView;
+
+    /**
+     * The masthead: icon, name, build.
+     *
+     * <p>Costs one screenful of scroll and earns it back - this screen is reached from a row
+     * inside Telegram's own settings, and without a header there is nothing to tell you which
+     * application's settings you are now in, nor which build to quote when something breaks.
+     */
+    private UItem primeHeaderCell() {
+        if (primeHeaderView == null && getContext() != null) {
+            final Context context = getContext();
+            final LinearLayout layout = new LinearLayout(context);
+            layout.setOrientation(LinearLayout.VERTICAL);
+            layout.setGravity(Gravity.CENTER_HORIZONTAL);
+            layout.setPadding(0, AndroidUtilities.dp(18), 0, AndroidUtilities.dp(18));
+
+            final ImageView logo = new ImageView(context);
+            logo.setImageResource(R.mipmap.ic_launcher_round);
+            layout.addView(logo, org.telegram.ui.Components.LayoutHelper.createLinear(72, 72));
+
+            final TextView name = new TextView(context);
+            name.setText("PrimeGram");
+            name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 20);
+            name.setTypeface(AndroidUtilities.bold());
+            name.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+            name.setGravity(Gravity.CENTER);
+            layout.addView(name, org.telegram.ui.Components.LayoutHelper.createLinear(
+                    org.telegram.ui.Components.LayoutHelper.MATCH_PARENT,
+                    org.telegram.ui.Components.LayoutHelper.WRAP_CONTENT, 0, 10, 0, 0));
+
+            final TextView version = new TextView(context);
+            version.setText(org.telegram.messenger.BuildVars.BUILD_VERSION_STRING);
+            version.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
+            version.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+            version.setGravity(Gravity.CENTER);
+            layout.addView(version, org.telegram.ui.Components.LayoutHelper.createLinear(
+                    org.telegram.ui.Components.LayoutHelper.MATCH_PARENT,
+                    org.telegram.ui.Components.LayoutHelper.WRAP_CONTENT, 0, 3, 0, 0));
+
+            primeHeaderView = layout;
+        }
+        return UItem.asCustom(ID_SECTION_BASE + 99, primeHeaderView);
+    }
+
+    private UItem section(int section, IconBackgroundColors colors, int icon, CharSequence title, CharSequence subtitle) {
+        return SettingsActivity.SettingCell.Factory.of(
+                ID_SECTION_BASE + section, colors.top, colors.bottom, icon, title, subtitle);
     }
 
     private CharSequence sectionTitle() {
@@ -363,6 +492,21 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 items.add(UItem.asButton(ID_STT_MODEL, "Модель",
                         org.telegram.messenger.PrimeTranscription.getModel()));
             }
+            UItem whisperItem = UItem.asCheck(ID_WHISPER_ENABLED, "Расшифровывать на устройстве");
+            whisperItem.checked = org.telegram.messenger.PrimeWhisper.isEnabled();
+            items.add(whisperItem);
+            if (org.telegram.messenger.PrimeWhisper.isEnabled()) {
+                final int model = org.telegram.messenger.PrimeWhisper.getModel();
+                items.add(UItem.asButton(ID_WHISPER_MODEL, "Модель",
+                        org.telegram.messenger.PrimeWhisper.MODEL_NAMES[model]));
+                items.add(UItem.asButton(ID_WHISPER_DOWNLOAD,
+                        org.telegram.messenger.PrimeWhisper.isModelDownloaded(model) ? "Удалить модель" : "Загрузить модель",
+                        org.telegram.messenger.PrimeWhisper.MODEL_DESCRIPTIONS[model]));
+                items.add(UItem.asButton(ID_WHISPER_LANGUAGE, "Язык записи",
+                        whisperLanguageName()));
+            }
+            items.add(UItem.asShadow("Распознавание идёт прямо на телефоне: запись никуда не отправляется и работает без сети. Взамен нужно один раз скачать модель и подождать — на слабом телефоне минута речи разбирается заметно дольше, чем на сервере.\n\nЕсли скачана модель и включён внешний сервис одновременно, используется устройство: бесплатно и ничего не уходит наружу."));
+
             items.add(UItem.asShadow("Telegram отдаёт расшифровку только по Premium. Эта настройка отправляет голосовое во внешний сервис и подставляет ответ на место родной расшифровки.\n\nПо умолчанию — Groq: бесплатный тариф без карты, около 2000 расшифровок в сутки, ключ берётся на console.groq.com. Подойдёт любой сервис с совместимым API (OpenAI, Cloudflare, свой сервер) — впишите его адрес и модель.\n\nПонимайте, на что соглашаетесь: голосовое уходит на сервер, который не принадлежит ни Telegram, ни нам. Поэтому выключено по умолчанию и включается руками."));
         }
 
@@ -410,6 +554,22 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_ADVANCED) {
+        items.add(UItem.asHeader("Быстродействие"));
+        UItem optimizationsItem = UItem.asCheck(ID_OPTIMIZATIONS, "Оптимизации PrimeGram");
+        optimizationsItem.checked = org.telegram.messenger.PrimeTweaks.optimizations();
+        items.add(optimizationsItem);
+        items.add(info(7, "Оптимизации PrimeGram",
+                "Ускоряют работу ценой памяти и фоновых действий.",
+                "Сюда входят: подготовка вкладок «Профиль» и «Настройки» заранее, чтобы переход к ним был мгновенным; прогрев соединений туннеля при возврате в приложение, чтобы не ждать рукопожатие; увеличенный запас соединений для медиа, чтобы лента историй не открывалась по одной картинке.\n\nКаждая из них меняет память или фоновую работу на скорость. На большинстве устройств это выгодный обмен, но если приложение стало нестабильным или телефон греется — выключите и посмотрите, станет ли лучше. Это честнее, чем откатываться на старую сборку.\n\nК оптимизации батареи Android эта настройка отношения не имеет: та живёт в системных разрешениях и включается кнопкой выше."));
+
+        items.add(UItem.asHeader("Диагностика"));
+        UItem logsItem = UItem.asCheck(ID_LOGS_ENABLED, "Подробные логи");
+        logsItem.checked = org.telegram.messenger.BuildVars.LOGS_ENABLED;
+        items.add(logsItem);
+        items.add(info(6, "Подробные логи",
+                "Нужны только когда мы просим трассировку запуска.",
+                "Telegram пишет в лог очень много, и каждая строка форматируется в том потоке, который её отправил, — включая главный. Постоянно включённые логи заметно замедляют работу и занимают место.\n\nВключайте, когда нужно снять трассировку запуска или разобраться с ошибкой, и выключайте после. Трассировка PrimeGram пишется в тот же лог, поэтому без этой настройки её не будет."));
+
         items.add(UItem.asHeader("Экспериментальные настройки"));
         boolean hwAccel = org.telegram.messenger.CrashSafeToggle.isEnabled("primegram_hw_accel");
         UItem hwAccelItem = UItem.asCheck(ID_HW_ACCEL, "Аппаратное ускорение видео (MediaCodec)");
@@ -462,7 +622,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem miniAvatarsItem = UItem.asCheck(ID_SENDER_MINI_AVATARS, "Аватарка отправителя в превью");
         miniAvatarsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS);
         items.add(miniAvatarsItem);
-        items.add(UItem.asShadow("Истории убираются там же, где принимается решение о их показе, поэтому пустого места не остаётся. Кнопка «Написать» прячется только в списке чатов — при выборе чата для пересылки она остаётся, иначе подтвердить отправку было бы нечем. Свайп внутри архива блокируется только для действия «Архивировать»; если у вас на свайп назначено «Прочитать» или «Закрепить», оно продолжит работать.\n\nСтрока «Архив» пропадает только из списка — сам архив и всё, что в нём лежит, остаётся на месте и открывается из бокового меню. Вкладка «Все чаты» убирается, если у вас есть хотя бы одна папка: без папок убирать нечего, иначе не осталось бы ни одной вкладки.\n\nАватарка отправителя показывается перед текстом последнего сообщения и только в группах: в личной переписке она бы повторяла аватарку самого чата, стоящую в паре пикселей левее. Свои сообщения остаются без значка."));
+        items.add(info(4, "Список чатов",
+                "Ничего не удаляется — только убирается с глаз.",
+                "Истории убираются там же, где принимается решение о их показе, поэтому пустого места не остаётся.\n\nКнопка «Написать» прячется только в списке чатов — при выборе чата для пересылки она остаётся, иначе подтвердить отправку было бы нечем.\n\nСвайп внутри архива блокируется только для действия «Архивировать»; если у вас на свайп назначено «Прочитать» или «Закрепить», оно продолжит работать.\n\nСтрока «Архив» пропадает только из списка — сам архив и всё, что в нём лежит, остаётся на месте и открывается из бокового меню.\n\nВкладка «Все чаты» убирается, если у вас есть хотя бы одна папка: без папок убирать нечего, иначе не осталось бы ни одной вкладки.\n\nАватарка отправителя показывается перед текстом последнего сообщения и только в группах: в личной переписке она бы повторяла аватарку самого чата, стоящую в паре пикселей левее. Свои сообщения остаются без значка."));
 
         items.add(UItem.asHeader("В чатах"));
         UItem hideShareItem = UItem.asCheck(ID_HIDE_SHARE_BUTTON, "Скрыть кнопку «Поделиться»");
@@ -486,11 +648,24 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem hideStickerTimeItem = UItem.asCheck(ID_HIDE_STICKER_TIME, "Скрыть время на стикерах и кружочках");
         hideStickerTimeItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME);
         items.add(hideStickerTimeItem);
-        UItem stickerSizeItem = UItem.asButton(ID_STICKER_SIZE, "Размер стикеров",
-                String.valueOf(org.telegram.messenger.PrimeTweaks.stickerSize()));
-        items.add(stickerSizeItem);
-        items.add(UItem.asButton(ID_DOUBLE_TAP, "Двойное нажатие",
-                DOUBLE_TAP_NAMES[Math.max(0, Math.min(DOUBLE_TAP_NAMES.length - 1, org.telegram.messenger.PrimeTweaks.doubleTapAction()))]));
+        items.add(UItem.asHeader("Размер стикеров"));
+        if (stickerSizeCards() != null) {
+            items.add(UItem.asCustom(ID_STICKER_SIZE_CARDS, stickerSizeCards()));
+        }
+        if (stickerSizeSlider() != null) {
+            items.add(UItem.asCustom(ID_STICKER_SIZE_SLIDER, stickerSizeSlider()));
+        }
+        items.add(UItem.asHeader("Двойное нажатие по сообщению"));
+        if (doubleTapCards() != null) {
+            items.add(UItem.asCustom(ID_DOUBLE_TAP_CARDS, doubleTapCards()));
+        }
+        // Only meaningful when a double tap actually sets a reaction. Straight to Telegram's own
+        // picker rather than our own: it already handles the whole emoji set, custom emoji and
+        // the Premium rules around them, and a second picker would be a second set of rules to
+        // keep in step with the first.
+        if (org.telegram.messenger.PrimeTweaks.doubleTapAction() == org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_REACTION) {
+            items.add(UItem.asButton(ID_DOUBLE_TAP_REACTION, "Какая реакция", doubleTapReactionName()));
+        }
         UItem menuSaveItem = UItem.asCheck(ID_MENU_SAVE, "Пункт «В избранное»");
         menuSaveItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.MENU_SAVE_TO_SAVED);
         items.add(menuSaveItem);
@@ -500,7 +675,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem adminItem = UItem.asCheck(ID_ADMIN_SHORTCUTS, "Админ-действия в меню сообщения");
         adminItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.ADMIN_SHORTCUTS);
         items.add(adminItem);
-        items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину.\n\nДва последних пункта добавляются в меню долгого нажатия по сообщению, в самый низ: «В избранное» пересылает в «Избранное» без выбора чата (альбом целиком), «Подробности» показывает ID сообщения, отправителя и время отправки и правки — всё копируется одной кнопкой.\n\nАдмин-действия — «Забанить» и «Удалить все сообщения» — появляются только в группах, где у вас есть право блокировать участников, и только на чужих сообщениях. Оба спрашивают подтверждение. Автора-канал они не трогают: это другой запрос, и он остаётся в профиле."));
+        items.add(info(2, "В чатах",
+                "Новые пункты появляются внизу меню долгого нажатия.",
+                "Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут.\n\n«В избранное» пересылает сообщение в «Избранное» без выбора чата, альбом целиком.\n\n«Подробности» показывает ID сообщения, отправителя и время отправки и правки — всё копируется одной кнопкой.\n\nАдмин-действия — «Забанить» и «Удалить все сообщения» — появляются только в группах, где у вас есть право блокировать участников, и только на чужих сообщениях. Оба спрашивают подтверждение. Автора-канал они не трогают: это другой запрос, и он остаётся в профиле."));
 
         items.add(UItem.asHeader("Медиа"));
         UItem uncompressedItem = UItem.asCheck(ID_SEND_UNCOMPRESSED, "Отправлять без сжатия");
@@ -509,20 +686,35 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem saveRoundItem = UItem.asCheck(ID_SAVE_ROUND_VOICE, "Сохранять кружочки и голосовые");
         saveRoundItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SAVE_ROUND_AND_VOICE);
         items.add(saveRoundItem);
-        items.add(UItem.asButton(ID_VIDEO_QUALITY, "Качество видео",
-                VIDEO_QUALITY_NAMES[videoQualityIndex()]));
+        items.add(UItem.asHeader("Качество видео"));
+        if (videoQualityCards() != null) {
+            items.add(UItem.asCustom(ID_VIDEO_QUALITY_CARDS, videoQualityCards()));
+        }
         UItem preloadItem = UItem.asCheck(ID_PRELOAD_VIDEO_MOBILE, "Догружать видео на мобильной сети");
         preloadItem.checked = org.telegram.messenger.DownloadController.getInstance(currentAccount).primeMobilePreloadVideo();
         items.add(preloadItem);
         items.add(UItem.asButton(ID_AUTODOWNLOAD, "Автозагрузка медиа"));
         items.add(UItem.asButton(ID_CACHE, "Кэш медиа", cacheSizeText()));
-        items.add(UItem.asShadow("Отправка без сжатия переключает главную кнопку в режим «файлом» — тот же, что в меню вложений. На контакты, музыку и геопозицию это не влияет: для них «файлом» ничего не значит.\n\nСохранение кружочков и голосовых добавляет пункт в меню долгого нажатия: кружочек уходит в галерею, голосовое — в загрузки. Одноразовые сообщения не сохраняются: отправитель выбрал исчезающее сообщение, и обходить это мы не будем.\n\nКачество видео ограничивает то, что скачивается, а не только то, что играет: скачивается ровно та дорожка, которую выбирает плеер. Если ни одна не помещается в лимит, берётся обычная — лимит не должен оставить видео непроигрываемым. Уже скачанное не перекачивается заново, даже если оно крупнее лимита. Настройка применяется к сообщениям, открытым после её изменения.\n\nВыключенная догрузка на мобильной сети переводит автозагрузку в режим «Свой» — иначе правка задела бы заодно Wi-Fi и роуминг, у которых с готовыми пресетами общий объект. Остальные значения при этом переносятся как были.\n\nКэш — только скачанное для просмотра. Файлы, которые вы сами сохранили в загрузки или галерею, кнопка не трогает."));
+        items.add(info(5, "Медиа",
+                "Ограничение качества экономит трафик, а не только пиксели.",
+                "Отправка без сжатия переключает главную кнопку в режим «файлом» — тот же, что в меню вложений. На контакты, музыку и геопозицию это не влияет: для них «файлом» ничего не значит.\n\nСохранение кружочков и голосовых добавляет пункт в меню долгого нажатия: кружочек уходит в галерею, голосовое — в загрузки. Одноразовые сообщения не сохраняются: отправитель выбрал исчезающее сообщение, и обходить это мы не будем.\n\nКачество видео ограничивает то, что скачивается, а не только то, что играет: скачивается ровно та дорожка, которую выбирает плеер. Если ни одна не помещается в лимит, берётся обычная — лимит не должен оставить видео непроигрываемым. Уже скачанное не перекачивается заново, даже если оно крупнее лимита. Настройка применяется к сообщениям, открытым после её изменения.\n\nВыключенная догрузка на мобильной сети переводит автозагрузку в режим «Свой» — иначе правка задела бы заодно Wi-Fi и роуминг, у которых с готовыми пресетами общий объект. Остальные значения при этом переносятся как были.\n\nКэш — только скачанное для просмотра. Файлы, которые вы сами сохранили в загрузки или галерею, кнопка не трогает."));
 
-        items.add(UItem.asHeader("Перевод"));
-        items.add(UItem.asButton(ID_TRANSLATE_PROVIDER, "Чем переводить",
-                TRANSLATE_PROVIDER_NAMES[Math.max(0, Math.min(TRANSLATE_PROVIDER_NAMES.length - 1,
-                        org.telegram.messenger.PrimeTweaks.translateProvider()))]));
-        items.add(UItem.asShadow("Перевод через Telegram идёт по тому же соединению, что и всё остальное, и подчиняется ограничениям аккаунта. Google и Yandex работают по обычной сети — это выручает, когда туннель тормозит, и не требует Premium. Сети у них разные, так что если один недоступен, стоит попробовать другой.\n\nВзамен они теряют форматирование: жирный шрифт, ссылки и упоминания в переведённом тексте пропадут. Поэтому по умолчанию стоит Telegram. Статьи Instant View переводятся через Telegram в любом случае — там перевод возвращает не текст, а свёрстанную страницу."));
+        items.add(UItem.asHeader("Камера"));
+        UItem rearRoundItem = UItem.asCheck(ID_ROUND_VIDEO_REAR, "Кружочки с основной камеры");
+        rearRoundItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.ROUND_VIDEO_REAR);
+        items.add(rearRoundItem);
+        UItem camera2Item = UItem.asCheck(ID_CAMERA2, "Camera2 API");
+        camera2Item.checked = org.telegram.messenger.SharedConfig.isUsingCamera2(currentAccount);
+        items.add(camera2Item);
+        items.add(UItem.asShadow("Обычно кружочки всегда начинаются с фронтальной камеры, и переключение стоит нажатия и заметного перезапуска картинки.\n\nCamera2 — более новый интерфейс камеры Android: лучше автофокус и экспозиция, но на части прошивок он работает хуже старого. Переключатель есть и в отладочном меню Telegram, здесь он просто на виду. Важно: на съёмку фото и видео он сейчас не влияет — в самом Telegram Camera2 для основной камеры отключён в коде, — так что меняет он поведение только кружочков."));
+
+        items.add(UItem.asHeader("Чем переводить"));
+        if (translatorCards() != null) {
+            items.add(UItem.asCustom(ID_TRANSLATOR_CARDS, translatorCards()));
+        }
+        items.add(info(3, "Перевод",
+                "Google и Yandex не требуют Premium, но теряют форматирование.",
+                "Перевод через Telegram идёт по тому же соединению, что и всё остальное, и подчиняется ограничениям аккаунта.\n\nGoogle и Yandex работают по обычной сети — это выручает, когда туннель тормозит, и не требует Premium. Сети у них разные, так что если один недоступен, стоит попробовать другой.\n\nВзамен они теряют форматирование: жирный шрифт, ссылки и упоминания в переведённом тексте пропадут. Поэтому по умолчанию стоит Telegram.\n\nСтатьи Instant View переводятся через Telegram в любом случае — там перевод возвращает не текст, а свёрстанную страницу."));
 
         items.add(UItem.asHeader("Профиль"));
         UItem showIdItem = UItem.asCheck(ID_SHOW_ID_AND_DC, "Показывать ID и дата-центр");
@@ -531,19 +723,35 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asShadow("Строка с числовым ID собеседника, канала или группы — по нажатию копируется. Дата-центр показывается только когда у собеседника есть аватар: узнать его больше неоткуда."));
 
         items.add(UItem.asHeader("Оформление"));
+        // The preview goes above the switches that change it: reaching for a switch and watching
+        // the result appear in the same glance is the whole point of having one.
+        if (livePreviewCell() != null) {
+            items.add(UItem.asCustom(ID_LIVE_PREVIEW, livePreviewCell()));
+        }
         UItem snowItem = UItem.asCheck(ID_FORCE_SNOW, "Снег круглый год");
         snowItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.FORCE_SNOW);
         items.add(snowItem);
         UItem centerTitleItem = UItem.asCheck(ID_CENTER_TITLE, "Заголовок по центру");
         centerTitleItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.CENTER_TITLE);
         items.add(centerTitleItem);
+        UItem titleUsernameItem = UItem.asCheck(ID_MAIN_TITLE_USERNAME, "Вместо логотипа — свой ник");
+        titleUsernameItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.MAIN_TITLE_USERNAME);
+        items.add(titleUsernameItem);
+        UItem hideStatusItem = UItem.asCheck(ID_HIDE_EMOJI_STATUS, "Скрыть свой эмодзи-статус");
+        hideStatusItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_EMOJI_STATUS);
+        items.add(hideStatusItem);
+        UItem hideHeaderItem = UItem.asCheck(ID_HIDE_SETTINGS_HEADER, "Убрать шапку профиля в настройках");
+        hideHeaderItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_SETTINGS_HEADER);
+        items.add(hideHeaderItem);
         UItem noTailItem = UItem.asCheck(ID_REMOVE_TAIL, "Пузыри без хвостика");
         noTailItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL);
         items.add(noTailItem);
         if (avatarCornersCell() != null) {
             items.add(UItem.asCustom(ID_AVATAR_CORNERS, avatarCornersCell()));
         }
-        items.add(UItem.asShadow("Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате. Заголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами. Скругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере выше показаны сразу четыре размера."));
+        items.add(info(1, "Оформление",
+                "Форма аватарок меняется сразу и везде.",
+                "Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате.\n\nЗаголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами.\n\nСкругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере показаны сразу четыре размера."));
 
         items.add(UItem.asHeader("Реакции"));
         UItem reactChannelsItem = UItem.asCheck(ID_HIDE_REACTIONS_CHANNELS, "Скрыть в каналах");
@@ -656,6 +864,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         String tweakKey = primeTweakKeyFor(item.id);
         if (tweakKey != null) {
             org.telegram.messenger.PrimeTweaks.set(tweakKey, !org.telegram.messenger.PrimeTweaks.get(tweakKey));
+            // Every tweak, not a chosen few: the preview is a picture of the app, and a switch
+            // that changes nothing in it simply redraws the same picture.
+            updateLivePreview();
             if (item.id == ID_FORCE_SNOW) {
                 // The holiday check only re-runs once a minute; without this the toggle looks
                 // like it did nothing until the user waits it out.
@@ -693,6 +904,40 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showVideoQualityPicker();
         } else if (item.id == ID_PRELOAD_VIDEO_MOBILE) {
             togglePreloadVideoOnMobile();
+        } else if (item.id == ID_AUTODOWNLOAD) {
+            // Straight to the stock screen rather than a copy of it here: the presets are one
+            // stored value, and two screens writing it would eventually disagree.
+            presentFragment(new org.telegram.ui.DataSettingsActivity());
+        } else if (item.id == ID_WHISPER_ENABLED) {
+            final boolean enabled = !org.telegram.messenger.PrimeWhisper.isEnabled();
+            org.telegram.messenger.PrimeWhisper.setEnabled(enabled);
+            if (!enabled) {
+                // The loaded model is tens of megabytes of resident memory; switching the feature
+                // off has to actually give it back.
+                org.telegram.messenger.PrimeWhisper.release();
+            }
+            listView.adapter.update(true);
+        } else if (item.id == ID_WHISPER_MODEL) {
+            showWhisperModelPicker();
+        } else if (item.id == ID_WHISPER_DOWNLOAD) {
+            toggleWhisperModel();
+        } else if (item.id == ID_WHISPER_LANGUAGE) {
+            showWhisperLanguagePicker();
+        } else if (item.id == ID_DOUBLE_TAP_REACTION) {
+            presentFragment(new org.telegram.ui.ReactionsDoubleTapManageActivity());
+        } else if (item.id == ID_LOGS_ENABLED) {
+            // The same preference the debug menu writes, so the two can never disagree.
+            org.telegram.messenger.ApplicationLoader.applicationContext
+                    .getSharedPreferences("systemConfig", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("logsEnabled", org.telegram.messenger.BuildVars.LOGS_ENABLED = !org.telegram.messenger.BuildVars.LOGS_ENABLED)
+                    .commit();
+            listView.adapter.update(true);
+        } else if (item.id == ID_CAMERA2) {
+            // Upstream state, not ours: the same value the debug menu toggles, so the two screens
+            // can never disagree about it.
+            org.telegram.messenger.SharedConfig.toggleUseCamera2(currentAccount);
+            listView.adapter.update(true);
         } else if (item.id == ID_ADBLOCK_UPDATE) {
             updateAdBlockLists();
         } else if (item.id == ID_HW_BENCHMARK) {
@@ -1248,6 +1493,111 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return avatarCornersCell;
     }
 
+    /** Codes whisper understands, plus an empty one meaning auto-detect. */
+    private static final String[] WHISPER_LANGUAGE_CODES = {"", "ru", "en", "uk", "de", "fr", "es"};
+    private static final String[] WHISPER_LANGUAGE_NAMES = {
+        "Определять сам", "Русский", "English", "Українська", "Deutsch", "Français", "Español"
+    };
+
+    private CharSequence whisperLanguageName() {
+        final String current = org.telegram.messenger.PrimeWhisper.getLanguage();
+        for (int i = 0; i < WHISPER_LANGUAGE_CODES.length; i++) {
+            if (WHISPER_LANGUAGE_CODES[i].equals(current)) {
+                return WHISPER_LANGUAGE_NAMES[i];
+            }
+        }
+        return WHISPER_LANGUAGE_NAMES[0];
+    }
+
+    private void showWhisperLanguagePicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Язык записи");
+        builder.setItems(WHISPER_LANGUAGE_NAMES, (dialog, which) -> {
+            org.telegram.messenger.PrimeWhisper.setLanguage(WHISPER_LANGUAGE_CODES[which]);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showWhisperModelPicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final String[] names = org.telegram.messenger.PrimeWhisper.MODEL_NAMES;
+        final CharSequence[] options = new CharSequence[names.length];
+        for (int i = 0; i < names.length; i++) {
+            options[i] = names[i] + " — " + org.telegram.messenger.PrimeWhisper.MODEL_DESCRIPTIONS[i]
+                    + (org.telegram.messenger.PrimeWhisper.isModelDownloaded(i) ? " · загружена" : "");
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Модель распознавания");
+        builder.setItems(options, (dialog, which) -> {
+            org.telegram.messenger.PrimeWhisper.setModel(which);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private AlertDialog whisperProgressDialog;
+
+    private void toggleWhisperModel() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final int model = org.telegram.messenger.PrimeWhisper.getModel();
+        if (org.telegram.messenger.PrimeWhisper.isModelDownloaded(model)) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+            builder.setTitle("Удалить модель");
+            builder.setMessage("Файл модели будет удалён. Распознавание на устройстве перестанет работать, пока вы не скачаете её снова.");
+            builder.setPositiveButton(LocaleController.getString(R.string.Delete), (dialog, which) -> {
+                org.telegram.messenger.PrimeWhisper.deleteModel(model);
+                listView.adapter.update(true);
+            });
+            builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+            showDialog(builder.create());
+            return;
+        }
+        if (whisperProgressDialog != null) {
+            return;
+        }
+        whisperProgressDialog = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
+        whisperProgressDialog.setCanCancel(false);
+        whisperProgressDialog.setMessage("Загрузка модели…");
+        whisperProgressDialog.show();
+        org.telegram.messenger.PrimeWhisper.download(model, new org.telegram.messenger.PrimeWhisper.DownloadCallback() {
+            @Override
+            public void onProgress(int percent) {
+                if (whisperProgressDialog != null) {
+                    whisperProgressDialog.setMessage("Загрузка модели… " + percent + "%");
+                }
+            }
+
+            @Override
+            public void onFinished(boolean ok, String message) {
+                if (whisperProgressDialog != null) {
+                    whisperProgressDialog.dismiss();
+                    whisperProgressDialog = null;
+                }
+                if (getParentActivity() == null) {
+                    return;
+                }
+                if (ok) {
+                    org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this)
+                            .createSimpleBulletin(R.raw.done, "Модель загружена").show();
+                } else {
+                    org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this)
+                            .createErrorBulletin(message == null ? "Ошибка загрузки" : message).show();
+                }
+                listView.adapter.update(true);
+            }
+        });
+    }
+
     private static final String[] TRANSLATE_PROVIDER_NAMES = {"Telegram", "Google", "Yandex"};
 
     /** 0 means no ceiling; the rest are the shorter side in pixels. */
@@ -1301,6 +1651,130 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     }
 
     private static final String[] DOUBLE_TAP_NAMES = {"Реакция", "Ответить", "Ничего"};
+
+    /**
+     * The three sticker sizes offered as cards.
+     *
+     * <p>A slider would give more values and be worse: the number is stored as a text height that
+     * means nothing to anyone, and the only question people actually have is small, normal or big.
+     */
+    private static final int[] STICKER_SIZE_VALUES = {10, org.telegram.messenger.PrimeTweaks.STICKER_SIZE_DEFAULT, 20};
+    private static final String[] STICKER_SIZE_NAMES = {"Компактно", "Как в оригинале", "Крупно"};
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell stickerSizeCards;
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell doubleTapCards;
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell translatorCards;
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell videoQualityCards;
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell translatorCards() {
+        if (translatorCards == null && getContext() != null) {
+            final int current = Math.max(0, Math.min(TRANSLATE_PROVIDER_NAMES.length - 1,
+                    org.telegram.messenger.PrimeTweaks.translateProvider()));
+            translatorCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_TRANSLATOR,
+                    TRANSLATE_PROVIDER_NAMES, null, current, null);
+            translatorCards.setOnSelected(index ->
+                    org.telegram.messenger.PrimeTweaks.setInt(
+                            org.telegram.messenger.PrimeTweaks.TRANSLATE_PROVIDER, index));
+        }
+        return translatorCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell videoQualityCards() {
+        if (videoQualityCards == null && getContext() != null) {
+            videoQualityCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_VIDEO_QUALITY,
+                    VIDEO_QUALITY_NAMES, VIDEO_QUALITY_VALUES, videoQualityIndex(), null);
+            videoQualityCards.setOnSelected(index ->
+                    org.telegram.messenger.PrimeTweaks.setInt(
+                            org.telegram.messenger.PrimeTweaks.MAX_VIDEO_HEIGHT, VIDEO_QUALITY_VALUES[index]));
+        }
+        return videoQualityCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeSliderCell stickerSizeSlider;
+
+    private org.telegram.ui.Cells.PrimeSliderCell stickerSizeSlider() {
+        if (stickerSizeSlider == null && getContext() != null) {
+            stickerSizeSlider = new org.telegram.ui.Cells.PrimeSliderCell(getContext(),
+                    "Точный размер", 8, 24, org.telegram.messenger.PrimeTweaks.stickerSize(), null);
+            stickerSizeSlider.setFormatter(value ->
+                    value == org.telegram.messenger.PrimeTweaks.STICKER_SIZE_DEFAULT
+                            ? "как в оригинале" : String.valueOf(value));
+            stickerSizeSlider.setListener((value, stop) -> {
+                org.telegram.messenger.PrimeTweaks.setInt(
+                        org.telegram.messenger.PrimeTweaks.STICKER_SIZE, value);
+                updateLivePreview();
+                if (stop && stickerSizeCards != null) {
+                    // Keep the cards honest: dragging to a value that is not one of the three
+                    // should leave none of them looking chosen.
+                    int match = -1;
+                    for (int i = 0; i < STICKER_SIZE_VALUES.length; i++) {
+                        if (STICKER_SIZE_VALUES[i] == value) {
+                            match = i;
+                            break;
+                        }
+                    }
+                    if (match >= 0) {
+                        stickerSizeCards.select(match, true);
+                    }
+                }
+            });
+        }
+        return stickerSizeSlider;
+    }
+
+    /** The emoji currently set as the double-tap reaction, or a hint when it is a custom one. */
+    private CharSequence doubleTapReactionName() {
+        try {
+            final String reaction = org.telegram.messenger.MediaDataController.getInstance(currentAccount)
+                    .getDoubleTapReaction();
+            if (android.text.TextUtils.isEmpty(reaction)) {
+                return "не выбрана";
+            }
+            // A custom emoji is stored as its document id, which is a number nobody can read.
+            return reaction.startsWith("animated_") ? "своя эмодзи" : reaction;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell stickerSizeCards() {
+        if (stickerSizeCards == null && getContext() != null) {
+            int selected = 1;
+            final int current = org.telegram.messenger.PrimeTweaks.stickerSize();
+            for (int i = 0; i < STICKER_SIZE_VALUES.length; i++) {
+                if (STICKER_SIZE_VALUES[i] == current) {
+                    selected = i;
+                    break;
+                }
+            }
+            stickerSizeCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_STICKER_SIZE,
+                    STICKER_SIZE_NAMES, STICKER_SIZE_VALUES, selected, null);
+            stickerSizeCards.setOnSelected(index -> {
+                org.telegram.messenger.PrimeTweaks.setInt(
+                        org.telegram.messenger.PrimeTweaks.STICKER_SIZE, STICKER_SIZE_VALUES[index]);
+                updateLivePreview();
+            });
+        }
+        return stickerSizeCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell doubleTapCards() {
+        if (doubleTapCards == null && getContext() != null) {
+            final int current = Math.max(0, Math.min(DOUBLE_TAP_NAMES.length - 1,
+                    org.telegram.messenger.PrimeTweaks.doubleTapAction()));
+            doubleTapCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_DOUBLE_TAP,
+                    DOUBLE_TAP_NAMES, null, current, null);
+            doubleTapCards.setOnSelected(index ->
+                    org.telegram.messenger.PrimeTweaks.setInt(
+                            org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_ACTION, index));
+        }
+        return doubleTapCards;
+    }
 
     private void showDoubleTapPicker() {
         if (getParentActivity() == null) {

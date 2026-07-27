@@ -733,6 +733,12 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
             if (!useCamera2) {
                 isFrontface = true;
             }
+            // PrimeGram: which camera a round video starts on. Upstream hardwires the front one,
+            // which is right for a selfie video and wrong for everything else - and switching
+            // afterwards costs a tap and a visible restart of the preview. Applied after the
+            // block above on purpose: with Camera2 that block leaves the previous value in place,
+            // and a fresh recording should honour the setting either way.
+            isFrontface = !org.telegram.messenger.PrimeTweaks.roundVideoRearCamera();
             updateFlash();
             recordedTime = 0;
             progress = 0;

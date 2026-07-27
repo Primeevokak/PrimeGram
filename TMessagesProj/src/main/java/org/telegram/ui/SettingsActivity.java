@@ -568,7 +568,11 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         titleView.setText(UserObject.getUserName(user));
         final StringBuilder sb = new StringBuilder();
         if (user != null) {
-            sb.append(PhoneFormat.getInstance().format("+" + user.phone));
+            // PrimeGram: the same masking the profile does. This line was building the number
+            // straight from the user object, so "скрывать свой номер" hid it one screen away and
+            // left it in plain sight on the screen people open most often.
+            sb.append(org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(
+                    PhoneFormat.getInstance().format("+" + user.phone), true));
         }
         final String username = UserObject.getPublicUsername(user);
         if (username != null) {
@@ -653,7 +657,13 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             return;
         }
 
-        items.add(UItem.asCustomShadow(topView, 200 - 12));
+        // PrimeGram: the avatar, name, number and username block. Optional, because it duplicates
+        // the profile screen one tap away and spends a third of the first screenful telling you
+        // who you are - and because for anyone hiding their number, the settings screen was the
+        // one place it stayed on show.
+        if (!org.telegram.messenger.PrimeTweaks.hideSettingsHeader()) {
+            items.add(UItem.asCustomShadow(topView, 200 - 12));
+        }
 
         accountNumbers.clear();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {

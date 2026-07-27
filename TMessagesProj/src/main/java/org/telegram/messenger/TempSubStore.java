@@ -174,7 +174,15 @@ public class TempSubStore {
                     cancel(entry.dialogId);
                     continue;
                 }
-                MessagesController controller = MessagesController.getInstance(account);
+                // getInstanceIfCreated, never getInstance: this runs on the main thread, and the
+                // background sweep can reach it in a process where an account was never touched.
+                // Building a controller there would start a thread and open a SQLite database on
+                // the main thread - the exact shape of freeze this fork has already paid for once.
+                // A missing controller simply leaves the entry for the next sweep.
+                MessagesController controller = MessagesController.getInstanceIfCreated(account);
+                if (controller == null) {
+                    continue;
+                }
                 TLRPC.User self = UserConfig.getInstance(account).getCurrentUser();
                 if (self == null) {
                     continue; // not loaded yet; try again on the next sweep rather than forget it

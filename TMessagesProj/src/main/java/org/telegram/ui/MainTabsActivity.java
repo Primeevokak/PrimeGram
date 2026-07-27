@@ -691,6 +691,10 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
      * </ul>
      */
     private void primeSchedulePreload(Context context) {
+        if (!org.telegram.messenger.PrimeTweaks.optimizations()) {
+            // Building these tabs early costs memory that a tight device may not have to spare.
+            return;
+        }
         final int[] positionsToPreload = {POSITION_PROFILE, POSITION_CALLS_OR_SETTINGS};
         final int[] next = {0};
         android.os.Looper.myQueue().addIdleHandler(() -> {

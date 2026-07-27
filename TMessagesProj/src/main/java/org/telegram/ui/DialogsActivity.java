@@ -3533,10 +3533,27 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 logoDrawable = context.getResources().getDrawable(R.drawable.telegram_logo_2).mutate();
                 logoDrawable.setBounds(0, dp(2), logoDrawable.getIntrinsicWidth(), dp(2) + logoDrawable.getIntrinsicHeight());
                 logoDrawable.setColorFilter(getThemedColor(Theme.key_telegram_color_dialogsLogo), PorterDuff.Mode.MULTIPLY);
-                SpannableStringBuilder ssb = new SpannableStringBuilder(getString(R.string.AppName));
-                ssb.setSpan(new ImageSpan(logoDrawable), 0, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                actionBar.setTitle(ssb, statusDrawable);
-                updateStatus(UserConfig.getInstance(currentAccount).getCurrentUser(), false);
+                // PrimeGram: the title here is the word "Telegram" with the logo drawn over it as
+                // a span, so what you actually see is the logo. Optionally show who you are
+                // instead - on a fork used on several accounts, that answers a question the logo
+                // never does.
+                final TLRPC.User selfUser = UserConfig.getInstance(currentAccount).getCurrentUser();
+                final boolean showUsername = org.telegram.messenger.PrimeTweaks.mainTitleUsername();
+                CharSequence titleText = null;
+                if (showUsername && selfUser != null) {
+                    final String publicUsername = UserObject.getPublicUsername(selfUser);
+                    titleText = publicUsername != null ? "@" + publicUsername : UserObject.getUserName(selfUser);
+                }
+                if (TextUtils.isEmpty(titleText)) {
+                    SpannableStringBuilder ssb = new SpannableStringBuilder(getString(R.string.AppName));
+                    ssb.setSpan(new ImageSpan(logoDrawable), 0, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    titleText = ssb;
+                }
+                // Passing null for the status drawable is what actually leaves it out; hiding it
+                // afterwards would still reserve its width beside the title.
+                actionBar.setTitle(titleText,
+                        org.telegram.messenger.PrimeTweaks.hideEmojiStatus() ? null : statusDrawable);
+                updateStatus(selfUser, false);
             }
             if (folderId == 0) {
                 actionBar.setSupportsHolidayImage(true);

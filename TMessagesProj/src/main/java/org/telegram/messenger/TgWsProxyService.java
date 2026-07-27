@@ -1060,7 +1060,7 @@ public class TgWsProxyService extends Service {
                         @Override
                         public void onBecameForeground() {
                             final TgWsProxyService service = instance;
-                            if (service != null && service.running.get()) {
+                            if (service != null && service.running.get() && PrimeTweaks.optimizations()) {
                                 service.warmupActiveDcs();
                             }
                         }
@@ -1154,6 +1154,9 @@ public class TgWsProxyService extends Service {
      * pool of two covers a conversation; it does not cover a burst.
      */
     private static int poolTargetFor(boolean isMedia) {
+        if (!PrimeTweaks.optimizations()) {
+            return 2;
+        }
         return isMedia ? 4 : 2;
     }
 
