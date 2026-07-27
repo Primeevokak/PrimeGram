@@ -2842,6 +2842,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     @Override
     public boolean onFragmentCreate() {
+        org.telegram.messenger.PrimeStartupTrace.mark("DialogsActivity.onFragmentCreate begin");
         super.onFragmentCreate();
 
         if (arguments != null) {

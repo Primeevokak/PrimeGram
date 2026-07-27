@@ -304,6 +304,14 @@ public class ApplicationLoader extends Application {
         SharedConfig.pushStringStatus = "__FIREBASE_GENERATING_SINCE_" + ConnectionsManager.getInstance(primaryAccount).getCurrentTime() + "__";
         PrimeStartupTrace.mark("postInitApplication: account " + primaryAccount + " ready, " + deferredAccounts.size() + " deferred");
 
+        // A background account only has to be running if its notifications are wanted. When they
+        // are not, it stays cold until the user switches to it, and switchToAccount() brings it up
+        // through the same lazy singletons.
+        if (!SharedConfig.showNotificationsForAllAccounts) {
+            PrimeStartupTrace.mark("background accounts stay cold (notifications are current-account only)");
+            deferredAccounts.clear();
+        }
+
         if (!deferredAccounts.isEmpty()) {
             // Staggered rather than all at once: each account brings up its own storage thread and
             // its own network stack, and firing them together is what turns several accounts into

@@ -284,6 +284,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
 
     @Override
     public View createView(Context context) {
+        org.telegram.messenger.PrimeStartupTrace.mark("MainTabsActivity.createView begin");
         super.createView(context);
         tabletLayout = false;
 

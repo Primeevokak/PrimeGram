@@ -23653,6 +23653,12 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         if (currentMessageObject != null && currentMessageObject.type == MessageObject.TYPE_JOINED_CHANNEL) {
             return;
         }
+        // The timestamp bubble over a sticker or a round video covers artwork rather than sitting
+        // beside it. Layout is untouched - only the drawing is skipped.
+        if (currentMessageObject != null && org.telegram.messenger.PrimeTweaks.hideStickerTime()
+                && (currentMessageObject.isAnyKindOfSticker() || currentMessageObject.isRoundVideo())) {
+            return;
+        }
         for (int i = 0; i < 2; i++) {
             float currentAlpha = alpha;
             if (i == 0 && isDrawSelectionBackground() && currentSelectedBackgroundAlpha == 1f && !shouldDrawTimeOnMedia()) {

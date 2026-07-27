@@ -130,6 +130,13 @@ public class NotificationPermissionDialog extends BottomSheet implements Notific
     public void updateCounter() {
         int counter = 0;
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; ++a) {
+            // MessagesStorage.getInstance() is not a lookup - it constructs the storage for that
+            // slot, which spawns a thread and opens a SQLite database. Asking every slot for its
+            // unread count therefore opened a database per slot, empty ones included, just to add
+            // zero to a badge. An account that was never logged in has nothing unread.
+            if (!UserConfig.getInstance(a).isClientActivated()) {
+                continue;
+            }
             MessagesStorage messagesStorage = MessagesStorage.getInstance(a);
             if (messagesStorage != null) {
                 counter += messagesStorage.getMainUnreadCount();

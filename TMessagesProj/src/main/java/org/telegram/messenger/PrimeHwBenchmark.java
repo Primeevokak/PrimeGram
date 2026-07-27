@@ -58,6 +58,36 @@ public class PrimeHwBenchmark {
         public int height;
         public PassResult software = new PassResult();
         public PassResult hardware = new PassResult();
+        /** Gap between the two rounds of the same path - how much this device's numbers wander. */
+        public long softwareSpreadMs;
+        public long hardwareSpreadMs;
+    }
+
+    /** Averages the two rounds of one path. Fails if either round failed. */
+    private static PassResult mean(PassResult a, PassResult b) {
+        PassResult out = new PassResult();
+        out.ok = a.ok && b.ok;
+        out.failure = a.ok ? b.failure : a.failure;
+        if (out.ok) {
+            out.frames = (a.frames + b.frames) / 2;
+            out.wallMs = (a.wallMs + b.wallMs) / 2;
+            out.cpuMs = (a.cpuMs + b.cpuMs) / 2;
+        }
+        return out;
+    }
+
+    /**
+     * Reads the file through once so neither pass is the one that pays for cold storage.
+     * Failures are ignored - a cold cache makes the numbers noisier, not wrong.
+     */
+    private static void warmFileCache(File file) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+            byte[] buffer = new byte[256 * 1024];
+            while (in.read(buffer) > 0) {
+                // Reading is the point; the bytes are not needed.
+            }
+        } catch (Throwable ignore) {
+        }
     }
 
     public interface Callback {
@@ -95,10 +125,21 @@ public class PrimeHwBenchmark {
             return result;
         }
 
-        // Software first: the hardware pass benefits from a warm page cache, and running it second
-        // means that advantage works against the result we are trying to sell, not for it.
-        result.software = runPass(sample, result.width, result.height, false);
-        result.hardware = runPass(sample, result.width, result.height, true);
+        // Whichever pass runs second reads a file the first pass already pulled into the page
+        // cache. Rather than pick which path that favours, the confound is removed: the file is
+        // read once up front so both passes start warm, and then each path is run twice with the
+        // order swapped so any residual ordering effect cancels between the two rounds.
+        warmFileCache(sample);
+
+        PassResult softwareFirst = runPass(sample, result.width, result.height, false);
+        PassResult hardwareFirst = runPass(sample, result.width, result.height, true);
+        PassResult hardwareSecond = runPass(sample, result.width, result.height, true);
+        PassResult softwareSecond = runPass(sample, result.width, result.height, false);
+
+        result.software = mean(softwareFirst, softwareSecond);
+        result.hardware = mean(hardwareFirst, hardwareSecond);
+        result.softwareSpreadMs = Math.abs(softwareFirst.wallMs - softwareSecond.wallMs);
+        result.hardwareSpreadMs = Math.abs(hardwareFirst.wallMs - hardwareSecond.wallMs);
         result.ok = result.software.ok && result.hardware.ok;
         if (!result.ok) {
             result.failure = result.software.ok ? result.hardware.failure : result.software.failure;
@@ -199,7 +240,8 @@ public class PrimeHwBenchmark {
         StringBuilder sb = new StringBuilder();
         sb.append("Файл: ").append(r.fileName).append("\n");
         sb.append("Разрешение: ").append(r.width).append("×").append(r.height).append("\n");
-        sb.append("Кадров в проходе: ").append(r.software.frames).append("\n\n");
+        sb.append("Кадров в проходе: ").append(r.software.frames).append("\n");
+        sb.append("Каждый путь прогнан дважды, порядок менялся; ниже — среднее.\n\n");
 
         sb.append("Программный декодер (ffmpeg)\n");
         sb.append("  время: ").append(r.software.wallMs).append(" мс");
@@ -214,9 +256,11 @@ public class PrimeHwBenchmark {
         sb.append(compare("Время", r.software.wallMs, r.hardware.wallMs));
         sb.append("\n");
         sb.append(compare("CPU", r.software.cpuMs, r.hardware.cpuMs));
-        sb.append("\n\nCPU — это та цифра, которая превращается в расход батареи. ");
-        sb.append("Учтите: у части устройств кодек работает в отдельном процессе, и его время отсюда не видно — там аппаратный путь выглядит лучше, чем есть. ");
-        sb.append("Одно измерение на одном файле ничего не доказывает: прогоните несколько раз.");
+        sb.append("\n\nРазброс между прогонами: программный ").append(r.softwareSpreadMs);
+        sb.append(" мс, аппаратный ").append(r.hardwareSpreadMs).append(" мс. ");
+        sb.append("Если разброс сопоставим с разницей между путями — разница шумовая, и телефон в этот момент был занят чем-то ещё.\n\n");
+        sb.append("CPU — это та цифра, которая превращается в расход батареи. ");
+        sb.append("Учтите: у части устройств кодек работает в отдельном процессе, и его время отсюда не видно — там аппаратный путь выглядит лучше, чем есть.");
         return sb.toString();
     }
 

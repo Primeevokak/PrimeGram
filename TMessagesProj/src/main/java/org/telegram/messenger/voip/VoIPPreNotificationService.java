@@ -580,7 +580,11 @@ public class VoIPPreNotificationService { // } extends Service implements AudioM
         stopRinging();
         if (!answered) {
             for (int i = 0; i < UserConfig.MAX_ACCOUNT_COUNT; ++i) {
-                MessagesController.getInstance(i).ignoreSetOnline = false;
+                // Building a MessagesController for an empty slot just to clear a flag on it
+                // would drag its whole stack up with it.
+                if (UserConfig.getInstance(i).isClientActivated()) {
+                    MessagesController.getInstance(i).ignoreSetOnline = false;
+                }
             }
             AndroidUtilities.runOnUIThread(() -> {
                 final LaunchActivity activity = LaunchActivity.instance;

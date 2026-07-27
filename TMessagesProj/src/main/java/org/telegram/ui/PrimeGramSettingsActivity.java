@@ -90,6 +90,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HIDE_SEND_AS_PEER = 60;
     private static final int ID_SQUARE_FAB = 61;
     private static final int ID_HW_BENCHMARK = 62;
+    private static final int ID_HIDE_STICKER_TIME = 63;
 
     /**
      * Plain on/off tweaks all behave identically, so they share one handler. Returns the
@@ -108,6 +109,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_HIDE_REACTIONS_PRIVATE) return org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_PRIVATE;
         if (id == ID_HIDE_SEND_AS_PEER) return org.telegram.messenger.PrimeTweaks.HIDE_SEND_AS_PEER;
         if (id == ID_SQUARE_FAB) return org.telegram.messenger.PrimeTweaks.SQUARE_FAB;
+        if (id == ID_HIDE_STICKER_TIME) return org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME;
         return null;
     }
 
@@ -386,6 +388,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem hideKeyboardItem = UItem.asCheck(ID_HIDE_KEYBOARD_ON_SCROLL, "Прятать клавиатуру при прокрутке");
         hideKeyboardItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_KEYBOARD_ON_SCROLL);
         items.add(hideKeyboardItem);
+        UItem hideStickerTimeItem = UItem.asCheck(ID_HIDE_STICKER_TIME, "Скрыть время на стикерах и кружочках");
+        hideStickerTimeItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME);
+        items.add(hideStickerTimeItem);
         UItem stickerSizeItem = UItem.asButton(ID_STICKER_SIZE, "Размер стикеров",
                 String.valueOf(org.telegram.messenger.PrimeTweaks.stickerSize()));
         items.add(stickerSizeItem);
