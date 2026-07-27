@@ -64,6 +64,7 @@ public class PrimeTweaks {
     // ---- message menu ----
     public static final String MENU_SAVE_TO_SAVED = "prime_menu_save_to_saved";
     public static final String MENU_DETAILS = "prime_menu_details";
+    public static final String ADMIN_SHORTCUTS = "prime_admin_shortcuts";
 
     // ---- chats ----
     public static final String HIDE_REACTIONS_CHANNELS = "prime_hide_reactions_channels";
@@ -111,6 +112,8 @@ public class PrimeTweaks {
     private static boolean menuSaveToSaved;
     private static boolean menuDetails;
     private static int stickerSize = STICKER_SIZE_DEFAULT;
+    private static boolean senderMiniAvatars;
+    private static boolean adminShortcuts;
 
     /**
      * The store is opened straight from the application context, deliberately not through
@@ -177,6 +180,8 @@ public class PrimeTweaks {
             menuSaveToSaved = p.getBoolean(MENU_SAVE_TO_SAVED, false);
             menuDetails = p.getBoolean(MENU_DETAILS, false);
             stickerSize = p.getInt(STICKER_SIZE, STICKER_SIZE_DEFAULT);
+            senderMiniAvatars = p.getBoolean(SENDER_MINI_AVATARS, false);
+            adminShortcuts = p.getBoolean(ADMIN_SHORTCUTS, false);
             loaded = true;
         } catch (Throwable t) {
             // Called from UI-critical paths; stock behaviour is the only safe fallback.
@@ -357,6 +362,18 @@ public class PrimeTweaks {
     public static boolean menuDetails() {
         ensureLoaded();
         return menuDetails;
+    }
+
+    /** Adds ban and purge straight to the message menu, for groups you moderate. */
+    public static boolean adminShortcuts() {
+        ensureLoaded();
+        return adminShortcuts;
+    }
+
+    /** Prefixes the chat-list message preview with the sender's avatar. Group chats only. */
+    public static boolean senderMiniAvatars() {
+        ensureLoaded();
+        return senderMiniAvatars;
     }
 
     /** {@link #AVATAR_CORNERS_MAX} means a circle; smaller values square the avatar off. */

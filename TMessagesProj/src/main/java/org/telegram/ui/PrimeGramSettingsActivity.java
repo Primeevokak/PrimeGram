@@ -103,6 +103,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
     private static final int ID_MENU_DETAILS = 75;
+    private static final int ID_SENDER_MINI_AVATARS = 76;
+    private static final int ID_ADMIN_SHORTCUTS = 77;
     /** One id per blocking list, taken from a range nothing else uses. */
     private static final int ID_ADBLOCK_LIST_BASE = 200;
 
@@ -132,6 +134,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_HIDE_ALL_CHATS) return org.telegram.messenger.PrimeTweaks.HIDE_ALL_CHATS;
         if (id == ID_MENU_SAVE) return org.telegram.messenger.PrimeTweaks.MENU_SAVE_TO_SAVED;
         if (id == ID_MENU_DETAILS) return org.telegram.messenger.PrimeTweaks.MENU_DETAILS;
+        if (id == ID_SENDER_MINI_AVATARS) return org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS;
+        if (id == ID_ADMIN_SHORTCUTS) return org.telegram.messenger.PrimeTweaks.ADMIN_SHORTCUTS;
         return null;
     }
 
@@ -408,7 +412,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem hideAllChatsItem = UItem.asCheck(ID_HIDE_ALL_CHATS, "Убрать вкладку «Все чаты»");
         hideAllChatsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_ALL_CHATS);
         items.add(hideAllChatsItem);
-        items.add(UItem.asShadow("Истории убираются там же, где принимается решение о их показе, поэтому пустого места не остаётся. Кнопка «Написать» прячется только в списке чатов — при выборе чата для пересылки она остаётся, иначе подтвердить отправку было бы нечем. Свайп внутри архива блокируется только для действия «Архивировать»; если у вас на свайп назначено «Прочитать» или «Закрепить», оно продолжит работать.\n\nСтрока «Архив» пропадает только из списка — сам архив и всё, что в нём лежит, остаётся на месте и открывается из бокового меню. Вкладка «Все чаты» убирается, если у вас есть хотя бы одна папка: без папок убирать нечего, иначе не осталось бы ни одной вкладки."));
+        UItem miniAvatarsItem = UItem.asCheck(ID_SENDER_MINI_AVATARS, "Аватарка отправителя в превью");
+        miniAvatarsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS);
+        items.add(miniAvatarsItem);
+        items.add(UItem.asShadow("Истории убираются там же, где принимается решение о их показе, поэтому пустого места не остаётся. Кнопка «Написать» прячется только в списке чатов — при выборе чата для пересылки она остаётся, иначе подтвердить отправку было бы нечем. Свайп внутри архива блокируется только для действия «Архивировать»; если у вас на свайп назначено «Прочитать» или «Закрепить», оно продолжит работать.\n\nСтрока «Архив» пропадает только из списка — сам архив и всё, что в нём лежит, остаётся на месте и открывается из бокового меню. Вкладка «Все чаты» убирается, если у вас есть хотя бы одна папка: без папок убирать нечего, иначе не осталось бы ни одной вкладки.\n\nАватарка отправителя показывается перед текстом последнего сообщения и только в группах: в личной переписке она бы повторяла аватарку самого чата, стоящую в паре пикселей левее. Свои сообщения остаются без значка."));
 
         items.add(UItem.asHeader("В чатах"));
         UItem hideShareItem = UItem.asCheck(ID_HIDE_SHARE_BUTTON, "Скрыть кнопку «Поделиться»");
@@ -443,7 +450,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem menuDetailsItem = UItem.asCheck(ID_MENU_DETAILS, "Пункт «Подробности»");
         menuDetailsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.MENU_DETAILS);
         items.add(menuDetailsItem);
-        items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину.\n\nДва последних пункта добавляются в меню долгого нажатия по сообщению, в самый низ: «В избранное» пересылает в «Избранное» без выбора чата (альбом целиком), «Подробности» показывает ID сообщения, отправителя и время отправки и правки — всё копируется одной кнопкой."));
+        UItem adminItem = UItem.asCheck(ID_ADMIN_SHORTCUTS, "Админ-действия в меню сообщения");
+        adminItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.ADMIN_SHORTCUTS);
+        items.add(adminItem);
+        items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину.\n\nДва последних пункта добавляются в меню долгого нажатия по сообщению, в самый низ: «В избранное» пересылает в «Избранное» без выбора чата (альбом целиком), «Подробности» показывает ID сообщения, отправителя и время отправки и правки — всё копируется одной кнопкой.\n\nАдмин-действия — «Забанить» и «Удалить все сообщения» — появляются только в группах, где у вас есть право блокировать участников, и только на чужих сообщениях. Оба спрашивают подтверждение. Автора-канал они не трогают: это другой запрос, и он остаётся в профиле."));
 
         items.add(UItem.asHeader("Профиль"));
         UItem showIdItem = UItem.asCheck(ID_SHOW_ID_AND_DC, "Показывать ID и дата-центр");
@@ -581,6 +591,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 // The holiday check only re-runs once a minute; without this the toggle looks
                 // like it did nothing until the user waits it out.
                 org.telegram.ui.ActionBar.Theme.primeInvalidateHoliday();
+            }
+            if (item.id == ID_SENDER_MINI_AVATARS) {
+                // Previews are built once per bind and cached, so nothing changes until the
+                // list is told to rebuild them.
+                org.telegram.messenger.NotificationCenter.getGlobalInstance()
+                        .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
             }
             if (item.id == ID_HIDE_ARCHIVE_FOLDER) {
                 org.telegram.messenger.NotificationCenter.getGlobalInstance()

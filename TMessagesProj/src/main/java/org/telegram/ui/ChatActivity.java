@@ -1246,6 +1246,10 @@ public class ChatActivity extends BaseFragment implements
     public final static int OPTION_PRIME_SAVE = 901;
     /** PrimeGram: show the ids and timestamps behind this message. */
     public final static int OPTION_PRIME_DETAILS = 902;
+    /** PrimeGram: ban the sender of this message from the group, without leaving the chat. */
+    public final static int OPTION_PRIME_BAN = 903;
+    /** PrimeGram: delete every message this sender posted in the group. */
+    public final static int OPTION_PRIME_DELETE_ALL_FROM = 904;
 
     private final static int[] allowedNotificationsDuringChatListAnimations = new int[]{
             NotificationCenter.messagesRead,
@@ -33835,6 +33839,14 @@ public class ChatActivity extends BaseFragment implements
                 primeSaveToSavedMessages(selectedObject, selectedObjectGroup);
                 break;
             }
+            case OPTION_PRIME_BAN: {
+                primeBanSender(selectedObject);
+                break;
+            }
+            case OPTION_PRIME_DELETE_ALL_FROM: {
+                primeDeleteAllFromSender(selectedObject);
+                break;
+            }
             case OPTION_PRIME_DETAILS: {
                 primeShowMessageDetails(selectedObject);
                 break;
@@ -46739,6 +46751,90 @@ public class ChatActivity extends BaseFragment implements
             items.add("Подробности");
             options.add(OPTION_PRIME_DETAILS);
             icons.add(R.drawable.msg_info);
+        }
+        if (org.telegram.messenger.PrimeTweaks.adminShortcuts() && primeCanModerate(message)) {
+            items.add(LocaleController.getString(R.string.BanFromTheGroupNoCaps));
+            options.add(OPTION_PRIME_BAN);
+            icons.add(R.drawable.msg_block);
+            items.add("Удалить все сообщения");
+            options.add(OPTION_PRIME_DELETE_ALL_FROM);
+            icons.add(R.drawable.msg_delete);
+        }
+    }
+
+    /**
+     * PrimeGram: whether the moderation shortcuts apply to this message.
+     *
+     * <p>Stock only offers a ban through the sender's profile, which is three taps away from the
+     * message that prompted it. The checks here are the same ones that gate the profile button,
+     * plus the cases a message menu can reach that a profile cannot: a sender that is a channel
+     * posting anonymously, and yourself.
+     */
+    private boolean primeCanModerate(MessageObject message) {
+        if (currentChat == null || !ChatObject.canBlockUsers(currentChat)) {
+            return false;
+        }
+        if (chatMode != 0 || message.isOutOwner()) {
+            return false;
+        }
+        final long fromId = message.getSenderId();
+        // A negative id means the author is a channel; banning one is a different API call and a
+        // different confirmation, so it is left to the profile rather than half-supported here.
+        if (fromId <= 0 || fromId == getUserConfig().getClientUserId()) {
+            return false;
+        }
+        return getMessagesController().getUser(fromId) != null;
+    }
+
+    private void primeBanSender(MessageObject message) {
+        if (message == null || currentChat == null) {
+            return;
+        }
+        final TLRPC.User user = getMessagesController().getUser(message.getSenderId());
+        if (user == null || getParentActivity() == null) {
+            return;
+        }
+        final String name = ContactsController.formatName(user.first_name, user.last_name);
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(LocaleController.getString(R.string.BanFromTheGroupNoCaps));
+        builder.setMessage(AndroidUtilities.replaceTags(name + " будет удалён из группы и не сможет вернуться."));
+        builder.setPositiveButton(LocaleController.getString(R.string.UserRestrictionsBlock), (dialog, which) -> {
+            getMessagesController().deleteParticipantFromChat(currentChat.id, user, null, false, false);
+            BulletinFactory.of(this).createSimpleBulletin(R.raw.ic_ban, name + " заблокирован").show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        AlertDialog dialog = builder.create();
+        showDialog(dialog);
+        TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(getThemedColor(Theme.key_text_RedBold));
+        }
+    }
+
+    private void primeDeleteAllFromSender(MessageObject message) {
+        if (message == null || currentChat == null) {
+            return;
+        }
+        final TLRPC.User user = getMessagesController().getUser(message.getSenderId());
+        if (user == null || getParentActivity() == null) {
+            return;
+        }
+        final String name = ContactsController.formatName(user.first_name, user.last_name);
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(LocaleController.formatString(R.string.DeleteAllFrom, name));
+        builder.setMessage(AndroidUtilities.replaceTags("Все сообщения этого участника в группе будут удалены. Отменить это нельзя."));
+        builder.setPositiveButton(LocaleController.getString(R.string.Delete), (dialog, which) -> {
+            // Clears the local copy too - deleteUserChannelHistory calls into MessagesStorage
+            // before it sends the request, so nothing extra is needed to update the screen.
+            getMessagesController().deleteUserChannelHistory(currentChat, user, null, 0);
+            BulletinFactory.of(this).createSimpleBulletin(R.raw.ic_delete, "Сообщения удалены").show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        AlertDialog dialog = builder.create();
+        showDialog(dialog);
+        TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(getThemedColor(Theme.key_text_RedBold));
         }
     }
 

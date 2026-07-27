@@ -81,6 +81,7 @@ import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
+import org.telegram.messenger.PrimeTweaks;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
@@ -2736,6 +2737,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                     }
                 }
             }
+            messageString = primeAddSenderAvatar(messageString);
             if ((useForceThreeLines || SharedConfig.useThreeLinesLayout) && !hasTags() && currentDialogFolderId != 0 && currentDialogFolderDialogsCount > 1) {
                 messageStringFinal = messageNameString;
                 messageNameString = null;
@@ -3010,6 +3012,46 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 FileLog.e(e);
             }
         }
+    }
+
+    private org.telegram.ui.AvatarSpan primeMessageAvatarSpan;
+
+    /**
+     * PrimeGram: prefixes the chat-list preview with the avatar of whoever sent the last message.
+     *
+     * <p>Only for group chats. In a one-to-one chat the sender is the peer, so the badge would
+     * repeat the dialog avatar sitting a few pixels to its left.
+     *
+     * <p>The span is created once per cell and re-pointed at a new dialog on every bind: it owns
+     * an {@link org.telegram.messenger.ImageReceiver} registered with this view's attach state,
+     * and building a fresh one per bind would leak that registration while the list scrolls.
+     */
+    private CharSequence primeAddSenderAvatar(CharSequence string) {
+        if (!PrimeTweaks.senderMiniAvatars() || TextUtils.isEmpty(string)) {
+            return string;
+        }
+        if (message == null || chat == null || isDialogFolder() || isForumCell()) {
+            return string;
+        }
+        final long fromId = message.getFromChatId();
+        if (fromId == 0 || fromId == UserConfig.getInstance(currentAccount).getClientUserId()) {
+            return string;
+        }
+        if (primeMessageAvatarSpan == null) {
+            primeMessageAvatarSpan = new org.telegram.ui.AvatarSpan(this, currentAccount, 18);
+            primeMessageAvatarSpan.needDrawShadow = false;
+        }
+        primeMessageAvatarSpan.setParent(this);
+        primeMessageAvatarSpan.setDialogId(fromId);
+
+        // The gap is a plain space rather than a FixedWidthSpan: a few lines below, the choice of
+        // ellipsize width keys off whether the preview contains a FixedWidthSpan at all (that is
+        // how thumbnails reserve their room). Introducing one here for a one-pixel gap would send
+        // every avatar-bearing preview down the thumbnail branch and mismeasure it.
+        SpannableStringBuilder builder = new SpannableStringBuilder("A ");
+        builder.setSpan(primeMessageAvatarSpan, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        builder.append(string);
+        return builder;
     }
 
     private CharSequence applyThumbs(CharSequence string) {

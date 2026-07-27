@@ -122,6 +122,33 @@ public class TgWsProxyService extends Service {
         }
     }
 
+    /**
+     * Records a tunnel milestone into the cold-start trace, but only while a cold start is still
+     * being traced and only for a bounded number of events.
+     *
+     * <p>The trace keeps 200 marks. A proxy that reconnects in a loop would fill all of them and
+     * push out the startup milestones that give the numbers their meaning, so the tunnel gets a
+     * fixed share: enough to show the first connection to each DC and the first several failures,
+     * which is what identifies the pattern. Everything beyond that is still in the proxy log.
+     */
+    private static final java.util.concurrent.atomic.AtomicInteger primeTraceBudget =
+            new java.util.concurrent.atomic.AtomicInteger(40);
+
+    private static void primeTraceConnect(String msg) {
+        if (primeTraceBudget.get() <= 0 || primeTraceBudget.getAndDecrement() <= 0) {
+            return;
+        }
+        PrimeStartupTrace.mark(msg);
+    }
+
+    /**
+     * Hex-dumps every relayed packet. Debugging aid for the obfuscation layer only.
+     *
+     * <p>Deliberately not tied to {@link BuildVars#LOGS_ENABLED}, which this fork forces to true:
+     * this dump belongs to the relay hot path and has to be off in any build a user runs.
+     */
+    private static final boolean DUMP_PACKET_HEX = false;
+
     private static void logInfo(String msg) {
         FileLog.d(msg);
         addLog("[INFO] " + msg);
@@ -1214,6 +1241,13 @@ public class TgWsProxyService extends Service {
         }
 
         logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId + " (unified=" + isUnified + ")");
+        // Timed because a cold start showed nearly two minutes between "dialogs requested" and
+        // "dialogs visible" with the main thread idle throughout - the wait was in the tunnel,
+        // and the tunnel recorded nothing at all. Each leg is measured separately: a slow TLS
+        // connect, a slow upgrade and a fast connect that is simply retried many times are three
+        // different faults that look identical from the outside.
+        final long connectStartedAt = System.currentTimeMillis();
+        long tlsReadyAt = connectStartedAt;
         try {
             tlsSocket = createTlsSocketWithIpv4Preference(wsDomain, 443, 10_000);
             tlsSocket.setUseClientMode(true);
@@ -1221,8 +1255,12 @@ public class TgWsProxyService extends Service {
             tlsSocket.setTcpNoDelay(true);
             tlsSocket.setSoTimeout(10_000); // 10s timeout for handshake
 
+            tlsReadyAt = System.currentTimeMillis();
             wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
             chosenDomain = wsDomain;
+            final long now = System.currentTimeMillis();
+            primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " up in " + (now - connectStartedAt)
+                    + " ms (tls " + (tlsReadyAt - connectStartedAt) + ", ws " + (now - tlsReadyAt) + ") via " + wsDomain);
             logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ")");
 
             // clear IP fail cooldown on success
@@ -1237,11 +1275,17 @@ public class TgWsProxyService extends Service {
                 tlsSocket = createTlsSocketWithSni(wsDomain, "sprinthost.ru", 443, 5_000);
                 wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
                 chosenDomain = wsDomain;
+                primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " up via fronting in "
+                        + (System.currentTimeMillis() - connectStartedAt) + " ms, direct leg failed after "
+                        + (tlsReadyAt - connectStartedAt) + " ms");
                 logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ") via fronting");
                 ipFailUntil.remove(wsDomain);
                 consecutiveConnectFailures.set(0);
                 return new WsConnection(tlsSocket, chosenDomain);
             } catch (Exception eFronting) {
+                primeTraceConnect("!! proxy: DC" + dcId + (isMedia ? "m" : "") + " FAILED after "
+                        + (System.currentTimeMillis() - connectStartedAt) + " ms on " + wsDomain
+                        + " (" + e.getMessage() + " / fronting: " + eFronting.getMessage() + ")");
                 logError("Fronting also failed for " + wsDomain, eFronting);
                 boolean isFrontingTimeout = eFronting instanceof java.net.SocketTimeoutException || (eFronting.getMessage() != null && eFronting.getMessage().contains("timed out"));
                 
@@ -1504,6 +1548,7 @@ public class TgWsProxyService extends Service {
             client.setSoTimeout(120_000); // 2 minutes read timeout
             tlsSocket.setSoTimeout(120_000); // 2 minutes read timeout
 
+            primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " session established");
             logInfo("Session established, entering active relay bridge...");
 
             // Запускаем двунаправленный мост с ре-шифрованием
@@ -1778,10 +1823,16 @@ public class TgWsProxyService extends Service {
                 while (!closed.get() && (n = in.read(buf)) > 0) {
                     int decLen = ctx.cltDec.update(buf, 0, n, decBuf, 0);
 
-                    if (n <= 500) {
-                        StringBuilder hex = new StringBuilder();
+                    // This used to run unconditionally for every packet of 500 bytes or less -
+                    // that is, for essentially all MTProto control traffic, which is exactly what
+                    // a login and a first dialog fetch consist of. Each one cost up to 500
+                    // String.format calls, a lock, a listener callback and a line written to disk,
+                    // inside the relay loop that the client is waiting on. It is a debugging aid
+                    // for the obfuscation layer, so it now costs nothing unless logging is on.
+                    if (DUMP_PACKET_HEX && n <= 500) {
+                        StringBuilder hex = new StringBuilder(n * 3);
                         for (int i = 0; i < n; i++) hex.append(String.format("%02X ", buf[i]));
-                        logInfo("Decrypted client packet, hex: " + hex.toString());
+                        logInfo("Decrypted client packet, hex: " + hex);
                     }
 
                     List<byte[]> packets = splitter.split(decBuf, 0, decLen);
@@ -1821,12 +1872,21 @@ public class TgWsProxyService extends Service {
 
         // Thread: WebSocket -> client
         final long sessionStartTime = System.currentTimeMillis();
+        boolean firstFrame = true;
         try {
             byte[] decBuf = new byte[65536 + 64];
             while (!closed.get()) {
                 byte[] frame = recvWsFrame(wsIn, wsOut);
                 if (frame == null) break;
-                
+
+                if (firstFrame) {
+                    firstFrame = false;
+                    // Separates "the tunnel is slow to carry anything" from "the tunnel carries
+                    // data promptly and the wait is on Telegram's side of it".
+                    primeTraceConnect("proxy: first server frame after "
+                            + (System.currentTimeMillis() - sessionStartTime) + " ms of session");
+                }
+
                 if (decBuf.length < frame.length + 64) {
                     decBuf = new byte[Math.max(decBuf.length * 2, frame.length + 64)];
                 }
@@ -1867,6 +1927,9 @@ public class TgWsProxyService extends Service {
             try { client.close(); } catch (IOException ignored) {}
             
             if (System.currentTimeMillis() - sessionStartTime < 5000) {
+                primeTraceConnect("!! proxy: session died after "
+                        + (System.currentTimeMillis() - sessionStartTime) + " ms"
+                        + (firstFrame ? " without ever receiving a server frame" : ""));
                 noteFastSessionFailure();
             } else {
                 // A session that lasted means the domain is fine; forget earlier stumbles so
