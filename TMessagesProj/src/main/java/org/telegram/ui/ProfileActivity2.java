@@ -728,7 +728,13 @@ public class ProfileActivity2 extends BaseFragment implements
         if (user != null) {
             title.setText(UserObject.getUserName(user));
             if (self) {
-                subtitle.setText(getString(R.string.Online));
+                // PrimeGram: with ghost mode on we never report ourselves online, so show the
+                // same last-seen our contacts get rather than a status only we can see.
+                if (org.telegram.messenger.GreyZone.hideOwnOnline()) {
+                    subtitle.setText(LocaleController.formatUserStatus(currentAccount, user, isOnline, null));
+                } else {
+                    subtitle.setText(getString(R.string.Online));
+                }
             } else if (dialogId == UserObject.VERIFY) {
                 subtitle.setText(getString(R.string.VerifyCodesNotifications));
             } else if (dialogId == 333000 || user.id == 777000 || user.id == 42777) {

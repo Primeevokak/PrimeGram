@@ -8318,6 +8318,9 @@ public class MessageObject {
         if (isRepostPreview) {
             return false;
         }
+        if (PrimeTweaks.hideShareButton()) {
+            return false;
+        }
         if (sideMenuEnabled) {
             return false;
         }

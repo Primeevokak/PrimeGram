@@ -116,7 +116,12 @@ public class TranscribeButton {
 
         this.isOpen = false;
         this.shouldBeOpen = false;
-        premium = parent.getMessageObject() != null && UserConfig.getInstance(parent.getMessageObject().currentAccount).isPremium();
+        // PrimeGram: this flag really means "may transcribe", and it gates the button state,
+        // the trial paywall and the greyed-out colour alike. An account with our own service
+        // configured may transcribe, so it belongs on this side of the check.
+        premium = parent.getMessageObject() != null
+                && (UserConfig.getInstance(parent.getMessageObject().currentAccount).isPremium()
+                    || org.telegram.messenger.PrimeTranscription.shouldHandle(parent.getMessageObject().currentAccount));
 
         loadingFloat = new AnimatedFloat(parent, 250, CubicBezierInterpolator.EASE_OUT_QUINT);
         animatedDrawLock = new AnimatedFloat(parent, 250, CubicBezierInterpolator.EASE_OUT_QUINT);
@@ -673,6 +678,42 @@ public class TranscribeButton {
                 MessagesStorage.getInstance(account).updateMessageVoiceTranscriptionOpen(dialogId, messageId, messageObject.messageOwner);
                 AndroidUtilities.runOnUIThread(() -> {
                     NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject, null, null, (Boolean) true, (Boolean) true);
+                });
+            } else if (org.telegram.messenger.PrimeTranscription.shouldHandle(account)) {
+                // PrimeGram: no Premium on this account and an external service is configured,
+                // so transcribe it ourselves. Premium accounts never reach this branch — the
+                // native path is better integrated and already paid for.
+                if (transcribeOperationsByDialogPosition == null) {
+                    transcribeOperationsByDialogPosition = new HashMap<>();
+                }
+                transcribeOperationsByDialogPosition.put((Integer) reqInfoHash(messageObject), messageObject);
+                TranscribeButton.openVideoTranscription(messageObject);
+                messageObject.messageOwner.voiceTranscriptionOpen = true;
+                messageObject.messageOwner.voiceTranscriptionFinal = false;
+                AndroidUtilities.runOnUIThread(() ->
+                        NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject, null, null, (Boolean) true, (Boolean) false));
+                // A transcription id is only ever used as a local handle here, and the ids the
+                // server hands out are its own — a negative one can never collide with them.
+                final long localId = -Math.abs(((long) dialogId << 20) ^ messageId);
+                messageObject.messageOwner.voiceTranscriptionId = localId;
+                org.telegram.messenger.PrimeTranscription.transcribe(messageObject, new org.telegram.messenger.PrimeTranscription.Callback() {
+                    @Override
+                    public void onResult(String text) {
+                        finishTranscription(messageObject, localId, text);
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        if (transcribeOperationsByDialogPosition != null) {
+                            transcribeOperationsByDialogPosition.remove((Integer) reqInfoHash(messageObject));
+                        }
+                        messageObject.messageOwner.voiceTranscriptionOpen = false;
+                        messageObject.messageOwner.voiceTranscriptionFinal = false;
+                        NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject, null, null, (Boolean) false, (Boolean) true);
+                        if (org.telegram.ui.LaunchActivity.getLastFragment() != null) {
+                            BulletinFactory.of(org.telegram.ui.LaunchActivity.getLastFragment()).createErrorBulletin(message).show();
+                        }
+                    }
                 });
             } else {
                 if (BuildVars.LOGS_ENABLED) {

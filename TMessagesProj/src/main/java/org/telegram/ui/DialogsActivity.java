@@ -2445,6 +2445,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                         currentDialogsType = parentPage.dialogsAdapter.getDialogsType();
                     } catch (Exception ignore) {
                     }
+                    // Inside the archive the archive gesture means "unarchive", which is easy to
+                    // trigger by accident. Other gestures (mute, read, pin) stay available.
+                    if (folderId != 0
+                            && SharedConfig.getChatSwipeAction(currentAccount) == SwipeGestureSettingsView.SWIPE_GESTURE_ARCHIVE
+                            && org.telegram.messenger.PrimeTweaks.disableUnarchiveSwipe()) {
+                        return 0;
+                    }
                     if ((filterTabsView != null && filterTabsView.getVisibility() == View.VISIBLE && SharedConfig.getChatSwipeAction(currentAccount) == SwipeGestureSettingsView.SWIPE_GESTURE_FOLDERS) || !allowSwipeDuringCurrentTouch || ((dialogId == getUserConfig().clientUserId || dialogId == 777000 || currentDialogsType == 7 || currentDialogsType == 8) && SharedConfig.getChatSwipeAction(currentAccount) == SwipeGestureSettingsView.SWIPE_GESTURE_ARCHIVE) || getMessagesController().isPromoDialog(dialogId, false) && getMessagesController().promoDialogType != MessagesController.PROMO_TYPE_PSA) {
                         return 0;
                     }
@@ -8880,7 +8887,12 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     }
 
     private void updateFloatingButtonVisibility(boolean animated) {
-        final boolean isVisible = !(onlySelect && initialDialogsType != 10 || folderId != 0 || communityId != 0 || inPreviewMode || (searching && !onlySelect) || floatingButtonHidden);
+        boolean isVisible = !(onlySelect && initialDialogsType != 10 || folderId != 0 || communityId != 0 || inPreviewMode || (searching && !onlySelect) || floatingButtonHidden);
+        // Only the compose button is optional. In select mode the same view is the "done" button,
+        // so hiding it there would leave no way to confirm a forward.
+        if (isVisible && !onlySelect && org.telegram.messenger.PrimeTweaks.hideFloatingButton()) {
+            isVisible = false;
+        }
 
         if (floatingButton3 != null) {
             floatingButton3.setButtonVisible(isVisible, animated);
@@ -12801,7 +12813,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         hasOnlySlefStories = onlySelfStories;
 
         boolean oldStoriesCellVisibility = dialogStoriesCellVisible;
-        dialogStoriesCellVisible = onlySelfStories || newVisibility;
+        // PrimeGram: hiding stories is done here, at the single place visibility is decided,
+        // rather than by hiding the view later — everything below reads this flag for layout,
+        // so forcing it false keeps the list geometry consistent instead of leaving a gap.
+        dialogStoriesCellVisible = (onlySelfStories || newVisibility)
+                && !org.telegram.messenger.PrimeTweaks.hideStories();
 
         if (newVisibility || dialogStoriesCellVisible) {
             dialogStoriesCell.updateItems(animated, dialogStoriesCellVisible != oldStoriesCellVisibility);

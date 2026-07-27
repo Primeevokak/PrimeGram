@@ -376,7 +376,12 @@ public class Browser {
                     .appendQueryParameter("autologin_token", autologin_token)
                     .build();
             }
-            if (!internalUri && ("http".equals(scheme) || "https".equals(scheme))) {
+            // PrimeGram: our browser is still a browser, so it must obey the "open links in
+            // the app" setting. This branch used to run before that check, which is why
+            // turning the setting off changed nothing — every link came here regardless.
+            final boolean primeUseInApp = allowInAppBrowser
+                    && MessagesController.getInstance(currentAccount).isWebBrowserOpenInApp(uri.toString());
+            if (!internalUri && primeUseInApp && ("http".equals(scheme) || "https".equals(scheme))) {
                 if (forceBrowser[0] || !openInExternalApp(context, uri.toString(), false) || !hasAppToOpen(context, uri.toString())) {
                     if (org.telegram.ui.LaunchActivity.instance != null) {
                         org.telegram.ui.LaunchActivity.instance.presentFragment(new org.telegram.ui.PrimeBrowserActivity(uri.toString()));

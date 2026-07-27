@@ -82,7 +82,16 @@ public class LocaleController {
                         lang = "en";
                     }
                     lang = lang.toLowerCase();
-                    formatterDay = createFormatter(lang.toLowerCase().equals("ar") || lang.toLowerCase().equals("ko") ? locale : Locale.US, is24HourFormat ? getStringInternal("formatterDay24H", R.string.formatterDay24H) : getStringInternal("formatterDay12H", R.string.formatterDay12H), is24HourFormat ? "HH:mm" : "h:mm a");
+                    // PrimeGram: optionally show seconds. Patched into the pattern rather than
+                    // added as a separate formatter so every "at HH:mm" in the app follows,
+                    // and so the locale's own 12/24-hour choice is still respected.
+                    String dayPattern = is24HourFormat ? getStringInternal("formatterDay24H", R.string.formatterDay24H) : getStringInternal("formatterDay12H", R.string.formatterDay12H);
+                    String dayFallback = is24HourFormat ? "HH:mm" : "h:mm a";
+                    if (PrimeTweaks.timeWithSeconds()) {
+                        dayPattern = dayPattern == null ? null : dayPattern.replace("mm", "mm:ss");
+                        dayFallback = dayFallback.replace("mm", "mm:ss");
+                    }
+                    formatterDay = createFormatter(lang.toLowerCase().equals("ar") || lang.toLowerCase().equals("ko") ? locale : Locale.US, dayPattern, dayFallback);
                 }
             }
         }
@@ -2940,6 +2949,14 @@ public class LocaleController {
     }
 
     public static String formatShortNumber(int number, int[] rounded) {
+        if (PrimeTweaks.disableNumberRounding()) {
+            // PrimeGram: "1 234 567" instead of "1M". The rounded[] out-parameter still has to
+            // be filled — callers use it for their own layout decisions, not just display.
+            if (rounded != null) {
+                rounded[0] = number;
+            }
+            return String.format(getInstance().getCurrentLocale() == null ? Locale.US : getInstance().getCurrentLocale(), "%,d", number);
+        }
         StringBuilder K = new StringBuilder();
         int lastDec = 0;
         int KCount = 0;
@@ -3040,11 +3057,38 @@ public class LocaleController {
                     return getString("WithinAWeek", R.string.WithinAWeek);
                 } else if (user.status.expires == -102 || user.status.expires == -1002) {
                     return getString("WithinAMonth", R.string.WithinAMonth);
+                } else if (PrimeTweaks.relativeLastSeen()) {
+                    // PrimeGram: "5 минут назад" instead of a wall-clock stamp. Only for the
+                    // recent past — an exact date stays more useful than "три недели назад".
+                    String relative = primeRelativeLastSeen(user.status.expires);
+                    return relative != null ? relative : formatDateOnline(user.status.expires, madeShorter);
                 } else {
                     return formatDateOnline(user.status.expires, madeShorter);
                 }
             }
         }
+    }
+
+    /**
+     * PrimeGram: "was online N ago" for the recent past. Returns null when the gap is too big
+     * to phrase that way, so the caller falls back to the stock absolute date — past a day or
+     * so "12 дней назад" is worse than the date itself.
+     */
+    private static String primeRelativeLastSeen(int statusExpires) {
+        long seconds = System.currentTimeMillis() / 1000L - statusExpires;
+        if (seconds < 0) {
+            return null;
+        }
+        // Reusing the upstream plurals rather than adding our own: they are already
+        // translated into every language the app ships, which ours would not be.
+        if (seconds < 3600) {
+            int minutes = (int) Math.max(1, seconds / 60);
+            return formatString(R.string.LastSeenFormatted, formatPluralString("MinutesAgo", minutes));
+        }
+        if (seconds < 86400) {
+            return formatString(R.string.LastSeenFormatted, formatPluralString("HoursAgo", (int) (seconds / 3600)));
+        }
+        return null;
     }
 
     private String escapeString(String str) {

@@ -7186,7 +7186,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             if (messageIdChanged || messageObject.reactionsChanged || wasPlayingRound != isPlayingRound) {
                 messageObject.reactionsChanged = false;
                 boolean isTag = messageObject.messageOwner != null && messageObject.messageOwner.reactions != null && messageObject.messageOwner.reactions.reactions_as_tags;
-                if (messageObject.shouldDrawReactions() && !messageObject.isExpiredStory() && (currentPosition == null || ((currentPosition.flags & MessageObject.POSITION_FLAG_BOTTOM) != 0))) {
+                if (messageObject.shouldDrawReactions() && !primeHideReactions() && !messageObject.isExpiredStory() && (currentPosition == null || ((currentPosition.flags & MessageObject.POSITION_FLAG_BOTTOM) != 0))) {
                     boolean isSmall = !messageObject.shouldDrawReactionsInLayout();
                     if (currentPosition != null) {
                         MessageObject primaryMessage = groupedMessages.findPrimaryMessageObject();
@@ -9644,10 +9644,13 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     }
                     float maxHeight;
                     int maxWidth;
+                    // The stock fractions are 0.4 (tablet) and 0.5 (phone); the divisors below are
+                    // chosen so that the default setting of 14 reproduces them exactly.
+                    final int stickerScale = org.telegram.messenger.PrimeTweaks.stickerSize();
                     if (AndroidUtilities.isTablet()) {
-                        maxHeight = maxWidth = (int) (AndroidUtilities.getMinTabletSide() * 0.4f);
+                        maxHeight = maxWidth = (int) (AndroidUtilities.getMinTabletSide() * (stickerScale / 35f));
                     } else {
-                        maxHeight = maxWidth = (int) (Math.min(getParentWidth(), AndroidUtilities.displaySize.y) * 0.5f);
+                        maxHeight = maxWidth = (int) (Math.min(getParentWidth(), AndroidUtilities.displaySize.y) * (stickerScale / 28f));
                     }
                     String filter;
                     if (messageObject.isAnimatedEmoji() || messageObject.isDice()) {
@@ -18416,7 +18419,8 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         } else if (edited) {
             timeString = AppGlobalConfig.getInstance(currentAccount).messagePrimaryEditedDate.get() ?
                 LocaleController.formatPmEditedDate(currentMessagesGroup != null ? currentMessagesGroup.getMaxEditDate() : messageObject.messageOwner.edit_date) :
-                (getString(R.string.EditedMessage) + " " + LocaleController.getInstance().getFormatterDay().format((long) (messageObject.messageOwner.date) * 1000));
+                // A pencil glyph instead of the word buys back the width the label costs.
+                ((org.telegram.messenger.PrimeTweaks.editedAsIcon() ? "✎" : getString(R.string.EditedMessage)) + " " + LocaleController.getInstance().getFormatterDay().format((long) (messageObject.messageOwner.date) * 1000));
         } else if (currentMessageObject.isSaved && currentMessageObject.messageOwner.fwd_from != null && (currentMessageObject.messageOwner.fwd_from.date != 0 || currentMessageObject.messageOwner.fwd_from.saved_date != 0)) {
             int date = currentMessageObject.messageOwner.fwd_from.saved_date;
             if (date == 0) {
@@ -19779,6 +19783,19 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
 
     public float getCheckBoxTranslation() {
         return checkBoxTranslation;
+    }
+
+    /**
+     * Reactions can be hidden per chat kind, because what is noise in a big channel is often the
+     * point of the conversation in a private chat.
+     */
+    private boolean primeHideReactions() {
+        if (currentChat != null) {
+            return ChatObject.isChannelAndNotMegaGroup(currentChat)
+                    ? org.telegram.messenger.PrimeTweaks.hideReactionsChannels()
+                    : org.telegram.messenger.PrimeTweaks.hideReactionsGroups();
+        }
+        return org.telegram.messenger.PrimeTweaks.hideReactionsPrivate();
     }
 
     public boolean shouldDrawAlphaLayer() {

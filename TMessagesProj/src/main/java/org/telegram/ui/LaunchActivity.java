@@ -9482,19 +9482,19 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ImageView proxyButton = createProxyButton(context);
         bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
 
-        // 3. Ghost mode toggle — only exists once the grey zone has been accepted.
-        if (org.telegram.messenger.GreyZone.isAccepted()) {
-            ghostModeButton = createSidebarIcon(context, R.drawable.msg_ghost_24, "Режим призрака", v -> {
-                boolean on = !org.telegram.messenger.GreyZone.isGhostModeOn();
-                org.telegram.messenger.GreyZone.setGhostMode(on);
-                updateGhostModeButton();
-                BulletinFactory.of(Bulletin.BulletinWindow.make(LaunchActivity.this), null)
-                        .createSimpleBulletin(on ? R.raw.ic_ban : R.raw.contact_check,
-                                on ? "Режим призрака включён" : "Режим призрака выключен").show();
-            });
-            bottomContainer.addView(ghostModeButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        // 3. Ghost mode toggle. Always built, shown or hidden by updateGhostModeButton() —
+        // building it conditionally meant that turning the grey zone off left the button
+        // sitting in the sidebar until the whole activity was recreated.
+        ghostModeButton = createSidebarIcon(context, R.drawable.msg_ghost_24, "Режим призрака", v -> {
+            boolean on = !org.telegram.messenger.GreyZone.isGhostModeOn();
+            org.telegram.messenger.GreyZone.setGhostMode(on);
             updateGhostModeButton();
-        }
+            BulletinFactory.of(Bulletin.BulletinWindow.make(LaunchActivity.this), null)
+                    .createSimpleBulletin(on ? R.raw.ic_ban : R.raw.contact_check,
+                            on ? "Режим призрака включён" : "Режим призрака выключен").show();
+        });
+        bottomContainer.addView(ghostModeButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        updateGhostModeButton();
         
         
         // 4. Saved Messages Button
@@ -9584,11 +9584,25 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private ImageView ghostModeButton;
 
+    /**
+     * Refreshes the sidebar's grey-zone controls. Public so the grey zone screen can call it
+     * the moment a toggle changes, instead of the sidebar staying stale until a restart.
+     */
+    public static void refreshGreyZoneUi() {
+        try {
+            if (instance != null) {
+                AndroidUtilities.runOnUIThread(instance::updateGhostModeButton);
+            }
+        } catch (Throwable ignore) {}
+    }
+
     /** Makes it obvious at a glance whether ghost mode is currently hiding you. */
     private void updateGhostModeButton() {
         if (ghostModeButton == null) {
             return;
         }
+        // The button only makes sense while the grey zone is accepted.
+        ghostModeButton.setVisibility(org.telegram.messenger.GreyZone.isAccepted() ? View.VISIBLE : View.GONE);
         boolean on = org.telegram.messenger.GreyZone.isGhostModeOn();
         ghostModeButton.setColorFilter(new android.graphics.PorterDuffColorFilter(
                 on ? Theme.getColor(Theme.key_featuredStickers_addButton) : Theme.getColor(Theme.key_chats_menuItemIcon),

@@ -1581,7 +1581,7 @@ public class MessagesController extends BaseController implements NotificationCe
         maxGroupCount = mainPreferences.getInt("maxGroupCount", 200);
         maxMegagroupCount = mainPreferences.getInt("maxMegagroupCount", 10000);
         maxRecentGifsCount = mainPreferences.getInt("maxRecentGifsCount", 200);
-        maxRecentStickersCount = mainPreferences.getInt("maxRecentStickersCount", 30);
+        maxRecentStickersCount = primeRecentStickersLimit(mainPreferences.getInt("maxRecentStickersCount", 30));
         maxFaveStickersCount = mainPreferences.getInt("maxFaveStickersCount", 5);
         maxEditTime = mainPreferences.getInt("maxEditTime", 3600);
         ratingDecay = mainPreferences.getInt("ratingDecay", 2419200);
@@ -5705,7 +5705,7 @@ public class MessagesController extends BaseController implements NotificationCe
             maxEditTime = config.edit_time_limit;
             ratingDecay = config.rating_e_decay;
 //            maxRecentGifsCount = config.saved_gifs_limit;
-            maxRecentStickersCount = config.stickers_recent_limit;
+            maxRecentStickersCount = primeRecentStickersLimit(config.stickers_recent_limit);
 //            maxFaveStickersCount = config.stickers_faved_limit;
             revokeTimeLimit = config.revoke_time_limit;
             revokeTimePmLimit = config.revoke_pm_time_limit;
@@ -10515,6 +10515,58 @@ public class MessagesController extends BaseController implements NotificationCe
                 getNotificationCenter().postNotificationName(NotificationCenter.pinnedInfoDidLoad, user.id, pinnedMessages, pinnedMessagesMap, totalPinnedCount, pinnedEndReached);
             }
         });
+    }
+
+    /** Default for {@link #primeRecentStickersLimit}: what the user picked, or the server value. */
+    public static final String PRIME_RECENT_STICKERS_KEY = "primegram_recent_stickers";
+
+    /**
+     * PrimeGram: the recent-sticker list is trimmed locally by MediaDataController, so this
+     * limit is ours to choose — the server value is just a suggestion. Never lower than what
+     * the server asks for, so we can only ever remember more stickers, not fewer.
+     */
+    private static int primeRecentStickersLimit(int serverValue) {
+        try {
+            int wanted = getGlobalMainSettings().getInt(PRIME_RECENT_STICKERS_KEY, 0);
+            return wanted > 0 ? Math.max(serverValue, wanted) : serverValue;
+        } catch (Throwable t) {
+            return serverValue;
+        }
+    }
+
+    /**
+     * PrimeGram: called when the "don't report online" ghost option is switched on. From that
+     * moment we stop announcing ourselves as online, so contacts start seeing a "last seen"
+     * time — but our cached self user may still carry an online status set seconds earlier,
+     * which is why our own profile kept claiming "online" while nobody else saw it. Clamp it
+     * once so the local view matches the one everybody else gets; later statuses arrive from
+     * the server as updateUserStatus like they do for any other user.
+     */
+    public static void primeClampOwnOnlineStatus() {
+        for (int account = 0; account < UserConfig.MAX_ACCOUNT_COUNT; account++) {
+            final UserConfig config = UserConfig.getInstance(account);
+            if (!config.isClientActivated()) {
+                continue;
+            }
+            final MessagesController controller = getInstance(account);
+            final TLRPC.User self = controller.getUser(config.getClientUserId());
+            if (self == null) {
+                continue;
+            }
+            final int now = ConnectionsManager.getInstance(account).getCurrentTime();
+            if (self.status != null && self.status.expires <= now) {
+                continue;
+            }
+            TLRPC.TL_userStatusOffline status = new TLRPC.TL_userStatusOffline();
+            status.expires = now;
+            self.status = status;
+            TLRPC.User current = config.getCurrentUser();
+            if (current != null && current != self) {
+                current.status = status;
+            }
+            AndroidUtilities.runOnUIThread(() -> controller.getNotificationCenter()
+                    .postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_STATUS));
+        }
     }
 
     public void updateTimerProc() {
@@ -25175,6 +25227,15 @@ public class MessagesController extends BaseController implements NotificationCe
 
     public boolean isWebBrowserOpenInApp(String url) {
         return webBrowserSettings != null && url != null && !isWebBrowserOpenInExternal(webBrowserSettings, url);
+    }
+
+    /**
+     * PrimeGram: the in-app/external choice with no URL to match against — used for local
+     * content such as an .html attachment, which has no domain to look up in the per-site
+     * exception lists but must still obey the main "open in app" switch.
+     */
+    public boolean isWebBrowserOpenInAppByDefault() {
+        return webBrowserSettings != null && !webBrowserSettings.open_external_browser;
     }
 
 

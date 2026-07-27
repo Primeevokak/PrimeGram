@@ -16488,6 +16488,11 @@ public class MessagesStorage extends BaseController {
     }
 
     public void getDialogs(int folderId, int offset, int count, boolean loadDraftsPeersAndFolders) {
+        // PrimeGram: the startup trace showed 8 of the 10 seconds sitting between "dialogs
+        // requested" and "dialogs visible" with nothing measured in between. This pair splits
+        // that window into "waiting for the storage queue", "reading from disk" and
+        // "everything after", so the next round of work is aimed rather than guessed.
+        PrimeStartupTrace.mark("MessagesStorage.getDialogs enqueued (account " + currentAccount + ", folder " + folderId + ")");
         long[] draftsDialogIds;
         if (loadDraftsPeersAndFolders) {
             LongSparseArray<LongSparseArray<TLRPC.DraftMessage>> drafts = getMediaDataController().getDrafts();
@@ -16508,6 +16513,9 @@ public class MessagesStorage extends BaseController {
             draftsDialogIds = null;
         }
         storageQueue.postRunnable(() -> {
+            // Reached the front of the storage queue: the gap from the "enqueued" mark above is
+            // pure queue wait, which is the thing to measure when four accounts share it.
+            PrimeStartupTrace.mark("MessagesStorage.getDialogs started (account " + currentAccount + ")");
             TLRPC.messages_Dialogs dialogs = new TLRPC.TL_messages_dialogs();
             ArrayList<TLRPC.EncryptedChat> encryptedChats = new ArrayList<>();
             SQLiteCursor cursor = null;

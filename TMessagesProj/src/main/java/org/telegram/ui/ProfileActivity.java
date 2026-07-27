@@ -11338,6 +11338,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 } else {
                     if (userInfo != null && userInfo.stars_rating != null && userInfo.stars_rating.stars < 0) {
                         newString2 = getString(R.string.StarRatingLevelNegative).toLowerCase(Locale.ROOT);
+                    } else if (org.telegram.messenger.GreyZone.hideOwnOnline()) {
+                        // PrimeGram: show ourselves exactly what our contacts see, so ghost mode
+                        // is verifiable from our own profile instead of claiming we're online.
+                        isOnline[0] = false;
+                        newString2 = LocaleController.formatUserStatus(currentAccount, user, isOnline, shortStatus ? new boolean[1] : null);
                     } else {
                         newString2 = LocaleController.getString(R.string.Online);
                     }
@@ -11544,6 +11549,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 onlineTextView[2].setText(LocaleController.getString(R.string.FallbackTooltip));
                 if (userInfo != null && userInfo.stars_rating != null && userInfo.stars_rating.stars < 0) {
                     onlineTextView[3].setText(newString2 = getString(R.string.StarRatingLevelNegative).toLowerCase(Locale.ROOT));
+                } else if (org.telegram.messenger.GreyZone.hideOwnOnline()) {
+                    onlineTextView[3].setText(LocaleController.formatUserStatus(currentAccount, user, null, null));
                 } else {
                     onlineTextView[3].setText(LocaleController.getString(R.string.Online));
                 }

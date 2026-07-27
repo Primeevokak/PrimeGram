@@ -25,7 +25,9 @@ public class UserConfig extends BaseController {
 
     public static int selectedAccount;
     public final static int MAX_ACCOUNT_DEFAULT_COUNT = 3;
-    public final static int MAX_ACCOUNT_COUNT = 4;
+    // PrimeGram: 4 -> 8. Everything indexed by account is an array sized from this constant
+    // and filled lazily, so unused slots cost nothing.
+    public final static int MAX_ACCOUNT_COUNT = 8;
 
     private final Object sync = new Object();
     private volatile boolean configLoaded;
@@ -122,7 +124,10 @@ public class UserConfig extends BaseController {
     }
 
     public static int getMaxAccountCount() {
-        return hasPremiumOnAccounts() ? 5 : 3;
+        // PrimeGram: the 3/5 split is a Premium upsell, not a technical limit — every
+        // controller here is already indexed per account and created lazily. Give everyone
+        // the full set of slots the arrays are sized for.
+        return MAX_ACCOUNT_COUNT;
     }
 
     public int getNewMessageId() {

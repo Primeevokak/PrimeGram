@@ -1,0 +1,119 @@
+// PrimeGram: JNI bridge to whisper.cpp for on-device voice transcription.
+//
+// Deliberately built as its own libprimewhisper.so rather than folded into libtmessages:
+// ggml is a large, fast-moving dependency, and keeping it separate means a failure to build,
+// load or run it can never take the messenger down with it. The Java side loads this library
+// lazily — only when the user has actually turned offline transcription on and downloaded a
+// model — so devices that never use the feature never map it into memory.
+
+#include <jni.h>
+#include <android/log.h>
+#include <string>
+#include <vector>
+
+#include "whisper.h"
+
+#define LOG_TAG "PrimeWhisper"
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+extern "C" {
+
+JNIEXPORT jlong JNICALL
+Java_org_telegram_messenger_PrimeWhisper_nativeInit(JNIEnv *env, jclass clazz, jstring modelPath) {
+    const char *path = env->GetStringUTFChars(modelPath, nullptr);
+    if (path == nullptr) {
+        return 0;
+    }
+    whisper_context_params cparams = whisper_context_default_params();
+    // No GPU backend is compiled in; asking for one would only cost a failed probe.
+    cparams.use_gpu = false;
+    cparams.flash_attn = false;
+    whisper_context *ctx = whisper_init_from_file_with_params(path, cparams);
+    env->ReleaseStringUTFChars(modelPath, path);
+    if (ctx == nullptr) {
+        LOGE("failed to load model");
+        return 0;
+    }
+    return reinterpret_cast<jlong>(ctx);
+}
+
+JNIEXPORT void JNICALL
+Java_org_telegram_messenger_PrimeWhisper_nativeFree(JNIEnv *env, jclass clazz, jlong ptr) {
+    if (ptr != 0) {
+        whisper_free(reinterpret_cast<whisper_context *>(ptr));
+    }
+}
+
+// pcm must be mono 16 kHz float samples in [-1, 1]; the Java side is responsible for the
+// conversion, which it does with the decoder that already ships in this app.
+JNIEXPORT jstring JNICALL
+Java_org_telegram_messenger_PrimeWhisper_nativeTranscribe(JNIEnv *env, jclass clazz, jlong ptr,
+                                                          jfloatArray pcm, jstring language,
+                                                          jint threads) {
+    if (ptr == 0 || pcm == nullptr) {
+        return nullptr;
+    }
+    whisper_context *ctx = reinterpret_cast<whisper_context *>(ptr);
+
+    const jsize sampleCount = env->GetArrayLength(pcm);
+    if (sampleCount <= 0) {
+        return nullptr;
+    }
+    jfloat *samples = env->GetFloatArrayElements(pcm, nullptr);
+    if (samples == nullptr) {
+        return nullptr;
+    }
+
+    whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    wparams.print_realtime = false;
+    wparams.print_progress = false;
+    wparams.print_timestamps = false;
+    wparams.print_special = false;
+    wparams.translate = false;
+    wparams.no_context = true;
+    wparams.single_segment = false;
+    wparams.n_threads = threads > 0 ? threads : 4;
+    // Voice messages are short and conversational; suppressing the non-speech tokens keeps
+    // "(музыка)"-style artefacts out of what we show as a transcript.
+    wparams.suppress_nst = true;
+
+    std::string lang;
+    if (language != nullptr) {
+        const char *raw = env->GetStringUTFChars(language, nullptr);
+        if (raw != nullptr) {
+            lang = raw;
+            env->ReleaseStringUTFChars(language, raw);
+        }
+    }
+    // An empty language means auto-detect, which is what whisper's "auto" does.
+    wparams.language = lang.empty() ? "auto" : lang.c_str();
+    wparams.detect_language = false;
+
+    const int result = whisper_full(ctx, wparams, samples, sampleCount);
+    env->ReleaseFloatArrayElements(pcm, samples, JNI_ABORT);
+    if (result != 0) {
+        LOGE("whisper_full failed: %d", result);
+        return nullptr;
+    }
+
+    std::string text;
+    const int segments = whisper_full_n_segments(ctx);
+    for (int i = 0; i < segments; i++) {
+        const char *segment = whisper_full_get_segment_text(ctx, i);
+        if (segment != nullptr) {
+            text += segment;
+        }
+    }
+    // whisper puts a leading space on every segment; the UI wants a clean string.
+    size_t start = text.find_first_not_of(" \t\n\r");
+    size_t end = text.find_last_not_of(" \t\n\r");
+    if (start == std::string::npos) {
+        text.clear();
+    } else {
+        text = text.substr(start, end - start + 1);
+    }
+    return env->NewStringUTF(text.c_str());
+}
+
+}

@@ -679,3 +679,7 @@ target_link_libraries(${NATIVE_LIB}
 
 include(AndroidNdkModules)
 android_ndk_import_module_cpufeatures()
+# PrimeGram: on-device voice transcription (whisper.cpp). Everything about it lives in its own
+# CMakeLists so that the compiler and linker flags it needs stay in a child scope - setting
+# them here would silently re-link libtmessages with the wrong flags.
+add_subdirectory(whisper)

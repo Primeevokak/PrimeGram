@@ -464,22 +464,34 @@ public class TgWsProxyService extends Service {
     private void runProxyServer() {
         while (running.get()) {
             try {
+                // SO_REUSEADDR has to be set on an unbound socket: `new ServerSocket(port)`
+                // binds immediately, so the setReuseAddress() that used to follow it did
+                // nothing at all. Without it, our own just-closed listener sits in TIME_WAIT
+                // and blocks the rebind, so every watchdog restart walked to the next port
+                // and rewrote proxy_port in the settings. The client then pointed at a port
+                // that had just been abandoned — which is why the proxy could keep working
+                // with the switch off (the old listener was still up) and fail with it on.
                 int port = PROXY_PORT;
-                for (int i = 0; i < 10; i++) {
+                ServerSocket bound = null;
+                for (int i = 0; i < 10 && bound == null; i++, port++) {
+                    ServerSocket candidate = new ServerSocket();
                     try {
-                        serverSocket = new ServerSocket(port, 50, null);
-                        serverSocket.setReuseAddress(true);
+                        candidate.setReuseAddress(true);
+                        candidate.bind(new java.net.InetSocketAddress(port), 50);
+                        bound = candidate;
                         activeProxyPort = port;
-                        break;
                     } catch (IOException e) {
+                        try { candidate.close(); } catch (IOException ignored) {}
                         logInfo("Port " + port + " is in use, trying next...");
-                        port++;
                     }
                 }
-                if (serverSocket == null || serverSocket.isClosed()) {
-                    serverSocket = new ServerSocket(0, 50, null);
-                    activeProxyPort = serverSocket.getLocalPort();
+                if (bound == null) {
+                    bound = new ServerSocket();
+                    bound.setReuseAddress(true);
+                    bound.bind(new java.net.InetSocketAddress(0), 50);
+                    activeProxyPort = bound.getLocalPort();
                 }
+                serverSocket = bound;
                 isSocketBound = true;
 
                 logInfo("Listening on wildcard address (IPv4/IPv6 loopback allowed) port: " + activeProxyPort);
@@ -888,6 +900,33 @@ public class TgWsProxyService extends Service {
         return null;
     }
 
+    /**
+     * Consecutive sessions that died within seconds of being established.
+     *
+     * <p>Previously a single such session dropped {@link #currentBaseDomain}, which sent every
+     * other connection to a freshly chosen domain. Combined with a pool still holding sockets
+     * for the previous domain, that produced a self-sustaining loop: a stale pooled socket
+     * dies instantly, the domain flips, the pool hands out another stale socket, the domain
+     * flips again. The logs of that failure show the client walking its whole domain list in
+     * seconds while never actually being broken — restarting the app "fixed" it only because
+     * it emptied the pool.
+     */
+    private static final java.util.concurrent.atomic.AtomicInteger fastFailureCount = new java.util.concurrent.atomic.AtomicInteger();
+    /** How many fast failures in a row justify abandoning the current domain. */
+    private static final int FAST_FAILURE_THRESHOLD = 3;
+
+    private static void noteFastSessionFailure() {
+        if (fastFailureCount.incrementAndGet() < FAST_FAILURE_THRESHOLD) {
+            return;
+        }
+        fastFailureCount.set(0);
+        synchronized (TgWsProxyService.class) {
+            logInfo("Resetting currentBaseDomain after " + FAST_FAILURE_THRESHOLD + " short-lived sessions");
+            currentBaseDomain = null;
+            cachedBaseAddress = null;
+        }
+    }
+
     private static class WsConnection {
         final SSLSocket tlsSocket;
         final String domain;
@@ -960,10 +999,17 @@ public class TgWsProxyService extends Service {
         String key = dcId + "_" + isMedia;
         activeDcs.put(key, System.currentTimeMillis());
         java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
+        final String activeDomain = currentBaseDomain;
         WsConnection conn = null;
         while ((conn = q.poll()) != null) {
             long age = System.currentTimeMillis() - conn.createdAt;
-            if (age > 100_000 || conn.tlsSocket.isClosed()) { // 100 seconds max age
+            // Drop sockets built for a domain we have since moved away from. Handing one of
+            // those out is what turned a single failure into a domain-hopping loop: it dies
+            // immediately, which looks like the new domain failing too.
+            boolean wrongDomain = activeDomain != null && conn.domain != null && !conn.domain.endsWith(activeDomain);
+            // Idle WebSockets get closed by the edge well before the old 100s ceiling, so a
+            // "fresh" pooled socket could already be dead on arrival.
+            if (age > 30_000 || wrongDomain || conn.tlsSocket.isClosed()) {
                 try { conn.tlsSocket.close(); } catch (Exception ignored) {}
                 continue;
             }
@@ -972,6 +1018,21 @@ public class TgWsProxyService extends Service {
         }
         refillWsPoolAsync(dcId, isMedia);
         return conn;
+    }
+
+    /** Closes and forgets every pooled connection. Called when the base domain changes. */
+    private void discardPooledConnections() {
+        int dropped = 0;
+        for (java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q : wsPoolMap.values()) {
+            WsConnection conn;
+            while ((conn = q.poll()) != null) {
+                try { conn.tlsSocket.close(); } catch (Exception ignored) {}
+                dropped++;
+            }
+        }
+        if (dropped > 0) {
+            logInfo("Discarded " + dropped + " pooled connections after base domain change");
+        }
     }
 
     private void refillWsPoolAsync(int dcId, boolean isMedia) {
@@ -1105,11 +1166,16 @@ public class TgWsProxyService extends Service {
                         logInfo("Fastest base domain selected: " + selected[0]);
                     }
                     currentBaseDomain = selected[0];
+                    cachedBaseAddress = null;
                     lastDomainSelectionTime = System.currentTimeMillis();
                 } else {
                     currentBaseDomain = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                    cachedBaseAddress = null;
                     logInfo("Quick failover (cooldown active): selected random domain: " + currentBaseDomain);
                 }
+                // Sockets pooled for the previous domain are worthless now, and worse than
+                // worthless if handed out — they fail instantly and look like a new outage.
+                discardPooledConnections();
                 baseDomain = currentBaseDomain;
             } else {
                 baseDomain = currentBaseDomain;
@@ -1779,10 +1845,11 @@ public class TgWsProxyService extends Service {
             try { client.close(); } catch (IOException ignored) {}
             
             if (System.currentTimeMillis() - sessionStartTime < 5000) {
-                synchronized (TgWsProxyService.class) {
-                    currentBaseDomain = null;
-                    cachedBaseAddress = null;
-                }
+                noteFastSessionFailure();
+            } else {
+                // A session that lasted means the domain is fine; forget earlier stumbles so
+                // unrelated failures spread over time never add up to a failover.
+                fastFailureCount.set(0);
             }
         }
     }

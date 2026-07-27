@@ -371,6 +371,8 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             tabsView.setViewVisible(view, true, false);
         }
         checkUi_callTabVisible(getUserConfig().showCallsTab, false);
+        primeInstance = this;
+        checkUi_feedTabVisible(false);
 
         selectTab(viewPager.getCurrentPosition(), false);
 
@@ -765,6 +767,43 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             return new PrimeFeedActivity();
         }
         return null;
+    }
+
+    /** Live instance, so a settings toggle can hide the Feed tab without a restart. */
+    private static MainTabsActivity primeInstance;
+
+    /** PrimeGram: applies the "hide Feed" setting to whichever tab bar is on screen. */
+    public static void refreshFeedTabVisibility() {
+        try {
+            final MainTabsActivity activity = primeInstance;
+            if (activity != null) {
+                AndroidUtilities.runOnUIThread(() -> activity.checkUi_feedTabVisible(true));
+            }
+        } catch (Throwable ignore) {}
+    }
+
+    /** PrimeGram: the Feed tab is optional — plenty of people never use it. */
+    public static boolean isFeedHidden() {
+        try {
+            return MessagesController.getGlobalMainSettings().getBoolean("primegram_feed_hidden", false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public void checkUi_feedTabVisible(boolean animated) {
+        try {
+            if (tabsView == null || tabs == null || tabs[INDEX_FEED] == null) {
+                return;
+            }
+            final boolean visible = !isFeedHidden();
+            tabsView.setViewVisible(tabs[INDEX_FEED], visible, animated);
+            // Don't strand the user on a tab that just disappeared.
+            if (!visible && viewPager != null && viewPager.getCurrentPosition() == POSITION_FEED) {
+                selectTab(POSITION_CHATS, false);
+                viewPager.scrollToPosition(POSITION_CHATS);
+            }
+        } catch (Throwable ignore) {}
     }
 
     public DialogsActivity getDialogsActivity() {

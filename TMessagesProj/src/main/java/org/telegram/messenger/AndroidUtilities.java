@@ -341,7 +341,10 @@ public class AndroidUtilities {
     public static String removeRTL(String str) {
         if (str == null) return null;
         if (REMOVE_RTL == null) {
-            REMOVE_RTL = Pattern.compile("[\\u200E\\u200F\\u202A-\\u202E]");
+            // PrimeGram: upstream strips the classic bidi marks and embeddings, but not the
+            // isolates (U+2066..U+2069) or the Arabic letter mark (U+061C). Those are enough on
+            // their own to reorder a display name, which is how "@admin" gets faked.
+            REMOVE_RTL = Pattern.compile("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069\\u061C]");
         }
         Matcher matcher = REMOVE_RTL.matcher(str);
         if (matcher == null) return str;
@@ -4267,8 +4270,41 @@ public class AndroidUtilities {
         }
     }
 
+    /**
+     * PrimeGram: .html/.htm attachments used to be handed straight to the system chooser,
+     * where most phones answer "no app can open this file". We ship a real browser, so render
+     * them inline instead. Obeys the same "open links in the app" switch as everything else,
+     * so turning it off restores the stock behaviour.
+     */
+    private static boolean primeOpenHtmlInBrowser(File f, String fileName, String mimeType, Activity activity) {
+        try {
+            if (!(activity instanceof org.telegram.ui.LaunchActivity)) {
+                return false;
+            }
+            boolean html = mimeType != null && mimeType.toLowerCase().startsWith("text/html");
+            if (!html && fileName != null) {
+                String lower = fileName.toLowerCase();
+                html = lower.endsWith(".html") || lower.endsWith(".htm") || lower.endsWith(".xhtml") || lower.endsWith(".mhtml");
+            }
+            if (!html) {
+                return false;
+            }
+            if (!MessagesController.getInstance(UserConfig.selectedAccount).isWebBrowserOpenInAppByDefault()) {
+                return false;
+            }
+            org.telegram.ui.LaunchActivity launchActivity = (org.telegram.ui.LaunchActivity) activity;
+            return launchActivity.presentFragment(new org.telegram.ui.PrimeBrowserActivity(Uri.fromFile(f).toString()), false, false);
+        } catch (Throwable t) {
+            FileLog.e(t);
+            return false;
+        }
+    }
+
     public static boolean openForView(File f, String fileName, String mimeType, final Activity activity, Theme.ResourcesProvider resourcesProvider, boolean restrict) {
         if (f != null && f.exists()) {
+            if (!restrict && primeOpenHtmlInBrowser(f, fileName, mimeType, activity)) {
+                return true;
+            }
             String realMimeType = null;
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);

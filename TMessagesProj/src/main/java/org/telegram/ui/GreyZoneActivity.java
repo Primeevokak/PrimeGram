@@ -87,6 +87,7 @@ public class GreyZoneActivity extends UniversalFragment {
         } else if (item.id == ID_REVOKE) {
             GreyZone.setAccepted(false);
             listView.adapter.update(true);
+            LaunchActivity.refreshGreyZoneUi();
         } else if (item.id == ID_SCREENSHOTS) {
             toggle(GreyZone.ALLOW_SCREENSHOTS);
         } else if (item.id == ID_NOFORWARDS) {
@@ -107,6 +108,7 @@ public class GreyZoneActivity extends UniversalFragment {
     private void toggle(String key) {
         GreyZone.setEnabled(key, !GreyZone.isEnabled(key));
         listView.adapter.update(true);
+        LaunchActivity.refreshGreyZoneUi();
     }
 
     private void showAcceptDialog() {
@@ -120,6 +122,7 @@ public class GreyZoneActivity extends UniversalFragment {
         builder.setPositiveButton("Принимаю", (dialog, which) -> {
             GreyZone.setAccepted(true);
             listView.adapter.update(true);
+            LaunchActivity.refreshGreyZoneUi();
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         AlertDialog dialog = builder.create();

@@ -6819,6 +6819,13 @@ public class ChatActivity extends BaseFragment implements
                     chatListThanosEffect.scroll(dx, dy);
                 }
                 scrollUp = dy < 0;
+                // Only on a real finger drag: a programmatic scroll (jump to a reply, new message
+                // arriving) must not close the keyboard out from under someone who is typing.
+                if (dy != 0 && recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_DRAGGING
+                        && org.telegram.messenger.PrimeTweaks.hideKeyboardOnScroll()
+                        && chatActivityEnterView != null && chatActivityEnterView.isKeyboardVisible()) {
+                    chatActivityEnterView.closeKeyboard();
+                }
                 int firstVisibleItem = chatLayoutManager.findFirstVisibleItemPosition();
                 if (dy != 0 && (scrollByTouch && recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_SETTLING) || recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_DRAGGING) {
                     if (forceNextPinnedMessageId != 0) {
@@ -7322,7 +7329,7 @@ public class ChatActivity extends BaseFragment implements
                 } else {
                     String username = ChatObject.getPublicUsername(chat);
                     if (username != null) {
-                        chatActivityEnterView.replaceWithText(start, len, "@" + username + " ", false);
+                        chatActivityEnterView.replaceWithText(start, len, "@" + username + primeMentionTail(), false);
                     }
                 }
             } else if (object instanceof TLRPC.User) {
@@ -7331,11 +7338,14 @@ public class ChatActivity extends BaseFragment implements
                     searchUserMessages(user, null);
                 } else {
                     if (UserObject.getPublicUsername(user) != null) {
-                        chatActivityEnterView.replaceWithText(start, len, "@" + UserObject.getPublicUsername(user) + " ", false);
+                        chatActivityEnterView.replaceWithText(start, len, "@" + UserObject.getPublicUsername(user) + primeMentionTail(), false);
                     } else {
                         String name = UserObject.getFirstName(user, false);
-                        Spannable spannable = new SpannableString(name + " ");
-                        spannable.setSpan(new URLSpanUserMention("" + user.id, 3), 0, spannable.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        Spannable spannable = new SpannableString(name + primeMentionTail());
+                        // The tail is left outside the span when it is a comma: a mention link
+                        // that swallows punctuation reads as part of the name.
+                        int spanEnd = org.telegram.messenger.PrimeTweaks.commaAfterMention() ? name.length() : spannable.length();
+                        spannable.setSpan(new URLSpanUserMention("" + user.id, 3), 0, spanEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                         chatActivityEnterView.replaceWithText(start, len, spannable, false);
                     }
                 }
@@ -11278,6 +11288,11 @@ public class ChatActivity extends BaseFragment implements
         if (bulletin != null && bulletinDelegate != null) {
             bulletin.updatePosition();
         }
+    }
+
+    /** What follows an inserted mention: a plain space, or a comma for "Name, ..." openings. */
+    private static String primeMentionTail() {
+        return org.telegram.messenger.PrimeTweaks.commaAfterMention() ? ", " : " ";
     }
 
     private void searchUserMessages(TLRPC.User user, TLRPC.Chat chat) {

@@ -87,8 +87,15 @@ public class PrimeBrowserActivity extends BaseFragment {
             // at a broken zoom level — the previous build shipped none of them.
             settings.setJavaScriptCanOpenWindowsAutomatically(true);
             settings.setSupportMultipleWindows(false);
-            settings.setAllowFileAccess(false);
+            // Local HTML has to be readable for the "open an .html attachment" path to work
+            // at all. Kept narrow on purpose: file access only, no file-URL cross-origin
+            // access, so a local page cannot reach out and read the rest of the sandbox.
+            settings.setAllowFileAccess(true);
             settings.setAllowContentAccess(true);
+            try {
+                settings.setAllowFileAccessFromFileURLs(false);
+                settings.setAllowUniversalAccessFromFileURLs(false);
+            } catch (Throwable ignore) {}
             settings.setGeolocationEnabled(false);
             settings.setMediaPlaybackRequiresUserGesture(true);
             settings.setTextZoom(100);
@@ -885,11 +892,28 @@ public class PrimeBrowserActivity extends BaseFragment {
             return handleUrl(url);
         }
 
+        // PrimeGram ad blocking. WebView calls both of these off the main thread, so the DNS
+        // lookup inside is allowed to block. The top-level page is never blocked here — only
+        // subresources — so a mistake in the lists can cost an image, never the whole site.
+        @Override
+        public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
+            if (request == null || request.isForMainFrame() || request.getUrl() == null) {
+                return null;
+            }
+            return org.telegram.messenger.browser.PrimeAdBlock.maybeBlock(request.getUrl().toString());
+        }
+
+        @Override
+        public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, String url) {
+            return org.telegram.messenger.browser.PrimeAdBlock.maybeBlock(url);
+        }
+
         private boolean handleUrl(String url) {
             if (TextUtils.isEmpty(url)) {
                 return false;
             }
-            if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("about:")) {
+            if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("about:")
+                    || url.startsWith("file://") || url.startsWith("content://")) {
                 tab.currentUrl = url;
                 tab.loadedUrl = url;
                 if (tabs.indexOf(tab) == currentTabIndex && !addressEditText.isFocused()) {

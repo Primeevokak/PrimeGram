@@ -68,6 +68,9 @@ public class GreyZone {
 
     public static void setEnabled(String key, boolean enabled) {
         prefs().edit().putBoolean(key, enabled).apply();
+        if (enabled && GHOST_DONT_ONLINE.equals(key)) {
+            MessagesController.primeClampOwnOnlineStatus();
+        }
     }
 
     /**
@@ -88,6 +91,9 @@ public class GreyZone {
                 .putBoolean(GHOST_DONT_TYPING, on)
                 .putBoolean(GHOST_DONT_ONLINE, on)
                 .apply();
+        if (on) {
+            MessagesController.primeClampOwnOnlineStatus();
+        }
     }
 
     /** Convenience for the most-used checks. */
@@ -97,5 +103,16 @@ public class GreyZone {
 
     public static boolean bypassNoForwards() {
         return isEnabled(BYPASS_NOFORWARDS);
+    }
+
+    /**
+     * Ghost mode stops us announcing ourselves as online, so everyone else sees a "last seen"
+     * time. The client, however, used to keep printing a hardcoded "online" for our own user,
+     * which made the mode look broken. When this is true the UI must render our own status the
+     * same way it renders anybody else's — from {@code user.status}, which the server keeps in
+     * sync via updateUserStatus — so what we see is what our contacts see.
+     */
+    public static boolean hideOwnOnline() {
+        return isEnabled(GHOST_DONT_ONLINE);
     }
 }

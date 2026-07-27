@@ -61,9 +61,117 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_LINK_PREVIEW = 31;
     private static final int ID_SESSION_NAME = 32;
     private static final int ID_STARTUP_TRACE = 33;
+    private static final int ID_FEED_HIDDEN = 34;
+    private static final int ID_ADBLOCK = 35;
+    private static final int ID_ADBLOCK_DNS = 36;
+    private static final int ID_DNS_ENABLED = 37;
+    private static final int ID_DNS_PRESET = 38;
+    private static final int ID_LIMIT_RECENT_STICKERS = 39;
+    private static final int ID_ONLINE_DOTS = 40;
+    private static final int ID_STT_ENABLED = 41;
+    private static final int ID_STT_TOKEN = 42;
+    private static final int ID_STT_ENDPOINT = 43;
+    private static final int ID_STT_MODEL = 44;
+    private static final int ID_RELATIVE_LAST_SEEN = 45;
+    private static final int ID_NO_NUMBER_ROUNDING = 46;
+    private static final int ID_TIME_WITH_SECONDS = 47;
+    private static final int ID_HIDE_STORIES = 48;
+    private static final int ID_HIDE_FAB = 49;
+    private static final int ID_ARCHIVE_ON_PULL = 50;
+    private static final int ID_DISABLE_UNARCHIVE_SWIPE = 51;
+    private static final int ID_HIDE_SHARE_BUTTON = 52;
+    private static final int ID_EDITED_AS_ICON = 53;
+    private static final int ID_COMMA_AFTER_MENTION = 54;
+    private static final int ID_HIDE_KEYBOARD_ON_SCROLL = 55;
+    private static final int ID_STICKER_SIZE = 56;
+    private static final int ID_HIDE_REACTIONS_CHANNELS = 57;
+    private static final int ID_HIDE_REACTIONS_GROUPS = 58;
+    private static final int ID_HIDE_REACTIONS_PRIVATE = 59;
+
+    /**
+     * Plain on/off tweaks all behave identically, so they share one handler. Returns the
+     * preference key for such an item, or null if the item needs its own handling.
+     */
+    private static String primeTweakKeyFor(int id) {
+        if (id == ID_HIDE_STORIES) return org.telegram.messenger.PrimeTweaks.HIDE_STORIES;
+        if (id == ID_HIDE_FAB) return org.telegram.messenger.PrimeTweaks.HIDE_FLOATING_BUTTON;
+        if (id == ID_DISABLE_UNARCHIVE_SWIPE) return org.telegram.messenger.PrimeTweaks.DISABLE_UNARCHIVE_SWIPE;
+        if (id == ID_HIDE_SHARE_BUTTON) return org.telegram.messenger.PrimeTweaks.HIDE_SHARE_BUTTON;
+        if (id == ID_EDITED_AS_ICON) return org.telegram.messenger.PrimeTweaks.EDITED_AS_ICON;
+        if (id == ID_COMMA_AFTER_MENTION) return org.telegram.messenger.PrimeTweaks.COMMA_AFTER_MENTION;
+        if (id == ID_HIDE_KEYBOARD_ON_SCROLL) return org.telegram.messenger.PrimeTweaks.HIDE_KEYBOARD_ON_SCROLL;
+        if (id == ID_HIDE_REACTIONS_CHANNELS) return org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_CHANNELS;
+        if (id == ID_HIDE_REACTIONS_GROUPS) return org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_GROUPS;
+        if (id == ID_HIDE_REACTIONS_PRIVATE) return org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_PRIVATE;
+        return null;
+    }
+
+    /**
+     * Which page this instance shows. The screen had grown to a single scroll of roughly
+     * forty items, where finding anything meant reading everything; it is now a short hub of
+     * categories, each opening this same fragment with a different section.
+     */
+    private static final int SECTION_ROOT = 0;
+    private static final int SECTION_INTERFACE = 1;
+    private static final int SECTION_CONNECTION = 2;
+    private static final int SECTION_PRIVACY = 3;
+    private static final int SECTION_TOOLS = 4;
+    private static final int SECTION_MEDIA = 5;
+    private static final int SECTION_ADVANCED = 6;
+    private static final int SECTION_PREMIUM = 7;
+    private static final int SECTION_ABOUT = 8;
+
+    /** Category rows on the hub. Offset well past the setting ids so they cannot collide. */
+    private static final int ID_SECTION_BASE = 900;
+
+    private final int section;
+
+    public PrimeGramSettingsActivity() {
+        this(SECTION_ROOT);
+    }
+
+    private PrimeGramSettingsActivity(int section) {
+        this.section = section;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // Values here are edited on other screens (grey zone, music, tags), so the list has to
+        // be rebuilt on return — otherwise it keeps showing what was true when it was opened.
+        if (listView != null && listView.adapter != null) {
+            listView.adapter.update(true);
+        }
+    }
+
+    private void fillRoot(ArrayList<UItem> items) {
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_INTERFACE, "Интерфейс", "Боковая панель, лента"));
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_CONNECTION, "Соединение", "Прокси, VLESS, работа в фоне"));
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_PRIVACY, "Приватность", "Номер, серая зона"));
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_TOOLS, "Инструменты", "Теги, панель ввода, ссылки, боты"));
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_MEDIA, "Медиа и музыка", "Вкладка «Музыка»"));
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_PREMIUM, "Локальный Premium", "Лимиты на этом устройстве"));
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_ADVANCED, "Дополнительно", "Обновления, эксперименты, диагностика"));
+        items.add(UItem.asButton(ID_SECTION_BASE + SECTION_ABOUT, "Разрешения и поддержка", ""));
+        items.add(UItem.asShadow("PrimeGram " + org.telegram.messenger.BuildVars.BUILD_VERSION_STRING));
+    }
+
+    private CharSequence sectionTitle() {
+        switch (section) {
+            case SECTION_INTERFACE: return "Интерфейс";
+            case SECTION_CONNECTION: return "Соединение";
+            case SECTION_PRIVACY: return "Приватность";
+            case SECTION_TOOLS: return "Инструменты";
+            case SECTION_MEDIA: return "Медиа и музыка";
+            case SECTION_ADVANCED: return "Дополнительно";
+            case SECTION_PREMIUM: return "Локальный Premium";
+            case SECTION_ABOUT: return "Разрешения и поддержка";
+            default: return "Настройки PrimeGram";
+        }
+    }
     @Override
     protected CharSequence getTitle() {
-        return "Настройки PrimeGram";
+        return sectionTitle();
     }
 
     private String vlessKeyStatusText(boolean running) {
@@ -82,14 +190,24 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     @Override
     protected void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {
+        if (section == SECTION_ROOT) {
+            fillRoot(items);
+            return;
+        }
+        final SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        final MessagesController messagesController = MessagesController.getInstance(currentAccount);
+
+        if (section == SECTION_INTERFACE) {
         items.add(UItem.asHeader("Интерфейс"));
-        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         UItem checkItem = UItem.asCheck(ID_SIDEBAR_ENABLED, "Боковая панель на основном экране");
         checkItem.checked = sidebarEnabled;
         items.add(checkItem);
         items.add(UItem.asShadow("Отображает стильную вертикальную боковую панель на главном экране списка чатов для быстрого доступа к переключению аккаунтов, кошельку, прокси и настройкам."));
 
+        }
+
+        if (section == SECTION_CONNECTION) {
         items.add(UItem.asHeader("Соединение"));
         UItem proxyItem = UItem.asCheck(ID_EMERGENCY_PROXY, "Включить VLESS-сервер");
         boolean vlessRunning = VpnSDK.isProxyRunning();
@@ -107,6 +225,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 batteryOptOk ? "Разрешено" : "Не разрешено — нажмите, чтобы включить"));
         items.add(UItem.asShadow("На некоторых прошивках (MIUI, OneUI и т.п.) система агрессивно закрывает фоновые процессы, из-за чего прокси отключается и уведомления приходят с задержкой. Разрешение \"Без ограничений\" для батареи устраняет эту проблему."));
 
+        }
+
+        if (section == SECTION_PRIVACY) {
         items.add(UItem.asHeader("Приватность"));
         UItem hidePhoneItem = UItem.asCheck(ID_HIDE_PHONE, "Скрывать свой номер в профиле");
         hidePhoneItem.checked = org.telegram.messenger.PrimeGramPrivacy.isHidePhoneEnabled();
@@ -120,6 +241,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 org.telegram.messenger.GreyZone.isAccepted() ? "Включена" : "Требует подтверждения"));
         items.add(UItem.asShadow("Функции, снимающие ограничения собеседника, и режим призрака. Разработчик их не одобряет — используются на ваш страх и риск."));
 
+        }
+
+        if (section == SECTION_TOOLS) {
         items.add(UItem.asHeader("Теги сообщений"));
         items.add(UItem.asButton(ID_MESSAGE_TAGS, "Помеченные сообщения",
                 String.valueOf(org.telegram.messenger.MessageTagsStore.count())));
@@ -143,11 +267,56 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asButton(ID_BOT_LOGIN, "Вход в бота", "по токену BotFather"));
         items.add(UItem.asShadow("Вход в аккаунт бота по токену. Бот занимает отдельный слот аккаунта — сессия бота отдельна от вашей, это устройство протокола Telegram."));
 
+        items.add(UItem.asHeader("Расшифровка голосовых"));
+        boolean hasPremium = org.telegram.messenger.UserConfig.getInstance(currentAccount).isPremium();
+        if (hasPremium) {
+            items.add(UItem.asShadow("У этого аккаунта есть Telegram Premium — расшифровка работает родными средствами Telegram и лучше интегрирована, поэтому подменять её нечем и незачем."));
+        } else {
+            UItem sttItem = UItem.asCheck(ID_STT_ENABLED, "Расшифровывать через внешний сервис");
+            sttItem.checked = org.telegram.messenger.PrimeTranscription.isEnabled();
+            items.add(sttItem);
+            if (org.telegram.messenger.PrimeTranscription.isEnabled()) {
+                String token = org.telegram.messenger.PrimeTranscription.getToken();
+                items.add(UItem.asButton(ID_STT_TOKEN, "Ключ сервиса",
+                        android.text.TextUtils.isEmpty(token) ? "не задан" : "задан"));
+                items.add(UItem.asButton(ID_STT_ENDPOINT, "Адрес сервиса",
+                        org.telegram.messenger.PrimeTranscription.getEndpoint()));
+                items.add(UItem.asButton(ID_STT_MODEL, "Модель",
+                        org.telegram.messenger.PrimeTranscription.getModel()));
+            }
+            items.add(UItem.asShadow("Telegram отдаёт расшифровку только по Premium. Эта настройка отправляет голосовое во внешний сервис и подставляет ответ на место родной расшифровки.\n\nПо умолчанию — Groq: бесплатный тариф без карты, около 2000 расшифровок в сутки, ключ берётся на console.groq.com. Подойдёт любой сервис с совместимым API (OpenAI, Cloudflare, свой сервер) — впишите его адрес и модель.\n\nПонимайте, на что соглашаетесь: голосовое уходит на сервер, который не принадлежит ни Telegram, ни нам. Поэтому выключено по умолчанию и включается руками."));
+        }
+
+        items.add(UItem.asHeader("Встроенный браузер"));
+        UItem adBlockItem = UItem.asCheck(ID_ADBLOCK, "Блокировать рекламу и трекеры");
+        adBlockItem.checked = org.telegram.messenger.browser.PrimeAdBlock.isEnabled();
+        items.add(adBlockItem);
+        items.add(UItem.asShadow("Режет запросы к рекламным и следящим доменам во встроенном браузере. Главная страница сайта не блокируется никогда — только её содержимое, поэтому ошибка в списке может стоить картинки, но не самого сайта. Заблокировано за сеанс: "
+                + org.telegram.messenger.browser.PrimeAdBlock.getBlockedCount() + "."));
+
+        UItem dnsItem = UItem.asCheck(ID_DNS_ENABLED, "Свой DNS (DNS-over-HTTPS)");
+        dnsItem.checked = org.telegram.messenger.browser.PrimeDns.isEnabled();
+        items.add(dnsItem);
+        if (org.telegram.messenger.browser.PrimeDns.isEnabled()) {
+            items.add(UItem.asButton(ID_DNS_PRESET, "DNS-сервер",
+                    org.telegram.messenger.browser.PrimeDns.currentName()));
+            UItem dnsBlockItem = UItem.asCheck(ID_ADBLOCK_DNS, "Доверять вердикту DNS-сервера");
+            dnsBlockItem.checked = org.telegram.messenger.browser.PrimeAdBlock.isDnsBlockingEnabled();
+            items.add(dnsBlockItem);
+        }
+        items.add(UItem.asShadow("Запросы имён идут в зашифрованном виде мимо DNS провайдера — это самый дешёвый способ блокировки, и он так обходится. По умолчанию стоит AdGuard DNS: он сам отвечает «никуда» на рекламные домены, поэтому служит ещё и списком блокировки, который не надо обновлять вручную. Можно указать свой адрес — только https.\n\nВажно: пока это влияет на решение «блокировать или нет». Само соединение WebView всё ещё резолвит системным DNS — чтобы увести и его, нужен локальный прокси, он в работе."));
+
+        }
+
+        if (section == SECTION_MEDIA) {
         items.add(UItem.asHeader("Музыка"));
         items.add(UItem.asButton(ID_MUSIC_SETTINGS, "Настройки вкладки «Музыка»",
                 org.telegram.messenger.music.MusicSettingsStore.isTabEnabled() ? "Включена" : "Выключена"));
         items.add(UItem.asShadow("Отправка текущего трека (Spotify, Яндекс Музыка, SoundCloud, VK, Last.fm, Telegram) карточкой, аудиофайлом или текстом. Вкладка появляется в панели эмодзи."));
 
+        }
+
+        if (section == SECTION_ADVANCED) {
         items.add(UItem.asHeader("Экспериментальные настройки"));
         boolean hwAccel = org.telegram.messenger.CrashSafeToggle.isEnabled("primegram_hw_accel");
         UItem hwAccelItem = UItem.asCheck(ID_HW_ACCEL, "Аппаратное ускорение видео (MediaCodec)");
@@ -160,7 +329,77 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(UItem.asShadow("Включает аппаратное декодирование видео/GIF/кружочков вместо программного. Может немного сэкономить батарею, но на некоторых устройствах декодер бывает нестабилен — приложение автоматически откатит настройку, если из-за неё случится сбой. Изменения применяются после перезапуска приложения."));
         }
 
+        }
+
+        if (section == SECTION_INTERFACE) {
         items.add(UItem.asHeader("Лента"));
+        UItem feedHiddenItem = UItem.asCheck(ID_FEED_HIDDEN, "Скрыть вкладку «Лента»");
+        feedHiddenItem.checked = preferences.getBoolean("primegram_feed_hidden", false);
+        items.add(feedHiddenItem);
+        items.add(UItem.asShadow("Убирает вкладку из нижней панели целиком. Остальные настройки ниже действуют, только пока лента показана."));
+
+        items.add(UItem.asHeader("Сообщения"));
+        UItem onlineDotsItem = UItem.asCheck(ID_ONLINE_DOTS, "Точка «в сети» у аватарок в группах");
+        onlineDotsItem.checked = org.telegram.ui.Cells.PrimeMessageMarks.isOnlineDotsEnabled();
+        items.add(onlineDotsItem);
+        items.add(UItem.asShadow("Зелёная точка на аватарке отправителя в группах и каналах с обсуждением — видно, кто сейчас на связи, не открывая профиль. В списке чатов такие точки есть и без этой настройки."));
+
+        items.add(UItem.asHeader("Список чатов"));
+        UItem hideStoriesItem = UItem.asCheck(ID_HIDE_STORIES, "Скрыть истории");
+        hideStoriesItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_STORIES);
+        items.add(hideStoriesItem);
+        UItem hideFabItem = UItem.asCheck(ID_HIDE_FAB, "Скрыть кнопку «Написать»");
+        hideFabItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_FLOATING_BUTTON);
+        items.add(hideFabItem);
+        UItem archiveOnPullItem = UItem.asCheck(ID_ARCHIVE_ON_PULL, "Архив открывается потягиванием");
+        archiveOnPullItem.checked = org.telegram.messenger.SharedConfig.archiveHidden;
+        items.add(archiveOnPullItem);
+        UItem noUnarchiveSwipeItem = UItem.asCheck(ID_DISABLE_UNARCHIVE_SWIPE, "Не разархивировать свайпом");
+        noUnarchiveSwipeItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.DISABLE_UNARCHIVE_SWIPE);
+        items.add(noUnarchiveSwipeItem);
+        items.add(UItem.asShadow("Истории убираются там же, где принимается решение о их показе, поэтому пустого места не остаётся. Кнопка «Написать» прячется только в списке чатов — при выборе чата для пересылки она остаётся, иначе подтвердить отправку было бы нечем. Свайп внутри архива блокируется только для действия «Архивировать»; если у вас на свайп назначено «Прочитать» или «Закрепить», оно продолжит работать."));
+
+        items.add(UItem.asHeader("В чатах"));
+        UItem hideShareItem = UItem.asCheck(ID_HIDE_SHARE_BUTTON, "Скрыть кнопку «Поделиться»");
+        hideShareItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_SHARE_BUTTON);
+        items.add(hideShareItem);
+        UItem editedIconItem = UItem.asCheck(ID_EDITED_AS_ICON, "«Изменено» значком");
+        editedIconItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.EDITED_AS_ICON);
+        items.add(editedIconItem);
+        UItem commaItem = UItem.asCheck(ID_COMMA_AFTER_MENTION, "Запятая после упоминания");
+        commaItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.COMMA_AFTER_MENTION);
+        items.add(commaItem);
+        UItem hideKeyboardItem = UItem.asCheck(ID_HIDE_KEYBOARD_ON_SCROLL, "Прятать клавиатуру при прокрутке");
+        hideKeyboardItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_KEYBOARD_ON_SCROLL);
+        items.add(hideKeyboardItem);
+        UItem stickerSizeItem = UItem.asButton(ID_STICKER_SIZE, "Размер стикеров",
+                String.valueOf(org.telegram.messenger.PrimeTweaks.stickerSize()));
+        items.add(stickerSizeItem);
+        items.add(UItem.asShadow("Клавиатура закрывается только при прокрутке пальцем — переход к ответу или новое сообщение её не тронут. Размер стикеров: 14 — как в оригинале, меньше — компактнее, больше — во всю ширину."));
+
+        items.add(UItem.asHeader("Реакции"));
+        UItem reactChannelsItem = UItem.asCheck(ID_HIDE_REACTIONS_CHANNELS, "Скрыть в каналах");
+        reactChannelsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_CHANNELS);
+        items.add(reactChannelsItem);
+        UItem reactGroupsItem = UItem.asCheck(ID_HIDE_REACTIONS_GROUPS, "Скрыть в группах");
+        reactGroupsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_GROUPS);
+        items.add(reactGroupsItem);
+        UItem reactPrivateItem = UItem.asCheck(ID_HIDE_REACTIONS_PRIVATE, "Скрыть в личных чатах");
+        reactPrivateItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_PRIVATE);
+        items.add(reactPrivateItem);
+        items.add(UItem.asShadow("Реакции перестают рисоваться под сообщениями выбранного типа чатов. Ставить свои реакции через меню сообщения по-прежнему можно."));
+
+        items.add(UItem.asHeader("Форматирование"));
+        UItem relativeSeenItem = UItem.asCheck(ID_RELATIVE_LAST_SEEN, "«5 минут назад» вместо времени");
+        relativeSeenItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.RELATIVE_LAST_SEEN);
+        items.add(relativeSeenItem);
+        UItem noRoundingItem = UItem.asCheck(ID_NO_NUMBER_ROUNDING, "Не округлять числа");
+        noRoundingItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.DISABLE_NUMBER_ROUNDING);
+        items.add(noRoundingItem);
+        UItem secondsItem = UItem.asCheck(ID_TIME_WITH_SECONDS, "Показывать секунды во времени");
+        secondsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.TIME_WITH_SECONDS);
+        items.add(secondsItem);
+        items.add(UItem.asShadow("«Был(а) 5 минут назад» вместо метки времени — только для последних суток, дальше точная дата понятнее. Числа подписчиков и просмотров показываются полностью: 1 234 567 вместо 1M. Секунды добавляются везде, где показывается время, с сохранением 12- или 24-часового формата вашей локали."));
         boolean feedExcludeMuted = preferences.getBoolean("primegram_feed_exclude_muted", false);
         boolean feedExcludeArchived = preferences.getBoolean("primegram_feed_exclude_archived", false);
         UItem feedExcludeMutedItem = UItem.asCheck(ID_FEED_EXCLUDE_MUTED, "Скрывать чаты без уведомлений");
@@ -171,6 +410,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(feedExcludeArchivedItem);
         items.add(UItem.asShadow("Настройки отображения каналов и групп во вкладке Лента."));
 
+        }
+
+        if (section == SECTION_ADVANCED) {
         items.add(UItem.asHeader("Обновления приложения"));
         boolean autoUpdates = preferences.getBoolean("primegram_auto_updates", false);
         UItem autoUpdatesItem = UItem.asCheck(ID_AUTO_UPDATES, "Автоматически скачивать обновления");
@@ -179,8 +421,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asButton(ID_CHECK_UPDATES, "Проверить обновления", ""));
         items.add(UItem.asShadow("PrimeGram может автоматически проверять релизы на GitHub и скачивать новые версии."));
 
-        MessagesController messagesController = MessagesController.getInstance(currentAccount);
+        }
 
+        if (section == SECTION_PREMIUM) {
         items.add(UItem.asHeader("Telegram Premium (Локальный)"));
         items.add(UItem.asShadow("На этом устройстве полностью эмулируется подписка Telegram Premium: разблокированы Saved Messages теги, кастомные обои, расшифровка голосовых сообщений, перевод чатов и каналов, бесконечные реакции, эмодзи-статусы, значок в профиле и отсутствие рекламы. Ниже вы можете настроить локальные лимиты."));
 
@@ -195,28 +438,103 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(UItem.asHeader("Лимиты медиа и стикеров"));
         items.add(UItem.asButton(ID_LIMIT_GIFS, "Лимит сохраненных GIF", String.valueOf(messagesController.savedGifsLimitPremium)));
         items.add(UItem.asButton(ID_LIMIT_STICKERS, "Лимит избранных стикеров", String.valueOf(messagesController.stickersFavedLimitPremium)));
-        items.add(UItem.asShadow("Лимиты на количество гифок в панели отправки и избранных стикеров."));
+        items.add(UItem.asButton(ID_LIMIT_RECENT_STICKERS, "Лимит недавних стикеров",
+                String.valueOf(messagesController.maxRecentStickersCount)));
+        items.add(UItem.asShadow("Лимиты на количество гифок в панели отправки, избранных и недавних стикеров. Недавние стикеры обрезает сам клиент, поэтому это ограничение снимается полностью и без участия сервера."));
 
         items.add(UItem.asHeader("Лимиты профиля и текста"));
         items.add(UItem.asButton(ID_LIMIT_PUBLIC_LINKS, "Лимит публичных ссылок", String.valueOf(messagesController.publicLinksLimitPremium)));
         items.add(UItem.asButton(ID_LIMIT_CAPTION, "Лимит символов в описании медиа", String.valueOf(messagesController.captionLengthLimitPremium)));
         items.add(UItem.asButton(ID_LIMIT_ABOUT, "Лимит символов в разделе «О себе»", String.valueOf(messagesController.aboutLengthLimitPremium)));
         items.add(UItem.asShadow("Символьные ограничения для описания медиафайлов и био вашего аккаунта."));
+        }
+
+        if (section == SECTION_ADVANCED) {
         items.add(UItem.asButton(ID_STARTUP_TRACE, "Трасса запуска", "диагностика"));
         items.add(UItem.asShadow("Сколько миллисекунд занял каждый этап последнего холодного старта: загрузка нативных библиотек, открытие базы, появление списка чатов. Нужна, чтобы оптимизировать по замерам, а не по догадкам."));
 
+        }
+
+        if (section == SECTION_ABOUT) {
         items.add(UItem.asHeader("Разрешения и поддержка"));
         items.add(UItem.asButton(ID_GRANT_PERMISSIONS, "Выдать системные разрешения", "Контакты, Звонки, Память"));
         items.add(UItem.asShadow("Нажмите, чтобы вручную выдать приложению базовые разрешения (если отключили их запрос при старте)."));
         
         items.add(UItem.asButton(ID_SUPPORT_PROJECT, "Поддержать проект (USDT TON)", "Отправить донат через @wallet"));
         items.add(UItem.asShadow("Спасибо за вашу поддержку! Это помогает развивать PrimeGram."));
+        }
     }
 
     @Override
     protected void onClick(UItem item, View view, int position, float x, float y) {
+        if (item.id >= ID_SECTION_BASE) {
+            presentFragment(new PrimeGramSettingsActivity(item.id - ID_SECTION_BASE));
+            return;
+        }
         MessagesController messagesController = MessagesController.getInstance(currentAccount);
-        if (item.id == ID_SIDEBAR_ENABLED) {
+        String tweakKey = primeTweakKeyFor(item.id);
+        if (tweakKey != null) {
+            org.telegram.messenger.PrimeTweaks.set(tweakKey, !org.telegram.messenger.PrimeTweaks.get(tweakKey));
+            listView.adapter.update(true);
+        } else if (item.id == ID_STICKER_SIZE) {
+            showStickerSizePicker();
+        } else if (item.id == ID_ARCHIVE_ON_PULL) {
+            // Upstream already has this state - it is what the "swipe the archive row up"
+            // gesture toggles. We only surface it as a setting.
+            org.telegram.messenger.SharedConfig.toggleArchiveHidden();
+            org.telegram.messenger.NotificationCenter.getGlobalInstance()
+                    .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
+            listView.adapter.update(true);
+        } else if (item.id == ID_RELATIVE_LAST_SEEN || item.id == ID_NO_NUMBER_ROUNDING || item.id == ID_TIME_WITH_SECONDS) {
+            String key = item.id == ID_RELATIVE_LAST_SEEN ? org.telegram.messenger.PrimeTweaks.RELATIVE_LAST_SEEN
+                    : item.id == ID_NO_NUMBER_ROUNDING ? org.telegram.messenger.PrimeTweaks.DISABLE_NUMBER_ROUNDING
+                    : org.telegram.messenger.PrimeTweaks.TIME_WITH_SECONDS;
+            org.telegram.messenger.PrimeTweaks.set(key, !org.telegram.messenger.PrimeTweaks.get(key));
+            if (item.id == ID_TIME_WITH_SECONDS) {
+                // The time formatters are built once and cached; they have to be thrown away
+                // or the new pattern only appears after a restart.
+                LocaleController.getInstance().recreateFormatters();
+            }
+            listView.adapter.update(true);
+        } else if (item.id == ID_STT_ENABLED) {
+            org.telegram.messenger.PrimeTranscription.setEnabled(!org.telegram.messenger.PrimeTranscription.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_STT_TOKEN) {
+            showTextInputDialog("Ключ сервиса",
+                    "Ключ доступа к сервису расшифровки. Для Groq — бесплатно и без карты на console.groq.com.",
+                    org.telegram.messenger.PrimeTranscription.getToken(), "gsk_…",
+                    value -> org.telegram.messenger.PrimeTranscription.setToken(value));
+        } else if (item.id == ID_STT_ENDPOINT) {
+            showTextInputDialog("Адрес сервиса",
+                    "Полный URL метода расшифровки, совместимого с OpenAI. Пустое поле вернёт адрес Groq.",
+                    org.telegram.messenger.PrimeTranscription.getEndpoint(),
+                    org.telegram.messenger.PrimeTranscription.DEFAULT_ENDPOINT,
+                    value -> org.telegram.messenger.PrimeTranscription.setEndpoint(value));
+        } else if (item.id == ID_STT_MODEL) {
+            showTextInputDialog("Модель",
+                    "Имя модели распознавания у выбранного сервиса. Пустое поле вернёт модель по умолчанию.",
+                    org.telegram.messenger.PrimeTranscription.getModel(),
+                    org.telegram.messenger.PrimeTranscription.DEFAULT_MODEL,
+                    value -> org.telegram.messenger.PrimeTranscription.setModel(value));
+        } else if (item.id == ID_ONLINE_DOTS) {
+            SharedPreferences prefs = MessagesController.getGlobalMainSettings();
+            boolean on = prefs.getBoolean(org.telegram.ui.Cells.PrimeMessageMarks.ONLINE_DOTS_KEY, true);
+            prefs.edit().putBoolean(org.telegram.ui.Cells.PrimeMessageMarks.ONLINE_DOTS_KEY, !on).apply();
+            listView.adapter.update(true);
+        } else if (item.id == ID_ADBLOCK) {
+            org.telegram.messenger.browser.PrimeAdBlock.setEnabled(!org.telegram.messenger.browser.PrimeAdBlock.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_ADBLOCK_DNS) {
+            org.telegram.messenger.browser.PrimeAdBlock.setDnsBlockingEnabled(!org.telegram.messenger.browser.PrimeAdBlock.isDnsBlockingEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_DNS_ENABLED) {
+            org.telegram.messenger.browser.PrimeDns.setEnabled(!org.telegram.messenger.browser.PrimeDns.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_DNS_PRESET) {
+            showDnsPicker();
+        } else if (item.id == ID_LIMIT_RECENT_STICKERS) {
+            showRecentStickersPicker(messagesController);
+        } else if (item.id == ID_SIDEBAR_ENABLED) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             boolean enabled = preferences.getBoolean("primegram_sidebar_enabled", false);
             preferences.edit().putBoolean("primegram_sidebar_enabled", !enabled).apply();
@@ -345,6 +663,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             presentFragment(new SearchPlusActivity());
         } else if (item.id == ID_TEMP_SUBS) {
             presentFragment(new TempSubActivity());
+        } else if (item.id == ID_FEED_HIDDEN) {
+            SharedPreferences prefs = MessagesController.getGlobalMainSettings();
+            boolean hidden = prefs.getBoolean("primegram_feed_hidden", false);
+            prefs.edit().putBoolean("primegram_feed_hidden", !hidden).apply();
+            listView.adapter.update(true);
+            MainTabsActivity.refreshFeedTabVisibility();
         } else if (item.id == ID_STARTUP_TRACE) {
             showStartupTrace();
         } else if (item.id == ID_SESSION_NAME) {
@@ -365,6 +689,140 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         builder.setPositiveButton("Скопировать", (dialog, which) -> {
             AndroidUtilities.addToClipboard(trace);
             org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this).createCopyBulletin("Скопировано").show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private interface TextInputCallback {
+        void onValue(String value);
+    }
+
+    /** Shared one-line text prompt, so every string setting looks and behaves the same. */
+    private void showTextInputDialog(String title, String message, String current, String hint, TextInputCallback callback) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(title);
+        builder.setMessage(message);
+
+        final EditTextBoldCursor editText = new EditTextBoldCursor(getParentActivity());
+        editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
+        editText.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setHintTextColor(Theme.getColor(Theme.key_dialogTextHint));
+        editText.setHint(hint);
+        editText.setCursorColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setCursorSize(AndroidUtilities.dp(20));
+        editText.setCursorWidth(1.5f);
+        editText.setSingleLine(true);
+        editText.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
+        editText.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4));
+        editText.setText(current == null ? "" : current);
+        editText.setSelection(editText.getText().length());
+
+        LinearLayout container = new LinearLayout(getParentActivity());
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(4), AndroidUtilities.dp(24), 0);
+        container.addView(editText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        builder.setView(container);
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
+            callback.onValue(editText.getText().toString());
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showRecentStickersPicker(MessagesController messagesController) {
+        showNumberInputDialog(ID_LIMIT_RECENT_STICKERS, "Лимит недавних стикеров",
+                "Сколько недавно использованных стикеров помнить. Список обрезает сам клиент, так что значение работает без оглядки на сервер — но чем оно больше, тем больше стикеров хранится в базе.",
+                messagesController.maxRecentStickersCount, 30, 30, 500);
+    }
+
+    private void showStickerSizePicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final int min = 6, max = 20;
+        final CharSequence[] options = new CharSequence[max - min + 1];
+        for (int i = 0; i < options.length; i++) {
+            int value = min + i;
+            options[i] = value == org.telegram.messenger.PrimeTweaks.STICKER_SIZE_DEFAULT
+                    ? value + " — как в оригинале"
+                    : String.valueOf(value);
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Размер стикеров");
+        builder.setItems(options, (dialog, which) -> {
+            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.STICKER_SIZE, min + which);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showDnsPicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final String[] presets = org.telegram.messenger.browser.PrimeDns.PRESET_NAMES;
+        final CharSequence[] options = new CharSequence[presets.length + 1];
+        System.arraycopy(presets, 0, options, 0, presets.length);
+        options[presets.length] = "Свой адрес…";
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("DNS-сервер");
+        builder.setItems(options, (dialog, which) -> {
+            if (which == presets.length) {
+                showCustomDnsDialog();
+            } else {
+                org.telegram.messenger.browser.PrimeDns.setPreset(which);
+                listView.adapter.update(true);
+            }
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showCustomDnsDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Свой DNS-сервер");
+        builder.setMessage("Адрес DNS-over-HTTPS. Можно указать только имя хоста — «/dns-query» подставится само. Обычный DNS без шифрования не принимается: он свёл бы на нет весь смысл настройки.");
+
+        final EditTextBoldCursor editText = new EditTextBoldCursor(getParentActivity());
+        editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
+        editText.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setHintTextColor(Theme.getColor(Theme.key_dialogTextHint));
+        editText.setHint("dns.example.com");
+        editText.setCursorColor(Theme.getColor(Theme.key_dialogTextBlack));
+        editText.setCursorSize(AndroidUtilities.dp(20));
+        editText.setCursorWidth(1.5f);
+        editText.setSingleLine(true);
+        editText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        editText.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
+        editText.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4));
+        editText.setText(org.telegram.messenger.browser.PrimeDns.getCustomEndpoint());
+        editText.setSelection(editText.getText().length());
+
+        LinearLayout container = new LinearLayout(getParentActivity());
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(4), AndroidUtilities.dp(24), 0);
+        container.addView(editText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        builder.setView(container);
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
+            String value = editText.getText().toString();
+            if (org.telegram.messenger.browser.PrimeDns.normalizeEndpoint(value) == null) {
+                org.telegram.ui.Components.BulletinFactory.of(this)
+                        .createErrorBulletin("Нужен адрес https://").show();
+                return;
+            }
+            org.telegram.messenger.browser.PrimeDns.setCustomEndpoint(value);
+            org.telegram.messenger.browser.PrimeDns.setPreset(org.telegram.messenger.browser.PrimeDns.PRESET_CUSTOM);
+            listView.adapter.update(true);
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         showDialog(builder.create());
@@ -543,6 +1001,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (id == ID_LIMIT_STICKERS) {
             messagesController.stickersFavedLimitPremium = value;
             editor.putInt("stickersFavedLimitPremium", value);
+        } else if (id == ID_LIMIT_RECENT_STICKERS) {
+            messagesController.maxRecentStickersCount = value;
+            // Kept in the global settings, not the per-account ones: the trimming happens in
+            // MediaDataController for every account, and MessagesController re-reads it there.
+            MessagesController.getGlobalMainSettings().edit()
+                    .putInt(MessagesController.PRIME_RECENT_STICKERS_KEY, value).apply();
         } else if (id == ID_LIMIT_CHATS_IN_FOLDER) {
             messagesController.dialogFiltersChatsLimitPremium = value;
             editor.putInt("dialogFiltersChatsLimitPremium", value);

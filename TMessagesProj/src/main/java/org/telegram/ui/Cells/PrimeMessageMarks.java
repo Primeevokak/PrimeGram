@@ -65,6 +65,8 @@ public class PrimeMessageMarks {
             String tagLabel = MessageTagsStore.hasAny()
                     ? MessageTagsStore.getLabelFor(messageObject.getDialogId(), messageObject.getId())
                     : null;
+            drawOnlineDot(canvas, cell, messageObject);
+
             boolean deleted = messageObject.primeDeleted;
             if (!deleted && TextUtils.isEmpty(tagLabel)) {
                 return;
@@ -91,6 +93,79 @@ public class PrimeMessageMarks {
             }
         } catch (Throwable ignore) {
         }
+    }
+
+    public static final String ONLINE_DOTS_KEY = "primegram_online_dots";
+
+    private static Paint onlineDotPaint;
+    private static Paint onlineDotStrokePaint;
+
+    public static boolean isOnlineDotsEnabled() {
+        try {
+            return org.telegram.messenger.MessagesController.getGlobalMainSettings()
+                    .getBoolean(ONLINE_DOTS_KEY, true);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * The green dot next to a sender's avatar inside a group. The dialog list has had these
+     * upstream for years; group chats never did, which is where they are actually useful —
+     * you can see who is around before writing.
+     *
+     * <p>Drawn here rather than in the cell for the same reason as the chips: it must not
+     * participate in measurement. The dot sits on the avatar's bottom-right corner with a thin
+     * outline, so it reads on any wallpaper without needing to know the background colour.
+     */
+    private static void drawOnlineDot(Canvas canvas, ChatMessageCell cell, MessageObject messageObject) {
+        if (!cell.isAvatarVisible || !isOnlineDotsEnabled()) {
+            return;
+        }
+        org.telegram.tgnet.TLRPC.User user = senderUser(messageObject);
+        if (user == null || user.bot || user.self || !isUserOnline(messageObject.currentAccount, user)) {
+            return;
+        }
+        org.telegram.messenger.ImageReceiver avatar = cell.getAvatarImage();
+        if (avatar == null || avatar.getImageWidth() <= 0) {
+            return;
+        }
+        if (onlineDotPaint == null) {
+            onlineDotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            onlineDotStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            onlineDotStrokePaint.setStyle(Paint.Style.STROKE);
+            onlineDotStrokePaint.setStrokeWidth(dp(1.5f));
+        }
+        final float radius = dp(3.5f);
+        final float cx = avatar.getImageX() + avatar.getImageWidth() - radius - dp(0.5f);
+        final float cy = avatar.getImageY() + avatar.getImageHeight() - radius - dp(0.5f);
+
+        onlineDotStrokePaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+        canvas.drawCircle(cx, cy, radius, onlineDotStrokePaint);
+        onlineDotPaint.setColor(Theme.getColor(Theme.key_chats_onlineCircle));
+        canvas.drawCircle(cx, cy, radius, onlineDotPaint);
+    }
+
+    private static org.telegram.tgnet.TLRPC.User senderUser(MessageObject messageObject) {
+        if (messageObject.messageOwner == null || messageObject.messageOwner.from_id == null) {
+            return null;
+        }
+        long userId = messageObject.messageOwner.from_id.user_id;
+        if (userId == 0) {
+            return null;
+        }
+        return org.telegram.messenger.MessagesController.getInstance(messageObject.currentAccount).getUser(userId);
+    }
+
+    /** Same rule the dialog list uses, so the two never disagree about who is online. */
+    private static boolean isUserOnline(int account, org.telegram.tgnet.TLRPC.User user) {
+        if (user.status == null) {
+            return false;
+        }
+        if (user.status.expires <= 0) {
+            return org.telegram.messenger.MessagesController.getInstance(account).onlinePrivacy.containsKey(user.id);
+        }
+        return user.status.expires > org.telegram.tgnet.ConnectionsManager.getInstance(account).getCurrentTime();
     }
 
     /** @return the y for the next chip below this one */
