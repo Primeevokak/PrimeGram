@@ -447,6 +447,7 @@ public class ApplicationLoader extends Application {
         LauncherIconController.tryFixLauncherIconIfNeeded();
         ProxyRotationController.init();
         PrimeStartupTrace.mark("Application.onCreate end");
+        PrimeStartupTrace.startMainThreadWatchdog();
     }
 
     public static void applyXrayProxyToConnectionsManager() {

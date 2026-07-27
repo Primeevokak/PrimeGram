@@ -84,6 +84,8 @@ public class PrimeTweaks {
     private static boolean timeWithSeconds;
     private static boolean relativeLastSeen;
     private static boolean showPeerId;
+    private static boolean forceSnow;
+    private static boolean centerTitle;
     private static int avatarCorners = AVATAR_CORNERS_DEFAULT;
     private static int stickerSize = STICKER_SIZE_DEFAULT;
 
@@ -145,6 +147,8 @@ public class PrimeTweaks {
             timeWithSeconds = p.getBoolean(TIME_WITH_SECONDS, false);
             relativeLastSeen = p.getBoolean(RELATIVE_LAST_SEEN, false);
             showPeerId = p.getBoolean(SHOW_ID_AND_DC, false);
+            forceSnow = p.getBoolean(FORCE_SNOW, false);
+            centerTitle = p.getBoolean(CENTER_TITLE, false);
             avatarCorners = p.getInt(AVATAR_CORNERS, AVATAR_CORNERS_DEFAULT);
             stickerSize = p.getInt(STICKER_SIZE, STICKER_SIZE_DEFAULT);
             loaded = true;
@@ -248,6 +252,18 @@ public class PrimeTweaks {
     public static boolean showPeerId() {
         ensureLoaded();
         return showPeerId;
+    }
+
+    /** Lifts the new-year date gate so the snow and the decorated title work all year. */
+    public static boolean forceSnow() {
+        ensureLoaded();
+        return forceSnow;
+    }
+
+    /** Centres the action bar title and subtitle when there is room for it. */
+    public static boolean centerTitle() {
+        ensureLoaded();
+        return centerTitle;
     }
 
     public static boolean hideShareButton() {

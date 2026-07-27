@@ -255,6 +255,11 @@ public class DownloadController extends BaseController implements NotificationCe
         return localInstance;
     }
 
+    /** The controller for this account only if something already built it. Never constructs one. */
+    public static DownloadController getInstanceIfCreated(int num) {
+        return Instance[num];
+    }
+
     public DownloadController(int instance) {
         super(instance);
         SharedPreferences preferences = MessagesController.getMainSettings(currentAccount);

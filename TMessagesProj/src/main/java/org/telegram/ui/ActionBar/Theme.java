@@ -453,12 +453,18 @@ public class Theme {
 
             topY = top - (gradientShader instanceof BitmapShader ? heightOffset : 0);
             isTopNear = topNear;
-            isBottomNear = bottomNear;
+            // PrimeGram: "bottom near" is how upstream already suppresses the tail on every
+            // message but the last of a group. Forcing it is the whole feature - the bubble shape
+            // is unchanged otherwise, so nothing downstream has to know about the setting.
+            isBottomNear = bottomNear || org.telegram.messenger.PrimeTweaks.removeMessageTail();
         }
 
         public void setTopBottomNear(boolean topNear, boolean bottomNear) {
             isTopNear = topNear;
-            isBottomNear = bottomNear;
+            // PrimeGram: "bottom near" is how upstream already suppresses the tail on every
+            // message but the last of a group. Forcing it is the whole feature - the bubble shape
+            // is unchanged otherwise, so nothing downstream has to know about the setting.
+            isBottomNear = bottomNear || org.telegram.messenger.PrimeTweaks.removeMessageTail();
         }
 
         public int getTopY() {
@@ -5189,6 +5195,11 @@ public class Theme {
         return eventType;
     }
 
+    /** Makes the next getCurrentHolidayDrawable() re-evaluate instead of waiting out its minute. */
+    public static void primeInvalidateHoliday() {
+        lastHolidayCheckTime = 0;
+    }
+
     public static Drawable getCurrentHolidayDrawable() {
         if ((System.currentTimeMillis() - lastHolidayCheckTime) >= 60 * 1000) {
             lastHolidayCheckTime = System.currentTimeMillis();
@@ -5198,17 +5209,26 @@ public class Theme {
             int dayOfMonth = calendar.get(Calendar.DAY_OF_MONTH);
             int minutes = calendar.get(Calendar.MINUTE);
             int hour = calendar.get(Calendar.HOUR_OF_DAY);
-            if (monthOfYear == 0 && dayOfMonth == 1 && hour <= 23) {
+            // PrimeGram: the new-year decorations are gated to a few hours around 1 January
+            // upstream. The setting lifts the date check so they can be turned on at any time -
+            // it changes nothing else about how they are drawn.
+            final boolean forceSnow = org.telegram.messenger.PrimeTweaks.forceSnow();
+            if (forceSnow || monthOfYear == 0 && dayOfMonth == 1 && hour <= 23) {
                 canStartHolidayAnimation = true;
             } else {
                 canStartHolidayAnimation = false;
             }
+            final boolean holidayByDate = monthOfYear == 11 && dayOfMonth >= (BuildVars.DEBUG_PRIVATE_VERSION ? 29 : 31) && dayOfMonth <= 31 || monthOfYear == 0 && dayOfMonth == 1;
             if (dialogs_holidayDrawable == null) {
-                if (monthOfYear == 11 && dayOfMonth >= (BuildVars.DEBUG_PRIVATE_VERSION ? 29 : 31) && dayOfMonth <= 31 || monthOfYear == 0 && dayOfMonth == 1) {
+                if (forceSnow || holidayByDate) {
                     dialogs_holidayDrawable = ApplicationLoader.applicationContext.getResources().getDrawable(R.drawable.newyear);
                     dialogs_holidayDrawableOffsetX = -dp(3);
                     dialogs_holidayDrawableOffsetY = -dp(-7);
                 }
+            } else if (!forceSnow && !holidayByDate) {
+                // Upstream only ever assigns this field, never clears it - it had no way to stop
+                // being a holiday within one process. Turning the setting off has to.
+                dialogs_holidayDrawable = null;
             }
         }
         return dialogs_holidayDrawable;

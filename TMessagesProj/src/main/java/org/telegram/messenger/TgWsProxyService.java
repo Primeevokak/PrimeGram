@@ -513,7 +513,12 @@ public class TgWsProxyService extends Service {
                 updateNotification();
 
                 int finalPort = activeProxyPort;
-                AndroidUtilities.runOnUIThread(() -> {
+                // Was posted to the UI thread. Nothing in here needs it, and everything in here is
+                // slow: a SharedPreferences read that can block until the file finishes loading,
+                // an edit().apply(), a JNI call per account, a connection kick per account, and a
+                // log line whose lock every proxy thread is also competing for. The startup trace
+                // caught the main thread sitting inside this block.
+                Utilities.globalQueue.postRunnable(() -> {
                     try {
                         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
                         // Self-heal: as long as the user hasn't turned the built-in proxy off and

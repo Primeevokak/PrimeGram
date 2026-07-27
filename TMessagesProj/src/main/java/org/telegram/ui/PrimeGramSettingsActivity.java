@@ -92,6 +92,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HW_BENCHMARK = 62;
     private static final int ID_HIDE_STICKER_TIME = 63;
     private static final int ID_SHOW_ID_AND_DC = 64;
+    private static final int ID_FORCE_SNOW = 65;
+    private static final int ID_CENTER_TITLE = 66;
+    private static final int ID_REMOVE_TAIL = 67;
 
     /**
      * Plain on/off tweaks all behave identically, so they share one handler. Returns the
@@ -112,6 +115,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (id == ID_SQUARE_FAB) return org.telegram.messenger.PrimeTweaks.SQUARE_FAB;
         if (id == ID_HIDE_STICKER_TIME) return org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME;
         if (id == ID_SHOW_ID_AND_DC) return org.telegram.messenger.PrimeTweaks.SHOW_ID_AND_DC;
+        if (id == ID_FORCE_SNOW) return org.telegram.messenger.PrimeTweaks.FORCE_SNOW;
+        if (id == ID_CENTER_TITLE) return org.telegram.messenger.PrimeTweaks.CENTER_TITLE;
+        if (id == ID_REMOVE_TAIL) return org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL;
         return null;
     }
 
@@ -404,6 +410,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(showIdItem);
         items.add(UItem.asShadow("Строка с числовым ID собеседника, канала или группы — по нажатию копируется. Дата-центр показывается только когда у собеседника есть аватар: узнать его больше неоткуда."));
 
+        items.add(UItem.asHeader("Оформление"));
+        UItem snowItem = UItem.asCheck(ID_FORCE_SNOW, "Снег круглый год");
+        snowItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.FORCE_SNOW);
+        items.add(snowItem);
+        UItem centerTitleItem = UItem.asCheck(ID_CENTER_TITLE, "Заголовок по центру");
+        centerTitleItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.CENTER_TITLE);
+        items.add(centerTitleItem);
+        UItem noTailItem = UItem.asCheck(ID_REMOVE_TAIL, "Пузыри без хвостика");
+        noTailItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL);
+        items.add(noTailItem);
+        items.add(UItem.asShadow("Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате. Заголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева."));
+
         items.add(UItem.asHeader("Реакции"));
         UItem reactChannelsItem = UItem.asCheck(ID_HIDE_REACTIONS_CHANNELS, "Скрыть в каналах");
         reactChannelsItem.checked = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_REACTIONS_CHANNELS);
@@ -502,6 +520,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         String tweakKey = primeTweakKeyFor(item.id);
         if (tweakKey != null) {
             org.telegram.messenger.PrimeTweaks.set(tweakKey, !org.telegram.messenger.PrimeTweaks.get(tweakKey));
+            if (item.id == ID_FORCE_SNOW) {
+                // The holiday check only re-runs once a minute; without this the toggle looks
+                // like it did nothing until the user waits it out.
+                org.telegram.ui.ActionBar.Theme.primeInvalidateHoliday();
+            }
             listView.adapter.update(true);
         } else if (item.id == ID_STICKER_SIZE) {
             showStickerSizePicker();

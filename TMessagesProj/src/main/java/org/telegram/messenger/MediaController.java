@@ -1674,7 +1674,14 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
         audioInfo = null;
         playMusicAgain = false;
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            DownloadController.getInstance(a).cleanup();
+            // getInstance() builds a DownloadController, whose constructor reads that account's
+            // settings through MessagesController.getMainSettings - which builds the whole account
+            // stack, database included. Constructing seven of them in order to call cleanup() on
+            // them is worse than not cleaning up at all; there is nothing there to clean.
+            DownloadController existing = DownloadController.getInstanceIfCreated(a);
+            if (existing != null) {
+                existing.cleanup();
+            }
         }
         videoConvertQueue.clear();
         generatingWaveform.clear();

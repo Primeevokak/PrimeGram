@@ -554,6 +554,13 @@ public class RestrictedLanguagesSelectActivity extends BaseFragment implements N
 
                 for (int i = 0; i < UserConfig.MAX_ACCOUNT_COUNT; ++i) {
                     final int account = i;
+                    // MessagesController.getInstance() constructs the whole per-account stack for
+                    // that slot - including a MessagesStorage, which spawns a thread and opens a
+                    // SQLite database. Doing that for empty slots to refresh a list of languages
+                    // not to translate cost eight database opens on every cold start.
+                    if (!UserConfig.getInstance(account).isClientActivated()) {
+                        continue;
+                    }
                     try {
                         MessagesController.getInstance(account).getTranslateController().checkRestrictedLanguagesUpdate();
                     } catch (Exception ignore) {}
