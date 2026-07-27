@@ -173,6 +173,9 @@ public class SessionsActivity extends BaseFragment implements NotificationCenter
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        // PrimeGram: this is the screen where sessions get terminated, so the count shown back in
+        // Settings is stale by definition once we leave it.
+        org.telegram.messenger.PrimeSessionCount.invalidate(currentAccount);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.newSessionReceived);
     }
 

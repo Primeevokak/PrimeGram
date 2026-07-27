@@ -1093,8 +1093,8 @@ public class TgWsProxyService extends Service {
             
             Long lastActive = activeDcs.get(key);
             if (lastActive != null && (now - lastActive < 15 * 60 * 1000)) {
-                if (q.size() < 2) {
-                    String[] parts = key.split("_");
+                String[] parts = key.split("_");
+                if (q.size() < poolTargetFor(Boolean.parseBoolean(parts[1]))) {
                     int dcId = Integer.parseInt(parts[0]);
                     boolean isMedia = Boolean.parseBoolean(parts[1]);
                     refillWsPoolAsync(dcId, isMedia);
@@ -1145,6 +1145,18 @@ public class TgWsProxyService extends Service {
         }
     }
 
+    /**
+     * How many spare connections to keep for a data centre.
+     *
+     * <p>Deeper for media, because media does not arrive one file at a time: a tray of stories or
+     * a screen of photos asks for a dozen files at once, and every request beyond the pool pays
+     * for a fresh WebSocket - a handshake measured at roughly 1.7 seconds through this tunnel. A
+     * pool of two covers a conversation; it does not cover a burst.
+     */
+    private static int poolTargetFor(boolean isMedia) {
+        return isMedia ? 4 : 2;
+    }
+
     private void refillWsPoolAsync(int dcId, boolean isMedia) {
         String key = dcId + "_" + isMedia;
         java.util.concurrent.atomic.AtomicBoolean refilling = wsPoolRefilling.computeIfAbsent(key, k -> new java.util.concurrent.atomic.AtomicBoolean(false));
@@ -1152,7 +1164,7 @@ public class TgWsProxyService extends Service {
             executor.submit(() -> {
                 try {
                     java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
-                    while (q.size() < 2) { // Maintain 2 ready background connections per active DC
+                    while (q.size() < poolTargetFor(isMedia)) {
                         WsConnection conn = connectToWebSocket(dcId, isMedia);
                         if (conn != null) {
                             q.add(conn);

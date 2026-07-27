@@ -111,6 +111,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_CACHE = 81;
     private static final int ID_VIDEO_QUALITY = 82;
     private static final int ID_PRELOAD_VIDEO_MOBILE = 83;
+    private static final int ID_AUTODOWNLOAD = 84;
     /** One id per blocking list, taken from a range nothing else uses. */
     private static final int ID_ADBLOCK_LIST_BASE = 200;
 
@@ -513,6 +514,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         UItem preloadItem = UItem.asCheck(ID_PRELOAD_VIDEO_MOBILE, "Догружать видео на мобильной сети");
         preloadItem.checked = org.telegram.messenger.DownloadController.getInstance(currentAccount).primeMobilePreloadVideo();
         items.add(preloadItem);
+        items.add(UItem.asButton(ID_AUTODOWNLOAD, "Автозагрузка медиа"));
         items.add(UItem.asButton(ID_CACHE, "Кэш медиа", cacheSizeText()));
         items.add(UItem.asShadow("Отправка без сжатия переключает главную кнопку в режим «файлом» — тот же, что в меню вложений. На контакты, музыку и геопозицию это не влияет: для них «файлом» ничего не значит.\n\nСохранение кружочков и голосовых добавляет пункт в меню долгого нажатия: кружочек уходит в галерею, голосовое — в загрузки. Одноразовые сообщения не сохраняются: отправитель выбрал исчезающее сообщение, и обходить это мы не будем.\n\nКачество видео ограничивает то, что скачивается, а не только то, что играет: скачивается ровно та дорожка, которую выбирает плеер. Если ни одна не помещается в лимит, берётся обычная — лимит не должен оставить видео непроигрываемым. Уже скачанное не перекачивается заново, даже если оно крупнее лимита. Настройка применяется к сообщениям, открытым после её изменения.\n\nВыключенная догрузка на мобильной сети переводит автозагрузку в режим «Свой» — иначе правка задела бы заодно Wi-Fi и роуминг, у которых с готовыми пресетами общий объект. Остальные значения при этом переносятся как были.\n\nКэш — только скачанное для просмотра. Файлы, которые вы сами сохранили в загрузки или галерею, кнопка не трогает."));
 

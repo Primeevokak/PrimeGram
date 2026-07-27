@@ -63,6 +63,12 @@ public class PrimeBrowserActivity extends BaseFragment {
     private static final String DESKTOP_USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+    /**
+     * The proxy override is process-wide, so it is installed once for every WebView there will
+     * ever be - not per tab.
+     */
+    private static boolean primeProxyApplied;
+
     private class BrowserTab {
         WebView webView;
         String currentUrl = "";
@@ -100,6 +106,8 @@ public class PrimeBrowserActivity extends BaseFragment {
             settings.setMediaPlaybackRequiresUserGesture(true);
             settings.setTextZoom(100);
 
+            primeApplyDnsProxy();
+
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
             CookieManager cookieManager = CookieManager.getInstance();
@@ -112,6 +120,47 @@ public class PrimeBrowserActivity extends BaseFragment {
             webView.setWebChromeClient(new PrimeWebChromeClient(this));
             webView.setDownloadListener(new PrimeDownloadListener());
             webView.setOnLongClickListener(v -> showLinkContextMenu(webView, v));
+        }
+
+        /**
+         * PrimeGram: routes this WebView through our local proxy so name resolution is ours.
+         *
+         * <p>WebView resolves host names inside the system network stack, where the DoH resolver
+         * cannot reach - so with this off, the browser obeys our blocking lists for URLs but asks
+         * the operator's DNS for every host anyway. A proxy is the only supported way in: the
+         * browser hands us a name, and we do the lookup.
+         *
+         * <p>Applies to the whole process, and only once. If the override cannot be installed -
+         * an old WebView without the feature, or the proxy failing to bind - the browser simply
+         * works as before rather than not working at all.
+         */
+        private void primeApplyDnsProxy() {
+            if (primeProxyApplied || !org.telegram.messenger.browser.PrimeDns.isEnabled()) {
+                return;
+            }
+            primeProxyApplied = true;
+            try {
+                if (!androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.PROXY_OVERRIDE)) {
+                    return;
+                }
+                final int port = org.telegram.messenger.browser.PrimeWebProxy.start();
+                if (port <= 0) {
+                    return;
+                }
+                final androidx.webkit.ProxyConfig config = new androidx.webkit.ProxyConfig.Builder()
+                        .addProxyRule("127.0.0.1:" + port)
+                        // Loopback must never be sent to the proxy - that would route the proxy's
+                        // own address through itself. addBypassRule, not addDirect: addDirect
+                        // takes a scheme filter, not a host.
+                        .addBypassRule("localhost")
+                        .addBypassRule("127.0.0.1")
+                        .bypassSimpleHostnames()
+                        .build();
+                androidx.webkit.ProxyController.getInstance()
+                        .setProxyOverride(config, Runnable::run, () -> {});
+            } catch (Throwable t) {
+                org.telegram.messenger.FileLog.e("PrimeBrowserActivity.primeApplyDnsProxy", t);
+            }
         }
 
         void applyUserAgent() {
