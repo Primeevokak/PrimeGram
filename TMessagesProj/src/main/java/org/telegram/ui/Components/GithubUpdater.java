@@ -102,7 +102,7 @@ public class GithubUpdater {
                             android.util.Log.d(TAG, "Update available: " + latestVersion + ". URL: " + downloadUrl);
                             
                             SharedPreferences mainPrefs = context.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
-                            boolean autoUpdate = mainPrefs.getBoolean("primegram_auto_updates", false);
+                            boolean autoUpdate = mainPrefs.getBoolean("primegram_auto_updates", true);
                             
                             final String finalDownloadUrl = downloadUrl;
                             org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {

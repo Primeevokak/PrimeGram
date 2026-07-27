@@ -790,7 +790,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
         if (section == SECTION_ADVANCED) {
         items.add(UItem.asHeader("Обновления приложения"));
-        boolean autoUpdates = preferences.getBoolean("primegram_auto_updates", false);
+        boolean autoUpdates = preferences.getBoolean("primegram_auto_updates", true);
         UItem autoUpdatesItem = UItem.asCheck(ID_AUTO_UPDATES, "Автоматически скачивать обновления");
         autoUpdatesItem.checked = autoUpdates;
         items.add(autoUpdatesItem);
@@ -1036,7 +1036,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         } else if (item.id == ID_AUTO_UPDATES) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-            boolean enabled = preferences.getBoolean("primegram_auto_updates", false);
+            boolean enabled = preferences.getBoolean("primegram_auto_updates", true);
             preferences.edit().putBoolean("primegram_auto_updates", !enabled).apply();
             listView.adapter.update(true);
         } else if (item.id == ID_HW_ACCEL) {
