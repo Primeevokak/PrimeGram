@@ -19,3 +19,8 @@ TMessagesProj_AppHuawei/afat/
 *.apk
 *.log
 
+# Python bytecode from the plugin SDK: written next to the sources whenever anything imports
+# them, and nothing in the build reads it — Chaquopy compiles its own copy into the APK.
+__pycache__/
+*.py[cod]
+

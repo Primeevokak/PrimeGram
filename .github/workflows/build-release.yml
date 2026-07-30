@@ -27,6 +27,14 @@ jobs:
           java-version: '17'
           distribution: 'microsoft'
 
+      # Chaquopy compiles the plugin SDK with a local interpreter, and it must be the same
+      # major.minor the app embeds. The runner's own python3 is a different version, so pinning
+      # this is what keeps the build from depending on what Ubuntu happens to ship today.
+      - name: Set up Python 3.11 for Chaquopy
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install Android NDK
         run: |
           echo "Installing NDK version 27.2.12479018..."

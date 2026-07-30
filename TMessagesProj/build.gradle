@@ -1,6 +1,7 @@
 import org.gradle.nativeplatform.platform.internal.DefaultNativePlatform
 
 apply plugin: 'com.android.library'
+apply plugin: 'com.chaquo.python'
 
 repositories {
     mavenCentral()
@@ -122,6 +123,30 @@ android {
 
         buildConfigField "int", "APP_ID", APP_ID
         buildConfigField "String", "APP_HASH", "\"" + APP_HASH + "\""
+
+        // PrimeGram: the Python runtime plugins execute in.
+        //
+        // 3.11 and not something newer, on purpose. It is what exteraGram ships, so the compiled
+        // wheels plugins pull from PIP are built for this ABI, and it is the last version Chaquopy
+        // still offers for 32-bit devices — 3.12 and up are 64-bit only, which would quietly drop
+        // armeabi-v7a from the CI splits.
+        // buildPython is left to Chaquopy's own search (the py launcher on Windows) so the build
+        // does not carry one machine's paths; override it in local.properties if that ever fails.
+        python {
+            version "3.11"
+        }
+
+        ndk {
+            // The interpreter is native code, so the ABIs it is built for have to be named. Naming
+            // all four unconditionally also made CMake build all four, which is minutes of C++ per
+            // build on a machine that only ever installs arm64 — so this follows the same CI switch
+            // the app module uses.
+            if (System.getenv("CI") == "true") {
+                abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            } else {
+                abiFilters "arm64-v8a"
+            }
+        }
 
         externalNativeBuild {
             cmake {
