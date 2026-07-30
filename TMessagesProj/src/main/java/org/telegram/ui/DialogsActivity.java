@@ -3018,6 +3018,56 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     private Drawable premiumStar;
 
+    /**
+     * PrimeGram: the chat list title, built from the current settings.
+     *
+     * <p>A method rather than a block inside createView, because it is also called from onResume:
+     * both settings behind it are changed on another screen, and the chat list is built before you
+     * get there and not rebuilt on the way back. Read only at creation, they looked broken - the
+     * one thing that applied them was restarting the app.
+     *
+     * <p>The status drawable is dropped rather than merely left out of setTitle. updateStatus runs
+     * whenever the user's status changes and puts it back on the bar, so not having one is the
+     * only form of "hidden" that holds.
+     */
+    private void primeApplyMainTitle() {
+        if (actionBar == null || getContext() == null) {
+            return;
+        }
+        if (org.telegram.messenger.PrimeTweaks.hideEmojiStatus()) {
+            statusDrawable = null;
+        } else if (statusDrawable == null) {
+            statusDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable(null, dp(26));
+            statusDrawable.center = true;
+        }
+        if (logoDrawable == null) {
+            logoDrawable = getContext().getResources().getDrawable(R.drawable.telegram_logo_2).mutate();
+            logoDrawable.setBounds(0, dp(2), logoDrawable.getIntrinsicWidth(), dp(2) + logoDrawable.getIntrinsicHeight());
+            logoDrawable.setColorFilter(getThemedColor(Theme.key_telegram_color_dialogsLogo), PorterDuff.Mode.MULTIPLY);
+        }
+        final TLRPC.User selfUser = UserConfig.getInstance(currentAccount).getCurrentUser();
+        CharSequence titleText = null;
+        if (org.telegram.messenger.PrimeTweaks.mainTitleUsername() && selfUser != null) {
+            // The name, not the username: this is the name other people see next to your messages,
+            // and it is what someone means by "my name" on their own chat list. A username falls
+            // in only when there is no name to show, which an account can be left in.
+            titleText = UserObject.getUserName(selfUser);
+            if (TextUtils.isEmpty(titleText)) {
+                final String publicUsername = UserObject.getPublicUsername(selfUser);
+                titleText = publicUsername != null ? "@" + publicUsername : null;
+            }
+        }
+        if (TextUtils.isEmpty(titleText)) {
+            // The stock title is the word "Telegram" with the logo painted over it as a span, so
+            // what you see is the logo.
+            final SpannableStringBuilder ssb = new SpannableStringBuilder(getString(R.string.AppName));
+            ssb.setSpan(new ImageSpan(logoDrawable), 0, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            titleText = ssb;
+        }
+        actionBar.setTitle(titleText, statusDrawable);
+        updateStatus(selfUser, false);
+    }
+
     public void updateStatus(TLRPC.User user, boolean animated) {
         if (dialogStoriesCell != null) {
             dialogStoriesCell.updateStatus(user, animated);
@@ -3528,38 +3578,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 communityAvatarImage.setForUserOrChat(community, communityAvatarDrawable);
                 actionBar.addView(communityAvatarImage, LayoutHelper.createFrame(32, 32, Gravity.BOTTOM | Gravity.LEFT, 58, 0, 0, 12f));
             } else {
-                // PrimeGram: left null when the status is hidden. Passing null to setTitle alone
-                // was not enough - updateStatus runs right after and every time the user's status
-                // changes, and it puts the drawable back on the action bar. Never creating it is
-                // the only place that decision holds, and it also makes updateStatus return early.
-                if (!org.telegram.messenger.PrimeTweaks.hideEmojiStatus()) {
-                    statusDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable(null, dp(26));
-                    statusDrawable.center = true;
-                }
-                logoDrawable = context.getResources().getDrawable(R.drawable.telegram_logo_2).mutate();
-                logoDrawable.setBounds(0, dp(2), logoDrawable.getIntrinsicWidth(), dp(2) + logoDrawable.getIntrinsicHeight());
-                logoDrawable.setColorFilter(getThemedColor(Theme.key_telegram_color_dialogsLogo), PorterDuff.Mode.MULTIPLY);
-                // PrimeGram: the title here is the word "Telegram" with the logo drawn over it as
-                // a span, so what you actually see is the logo. Optionally show who you are
-                // instead - on a fork used on several accounts, that answers a question the logo
-                // never does.
-                final TLRPC.User selfUser = UserConfig.getInstance(currentAccount).getCurrentUser();
-                final boolean showUsername = org.telegram.messenger.PrimeTweaks.mainTitleUsername();
-                CharSequence titleText = null;
-                if (showUsername && selfUser != null) {
-                    final String publicUsername = UserObject.getPublicUsername(selfUser);
-                    titleText = publicUsername != null ? "@" + publicUsername : UserObject.getUserName(selfUser);
-                }
-                if (TextUtils.isEmpty(titleText)) {
-                    SpannableStringBuilder ssb = new SpannableStringBuilder(getString(R.string.AppName));
-                    ssb.setSpan(new ImageSpan(logoDrawable), 0, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    titleText = ssb;
-                }
-                // Passing null for the status drawable is what actually leaves it out; hiding it
-                // afterwards would still reserve its width beside the title.
-                actionBar.setTitle(titleText,
-                        org.telegram.messenger.PrimeTweaks.hideEmojiStatus() ? null : statusDrawable);
-                updateStatus(selfUser, false);
+                primeApplyMainTitle();
             }
             if (folderId == 0) {
                 actionBar.setSupportsHolidayImage(true);
@@ -7140,6 +7159,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     @Override
     public void onResume() {
+        // The two title settings live on another screen, so this is where coming back from it
+        // applies them.
+        if (folderId == 0 && communityId == 0) {
+            primeApplyMainTitle();
+        }
         super.onResume();
 
         // PrimeGram: Monthly Promo
@@ -12895,24 +12919,37 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             animated = false;
         }
         boolean onlySelfStories = !isArchive() && getStoriesController().hasOnlySelfStories();
-        boolean newVisibility;
+        boolean computedVisibility;
         if (communityId != 0) {
-            newVisibility = false;
+            computedVisibility = false;
         } else if (isArchive()) {
-            newVisibility = !getStoriesController().getHiddenList().isEmpty();
+            computedVisibility = !getStoriesController().getHiddenList().isEmpty();
         } else {
-            newVisibility = !onlySelfStories && getStoriesController().hasStories();
+            computedVisibility = !onlySelfStories && getStoriesController().hasStories();
             onlySelfStories = getStoriesController().hasOnlySelfStories();
         }
+
+        // PrimeGram: hiding stories answers "are there stories" with no, right here, before
+        // anything downstream reads it. Both flags feed everything below: the cell's visibility,
+        // hasStories, and through it the scroll offsets that reserve a row's worth of height at
+        // the top of the list. Clearing only the cell's own visibility hid the row and left that
+        // reserved height behind - the empty block above the chats.
+        if (org.telegram.messenger.PrimeTweaks.hideStories()) {
+            computedVisibility = false;
+            onlySelfStories = false;
+        }
+        final boolean newVisibility = computedVisibility;
 
         hasOnlySlefStories = onlySelfStories;
 
         boolean oldStoriesCellVisibility = dialogStoriesCellVisible;
-        // PrimeGram: hiding stories is done here, at the single place visibility is decided,
-        // rather than by hiding the view later — everything below reads this flag for layout,
-        // so forcing it false keeps the list geometry consistent instead of leaving a gap.
-        dialogStoriesCellVisible = (onlySelfStories || newVisibility)
-                && !org.telegram.messenger.PrimeTweaks.hideStories();
+        dialogStoriesCellVisible = onlySelfStories || newVisibility;
+
+        // Belt and braces for the very first pass, where the flag is false already and equal to
+        // its previous value, so the transition below never runs to hide anything.
+        if (dialogStoriesCell != null && org.telegram.messenger.PrimeTweaks.hideStories()) {
+            dialogStoriesCell.setVisibility(View.GONE);
+        }
 
         if (newVisibility || dialogStoriesCellVisible) {
             dialogStoriesCell.updateItems(animated, dialogStoriesCellVisible != oldStoriesCellVisibility);

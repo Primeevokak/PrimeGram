@@ -5449,6 +5449,38 @@ public class ChatActivityEnterView extends FrameLayout implements
             updatePrimeToolbarVisibility();
         }
 
+        /**
+         * PrimeGram: our formatting bar and the system selection menu do the same job, and both
+         * appear on the same gesture — the system one floating over the message list, ours pinned
+         * above the input. Two bars fighting for the same moment is worse than either alone, so
+         * whichever one the user turned on is the only one they get.
+         *
+         * <p>Only the selection menu is suppressed. With nothing selected the same call opens the
+         * insertion menu — "Вставить", "Выделить всё" — which our bar has no equivalent for, and
+         * taking that away would cost the user paste with nothing offered in return.
+         */
+        private boolean primeSuppressesActionMode() {
+            return primeToolbarAllowed
+                    && getSelectionStart() != getSelectionEnd()
+                    && org.telegram.messenger.PrimeToolbarSettings.isEnabled();
+        }
+
+        @Override
+        public ActionMode startActionMode(ActionMode.Callback callback, int type) {
+            if (primeSuppressesActionMode()) {
+                return null;
+            }
+            return super.startActionMode(callback, type);
+        }
+
+        @Override
+        public ActionMode startActionMode(ActionMode.Callback callback) {
+            if (primeSuppressesActionMode()) {
+                return null;
+            }
+            return super.startActionMode(callback);
+        }
+
         @Override
         protected void extendActionMode(ActionMode actionMode, Menu menu) {
             if (parentFragment != null) {
@@ -14395,6 +14427,15 @@ public class ChatActivityEnterView extends FrameLayout implements
 
             primeToolbarScroll = new android.widget.HorizontalScrollView(context);
             primeToolbarScroll.setHorizontalScrollBarEnabled(false);
+            // Opaque, and rounded so it reads as a bar rather than as a band across the chat.
+            // Without a background it floated over the conversation and looked half-erased -
+            // the text underneath showed through every gap between the buttons.
+            final android.graphics.drawable.GradientDrawable toolbarBackground = new android.graphics.drawable.GradientDrawable();
+            toolbarBackground.setColor(getThemedColor(Theme.key_chat_messagePanelBackground));
+            toolbarBackground.setCornerRadius(dp(PRIME_TOOLBAR_HEIGHT / 2f));
+            toolbarBackground.setStroke(1, getThemedColor(Theme.key_chat_messagePanelShadow));
+            primeToolbarScroll.setBackground(toolbarBackground);
+            primeToolbarScroll.setElevation(dp(4));
             primeToolbarScroll.addView(primeToolbarRow, new FrameLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT));
             primeToolbarScroll.setVisibility(GONE);
             addView(primeToolbarScroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, PRIME_TOOLBAR_HEIGHT, Gravity.LEFT | Gravity.BOTTOM));

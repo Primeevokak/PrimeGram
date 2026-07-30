@@ -1,7 +1,6 @@
 package org.telegram.messenger;
 
 import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
 
 /**
@@ -11,8 +10,9 @@ import org.telegram.tgnet.tl.TL_account;
  * anywhere to be read. Keeping a small cache per account means the row can show it immediately on
  * a later visit, with a refresh in the background.
  *
- * <p>The value is a count of other devices, current session excluded - "1" next to Devices when
- * the phone in your hand is the only one would be noise, so zero renders as nothing at all.
+ * <p>The value counts every signed-in device, this one included: the row answers "where am I
+ * logged in", and the phone in your hand is one of those places. Counting only the others made
+ * the number disagree with the list it opens, which is worse than being uninteresting at one.
  */
 public class PrimeSessionCount {
 
@@ -62,15 +62,9 @@ public class PrimeSessionCount {
             int value = -1;
             if (error == null && response instanceof TL_account.authorizations) {
                 final TL_account.authorizations res = (TL_account.authorizations) response;
-                int others = 0;
-                for (TLRPC.TL_authorization authorization : res.authorizations) {
-                    // Flag 0 marks the session we are running in. Password-pending ones are still
-                    // real signed-in devices, so they count.
-                    if ((authorization.flags & 1) == 0) {
-                        others++;
-                    }
-                }
-                value = others;
+                // Every entry, including the one we are running in and any waiting on a password:
+                // they are all devices holding a live login, which is what the row is about.
+                value = res.authorizations.size();
             }
             final int result = value;
             AndroidUtilities.runOnUIThread(() -> {

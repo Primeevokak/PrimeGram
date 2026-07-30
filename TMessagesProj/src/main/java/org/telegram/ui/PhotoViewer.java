@@ -6076,6 +6076,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
             if (currentMessageObject != null && currentMessageObject.isSponsored()) {
                 openAdsMenu();
             } else if (actionBar.actionBarMenuOnItemClick.canOpenMenu()) {
+                primeUpdateBrightnessRow();
                 menuItem.toggleSubMenu();
             }
         });
@@ -6124,7 +6125,8 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         });
         galleryGap = menuItem.addColoredGap();
         galleryGap.setColor(0xff181818);
-        menuItem.getPopupLayout().addView(createBrightnessControl(activityContext), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
+        brightnessMenuRow = createBrightnessControl(activityContext);
+        menuItem.getPopupLayout().addView(brightnessMenuRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
         menuItem.addSubItem(gallery_menu_openin, R.drawable.msg_openin, getString(R.string.OpenInExternalApp)).setColors(0xfffafafa, 0xfffafafa);
         pipItem = menuItem.addSubItem(gallery_menu_pip, R.drawable.menu_video_pip, getString(R.string.PipMinimize)).setColors(0xfffafafa, 0xfffafafa);
         allMediaItem = menuItem.addSubItem(gallery_menu_showall, R.drawable.msg_media, getString(R.string.ShowAllMedia));
@@ -23460,7 +23462,16 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         }
     }
 
-    /** Volume boost only — lives in the video menu, since it makes no sense for photos. */
+    /**
+     * The video menu's own sliders: volume, which only means anything for video, and a second copy
+     * of brightness.
+     *
+     * <p>Brightness is here as well as in the three-dot menu because for a video that is where the
+     * hand already is - speed, volume and brightness are the three things adjusted while watching,
+     * and sending one of them to a different menu is what people complained about. The three-dot
+     * menu is left standard for videos and keeps the brightness slider only for photos, which have
+     * no menu of their own to put it in.
+     */
     private View createBoostControls(Context context) {
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -23486,14 +23497,20 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
             applyVolumeBoost();
         });
         layout.addView(volumeSlider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
+        layout.addView(createBrightnessControl(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
         return layout;
     }
 
+    /** Every brightness slider on screen, so moving one moves the others. */
+    private final ArrayList<ActionBarMenuSlider> brightnessSliders = new ArrayList<>();
+    /** The copy in the three-dot menu, which is hidden while the video menu carries its own. */
+    private View brightnessMenuRow;
+
     /**
-     * Brightness boost — added to the general menu rather than the video one, so it works
-     * for photos too. The overlay it drives sits above whatever the viewer is showing.
+     * Brightness boost. The overlay it drives sits above whatever the viewer is showing, so the
+     * same control works for a photo and for a video; there is simply one of it per menu.
      */
-    private View createBrightnessControl(Context context) {
+    private ActionBarMenuSlider createBrightnessControl(Context context) {
         ActionBarMenuSlider brightnessSlider = new ActionBarMenuSlider(context, resourcesProvider) {
             @Override
             protected String getLeftStringValue(float value) {
@@ -23512,8 +23529,29 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         brightnessSlider.setOnValueChange((value, isFinal) -> {
             brightnessBoost = value;
             applyBrightnessBoost();
+            for (int i = 0; i < brightnessSliders.size(); i++) {
+                final ActionBarMenuSlider other = brightnessSliders.get(i);
+                if (other != brightnessSlider) {
+                    // setValue does not call back, so this cannot loop.
+                    other.setValue(brightnessBoost, false);
+                }
+            }
         });
+        brightnessSliders.add(brightnessSlider);
         return brightnessSlider;
+    }
+
+    /**
+     * Keeps the brightness slider out of the three-dot menu whenever the video menu is on screen
+     * with one of its own. Decided by whether that menu exists rather than by the message type:
+     * that is exactly the question being asked, and it is one flag instead of every branch that
+     * works out what is being shown.
+     */
+    private void primeUpdateBrightnessRow() {
+        if (brightnessMenuRow != null) {
+            brightnessMenuRow.setVisibility(
+                    videoItem != null && videoItem.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        }
     }
 
     // Slider track bounds (kept usable to drag), and the absolute bounds reachable through

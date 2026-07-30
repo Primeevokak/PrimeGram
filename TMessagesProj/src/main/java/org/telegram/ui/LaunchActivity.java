@@ -122,6 +122,7 @@ import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
+import org.telegram.messenger.PrimeSidebarZone;
 import org.telegram.messenger.NotificationsController;
 import org.telegram.messenger.OpenAttachedMenuBotReceiver;
 import org.telegram.messenger.PushListenerController;
@@ -520,6 +521,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     });
                     wasPortrait = portrait;
                 }
+                primeUpdateGestureExclusion();
             }
 
             @Override
@@ -532,10 +534,53 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             @Override
             public void requestDisallowInterceptTouchEvent(boolean disallow) {
-                if (isSidebarActiveOnScreen() && dragStartX < AndroidUtilities.displaySize.x * 0.40f) {
+                if (isSidebarActiveOnScreen() && primeInSidebarZone()) {
                     return;
                 }
                 super.requestDisallowInterceptTouchEvent(disallow);
+            }
+
+            /**
+             * PrimeGram: claims a strip of the left edge back from the system back gesture.
+             *
+             * <p>With gesture navigation, a swipe that starts within about 20dp of an edge belongs
+             * to the system - it becomes "back" and the app never sees the touch at all. That is
+             * exactly where a drawer is opened from, so on devices with gestures on the panel
+             * simply did not respond, while on devices with buttons it worked. The trigger zone
+             * being 40% of the screen wide never mattered, because the finger started outside it.
+             *
+             * <p>Android caps what an app may claim at 200dp of height per edge and silently
+             * ignores the excess, so this claims the middle 200dp of whatever zone the user set
+             * rather than all of it: the excess would be dropped anyway, and claiming the part
+             * they are most likely to reach for beats claiming from the top and running out.
+             */
+            private void primeUpdateGestureExclusion() {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    return;
+                }
+                try {
+                    if (!isSidebarActiveOnScreen()) {
+                        setSystemGestureExclusionRects(java.util.Collections.emptyList());
+                        return;
+                    }
+                    final int height = getMeasuredHeight();
+                    final int zoneTop = (int) (height * PrimeSidebarZone.top());
+                    final int zoneBottom = (int) (height * PrimeSidebarZone.bottom());
+                    final int band = Math.min(AndroidUtilities.dp(200), zoneBottom - zoneTop);
+                    final int bandTop = Math.max(0, zoneTop + (zoneBottom - zoneTop - band) / 2);
+                    setSystemGestureExclusionRects(java.util.Collections.singletonList(
+                            new android.graphics.Rect(0, bandTop, AndroidUtilities.dp(32), bandTop + band)));
+                } catch (Throwable ignore) {
+                }
+            }
+
+            /**
+             * Whether the touch that is being followed began where the sidebar listens. Measured
+             * against this view rather than the display: in split screen they are different sizes,
+             * and the zone was drawn against the window the user can see.
+             */
+            private boolean primeInSidebarZone() {
+                return PrimeSidebarZone.contains(dragStartX, dragStartY, getWidth(), getHeight());
             }
 
             @Override
@@ -559,8 +604,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         float dy = ev.getY() - dragStartY;
                         
                             if (!isSidebarOpen) {
-                                // Sidebar is closed: swipe right from left edge (x < 40%)
-                                if (dragStartX < AndroidUtilities.displaySize.x * 0.40f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                // Sidebar is closed: swipe right, starting inside the user's zone
+                                if (primeInSidebarZone() && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                     isDraggingSidebar = true;
                                     if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
                                     dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
@@ -604,8 +649,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
                     if (!isDraggingSidebar) {
                         if (!isSidebarOpen) {
-                            // Closed: swipe right from edge
-                            if (dragStartX < AndroidUtilities.displaySize.x * 0.40f && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            // Closed: swipe right, starting inside the user's zone
+                            if (primeInSidebarZone() && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
                                 dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
@@ -9348,9 +9393,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
         if (currentFragment instanceof MainTabsActivity) {
             BaseFragment visibleFrag = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment();
-            return visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0 && ((DialogsActivity) visibleFrag).getCurrentFilterId() == 0;
+            return visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0;
         }
-        return (currentFragment instanceof DialogsActivity) && ((DialogsActivity) currentFragment).getFolderId() == 0 && ((DialogsActivity) currentFragment).getCurrentFilterId() == 0;
+        return (currentFragment instanceof DialogsActivity) && ((DialogsActivity) currentFragment).getFolderId() == 0;
     }
 
     public void updateSidebarVisibility() {
@@ -9358,10 +9403,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
         
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
-        boolean isMainScreen = currentFragment instanceof DialogsActivity && ((DialogsActivity) currentFragment).getFolderId() == 0 && ((DialogsActivity) currentFragment).getCurrentFilterId() == 0;
+        boolean isMainScreen = currentFragment instanceof DialogsActivity && ((DialogsActivity) currentFragment).getFolderId() == 0;
         if (currentFragment instanceof MainTabsActivity) {
             BaseFragment visibleFrag = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment();
-            isMainScreen = visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0 && ((DialogsActivity) visibleFrag).getCurrentFilterId() == 0;
+            isMainScreen = visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0;
         }
         
         boolean show = sidebarEnabled && isMainScreen;

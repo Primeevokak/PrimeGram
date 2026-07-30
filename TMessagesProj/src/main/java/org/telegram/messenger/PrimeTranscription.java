@@ -113,7 +113,7 @@ public class PrimeTranscription {
      */
     public static boolean shouldHandle(int account) {
         try {
-            return !UserConfig.getInstance(account).isPremium() && isConfigured();
+            return !UserConfig.getInstance(account).hasRealPremium() && isConfigured();
         } catch (Throwable t) {
             return false;
         }

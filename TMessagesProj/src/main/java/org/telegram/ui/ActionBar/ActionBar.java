@@ -1516,7 +1516,20 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
         // slid under the menu - which on the chat list, where the menu is wide, was always, so
         // the setting looked like it did nothing. Centring within the free space cannot overlap
         // anything by construction, and it is what "по центру" means when one side is occupied.
-        final int rightLimit = barWidth - (menu != null && menu.getVisibility() != GONE ? menu.getMeasuredWidth() : 0);
+        // The width of the visible buttons, not of the menu itself. An ActionBarMenu holding a
+        // search item measures as wide as the whole bar even while the field is collapsed, so
+        // asking it how much room it takes reported "all of it" and left nothing to centre in -
+        // which is why this setting appeared to do nothing on the chat list.
+        int occupiedRight = 0;
+        if (menu != null && menu.getVisibility() != GONE) {
+            for (int i = 0; i < menu.getChildCount(); i++) {
+                final View child = menu.getChildAt(i);
+                if (child != null && child.getVisibility() != GONE) {
+                    occupiedRight += child.getMeasuredWidth();
+                }
+            }
+        }
+        final int rightLimit = barWidth - occupiedRight;
         final int available = rightLimit - defaultLeft;
         if (available <= viewWidth) {
             return defaultLeft;

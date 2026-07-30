@@ -159,7 +159,7 @@ public class PrimeWhisper {
     /** True when this account should use the on-device path instead of Telegram's. */
     public static boolean shouldHandle(int account) {
         try {
-            return !UserConfig.getInstance(account).isPremium()
+            return !UserConfig.getInstance(account).hasRealPremium()
                 && isEnabled()
                 && isModelDownloaded(getModel());
         } catch (Throwable t) {

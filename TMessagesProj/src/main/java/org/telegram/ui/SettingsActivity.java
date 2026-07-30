@@ -506,10 +506,10 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
     }
 
     /**
-     * PrimeGram: the number of other signed-in devices, shown in the Devices row.
+     * PrimeGram: how many devices are signed in, shown in the Devices row.
      *
-     * <p>Empty when nothing has been fetched yet and empty at zero: "0" next to Devices, or "1"
-     * counting the phone in your hand, would be noise rather than information.
+     * <p>This device is one of them, so the number matches the list the row opens. Empty until
+     * something has been fetched - a "0" that only means "not asked yet" is worse than nothing.
      */
     private CharSequence primeSessionCountText() {
         final int count = org.telegram.messenger.PrimeSessionCount.get(currentAccount);
