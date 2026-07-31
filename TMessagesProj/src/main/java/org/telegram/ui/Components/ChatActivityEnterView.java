@@ -14447,32 +14447,76 @@ public class ChatActivityEnterView extends FrameLayout implements
                 }
             });
 
-            addPrimeToolbarText("B", Typeface.BOLD, () -> withSelection(EditTextCaption::makeSelectedBold));
-            addPrimeToolbarText("I", Typeface.ITALIC, () -> withSelection(EditTextCaption::makeSelectedItalic));
-            addPrimeToolbarText("M", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedMono));
-            addPrimeToolbarText("S", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedStrike));
-            addPrimeToolbarText("U", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedUnderline));
-            addPrimeToolbarIcon(R.drawable.msg_spoiler, () -> withSelection(EditTextCaption::makeSelectedSpoiler));
-            addPrimeToolbarIcon(R.drawable.menu_link_create, () -> withSelection(EditTextCaption::makeSelectedUrl));
-            addPrimeToolbarIcon(R.drawable.menu_select_quote, () -> withSelection(field -> field.makeSelectedQuote(false)));
-            addPrimeToolbarIcon(R.drawable.msg_clear, () -> withSelection(EditTextCaption::makeSelectedRegular));
-            addPrimeToolbarIcon(R.drawable.msg_copy, () -> {
-                EditTextCaption field = messageEditText;
-                if (field == null) {
-                    return;
-                }
-                int start = field.getSelectionStart(), end = field.getSelectionEnd();
-                if (start == end) {
-                    return;
-                }
-                AndroidUtilities.addToClipboard(field.getText().subSequence(Math.min(start, end), Math.max(start, end)).toString());
-                BulletinFactory.of(parentFragment).createCopyBulletin(getString(R.string.TextCopied)).show();
-            });
+            primeToolbarFill();
         } catch (Throwable t) {
             FileLog.e("createPrimeTextToolbar", t);
             primeToolbarScroll = null;
             primeToolbarRow = null;
         }
+    }
+
+    /**
+     * Builds the toolbar's buttons from the user's list, in their order.
+     *
+     * <p>Separate from {@link #createPrimeTextToolbar} so it can be run again: the order is edited
+     * on a settings screen that this view is still alive behind, and rebuilding the whole enter
+     * view to move one button would take the draft and the keyboard with it.
+     */
+    private void primeToolbarFill() {
+        if (primeToolbarRow == null) {
+            return;
+        }
+        primeToolbarRow.removeAllViews();
+        for (String id : org.telegram.messenger.PrimeToolbarSettings.items()) {
+            switch (id) {
+                case org.telegram.messenger.PrimeToolbarSettings.BOLD:
+                    addPrimeToolbarText("B", Typeface.BOLD, () -> withSelection(EditTextCaption::makeSelectedBold));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.ITALIC:
+                    addPrimeToolbarText("I", Typeface.ITALIC, () -> withSelection(EditTextCaption::makeSelectedItalic));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.MONO:
+                    addPrimeToolbarText("M", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedMono));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.STRIKE:
+                    addPrimeToolbarText("S", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedStrike));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.UNDERLINE:
+                    addPrimeToolbarText("U", Typeface.NORMAL, () -> withSelection(EditTextCaption::makeSelectedUnderline));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.SPOILER:
+                    addPrimeToolbarIcon(R.drawable.msg_spoiler, () -> withSelection(EditTextCaption::makeSelectedSpoiler));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.LINK:
+                    addPrimeToolbarIcon(R.drawable.menu_link_create, () -> withSelection(EditTextCaption::makeSelectedUrl));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.QUOTE:
+                    addPrimeToolbarIcon(R.drawable.menu_select_quote, () -> withSelection(field -> field.makeSelectedQuote(false)));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.CLEAR:
+                    addPrimeToolbarIcon(R.drawable.msg_clear, () -> withSelection(EditTextCaption::makeSelectedRegular));
+                    break;
+                case org.telegram.messenger.PrimeToolbarSettings.COPY:
+                    addPrimeToolbarIcon(R.drawable.msg_copy, () -> {
+                        EditTextCaption field = messageEditText;
+                        if (field == null) {
+                            return;
+                        }
+                        int start = field.getSelectionStart(), end = field.getSelectionEnd();
+                        if (start == end) {
+                            return;
+                        }
+                        AndroidUtilities.addToClipboard(field.getText().subSequence(Math.min(start, end), Math.max(start, end)).toString());
+                        BulletinFactory.of(parentFragment).createCopyBulletin(getString(R.string.TextCopied)).show();
+                    });
+                    break;
+            }
+        }
+    }
+
+    /** Re-reads the button list. Called when the editor closes. */
+    public void primeToolbarReload() {
+        primeToolbarFill();
     }
 
     /** Formatting only applies to a selection; without one the buttons do nothing but nudge. */

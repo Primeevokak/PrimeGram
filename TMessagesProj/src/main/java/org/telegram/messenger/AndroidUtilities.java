@@ -4283,9 +4283,6 @@ public class AndroidUtilities {
      */
     private static boolean primeOpenHtmlInBrowser(File f, String fileName, String mimeType, Activity activity) {
         try {
-            if (!(activity instanceof org.telegram.ui.LaunchActivity)) {
-                return false;
-            }
             boolean html = mimeType != null && mimeType.toLowerCase().startsWith("text/html");
             if (!html && fileName != null) {
                 String lower = fileName.toLowerCase();
@@ -4294,11 +4291,22 @@ public class AndroidUtilities {
             if (!html) {
                 return false;
             }
-            if (!MessagesController.getInstance(UserConfig.selectedAccount).isWebBrowserOpenInAppByDefault()) {
-                return false;
+            // Deliberately not gated on "open links in the app". That setting is about *links* -
+            // where a tap should land when the destination is a site the user could equally well
+            // visit in Chrome. This is an attachment sitting in a chat, and on most phones nothing
+            // outside this app will render it at all: honouring the link preference here produced
+            // a system chooser offering browsers that then show a blank page or a download prompt.
+            String url = Uri.fromFile(f).toString();
+            org.telegram.ui.ActionBar.BaseFragment fragment = org.telegram.ui.LaunchActivity.getLastFragment();
+            if (fragment != null && fragment.presentFragment(new org.telegram.ui.PrimeBrowserActivity(url))) {
+                return true;
             }
-            org.telegram.ui.LaunchActivity launchActivity = (org.telegram.ui.LaunchActivity) activity;
-            return launchActivity.presentFragment(new org.telegram.ui.PrimeBrowserActivity(Uri.fromFile(f).toString()), false, false);
+            // The activity we were handed, when there is no fragment stack to present onto - which
+            // happens when a file is opened from a notification or from outside the app.
+            org.telegram.ui.LaunchActivity launchActivity = activity instanceof org.telegram.ui.LaunchActivity
+                    ? (org.telegram.ui.LaunchActivity) activity : org.telegram.ui.LaunchActivity.instance;
+            return launchActivity != null
+                    && launchActivity.presentFragment(new org.telegram.ui.PrimeBrowserActivity(url), false, false);
         } catch (Throwable t) {
             FileLog.e(t);
             return false;
@@ -4308,6 +4316,13 @@ public class AndroidUtilities {
     public static boolean openForView(File f, String fileName, String mimeType, final Activity activity, Theme.ResourcesProvider resourcesProvider, boolean restrict) {
         if (f != null && f.exists()) {
             if (!restrict && primeOpenHtmlInBrowser(f, fileName, mimeType, activity)) {
+                return true;
+            }
+            // PrimeGram: a .plugin file is ours, and handing it to the system chooser would show
+            // the user "no app can open this file" about a file this app is the only reader of.
+            if (!restrict && fileName != null
+                    && fileName.toLowerCase().endsWith(org.telegram.messenger.plugins.PrimePluginsController.EXTENSION)
+                    && org.telegram.ui.PrimePluginInstallDialog.offer(activity, f, resourcesProvider)) {
                 return true;
             }
             String realMimeType = null;

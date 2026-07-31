@@ -418,6 +418,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (preferences.getBoolean("primegram_auto_updates", true)) {
             // PrimeUpdater.checkUpdate is removed in favor of GithubUpdater
         }
+        // PrimeGram: plugins are catalogued and started off the main thread. A user with none pays
+        // for one directory listing here and never starts the interpreter at all.
+        org.telegram.messenger.plugins.PrimePluginsController.getInstance().loadIfNeeded();
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
         registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
@@ -7450,7 +7453,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             } else if (reason == 3) {
                 if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.address)) {
                     org.telegram.messenger.FileLog.d("LaunchActivity: Suppressing proxy error dialog for local proxy. Restarting service.");
-                    org.telegram.messenger.TgWsProxyService.startService(org.telegram.messenger.ApplicationLoader.applicationContext);
+                    // Only if the user still wants it. Restarting unconditionally brought the
+                    // server back up behind a switch that said off, and everything downstream -
+                    // the status card, the toggle - then disagreed with itself.
+                    if (org.telegram.messenger.MessagesController.getGlobalMainSettings()
+                            .getBoolean("primegram_tgws_enabled", true)) {
+                        org.telegram.messenger.TgWsProxyService.startService(org.telegram.messenger.ApplicationLoader.applicationContext);
+                    }
                     return;
                 }
                 builder.setTitle(LocaleController.getString(R.string.Proxy));

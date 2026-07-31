@@ -74,6 +74,103 @@ public class TgWsProxyService extends Service {
 
     private static final String TAG = "TgWsProxyService";
 
+    // ─── User-settable bits ────────────────────────────────────────────────
+    //
+    // The service was written with everything decided for the user: port 1080, and whichever of
+    // ten domains answered a probe first. Both are good defaults and neither survives contact with
+    // a hostile network - a blocked domain stays blocked while the prober keeps picking it, and a
+    // port can be taken by whatever else the user runs. So both are now settings, with "leave it
+    // alone" as the default value rather than a separate switch.
+
+    private static final String PREF_PORT = "primegram_tgws_port";
+    private static final String PREF_DOMAIN = "primegram_tgws_domain";
+
+    private static SharedPreferences settings() {
+        return MessagesController.getGlobalMainSettings();
+    }
+
+    /** The ten candidates, in their declared order. */
+    public static String[] baseDomains() {
+        return BASE_DOMAINS.clone();
+    }
+
+    /** The port the user asked for. The bind still walks forward if it is taken. */
+    public static int configuredPort() {
+        final int port = settings().getInt(PREF_PORT, PROXY_PORT);
+        return port >= 1024 && port <= 65535 ? port : PROXY_PORT;
+    }
+
+    public static void setConfiguredPort(int port) {
+        settings().edit().putInt(PREF_PORT, port).apply();
+    }
+
+    /** The domain the user pinned, or empty for "measure and choose". */
+    public static String forcedDomain() {
+        final String domain = settings().getString(PREF_DOMAIN, "");
+        return domain == null ? "" : domain;
+    }
+
+    public static void setForcedDomain(String domain) {
+        settings().edit().putString(PREF_DOMAIN, domain == null ? "" : domain).apply();
+        synchronized (domainLock) {
+            // Forget what we are on, so the next connection picks up the new answer rather than
+            // waiting out the thirty-second cooldown on a domain the user just rejected.
+            currentBaseDomain = null;
+            cachedBaseAddress = null;
+            lastDomainSelectionTime = 0;
+        }
+    }
+
+    /** Whichever domain traffic is going through right now, or null before the first connection. */
+    public static String currentDomain() {
+        synchronized (domainLock) {
+            return currentBaseDomain;
+        }
+    }
+
+    /**
+     * How long a TLS handshake with this domain takes, in milliseconds, or -1 when it fails.
+     *
+     * <p>Blocking, and meant to be called from a background thread - the settings screen runs ten
+     * of these at once. It measures the same thing the service's own chooser measures, which is
+     * the point: a number on screen that came from a different test would be a number that
+     * disagrees with the domain the service then picks.
+     */
+    public static long probeDomain(String domain, int dcId) {
+        SSLSocket socket = null;
+        final long started = System.currentTimeMillis();
+        // The running service if there is one, so the probe resolves names the same way the
+        // service does - including its DNS-over-HTTPS fallback, which is the whole reason a
+        // blocked network still reaches these domains. With the server stopped there is nothing
+        // to borrow, and the system resolver has to do; a probe run in that state can therefore
+        // fail on a domain that would have worked, which is the honest answer for "stopped".
+        final TgWsProxyService service = instance;
+        try {
+            String host = "kws" + dcId + "." + domain;
+            InetAddress[] resolved = service != null ? service.resolveWithFallbackDns(host) : null;
+            if (resolved == null || resolved.length == 0) {
+                host = "kws." + domain;
+                resolved = service != null ? service.resolveWithFallbackDns(host) : null;
+                if (resolved == null || resolved.length == 0) {
+                    host = domain;
+                }
+            }
+            final SSLSocketFactory factory = service != null && service.sslSocketFactory != null
+                    ? service.sslSocketFactory : buildTrustAllSslFactory();
+            socket = (SSLSocket) factory.createSocket();
+            socket.connect(new java.net.InetSocketAddress(host, 443), 2500);
+            socket.setSoTimeout(2500);
+            socket.startHandshake();
+            return System.currentTimeMillis() - started;
+        } catch (Exception e) {
+            return -1;
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
     public interface LogListener {
         void onLogAdded(String line);
     }
@@ -541,7 +638,7 @@ public class TgWsProxyService extends Service {
                 // and rewrote proxy_port in the settings. The client then pointed at a port
                 // that had just been abandoned — which is why the proxy could keep working
                 // with the switch off (the old listener was still up) and fail with it on.
-                int port = PROXY_PORT;
+                int port = configuredPort();
                 ServerSocket bound = null;
                 for (int i = 0; i < 10 && bound == null; i++, port++) {
                     ServerSocket candidate = new ServerSocket();
@@ -1193,6 +1290,15 @@ public class TgWsProxyService extends Service {
 
         String baseDomain;
         synchronized (domainLock) {
+            final String pinned = forcedDomain();
+            if (currentBaseDomain == null && !pinned.isEmpty()) {
+                // The user picked one. No probing, no failover to a different domain: if it stops
+                // working they will see it stop working, which is the point of pinning it.
+                currentBaseDomain = pinned;
+                cachedBaseAddress = null;
+                lastDomainSelectionTime = System.currentTimeMillis();
+                logInfo("Using domain pinned by the user: " + pinned);
+            }
             if (currentBaseDomain == null) {
                 if (System.currentTimeMillis() - lastDomainSelectionTime > 30_000) {
                     logInfo("Selecting base domain from candidates using pair-wise latency tests...");
@@ -2100,7 +2206,7 @@ public class TgWsProxyService extends Service {
     /**
      * SSL factory без проверки сертификата (как в backend.py _ssl_ctx).
      */
-    private SSLSocketFactory buildTrustAllSslFactory() {
+    private static SSLSocketFactory buildTrustAllSslFactory() {
         try {
             TrustManager[] trustAll = new TrustManager[]{
                 new X509TrustManager() {

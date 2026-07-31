@@ -4186,6 +4186,12 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
     }
 
     public void sendMessage(SendMessageParams sendMessageParams) {
+        // PrimeGram: plugins get the message before it goes anywhere, and may change it or stop it.
+        // Placed at the very top so a plugin sees exactly what the user typed, not a half-prepared
+        // version of it, and costs one boolean read when no plugin is listening.
+        if (org.telegram.messenger.plugins.PrimePluginHooks.onSendMessage(currentAccount, sendMessageParams)) {
+            return;
+        }
         String message = sendMessageParams.message;
         String caption = sendMessageParams.caption;
         TLRPC.MessageMedia location = sendMessageParams.location;

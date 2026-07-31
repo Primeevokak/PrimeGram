@@ -134,6 +134,113 @@ android {
         // does not carry one machine's paths; override it in local.properties if that ever fails.
         python {
             version "3.11"
+
+            // What plugins can import.
+            //
+            // Two mechanisms, split by one hard line. Packages with **native code** ship a
+            // compiled .so per ABI, and Android will not load one from a directory the app can
+            // write to - so they can only come from the APK, and only from Chaquopy's own Android
+            // build of them. Everything listed here that is marked "native" is therefore the only
+            // way a plugin will ever see it. Pure-Python packages have no such limit: see
+            // _prime_pip.py, which fetches them from PyPI on demand at run time.
+            //
+            // So the rule for this list is: bundle everything native that is worth its size, and
+            // bundle the handful of pure-Python packages so common that a plugin using one should
+            // work with no network at all. exteraGram bundles seven packages in total and cannot
+            // install native ones at all; this is deliberately a much wider floor.
+            pip {
+                // ── Pure Python, bundled because they are near-universal ──────────────────
+                install "requests"
+                install "httpx"
+                install "beautifulsoup4"
+                install "python-dateutil"
+                install "packaging"
+
+                // ── Native: parsing ───────────────────────────────────────────────────────
+                install "lxml"
+                install "regex"
+
+                // ── Native: networking ────────────────────────────────────────────────────
+                install "aiohttp"
+                install "brotli"
+
+                // ── Native: images ────────────────────────────────────────────────────────
+                install "pillow"
+                install "pyzbar"
+
+                // ── Native: crypto ────────────────────────────────────────────────────────
+                install "cryptography"
+                install "pycryptodome"
+                install "pynacl"
+                install "bcrypt"
+                install "tgcrypto"
+
+                // ── Everything below is pinned, and the pins are not cosmetic ─────────────
+                //
+                // Chaquopy resolves against its own Android repository first and PyPI second. When
+                // its newest Android build of a package is older than the newest release on PyPI,
+                // an unpinned request resolves to the PyPI *source* release - and pip then tries to
+                // compile a native extension on the build machine, which fails on Windows and would
+                // produce a desktop binary anywhere else. So every package whose Android build has
+                // stopped moving is pinned to the last version that exists for Python 3.11.
+                //
+                // To check one: https://chaquo.com/pypi-13.1/<name>/ and look for a cp311 tag.
+
+                // ── Native: audio ─────────────────────────────────────────────────────────
+                // Voice messages and round videos are the media this app is mostly made of, and
+                // none of it is reachable from Python without a decoder.
+                install "miniaudio==1.59"
+                install "soxr==0.3.7"
+                install "lameenc==1.7.0"
+
+                // ── Native: charts ────────────────────────────────────────────────────────
+                // A plugin that computes something usually wants to show it, and the only way to
+                // show anything in a chat is to send a picture of it. matplotlib's own native
+                // dependencies are pinned too, for the same reason it is.
+                install "matplotlib==3.6.0"
+                install "contourpy==1.0.5"
+                install "kiwisolver==1.4.5"
+
+                // ── Native: tables ────────────────────────────────────────────────────────
+                install "pandas==2.1.3"
+
+                // ── Native: analysis and odds and ends ────────────────────────────────────
+                install "pywavelets==1.4.1"
+                install "ephem==3.7.7.0"
+                install "wordcloud==1.9.2"
+                install "editdistance==0.6.2"
+                install "bitarray==2.8.2"
+                install "lru-dict==1.1.8"
+                install "cytoolz==0.12.2"
+                install "netifaces==0.10.9"
+
+                // ── Native, but here to unblock pure-Python packages ──────────────────────
+                // Dependencies of libraries that look installable at run time and are not: jinja2
+                // needs markupsafe, sqlalchemy's async mode needs greenlet, and both are compiled.
+                // Bundling the small native half makes the large pure half work through the
+                // downloader in _prime_pip.py.
+                install "markupsafe==3.0.3"
+                install "greenlet==3.0.1"
+                install "argon2-cffi==20.1.0"
+
+                // ── Native: data and speed ────────────────────────────────────────────────
+                install "numpy"
+                install "pyyaml"
+                install "zstandard"
+                install "lz4"
+                install "psutil"
+
+                // ── Deliberately absent, all for one reason ───────────────────────────────
+                //
+                // Chaquopy's Android builds of these stop at Python 3.10 or 3.8, so on 3.11 they
+                // cannot be installed at any version: scipy, opencv-python(-headless),
+                // tflite-runtime, ujson, soundfile, coincurve, ta-lib, shapely, marisa-trie.
+                //
+                // Staying on 3.11 is the trade: plugins written for exteraGram target it, and
+                // running those unchanged is the point of this whole feature. Getting these back
+                // means building the wheels ourselves with Chaquopy's build-wheel tool, which needs
+                // a Linux machine - see the notes in the plugins documentation.
+            }
         }
 
         ndk {

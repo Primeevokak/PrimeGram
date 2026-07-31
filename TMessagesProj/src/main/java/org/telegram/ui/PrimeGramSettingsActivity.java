@@ -122,6 +122,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_ROUND_VIDEO_REAR = 89;
     private static final int ID_CAMERA2 = 90;
     private static final int ID_LIVE_PREVIEW = 91;
+    private static final int ID_CHAT_PREVIEW = 106;
     private static final int ID_DOUBLE_TAP_CARDS = 92;
     private static final int ID_STICKER_SIZE_CARDS = 93;
     private static final int ID_TRANSLATOR_CARDS = 94;
@@ -135,6 +136,182 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_DOUBLE_TAP_REACTION = 101;
     private static final int ID_STICKER_SIZE_SLIDER = 102;
     private static final int ID_SIDEBAR_ZONE = 103;
+    private static final int ID_PLUGINS = 104;
+    private static final int ID_TGWS_SETTINGS = 105;
+    private static final int ID_TOOLBAR_BUTTONS = 107;
+    private static final int ID_GUIDE = 108;
+
+    // ── The guided tour ────────────────────────────────────────────────────────────────────
+    //
+    // The script lives here, next to the section and row ids it points at, so a renumbered row
+    // breaks the compiler rather than quietly aiming the tour at the wrong switch.
+    //
+    // Eleven stops, chosen by one rule: does the row's own name tell you what it does? "Снег
+    // круглый год" needs no explanation and is not here. "Зона активации", "TgWs-сервер" and
+    // "Плагины" are here because a user who has not read this conversation has no way to guess.
+
+    private static org.telegram.messenger.PrimeGuide.Step[] primeGuideSteps() {
+        final java.util.ArrayList<org.telegram.messenger.PrimeGuide.Step> steps = new java.util.ArrayList<>();
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, 0,
+                "Что здесь есть",
+                "PrimeGram добавляет к Telegram несколько десятков настроек. Пробегусь по тем, которые сложно найти самому, — минута.\n\nЛюбой шаг можно пропустить, а весь гайд перезапустить снизу этого экрана."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_PLUGINS,
+                "Плагины",
+                "Расширения на Python, совместимые с exteraGram. Плагин приходит файлом .plugin — нажмите на него в любом чате, и приложение предложит установить.\n\nПлагин выполняется внутри приложения и видит всё, к чему у него есть доступ. Ставьте только те, чьему автору доверяете."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_SECTION_BASE + SECTION_INTERFACE,
+                "Интерфейс",
+                "Всё про внешний вид: список чатов, поведение в чатах, оформление, лента каналов. Заглянем внутрь."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_INTERFACE, ID_SIDEBAR_ENABLED,
+                "Боковая панель",
+                "Свайп от левого края открывает панель с аккаунтами, кошельком, прокси и настройками — не нужно тянуться к бургеру наверху."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_INTERFACE, ID_SIDEBAR_ZONE,
+                "Зона активации",
+                "Панель отзывается не на всю левую треть экрана, а на прямоугольник, который вы сами нарисуете пальцем.\n\nЭто нужно, если свайп панели спорит с листанием вкладок: сузьте зону и сдвиньте её туда, куда дотягивается большой палец."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_TGWS_SETTINGS,
+                "TgWs-сервер",
+                "Локальный туннель, через который приложение ходит в сеть в обход блокировок.\n\nНа этом экране видно, работает ли он, через какой домен идёт трафик и с какой задержкой отвечают остальные. Домен можно закрепить вручную, если провайдер режет конкретные."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_MAIN, ID_TEXT_TOOLBAR,
+                "Панель форматирования",
+                "Выделите текст в поле ввода — над ним появится ряд кнопок: жирный, курсив, моноширинный, спойлер, цитата, ссылка.\n\nСостав и порядок кнопок настраиваются: перетащите их прямо на изображении панели."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_MAIN, ID_SEARCH_PLUS,
+                "Поиск+",
+                "Находит собеседника по числовому ID, номеру телефона или ссылке — то, чего обычный поиск не умеет.\n\nПоиск по ID встроен и в обычный поиск: наберите там одни цифры, и ответ появится отдельным разделом внизу."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_STT, ID_STT_ENABLED,
+                "Расшифровка голосовых",
+                "Превращает голосовое сообщение в текст. Работает и без подписки Telegram: через ваш ключ к внешнему сервису или полностью на устройстве, без интернета."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_PREMIUM, 0,
+                "Локальный Premium",
+                "Лимиты Telegram — количество папок, закреплённых чатов, длина подписи — сняты на этом устройстве.\n\nЭто только внешний вид: сервер о них не знает, и другие люди изменений не увидят."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_GUIDE,
+                "Это всё",
+                "Остальное подписано понятнее и ждёт вас в разделах. Гайд всегда можно запустить заново отсюда."));
+        return steps.toArray(new org.telegram.messenger.PrimeGuide.Step[0]);
+    }
+
+    private org.telegram.ui.Components.PrimeGuideOverlay guideOverlay;
+
+    private void primeStartGuide() {
+        org.telegram.messenger.PrimeGuide.setSteps(primeGuideSteps());
+        org.telegram.messenger.PrimeGuide.start();
+        primeShowGuideStep();
+    }
+
+    /**
+     * Shows the current step if it belongs to this page, and otherwise leaves it alone - the
+     * fragment for its own section will pick it up when it opens.
+     */
+    private void primeShowGuideStep() {
+        final org.telegram.messenger.PrimeGuide.Step step = org.telegram.messenger.PrimeGuide.currentStep();
+        if (step == null || step.section != section || getContext() == null
+                || !(fragmentView instanceof android.widget.FrameLayout)) {
+            return;
+        }
+        final android.widget.FrameLayout container = (android.widget.FrameLayout) fragmentView;
+        if (guideOverlay == null) {
+            guideOverlay = new org.telegram.ui.Components.PrimeGuideOverlay(getContext());
+            container.addView(guideOverlay, LayoutHelper.createFrame(
+                    LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        }
+        primeBindGuideStep(step);
+    }
+
+    private void primeBindGuideStep(org.telegram.messenger.PrimeGuide.Step step) {
+        final Runnable bind = () -> {
+            if (guideOverlay == null) {
+                return;
+            }
+            guideOverlay.setStep(primeGuideTargetBounds(step.itemId), step.title, step.text,
+                    org.telegram.messenger.PrimeGuide.currentIndex() + 1,
+                    org.telegram.messenger.PrimeGuide.total(),
+                    this::primeGuideNext, this::primeGuideStop);
+        };
+        if (step.itemId == 0) {
+            bind.run();
+            return;
+        }
+        if (primeScrollToItem(step.itemId)) {
+            // One frame for the scroll to land, otherwise the hole is cut where the row used to be.
+            AndroidUtilities.runOnUIThread(bind, 220);
+            return;
+        }
+        // The row is not on this page at all - "Зона активации" only exists while the sidebar is
+        // switched on, and there are others like it. Explaining a control the reader cannot see is
+        // worse than saying nothing, so the step is skipped rather than shown pointing at air.
+        primeGuideNext();
+    }
+
+    /** Scrolls the row into view. Returns false when this page has no such row. */
+    private boolean primeScrollToItem(int itemId) {
+        if (listView == null || listView.adapter == null) {
+            return false;
+        }
+        for (int i = 0; i < listView.adapter.getItemCount(); i++) {
+            final UItem item = listView.adapter.getItem(i);
+            if (item != null && item.id == itemId) {
+                if (listView.getLayoutManager() instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+                    ((androidx.recyclerview.widget.LinearLayoutManager) listView.getLayoutManager())
+                            .scrollToPositionWithOffset(i, AndroidUtilities.dp(120));
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Where the row sits in the overlay's coordinates, or null when it is not on screen. */
+    private android.graphics.RectF primeGuideTargetBounds(int itemId) {
+        if (itemId == 0 || listView == null || listView.adapter == null || guideOverlay == null) {
+            return null;
+        }
+        for (int i = 0; i < listView.getChildCount(); i++) {
+            final View child = listView.getChildAt(i);
+            final int position = listView.getChildAdapterPosition(child);
+            final UItem item = position >= 0 ? listView.adapter.getItem(position) : null;
+            if (item != null && item.id == itemId) {
+                final int[] childLocation = new int[2];
+                final int[] overlayLocation = new int[2];
+                child.getLocationInWindow(childLocation);
+                guideOverlay.getLocationInWindow(overlayLocation);
+                final float left = childLocation[0] - overlayLocation[0];
+                final float top = childLocation[1] - overlayLocation[1];
+                return new android.graphics.RectF(left, top,
+                        left + child.getWidth(), top + child.getHeight());
+            }
+        }
+        return null;
+    }
+
+    private void primeGuideNext() {
+        final org.telegram.messenger.PrimeGuide.Step next = org.telegram.messenger.PrimeGuide.next();
+        if (next == null) {
+            primeGuideStop();
+            return;
+        }
+        if (next.section == section) {
+            primeBindGuideStep(next);
+            return;
+        }
+        // The step lives elsewhere. Close the sheet here and open that page; its own fragment
+        // finds the tour still running and picks up where this one left off.
+        primeDismissGuide(() -> presentFragment(new PrimeGramSettingsActivity(next.section)));
+    }
+
+    private void primeGuideStop() {
+        org.telegram.messenger.PrimeGuide.stop();
+        primeDismissGuide(null);
+    }
+
+    private void primeDismissGuide(Runnable after) {
+        if (guideOverlay == null) {
+            if (after != null) {
+                after.run();
+            }
+            return;
+        }
+        final org.telegram.ui.Components.PrimeGuideOverlay overlay = guideOverlay;
+        guideOverlay = null;
+        overlay.dismiss(after);
+    }
     private static final int ID_INFO_BASE = 600;
     /** One id per blocking list, taken from a range nothing else uses. */
     private static final int ID_ADBLOCK_LIST_BASE = 200;
@@ -242,12 +419,63 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (listView != null) {
             listView.setDrawSelectorBehind(true);
         }
+        if (section == SECTION_UI_APPEARANCE && view instanceof android.widget.FrameLayout) {
+            attachPinnedPreview(context, (android.widget.FrameLayout) view);
+        }
         return view;
+    }
+
+    /**
+     * Pins the appearance preview above the list instead of scrolling it away.
+     *
+     * <p>This section has more switches than fit on a screen, and every one of them changes what
+     * the preview shows. A preview that scrolls off is a preview you cannot see while using the
+     * bottom half of the section - which is where the bubble and avatar settings are, the ones with
+     * the most to look at.
+     *
+     * <p>The list gets top padding equal to the preview's height, applied whenever that height
+     * changes, because the preview grows and shrinks with the sticker size the user is dragging.
+     */
+    private void attachPinnedPreview(Context context, android.widget.FrameLayout contentView) {
+        final org.telegram.ui.Components.PrimeLivePreviewCell preview = livePreviewCell();
+        if (preview == null) {
+            return;
+        }
+        final android.widget.FrameLayout holder = new android.widget.FrameLayout(context);
+        holder.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundGray));
+        holder.addView(preview, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        // A hairline under it, so the pinned block reads as a header rather than as the first row
+        // of the list sitting oddly still.
+        final View divider = new View(context);
+        divider.setBackgroundColor(getThemedColor(Theme.key_divider));
+        holder.addView(divider, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, 1f / AndroidUtilities.density, Gravity.BOTTOM));
+
+        contentView.addView(holder, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP));
+
+        holder.addOnLayoutChangeListener((v, left, top, right, bottom, ol, ot, or, ob) -> {
+            final int height = bottom - top;
+            if (listView == null || height <= 0 || listView.getPaddingTop() == height) {
+                return;
+            }
+            listView.setClipToPadding(false);
+            listView.setPadding(listView.getPaddingLeft(), height,
+                    listView.getPaddingRight(), listView.getPaddingBottom());
+            listView.scrollToPosition(0);
+        });
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        if (org.telegram.messenger.PrimeGuide.isRunning()) {
+            // The list is rebuilt just below, and the row the tour points at has to exist before
+            // it can be measured, so this waits a beat rather than racing the adapter.
+            AndroidUtilities.runOnUIThread(this::primeShowGuideStep, 120);
+        }
         // Values here are edited on other screens (grey zone, music, tags), so the list has to
         // be rebuilt on return — otherwise it keeps showing what was true when it was opened.
         if (listView != null && listView.adapter != null) {
@@ -281,8 +509,17 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 "Локальный Premium", "Лимиты на этом устройстве"));
         items.add(section(SECTION_ADVANCED, IconBackgroundColors.BLUE_DEEP, R.drawable.settings_power,
                 "Дополнительно", "Обновления, эксперименты, диагностика"));
+        items.add(SettingsActivity.SettingCell.Factory.of(ID_PLUGINS,
+                IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom,
+                R.drawable.msg_settings, "Плагины", primePluginsSubtitle()));
         items.add(section(SECTION_ABOUT, IconBackgroundColors.GRAY, R.drawable.settings_ask,
                 "Разрешения и поддержка", "Доступы приложения и связь с автором"));
+        items.add(UItem.asShadow(null));
+        items.add(SettingsActivity.SettingCell.Factory.of(ID_GUIDE,
+                IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom,
+                R.drawable.msg_info, "Гайд по PrimeGram",
+                org.telegram.messenger.PrimeGuide.wasShown()
+                        ? "Пройти ещё раз" : "Показать, что здесь настраивается"));
         items.add(UItem.asShadow(null));
     }
 
@@ -313,10 +550,27 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return livePreviewCell;
     }
 
-    /** Pushes a settings change into the preview without rebuilding the whole list. */
+    private org.telegram.ui.Components.PrimeStickerPreviewCell stickerPreviewCell;
+
+    /**
+     * The sticker preview. Not the theme preview cell, which draws text bubbles and no sticker at
+     * all - it sat above the sticker size controls showing nothing that they changed.
+     */
+    private org.telegram.ui.Components.PrimeStickerPreviewCell stickerPreviewCell() {
+        if (stickerPreviewCell == null && getContext() != null) {
+            stickerPreviewCell = new org.telegram.ui.Components.PrimeStickerPreviewCell(
+                    getContext(), getResourceProvider());
+        }
+        return stickerPreviewCell;
+    }
+
+    /** Pushes a settings change into whichever previews are on screen. */
     private void updateLivePreview() {
         if (livePreviewCell != null) {
             livePreviewCell.update();
+        }
+        if (stickerPreviewCell != null) {
+            stickerPreviewCell.update();
         }
     }
 
@@ -363,6 +617,117 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             primeHeaderView = layout;
         }
         return UItem.asCustom(ID_SECTION_BASE + 99, primeHeaderView);
+    }
+
+    /**
+     * The plugins row's second line. Deliberately says how many are installed rather than
+     * describing what plugins are: someone who has three wants to know they still have three, and
+     * someone who has none is told what the screen is for once they open it.
+     */
+    private CharSequence primePluginsSubtitle() {
+        final int count = org.telegram.messenger.plugins.PrimePluginsController.getInstance().count();
+        if (count == 0) {
+            return "Расширения на Python, совместимые с exteraGram";
+        }
+        final int tens = count % 100, ones = count % 10;
+        final String word;
+        if (tens >= 11 && tens <= 14) {
+            word = "плагинов";
+        } else if (ones == 1) {
+            word = "плагин";
+        } else if (ones >= 2 && ones <= 4) {
+            word = "плагина";
+        } else {
+            word = "плагинов";
+        }
+        return count + " " + word;
+    }
+
+    private CharSequence toolbarSummary() {
+        final int count = org.telegram.messenger.PrimeToolbarSettings.items().size();
+        return org.telegram.messenger.PrimeToolbarSettings.isDefaultOrder()
+                ? "все, по умолчанию" : count + " из " + org.telegram.messenger.PrimeToolbarSettings.ALL.length;
+    }
+
+    /**
+     * The toolbar's buttons, arranged by dragging them on a drawing of the toolbar itself.
+     *
+     * <p>Saved on every movement, like the sidebar zone and for the same reason: the obvious place
+     * to save - the sheet's dismiss listener - is replaced by {@code showDialog}, so anything left
+     * there is silently thrown away.
+     */
+    private void showToolbarButtonsSheet() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final Context context = getParentActivity();
+        final LinearLayout content = new LinearLayout(context);
+        content.setOrientation(LinearLayout.VERTICAL);
+
+        final org.telegram.ui.Components.PrimeToolbarEditor editor =
+                new org.telegram.ui.Components.PrimeToolbarEditor(context, getResourceProvider());
+        content.addView(editor, LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 10, 0, 0));
+
+        final TextView hintView = new TextView(context);
+        hintView.setGravity(Gravity.CENTER);
+        hintView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        hintView.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteGrayText2));
+        hintView.setText("Перетащите кнопку, чтобы поменять порядок или убрать её с панели. Короткое нажатие делает то же самое одним движением.");
+        content.addView(hintView, LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 21, 4, 21, 4));
+
+        editor.setOnChange(() -> {
+            org.telegram.messenger.PrimeToolbarSettings.setItems(editor.getItems());
+            if (listView != null && listView.adapter != null) {
+                listView.adapter.update(true);
+            }
+        });
+
+        final LinearLayout buttons = new LinearLayout(context);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        content.addView(buttons, LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 16, 12, 16, 8));
+
+        final TextView resetView = new TextView(context);
+        resetView.setGravity(Gravity.CENTER);
+        resetView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        resetView.setTypeface(AndroidUtilities.bold());
+        resetView.setText("Сбросить");
+        resetView.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlueText));
+        resetView.setBackground(Theme.createRadSelectorDrawable(
+                getThemedColor(Theme.key_listSelector), 8, 8));
+        resetView.setOnClickListener(v -> editor.resetToDefaults());
+        buttons.addView(resetView, LayoutHelper.createLinear(0, 44, 1f));
+
+        final TextView doneView = new TextView(context);
+        doneView.setGravity(Gravity.CENTER);
+        doneView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        doneView.setTypeface(AndroidUtilities.bold());
+        doneView.setText(LocaleController.getString(R.string.Done));
+        doneView.setTextColor(getThemedColor(Theme.key_featuredStickers_buttonText));
+        doneView.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(8),
+                getThemedColor(Theme.key_featuredStickers_addButton),
+                getThemedColor(Theme.key_featuredStickers_addButtonPressed)));
+        buttons.addView(doneView, LayoutHelper.createLinear(0, 44, 1f, 8, 0, 0, 0));
+
+        final BottomSheet sheet = new BottomSheet.Builder(context, false, getResourceProvider())
+                .setTitle("Кнопки панели", true)
+                .setCustomView(content)
+                .create();
+        doneView.setOnClickListener(v -> sheet.dismiss());
+        showDialog(sheet, dialog -> {
+            if (listView != null && listView.adapter != null) {
+                listView.adapter.update(true);
+            }
+        });
+    }
+
+    /** Port and domain on one line - the two things the sub-screen can change. */
+    private CharSequence tgWsSummary() {
+        final String pinned = org.telegram.messenger.TgWsProxyService.forcedDomain();
+        return "порт " + org.telegram.messenger.TgWsProxyService.configuredPort()
+                + " · " + (pinned.isEmpty() ? "домен авто" : pinned);
     }
 
     private UItem section(int section, IconBackgroundColors colors, int icon, CharSequence title, CharSequence subtitle) {
@@ -607,6 +972,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             endCard(items);
 
             items.add(UItem.asHeader("Размер стикеров"));
+            // The preview sits between the header and the controls, so the sticker being resized
+            // is on screen at the same time as the thing resizing it. Below the slider it would be
+            // pushed off by the keyboard-height of card rows underneath.
+            if (stickerPreviewCell() != null) {
+                items.add(UItem.asCustom(ID_CHAT_PREVIEW, stickerPreviewCell()));
+            }
             if (stickerSizeCards() != null) {
                 items.add(UItem.asCustom(ID_STICKER_SIZE_CARDS, stickerSizeCards()));
             }
@@ -642,11 +1013,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_UI_APPEARANCE) {
-            // The preview goes above the switches that change it: reaching for a switch and watching
-            // the result appear in the same glance is the whole point of having one.
-            if (livePreviewCell() != null) {
-                items.add(UItem.asCustom(ID_LIVE_PREVIEW, livePreviewCell()));
-            }
+            // The preview is not a row here - attachPinnedPreview() holds it above the list, so it
+            // stays visible for every switch in the section rather than only the first few.
             row(tweak(ID_CENTER_TITLE, IconBackgroundColors.BLUE, R.drawable.msg_photo_text_regular,
                     "Заголовок по центру", org.telegram.messenger.PrimeTweaks.CENTER_TITLE));
             row(tweak(ID_MAIN_TITLE_USERNAME, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_contacts_name,
@@ -725,8 +1093,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
             row(check(ID_TGWS_PROXY, IconBackgroundColors.GREEN, R.drawable.msg_satellite,
                     "Включить TgWs-сервер", preferences.getBoolean("primegram_tgws_enabled", true)));
+            row(button(ID_TGWS_SETTINGS, IconBackgroundColors.CYAN, R.drawable.msg_settings,
+                    "Настройки сервера", tgWsSummary()));
             endCard(items);
-            items.add(UItem.asShadow("Включает локальный сервер TgWsProxy. Сервер работает локально на 127.0.0.1:1080"));
+            items.add(UItem.asShadow("Локальный SOCKS5-сервер, через который приложение ходит в сеть в обход блокировок. Домен подключения, порт и журнал — на отдельном экране."));
 
             boolean batteryOptOk = AndroidUtilities.isIgnoringBatteryOptimizations();
             row(button(ID_BATTERY_OPTIMIZATION, IconBackgroundColors.ORANGE, R.drawable.msg_speed,
@@ -774,6 +1144,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (section == SECTION_TOOLS_MAIN) {
             row(check(ID_TEXT_TOOLBAR, IconBackgroundColors.BLUE, R.drawable.msg_photo_text2,
                     "Панель форматирования", org.telegram.messenger.PrimeToolbarSettings.isEnabled()));
+            if (org.telegram.messenger.PrimeToolbarSettings.isEnabled()) {
+                row(button(ID_TOOLBAR_BUTTONS, IconBackgroundColors.BLUE_LIGHT, R.drawable.msg_select,
+                        "Кнопки панели", toolbarSummary()));
+            }
             endCard(items);
             items.add(UItem.asShadow("Ряд кнопок над полем ввода: жирный, курсив, моноширинный, зачёркнутый, подчёркнутый, спойлер, ссылка, цитата, сброс форматирования и копирование. Появляется, когда в поле ввода что-то выделено, и заменяет собой системное меню выделения — иначе два ряда кнопок спорили бы за одно и то же место."));
 
@@ -1188,6 +1562,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_DNS_ENABLED) {
             org.telegram.messenger.browser.PrimeDns.setEnabled(!org.telegram.messenger.browser.PrimeDns.isEnabled());
             listView.adapter.update(true);
+        } else if (item.id == ID_PLUGINS) {
+            presentFragment(new PrimePluginsActivity());
+        } else if (item.id == ID_TGWS_SETTINGS) {
+            presentFragment(new PrimeTgWsActivity());
+        } else if (item.id == ID_TOOLBAR_BUTTONS) {
+            showToolbarButtonsSheet();
+        } else if (item.id == ID_GUIDE) {
+            primeStartGuide();
         } else if (item.id == ID_DNS_PRESET) {
             showDnsPicker();
         } else if (item.id == ID_LIMIT_RECENT_STICKERS) {
@@ -1220,13 +1602,16 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
         } else if (item.id == ID_TGWS_PROXY) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-            boolean enabled = preferences.getBoolean("primegram_tgws_enabled", true);
-            preferences.edit().putBoolean("primegram_tgws_enabled", !enabled).apply();
+            // Follows the switch, not the service's current state: those disagree whenever the
+            // service has been restarted from elsewhere, and then this did the opposite of what
+            // the user had just asked for.
+            boolean enabled = !preferences.getBoolean("primegram_tgws_enabled", true);
+            preferences.edit().putBoolean("primegram_tgws_enabled", enabled).apply();
 
-            if (org.telegram.messenger.TgWsProxyService.isRunning()) {
-                org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
-            } else {
+            if (enabled) {
                 org.telegram.messenger.TgWsProxyService.startService(getParentActivity());
+            } else {
+                org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
             }
             listView.adapter.update(true);
         } else if (item.id == ID_AUTO_UPDATES) {
@@ -1438,10 +1823,17 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         hintView.setText("Потяните область, чтобы передвинуть её, и кружки на краях — чтобы изменить размер. Свайп внутри неё открывает боковую панель.");
         content.addView(hintView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 21, 8, 21, 4));
 
-        final Runnable updateValue = () -> valueView.setText(
-                "Ширина " + Math.round(editor.getZoneWidth() * 100) + "%"
-                        + " · по вертикали " + Math.round(editor.getZoneTop() * 100)
-                        + "–" + Math.round(editor.getZoneBottom() * 100) + "%");
+        // Saved on every movement rather than on dismiss. The dismiss listener was the obvious
+        // place and it is the one place that cannot work: showDialog() replaces it with its own,
+        // so the zone the user dragged out was thrown away the moment the sheet closed. Saving as
+        // they drag also means "Сбросить" takes effect immediately, with nothing to confirm.
+        final Runnable updateValue = () -> {
+            valueView.setText("Ширина " + Math.round(editor.getZoneWidth() * 100) + "%"
+                    + " · по вертикали " + Math.round(editor.getZoneTop() * 100)
+                    + "–" + Math.round(editor.getZoneBottom() * 100) + "%");
+            org.telegram.messenger.PrimeSidebarZone.set(
+                    editor.getZoneWidth(), editor.getZoneTop(), editor.getZoneBottom());
+        };
         editor.setOnChange(updateValue);
         updateValue.run();
 
@@ -1476,14 +1868,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 .setCustomView(content)
                 .create();
         doneView.setOnClickListener(v -> sheet.dismiss());
-        sheet.setOnDismissListener(dialog -> {
-            org.telegram.messenger.PrimeSidebarZone.set(
-                    editor.getZoneWidth(), editor.getZoneTop(), editor.getZoneBottom());
+        showDialog(sheet, dialog -> {
             if (listView != null && listView.adapter != null) {
                 listView.adapter.update(true);
             }
         });
-        showDialog(sheet);
     }
 
     private void runHwBenchmark() {

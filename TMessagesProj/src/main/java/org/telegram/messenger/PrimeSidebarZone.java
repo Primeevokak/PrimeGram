@@ -25,9 +25,14 @@ public class PrimeSidebarZone {
     public static final float DEFAULT_TOP = 0f;
     public static final float DEFAULT_BOTTOM = 1f;
 
-    /** Narrow enough to miss by accident, wide enough that half the screen is never claimed. */
-    public static final float MIN_WIDTH = 0.08f;
-    public static final float MAX_WIDTH = 0.60f;
+    /**
+     * A sliver at one end, most of the screen at the other. The narrow end is for someone who wants
+     * the panel out of the way of everything else; the wide end is for someone who wants it to
+     * answer wherever their thumb lands. Neither is the whole screen: a zone with no outside is a
+     * zone that swallows every other horizontal gesture on the chat list.
+     */
+    public static final float MIN_WIDTH = 0.05f;
+    public static final float MAX_WIDTH = 0.80f;
     /** A band shorter than this is harder to hit than it is worth. */
     public static final float MIN_HEIGHT = 0.10f;
 

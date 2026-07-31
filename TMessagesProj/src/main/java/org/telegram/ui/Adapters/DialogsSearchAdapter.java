@@ -132,6 +132,50 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
     public final ArrayList<TLRPC.TL_sponsoredPeer> sponsoredPeers = new ArrayList<>();
     private final HashSet<byte[]> seenSponsoredPeers = new HashSet<>();
     private String lastSearchText;
+
+    // ── PrimeGram: "Поиск+" by numeric id ──────────────────────────────────────────────────
+    //
+    // A bare number is the one query the stock search has no answer for, and people are handed
+    // bare ids constantly. Rather than make them remember a separate screen exists, the answer is
+    // appended to the ordinary results under a heading of its own.
+    //
+    // Everything here is inert unless the query is digits *and* the lookup succeeded, so the
+    // search everyone else uses is untouched in every other case. The section is last because it
+    // is the least likely of the results to be what was wanted - the query "12345" is far more
+    // often part of a name than an id.
+    private String primeIdQuery;
+    private TLObject primeIdResult;
+    private int primeIdSectionStart = Integer.MAX_VALUE;
+
+    private boolean primeHasIdSection() {
+        return primeIdResult != null;
+    }
+
+    private void primeSearchById(String query) {
+        final Long id = org.telegram.messenger.PrimeIdentitySearch.parseId(query);
+        if (id == null) {
+            if (primeIdResult != null || primeIdQuery != null) {
+                primeIdQuery = null;
+                primeIdResult = null;
+                notifyDataSetChanged();
+            }
+            return;
+        }
+        if (TextUtils.equals(query, primeIdQuery)) {
+            return;
+        }
+        primeIdQuery = query;
+        primeIdResult = null;
+        org.telegram.messenger.PrimeIdentitySearch.resolve(currentAccount, id, result -> {
+            // The query may have moved on while the request was in flight; a result for text the
+            // user has already replaced would appear under the wrong search.
+            if (!TextUtils.equals(primeIdQuery, query)) {
+                return;
+            }
+            primeIdResult = result;
+            notifyDataSetChanged();
+        });
+    }
     private boolean searchWas;
     private int reqId = 0;
     private int lastReqId;
@@ -1106,6 +1150,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
             query = null;
         }
         filterRecent(query);
+        primeSearchById(query);
         if (!TextUtils.equals(sponsoredQuery, query)) {
             sponsoredQuery = query;
             sponsoredPeers.clear();
@@ -1338,6 +1383,9 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
 
     @Override
     public int getItemCount() {
+        // Reset every time: the early returns below skip the block that assigns it, and a stale
+        // value would make an unrelated row think it belonged to our section.
+        primeIdSectionStart = Integer.MAX_VALUE;
         if (waitingResponseCount == 3) {
             return 0;
         }
@@ -1406,10 +1454,19 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
         if (localMessagesSearchEndReached) {
             localMessagesLoadingRow = count;
         }
+        if (primeHasIdSection()) {
+            primeIdSectionStart = count;
+            count += 2;
+        }
         return currentItemCount = count;
     }
 
     public Object getItem(int i) {
+        if (i >= primeIdSectionStart) {
+            // The heading has no object; the row below it is the peer, which is what the click
+            // handler in DialogsActivity opens.
+            return i == primeIdSectionStart ? null : primeIdResult;
+        }
         if (!publicPosts.isEmpty()) {
             if (i > 0 && i - 1 < publicPosts.size()) {
                 return publicPosts.get(i - 1);
@@ -1712,6 +1769,27 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
 
     @Override
     public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
+        if (position >= primeIdSectionStart) {
+            // Bound here rather than falling through to the cases below: those work out what to
+            // draw from the position's place among the other sections, and a position past all of
+            // them has no place among them.
+            if (position == primeIdSectionStart) {
+                ((GraySectionCell) holder.itemView).setText("Поиск+ · по ID");
+            } else {
+                final ProfileSearchCell cell = (ProfileSearchCell) holder.itemView;
+                cell.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                cell.useSeparator = false;
+                CharSequence subtitle = null;
+                if (primeIdResult instanceof TLRPC.User) {
+                    final String username = UserObject.getPublicUsername((TLRPC.User) primeIdResult);
+                    subtitle = username != null ? "@" + username : "ID " + ((TLRPC.User) primeIdResult).id;
+                } else if (primeIdResult instanceof TLRPC.Chat) {
+                    subtitle = "ID " + ((TLRPC.Chat) primeIdResult).id;
+                }
+                cell.setData(primeIdResult, null, null, subtitle, false, false);
+            }
+            return;
+        }
         switch (holder.getItemViewType()) {
             case VIEW_TYPE_PROFILE_CELL: {
                 ProfileSearchCell cell = (ProfileSearchCell) holder.itemView;
@@ -2192,6 +2270,9 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
 
     @Override
     public int getItemViewType(int i) {
+        if (i >= primeIdSectionStart) {
+            return i == primeIdSectionStart ? VIEW_TYPE_GRAY_SECTION : VIEW_TYPE_PROFILE_CELL;
+        }
         if (!searchResultHashtags.isEmpty()) {
             return i == 0 ? VIEW_TYPE_GRAY_SECTION : VIEW_TYPE_HASHTAG_CELL;
         }

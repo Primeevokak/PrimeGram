@@ -1504,6 +1504,21 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
      * centering would slide it under the back button or the menu. Returning the original left in
      * those cases is what keeps this from breaking screens it was never meant to touch.
      */
+    /**
+     * How much room the text actually needs, as opposed to how wide its view was laid out.
+     *
+     * <p>A {@link SimpleTextView} only shrinks to its text when it was asked to wrap; otherwise it
+     * measures as wide as it was offered, whatever it holds. Centring against that number asks
+     * "is there room to centre something as wide as the whole bar", the answer is always no, and
+     * the setting silently does nothing. It looked like it worked on the chat list only because
+     * the stock title there is a logo span a few dozen pixels wide - swap in a real name and the
+     * illusion goes.
+     */
+    private int primeContentWidth(SimpleTextView view) {
+        final int content = view.getTextWidth() + view.getRightDrawableWidth();
+        return content > 0 ? Math.min(view.getMeasuredWidth(), content) : view.getMeasuredWidth();
+    }
+
     private int primeCenteredLeft(int viewWidth, int defaultLeft, int barWidth) {
         if (!org.telegram.messenger.PrimeTweaks.centerTitle() || LocaleController.isRTL || barWidth <= 0) {
             return defaultLeft;
@@ -1571,7 +1586,7 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
                         textTop = (getCurrentActionBarHeight() - titleTextView[i].getTextHeight()) / 2;
                     }
                 }
-                int titleLeft = primeCenteredLeft(titleTextView[i].getMeasuredWidth(), textLeft, right - left);
+                int titleLeft = primeCenteredLeft(primeContentWidth(titleTextView[i]), textLeft, right - left);
                 titleTextView[i].layout(titleLeft, additionalTop + textTop - titleTextView[i].getPaddingTop(), titleLeft + titleTextView[i].getMeasuredWidth(), additionalTop + textTop + titleTextView[i].getTextHeight() - titleTextView[i].getPaddingTop() + titleTextView[i].getPaddingBottom());
             }
         }
@@ -1581,7 +1596,7 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
         }
         if (subtitleTextView != null && subtitleTextView.getVisibility() != GONE) {
             int textTop = getCurrentActionBarHeight() / 2 + (getCurrentActionBarHeight() / 2 - subtitleTextView.getTextHeight()) / 2 - dp(2);
-            int subLeft = primeCenteredLeft(subtitleTextView.getMeasuredWidth(), textLeft, right - left);
+            int subLeft = primeCenteredLeft(primeContentWidth(subtitleTextView), textLeft, right - left);
             subtitleTextView.layout(subLeft, additionalTop + textTop, subLeft + subtitleTextView.getMeasuredWidth(), additionalTop + textTop + subtitleTextView.getTextHeight());
         }
 
