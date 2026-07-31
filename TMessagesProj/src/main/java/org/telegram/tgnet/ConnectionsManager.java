@@ -275,13 +275,28 @@ public class ConnectionsManager extends BaseController {
         return pushString;
     }
 
+    /**
+     * PrimeGram: on by default, because for this build it is the only way notifications arrive.
+     *
+     * <p>Firebase push cannot work here. Telegram's servers send pushes with the credentials of
+     * their own Firebase project, and a token is only deliverable by the project that issued it -
+     * so a fork under its own package name has no route to it. Ours registers against a client
+     * entry copied from another package, which means the token is either rejected or never issued,
+     * and the server never learns the device exists.
+     *
+     * <p>Upstream defaults this off because upstream has working push and a socket held open all
+     * day is a battery cost with nothing to buy. Here it buys the entire feature: without it there
+     * is neither push nor connection, and messages only appear while the app is open.
+     *
+     * <p>An explicit choice still wins - the switch in notification settings writes
+     * {@code pushConnection}, and that is checked first.
+     */
     public boolean isPushConnectionEnabled() {
         SharedPreferences preferences = MessagesController.getGlobalNotificationsSettings();
         if (preferences.contains("pushConnection")) {
             return preferences.getBoolean("pushConnection", true);
-        } else {
-            return MessagesController.getMainSettings(UserConfig.selectedAccount).getBoolean("backgroundConnection", false);
         }
+        return true;
     }
 
     public long getCurrentTimeMillis() {

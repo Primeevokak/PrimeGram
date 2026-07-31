@@ -21108,6 +21108,13 @@ public class ChatActivity extends BaseFragment implements
         }
         for (int a = 0; a < messArr.size(); a++) {
             MessageObject obj = messArr.get(a);
+            // PrimeGram: a file sent in parts is one file. Every chunk is registered so the first
+            // one knows how many have arrived, and every chunk but the first is dropped from the
+            // list - seventeen rows saying "part 4 of 17" is not what anybody sent.
+            if (org.telegram.messenger.PrimeBigFileReceiver.getInstance().observe(obj) != null
+                    && org.telegram.messenger.PrimeBigFileReceiver.getInstance().isHiddenChunk(obj)) {
+                continue;
+            }
             if (obj.replyMessageObject != null) {
                 repliesMessagesDict.put(obj.replyMessageObject.getId(), obj.replyMessageObject);
                 addReplyMessageOwner(obj, 0);
@@ -25423,6 +25430,29 @@ public class ChatActivity extends BaseFragment implements
     }
     private void processNewMessages(ArrayList<MessageObject> arr, final boolean animatedFromBottom) {
         FileLog.d("processNewMessages " + arr.size() + " messages");
+
+        // PrimeGram: chunks of one big file arrive as separate messages. Each is registered so the
+        // row standing in for the file knows how much has landed, and all but the first are taken
+        // out here - before anything downstream counts them, scrolls to them or notifies about
+        // them. Doing it at the top of this method means the rest of the pipeline never learns
+        // that a message it can see was ever accompanied by sixteen others.
+        final org.telegram.messenger.PrimeBigFileReceiver bigFiles =
+                org.telegram.messenger.PrimeBigFileReceiver.getInstance();
+        for (int a = arr.size() - 1; a >= 0; a--) {
+            final MessageObject candidate = arr.get(a);
+            if (bigFiles.observe(candidate) != null) {
+                if (bigFiles.isHiddenChunk(candidate)) {
+                    arr.remove(a);
+                } else {
+                    // The row that stays has to redraw as its siblings arrive, and they arrive
+                    // minutes apart.
+                    AndroidUtilities.runOnUIThread(this::updateVisibleRows);
+                }
+            }
+        }
+        if (arr.isEmpty()) {
+            return;
+        }
 
         final boolean isBot = UserObject.isBot(currentUser);
         final boolean isStreamingTopic = isBot && BotForumHelper.getInstance(currentAccount).isStreamingTopic(getDialogId(), getTopicId());

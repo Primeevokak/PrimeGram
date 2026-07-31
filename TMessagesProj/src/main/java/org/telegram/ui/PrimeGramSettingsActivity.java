@@ -140,6 +140,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_TGWS_SETTINGS = 105;
     private static final int ID_TOOLBAR_BUTTONS = 107;
     private static final int ID_GUIDE = 108;
+    private static final int ID_BIGFILE = 109;
+    private static final int ID_BIGFILE_EXPERIMENTAL = 110;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1273,6 +1275,21 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Сохранять кружочки и голосовые", org.telegram.messenger.PrimeTweaks.SAVE_ROUND_AND_VOICE));
             endCard(items);
             items.add(UItem.asShadow("Отправка без сжатия переключает главную кнопку в режим «файлом» — тот же, что в меню вложений. На контакты, музыку и геопозицию это не влияет: для них «файлом» ничего не значит.\n\nСохранение кружочков и голосовых добавляет пункт в меню долгого нажатия: кружочек уходит в галерею, голосовое — в загрузки. Одноразовые сообщения не сохраняются: отправитель выбрал исчезающее сообщение, и обходить это мы не будем."));
+
+            row(check(ID_BIGFILE, IconBackgroundColors.ORANGE, R.drawable.msg_sendfile,
+                    "Отправка больших файлов",
+                    org.telegram.messenger.PrimeBigFile.isSendingEnabled()));
+            if (org.telegram.messenger.PrimeBigFile.isSendingEnabled()) {
+                row(check(ID_BIGFILE_EXPERIMENTAL, IconBackgroundColors.RED, R.drawable.msg_limit_links,
+                        "До 50 ГБ (эксперимент)",
+                        org.telegram.messenger.PrimeBigFile.isExperimentalEnabled()));
+            }
+            endCard(items);
+            items.add(UItem.asShadow("Файл больше лимита Telegram отправляется частями, а PrimeGram на другой стороне собирает его обратно — получатель видит один файл с обычным именем и прогрессом.\n\nПолучать такие файлы могут все и всегда, разрешение нужно только чтобы отправлять. Части уходят с паузами, поэтому восемь гигабайт — это надолго, и на мобильной сети лучше не начинать.\n\nУ кого нет PrimeGram, увидит несколько файлов с пометкой в имени: «часть 3 из 17». Собрать их можно вручную любым архиватором."));
+            if (org.telegram.messenger.PrimeBigFile.isSendingEnabled()
+                    && org.telegram.messenger.PrimeBigFile.isExperimentalEnabled()) {
+                items.add(UItem.asShadow("Пятьдесят гигабайт — это больше сотни частей и часы отправки. Telegram может ограничить аккаунт за объём, а файловая система телефона может не принять такой файл на приёме. Включайте, если понимаете, зачем."));
+            }
         }
 
         if (section == SECTION_MEDIA_QUALITY) {
@@ -1576,6 +1593,19 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showToolbarButtonsSheet();
         } else if (item.id == ID_GUIDE) {
             primeStartGuide();
+        } else if (item.id == ID_BIGFILE) {
+            final boolean enabled = !org.telegram.messenger.PrimeBigFile.isSendingEnabled();
+            org.telegram.messenger.PrimeBigFile.setSendingEnabled(enabled);
+            if (!enabled) {
+                // Turning the feature off takes the experiment with it; leaving a 50 GB switch
+                // set behind a disabled feature is a trap for the next time it is turned on.
+                org.telegram.messenger.PrimeBigFile.setExperimentalEnabled(false);
+            }
+            listView.adapter.update(true);
+        } else if (item.id == ID_BIGFILE_EXPERIMENTAL) {
+            org.telegram.messenger.PrimeBigFile.setExperimentalEnabled(
+                    !org.telegram.messenger.PrimeBigFile.isExperimentalEnabled());
+            listView.adapter.update(true);
         } else if (item.id == ID_DNS_PRESET) {
             showDnsPicker();
         } else if (item.id == ID_LIMIT_RECENT_STICKERS) {

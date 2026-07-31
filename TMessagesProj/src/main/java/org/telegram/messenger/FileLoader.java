@@ -1584,7 +1584,38 @@ public class FileLoader extends BaseController {
             }
         }
         fileName = fixFileName(fileName);
+        if (fileName != null) {
+            // PrimeGram: a chunk of a split file is named with a header describing the whole
+            // transfer. Stripped here, at the single place the app asks a document its name, so
+            // the chat bubble, the shared-files list, notifications and the saved copy all show
+            // what the sender actually sent rather than our bookkeeping. Anything that needs the
+            // header itself asks getRawDocumentFileName below.
+            final PrimeBigFile.Header header = PrimeBigFile.parse(fileName);
+            if (header != null) {
+                return header.fileName;
+            }
+        }
         return fileName != null ? fileName : "";
+    }
+
+    /** The name as it arrived, header and all. Only the chunk machinery wants this. */
+    public static String getRawDocumentFileName(TLRPC.Document document) {
+        if (document == null) {
+            return null;
+        }
+        if (document.file_name_fixed != null) {
+            return document.file_name_fixed;
+        }
+        if (document.file_name != null) {
+            return document.file_name;
+        }
+        for (int a = 0; a < document.attributes.size(); a++) {
+            final TLRPC.DocumentAttribute attribute = document.attributes.get(a);
+            if (attribute instanceof TLRPC.TL_documentAttributeFilename) {
+                return attribute.file_name;
+            }
+        }
+        return null;
     }
 
     public static String getMimeTypePart(String mime) {
