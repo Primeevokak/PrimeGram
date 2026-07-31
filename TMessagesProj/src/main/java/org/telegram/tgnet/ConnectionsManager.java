@@ -815,7 +815,18 @@ public class ConnectionsManager extends BaseController {
             getInstance(currentAccount).connectionState = state;
             if (state == 1 /* ConnectionStateConnecting */) {
                 if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.address)) {
-                    if (!org.telegram.messenger.TgWsProxyService.isSocketBound) {
+                    // Only revive it if the user still wants it running.
+                    //
+                    // This check used to be missing, and that is what made the switch look broken.
+                    // Turning the tunnel off stops the service and clears proxy_enabled, but it
+                    // does not clear currentProxy - 127.0.0.1 stays the *selected* entry in the
+                    // proxy list, just an inactive one. So the next time the client entered the
+                    // connecting state, the condition above still matched, the socket was of
+                    // course unbound, and the service was started again within a second of being
+                    // switched off.
+                    final boolean wanted = org.telegram.messenger.MessagesController
+                            .getGlobalMainSettings().getBoolean("primegram_tgws_enabled", true);
+                    if (wanted && !org.telegram.messenger.TgWsProxyService.isSocketBound) {
                         org.telegram.messenger.FileLog.d("ConnectionsManager: Proxy service not bound during connecting state. Restarting service...");
                         org.telegram.messenger.TgWsProxyService.startService(org.telegram.messenger.ApplicationLoader.applicationContext);
                     }
