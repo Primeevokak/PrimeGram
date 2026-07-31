@@ -92,9 +92,15 @@ public final class PrimePluginInstallDialog {
                 if (plugin.hasError()) {
                     BulletinFactory.of(fragment).createErrorBulletin(
                             "Плагин установлен, но не запустился: " + plugin.error().getMessage()).show();
+                } else if (replacedExisting) {
+                    BulletinFactory.of(fragment).createSuccessBulletin("Плагин обновлён").show();
                 } else {
-                    BulletinFactory.of(fragment).createSuccessBulletin(
-                            replacedExisting ? "Плагин обновлён" : "Плагин установлен").show();
+                    // Says what happens next, because nothing has: the plugin is on the list and
+                    // switched off, and a message that only said "установлен" would leave the user
+                    // waiting for something that is not coming.
+                    BulletinFactory.of(fragment).createSimpleBulletin(
+                            org.telegram.messenger.R.raw.info, "Плагин установлен",
+                            "Включите его в разделе «Плагины», чтобы он заработал").show();
                 }
             }
 

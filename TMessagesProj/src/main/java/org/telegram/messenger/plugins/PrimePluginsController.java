@@ -242,14 +242,23 @@ public final class PrimePluginsController {
             }
 
             final PrimePlugin plugin = new PrimePlugin(manifest, target);
-            PrimePluginStore.setEnabled(manifest.id, true);
-            plugin.setEnabled(true);
+            // Installed, not started. Nothing of the plugin runs and none of its libraries are
+            // fetched until the user switches it on - which is the moment they agree to execute
+            // it, as opposed to the moment they agreed to keep the file.
+            //
+            // An update keeps whatever the user had chosen for the previous version: a plugin they
+            // had running should not go quiet because its author released a fix.
+            final boolean keepRunning = replaced && PrimePluginStore.isEnabled(manifest.id);
+            PrimePluginStore.setEnabled(manifest.id, keepRunning);
+            plugin.setEnabled(keepRunning);
             synchronized (plugins) {
                 plugins.remove(plugin);
                 plugins.add(plugin);
                 Collections.sort(plugins, (a, b) -> a.name().compareToIgnoreCase(b.name()));
             }
-            loadIntoPython(context, plugin);
+            if (keepRunning) {
+                loadIntoPython(context, plugin);
+            }
             notifyChanged();
 
             final boolean wasReplaced = replaced;

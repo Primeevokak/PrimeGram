@@ -94,12 +94,16 @@ public final class PrimePluginStore {
     }
 
     /**
-     * Whether the user wants this plugin running. Newly installed plugins default to on: the user
-     * has just chosen to install this specific file, and asking them a second time in a second
-     * place is asking the same question twice.
+     * Whether the user wants this plugin running. Off until they say so, including right after
+     * installing it.
+     *
+     * <p>Installing and running are two different decisions, and only the second one executes
+     * somebody else's code. Keeping them apart means a file that arrived in a chat cannot start
+     * running because it was tapped, and nothing is fetched on its behalf - a plugin's declared
+     * libraries are downloaded when it first loads, which is now a moment the user chose.
      */
     public static boolean isEnabled(String pluginId) {
-        return prefs().getBoolean(ENABLED_PREFIX + pluginId, true);
+        return prefs().getBoolean(ENABLED_PREFIX + pluginId, false);
     }
 
     public static void setEnabled(String pluginId, boolean enabled) {

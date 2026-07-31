@@ -5,6 +5,7 @@ import android.view.View;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.plugins.PrimePlugin;
 import org.telegram.messenger.plugins.PrimePluginsController;
@@ -33,12 +34,42 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
     /** Name to version, filled in behind the screen; empty until the engine answers. */
     private org.json.JSONObject libraries = new org.json.JSONObject();
 
+    private static final String PREF_WARNED = "primegram_plugins_warned";
+
     @Override
     public boolean onFragmentCreate() {
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.pluginsDidUpdate);
         PrimePluginsController.getInstance().loadIfNeeded();
         refreshLibraries();
         return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        primeShowWarningOnce();
+    }
+
+    /**
+     * Said once, on the way in, before there is anything to install.
+     *
+     * <p>The shadow text under the list says the same thing, and shadow text is not read. This is
+     * the one screen in the app where a user can hand a stranger's code the same access the app
+     * itself has, and being told that at the moment of arriving is different from being told it
+     * underneath a list they are already scrolling.
+     */
+    private void primeShowWarningOnce() {
+        if (getParentActivity() == null
+                || MessagesController.getGlobalMainSettings().getBoolean(PREF_WARNED, false)) {
+            return;
+        }
+        MessagesController.getGlobalMainSettings().edit().putBoolean(PREF_WARNED, true).apply();
+        final AlertDialog dialog = new AlertDialog.Builder(getContext(), getResourceProvider())
+                .setTitle("Прежде чем ставить плагины")
+                .setMessage("Плагин — это программа, которую написал не автор PrimeGram. Запущенный плагин работает внутри приложения и видит то же, что и оно: переписку, контакты, файлы.\n\nPrimeGram ничего не скачивает сам. Файл плагина приносите вы, и он остаётся выключенным, пока вы не включите его вручную — включение и есть согласие его запустить.\n\nСтавьте только то, чьему автору доверяете, и по возможности читайте исходный код: плагин — это обычный текстовый файл на Python.")
+                .setPositiveButton("Понятно", null)
+                .create();
+        showDialog(dialog);
     }
 
     @Override
