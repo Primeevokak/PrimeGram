@@ -2060,7 +2060,11 @@ public class ImageLoader {
         int memoryClass = ((ActivityManager) ApplicationLoader.applicationContext.getSystemService(Context.ACTIVITY_SERVICE)).getMemoryClass();
         int maxSize;
         if (canForce8888 = memoryClass >= 192) {
-            maxSize = 30;
+            // PrimeGram: the stock ceiling is 30 MB, and memoryClass/7 passes it at 210 - which
+            // every phone of the last several years exceeds, so the image cache was 24 MB whether
+            // the device had 3 GB or 16. Raising the ceiling on roomy devices only; anything under
+            // 384 keeps exactly the size it had.
+            maxSize = memoryClass >= 384 ? 64 : 30;
         } else {
             maxSize = 15;
         }
@@ -2120,7 +2124,16 @@ public class ImageLoader {
             }
         };
 
-        lottieMemCache = new LruCache<BitmapDrawable>(DEBUG_MODE ? 1 : 512 * 512 * 2 * 4 * 5) {
+        // PrimeGram: scaled to the device instead of a flat 10 MB.
+        //
+        // The stock size is 512*512*2*4*5 - five frames' worth - regardless of whether the phone
+        // has 1 GB or 12. On a chat with stickers it overflows constantly, and eviction here means
+        // recycle(): the decoder is destroyed, and scrolling back to the same sticker parses its
+        // metadata and rebuilds it from scratch, synchronously. Giving a roomy device more of its
+        // own memory turns that cycle into a cache hit. The floor is the stock value, so nothing
+        // small gets worse.
+        final int lottieCacheSize = Math.max(512 * 512 * 2 * 4 * 5, Math.min(64, memoryClass / 5) * 1024 * 1024);
+        lottieMemCache = new LruCache<BitmapDrawable>(DEBUG_MODE ? 1 : lottieCacheSize) {
 
             @Override
             protected int sizeOf(String key, BitmapDrawable value) {

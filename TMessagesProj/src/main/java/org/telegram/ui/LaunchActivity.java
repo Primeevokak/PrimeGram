@@ -557,13 +557,19 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
              * rather than all of it: the excess would be dropped anyway, and claiming the part
              * they are most likely to reach for beats claiming from the top and running out.
              */
+            /** The rect last handed to the window manager, so an unchanged layout costs nothing. */
+            private android.graphics.Rect primeLastExclusion;
+
             private void primeUpdateGestureExclusion() {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                     return;
                 }
                 try {
                     if (!isSidebarActiveOnScreen()) {
-                        setSystemGestureExclusionRects(java.util.Collections.emptyList());
+                        if (primeLastExclusion != null) {
+                            primeLastExclusion = null;
+                            setSystemGestureExclusionRects(java.util.Collections.emptyList());
+                        }
                         return;
                     }
                     final int height = getMeasuredHeight();
@@ -571,8 +577,16 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     final int zoneBottom = (int) (height * PrimeSidebarZone.bottom());
                     final int band = Math.min(AndroidUtilities.dp(200), zoneBottom - zoneTop);
                     final int bandTop = Math.max(0, zoneTop + (zoneBottom - zoneTop - band) / 2);
-                    setSystemGestureExclusionRects(java.util.Collections.singletonList(
-                            new android.graphics.Rect(0, bandTop, AndroidUtilities.dp(32), bandTop + band)));
+                    final android.graphics.Rect rect = new android.graphics.Rect(
+                            0, bandTop, AndroidUtilities.dp(32), bandTop + band);
+                    // This method runs on every layout pass of the root container, and handing the
+                    // rect over is a call into the window manager - cheap once, not cheap sixty
+                    // times a second. The rect only moves when the screen does.
+                    if (rect.equals(primeLastExclusion)) {
+                        return;
+                    }
+                    primeLastExclusion = rect;
+                    setSystemGestureExclusionRects(java.util.Collections.singletonList(rect));
                 } catch (Throwable ignore) {
                 }
             }
@@ -9393,8 +9407,21 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private LinearLayout sidebarAccountsContainer;
     private ImageView sidebarProxyButton;
 
+    /**
+     * Cached, because this is on the touch path.
+     *
+     * <p>It is asked on every ACTION_MOVE the root container sees - which during a fling through
+     * the chat list is a hundred times a second - and it used to read preferences each time.
+     * Written by {@link #updateSidebarVisibility()}, which is what the settings switch calls.
+     */
+    private Boolean sidebarEnabledCache;
+
     private boolean isSidebarEnabled() {
-        return MessagesController.getGlobalMainSettings().getBoolean("primegram_sidebar_enabled", true);
+        if (sidebarEnabledCache == null) {
+            sidebarEnabledCache = MessagesController.getGlobalMainSettings()
+                    .getBoolean("primegram_sidebar_enabled", true);
+        }
+        return sidebarEnabledCache;
     }
 
     private boolean isSidebarActiveOnScreen() {
@@ -9402,15 +9429,32 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
         if (currentFragment instanceof MainTabsActivity) {
             BaseFragment visibleFrag = ((MainTabsActivity) currentFragment).getCurrentVisibleFragment();
-            return visibleFrag instanceof DialogsActivity && ((DialogsActivity) visibleFrag).getFolderId() == 0;
+            return visibleFrag instanceof DialogsActivity && primeSidebarAllowedOn((DialogsActivity) visibleFrag);
         }
-        return (currentFragment instanceof DialogsActivity) && ((DialogsActivity) currentFragment).getFolderId() == 0;
+        return (currentFragment instanceof DialogsActivity)
+                && primeSidebarAllowedOn((DialogsActivity) currentFragment);
+    }
+
+    /**
+     * The panel answers on the main chat list only - the first tab, and not the archive.
+     *
+     * <p>Folder tabs are swiped between horizontally, which is the same gesture that drags the
+     * panel out. On any tab but the first, a swipe from the left edge means "previous folder", and
+     * a panel that also claimed it would take a movement people use constantly. On the first tab
+     * there is nothing to the left, so the gesture is free.
+     *
+     * <p>{@code getCurrentFilterId()} answers 0 both for "All chats" and for an account with no
+     * folders at all, which is the same permission in both cases.
+     */
+    private boolean primeSidebarAllowedOn(DialogsActivity dialogs) {
+        return dialogs.getFolderId() == 0 && dialogs.getCurrentFilterId() == 0;
     }
 
     public void updateSidebarVisibility() {
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
-        
+        sidebarEnabledCache = sidebarEnabled;
+
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
         boolean isMainScreen = currentFragment instanceof DialogsActivity && ((DialogsActivity) currentFragment).getFolderId() == 0;
         if (currentFragment instanceof MainTabsActivity) {

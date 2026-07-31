@@ -62,10 +62,13 @@ public class PrimeMessageMarks {
             return;
         }
         try {
+            drawOnlineDot(canvas, cell, messageObject);
+
+            // Asked only when there is any tag at all: getLabelFor takes a lock and boxes the
+            // dialog id, and this runs for every visible cell on every frame.
             String tagLabel = MessageTagsStore.hasAny()
                     ? MessageTagsStore.getLabelFor(messageObject.getDialogId(), messageObject.getId())
                     : null;
-            drawOnlineDot(canvas, cell, messageObject);
 
             boolean deleted = messageObject.primeDeleted;
             if (!deleted && TextUtils.isEmpty(tagLabel)) {
@@ -137,8 +140,11 @@ public class PrimeMessageMarks {
         if (!cell.isAvatarVisible || !isOnlineDotsEnabled()) {
             return;
         }
-        org.telegram.tgnet.TLRPC.User user = senderUser(messageObject);
-        if (user == null || user.bot || user.self || !isUserOnline(messageObject.currentAccount, user)) {
+        if (messageObject.messageOwner == null || messageObject.messageOwner.from_id == null) {
+            return;
+        }
+        final long userId = messageObject.messageOwner.from_id.user_id;
+        if (userId == 0 || !isUserOnlineCached(messageObject.currentAccount, userId)) {
             return;
         }
         org.telegram.messenger.ImageReceiver avatar = cell.getAvatarImage();
@@ -159,6 +165,45 @@ public class PrimeMessageMarks {
         canvas.drawCircle(cx, cy, radius, onlineDotStrokePaint);
         onlineDotPaint.setColor(Theme.getColor(Theme.key_chats_onlineCircle));
         canvas.drawCircle(cx, cy, radius, onlineDotPaint);
+    }
+
+    /**
+     * Is this sender online, answered from a short-lived cache.
+     *
+     * <p>The uncached version ran for every visible cell on every frame, and each run did a
+     * {@code getUser} - whose parameter is a {@code Long}, so every call boxed one - plus
+     * {@code getCurrentTime()}, which crosses into native code. On a 120 Hz scroll through a group
+     * that is thousands of allocations and native transitions a second, to answer a question whose
+     * answer changes at most once a minute.
+     *
+     * <p>Five seconds of staleness is the trade. The dialog list solves the same problem by
+     * computing it once per bind; a message cell has no equivalent hook, so the cache is keyed by
+     * user instead. {@link androidx.collection.LongSparseArray} keeps the lookup free of boxing.
+     */
+    private static final androidx.collection.LongSparseArray<long[]> onlineCache = new androidx.collection.LongSparseArray<>();
+    private static final long ONLINE_CACHE_MS = 5000;
+
+    private static boolean isUserOnlineCached(int account, long userId) {
+        final long now = android.os.SystemClock.elapsedRealtime();
+        long[] entry = onlineCache.get(userId);
+        if (entry != null && now < entry[0]) {
+            return entry[1] != 0;
+        }
+        final org.telegram.tgnet.TLRPC.User user =
+                org.telegram.messenger.MessagesController.getInstance(account).getUser(userId);
+        final boolean online = user != null && !user.bot && !user.self && isUserOnline(account, user);
+        if (entry == null) {
+            if (onlineCache.size() > 512) {
+                // Bounded: a long-lived process scrolling through many groups would otherwise
+                // accumulate an entry per person ever seen.
+                onlineCache.clear();
+            }
+            entry = new long[2];
+            onlineCache.put(userId, entry);
+        }
+        entry[0] = now + ONLINE_CACHE_MS;
+        entry[1] = online ? 1 : 0;
+        return online;
     }
 
     private static org.telegram.tgnet.TLRPC.User senderUser(MessageObject messageObject) {

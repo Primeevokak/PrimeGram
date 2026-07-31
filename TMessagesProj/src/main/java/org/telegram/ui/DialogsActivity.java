@@ -4752,6 +4752,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
             viewPage.dialogsAdapter.setArchivedPullDrawable(viewPage.pullForegroundDrawable);
             viewPage.listView.setAdapter(viewPage.dialogsAdapter);
+            // PrimeGram: more than the default two offscreen views. A dialog row carries an
+            // avatar, two text layouts and a badge, and this is the list people flick hardest.
+            viewPage.listView.setItemViewCacheSize(8);
 
             viewPage.listView.setEmptyView(folderId == 0 && communityId == 0 ? viewPage.progressView : null);
             viewPage.scrollHelper = new RecyclerAnimationScrollHelper(viewPage.listView, viewPage.layoutManager);

@@ -1335,7 +1335,13 @@ public class AndroidUtilities {
     }
 
     public static boolean doSafe(Utilities.Callback0Return<Boolean> runnable, int timeout) {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        // PrimeGram: one shared executor, not a new thread per call.
+        //
+        // This runs from MessageObject.generateLayout, i.e. while binding message cells, and the
+        // old shape created an ExecutorService - and therefore an OS thread - for every call, then
+        // shut it down again. Creating and destroying a thread to wait 200 ms on it is most of the
+        // cost of the call; a shared pool of two keeps the timeout behaviour and drops the rest.
+        ExecutorService executor = primeSafeExecutor();
         Callable<Boolean> task = () -> {
             try {
                 return runnable.run();
@@ -1355,10 +1361,31 @@ public class AndroidUtilities {
             }
         } catch (Exception ex) {
             FileLog.e(ex);
-        } finally {
-            executor.shutdownNow();
         }
         return success;
+    }
+
+    private static volatile ExecutorService primeSafeExecutor;
+
+    /**
+     * The pool {@link #doSafe} runs its work on. Two threads: the calls are short and rare enough
+     * that one would do, and a second keeps a timed-out task from holding up the next caller.
+     */
+    private static ExecutorService primeSafeExecutor() {
+        ExecutorService local = primeSafeExecutor;
+        if (local == null) {
+            synchronized (AndroidUtilities.class) {
+                local = primeSafeExecutor;
+                if (local == null) {
+                    primeSafeExecutor = local = Executors.newFixedThreadPool(2, runnable -> {
+                        final Thread thread = new Thread(runnable, "primeSafe");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+                }
+            }
+        }
+        return local;
     }
 
     @Deprecated // use addLinksSafe

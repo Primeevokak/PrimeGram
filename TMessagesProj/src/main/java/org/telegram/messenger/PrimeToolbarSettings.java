@@ -38,16 +38,23 @@ public class PrimeToolbarSettings {
             BOLD, ITALIC, MONO, STRIKE, UNDERLINE, SPOILER, LINK, QUOTE, CLEAR, COPY
     };
 
+    /** Cached: this is asked on every caret move while typing. */
+    private static Boolean enabledCache;
+
     public static boolean isEnabled() {
-        try {
-            return MessagesController.getGlobalMainSettings().getBoolean(KEY, false);
-        } catch (Throwable t) {
-            return false;
+        if (enabledCache == null) {
+            try {
+                enabledCache = MessagesController.getGlobalMainSettings().getBoolean(KEY, false);
+            } catch (Throwable t) {
+                return false;
+            }
         }
+        return enabledCache;
     }
 
     public static void setEnabled(boolean enabled) {
         MessagesController.getGlobalMainSettings().edit().putBoolean(KEY, enabled).apply();
+        enabledCache = enabled;
     }
 
     /**

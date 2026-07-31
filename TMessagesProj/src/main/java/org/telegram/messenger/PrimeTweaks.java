@@ -261,13 +261,42 @@ public class PrimeTweaks {
         }
     }
 
+    /**
+     * Updates the one cached field a key maps to. Anything not listed here is not held in a field,
+     * so nothing needs refreshing for it.
+     */
+    private static void primeApplyInt(String key, int value) {
+        switch (key) {
+            case AVATAR_CORNERS:
+                avatarCorners = Math.max(0, Math.min(AVATAR_CORNERS_MAX, value));
+                break;
+            case STICKER_SIZE:
+                stickerSize = value;
+                break;
+            case TRANSLATE_PROVIDER:
+                translateProvider = value;
+                break;
+            case MAX_VIDEO_HEIGHT:
+                maxVideoHeight = value;
+                break;
+            default:
+                // An unfamiliar key may still be one the cache holds under another name; falling
+                // back to a full reload keeps this correct as keys are added.
+                reload();
+                break;
+        }
+    }
+
     public static void setInt(String key, int value) {
         SharedPreferences p = prefs();
         if (p == null) {
             return;
         }
         p.edit().putInt(key, value).apply();
-        reload();
+        // A full reload re-reads every key this class holds. That is fine once, and wrong on a
+        // slider: setInt runs on each frame of the drag, and each frame re-read forty values to
+        // change one. Refreshing the single field keeps the cache honest at a fixed cost.
+        primeApplyInt(key, value);
     }
 
     public static boolean hideStories() {

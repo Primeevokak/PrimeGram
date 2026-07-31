@@ -59,12 +59,24 @@ public class PrimeStartupTrace {
      * every 200 ms, and whenever a ping comes back late it grabs the main thread's stack. The mark
      * therefore names the blocking call itself, wherever it happens to be.
      */
+    /**
+     * How long the watchdog may run before it stops on its own.
+     *
+     * <p>It is meant to watch a startup, and it stops when {@link #finish} is called - which
+     * happens when the chat list appears. But an app opened onto a deep link, a share sheet or the
+     * login screen never reaches that call, and the watchdog then pings the main looper every
+     * 200 ms for the life of the process. Posting to the main thread twice a second forever is not
+     * what an instrument for measuring startup should do to a shipped build.
+     */
+    private static final long WATCHDOG_MAX_MS = 60_000;
+
     public static void startMainThreadWatchdog() {
         final Thread mainThread = android.os.Looper.getMainLooper().getThread();
         final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        final long watchdogUntil = SystemClock.elapsedRealtime() + WATCHDOG_MAX_MS;
         Thread watchdog = new Thread(() -> {
             final boolean[] answered = {true};
-            while (!finished) {
+            while (!finished && SystemClock.elapsedRealtime() < watchdogUntil) {
                 try {
                     Thread.sleep(200);
                     synchronized (answered) {

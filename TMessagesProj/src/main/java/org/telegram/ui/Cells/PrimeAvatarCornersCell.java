@@ -59,10 +59,14 @@ public class PrimeAvatarCornersCell extends FrameLayout {
                 // in memory first: every avatar on screen picks this up on its next frame
                 PrimeTweaks.setAvatarCornersLive(value);
                 invalidate();
-                // every avatar in the window reshapes as the finger moves, not only afterwards
-                View root = getRootView();
-                if (root != null) {
-                    AndroidUtilities.forEachViews(root, View::invalidate);
+                // Every avatar in the window reshapes as the finger moves, not only afterwards.
+                //
+                // Scoped to the list rather than the whole window: walking the entire view tree
+                // and invalidating every node ran once per drag frame, and most of that tree is
+                // not an avatar. The list holds everything the user can actually see change.
+                View parent = (View) getParent();
+                if (parent != null) {
+                    AndroidUtilities.forEachViews(parent, View::invalidate);
                 }
                 if (stop) {
                     PrimeTweaks.setInt(PrimeTweaks.AVATAR_CORNERS, value);

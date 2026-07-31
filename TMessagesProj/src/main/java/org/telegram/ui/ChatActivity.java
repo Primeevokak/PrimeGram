@@ -6439,6 +6439,11 @@ public class ChatActivity extends BaseFragment implements
         chatListView.setTag(1);
         chatListView.setVerticalScrollBarEnabled(!SharedConfig.chatBlurEnabled());
         chatListView.setAdapter(chatAdapter = new ChatActivityAdapter(context));
+        // PrimeGram: the stock cache is two offscreen views, and a message cell is the most
+        // expensive thing this app builds - binding one re-lays out its text. Holding a few more
+        // means a short scroll back up re-attaches instead of rebuilding. The cost is a handful of
+        // views' memory; the saving is on every reversal of direction.
+        chatListView.setItemViewCacheSize(8);
         chatListView.setClipToPadding(false);
         if (ChatObject.isMonoForum(currentChat) || ChatObject.areTabsEnabled(currentChat)) {
             chatListView.setClipChildren(false);

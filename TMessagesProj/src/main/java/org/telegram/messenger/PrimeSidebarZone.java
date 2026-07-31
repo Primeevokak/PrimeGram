@@ -40,17 +40,45 @@ public class PrimeSidebarZone {
         return MessagesController.getGlobalMainSettings();
     }
 
+    // Cached in fields, not read from preferences on demand.
+    //
+    // These three are asked for on the touch path - every ACTION_MOVE while a finger is on the
+    // chat list - and from onLayout of the root container. The old shape read preferences in each
+    // getter, and bottom() called top(), so one question about a point cost four reads and four
+    // trips through the preferences monitor. Preferences are in memory, but not for free, and not
+    // at that rate.
+    private static volatile boolean loaded;
+    private static float cachedWidth = DEFAULT_WIDTH;
+    private static float cachedTop = DEFAULT_TOP;
+    private static float cachedBottom = DEFAULT_BOTTOM;
+
+    private static void ensureLoaded() {
+        if (loaded) {
+            return;
+        }
+        final SharedPreferences preferences = prefs();
+        if (preferences == null) {
+            return;
+        }
+        cachedWidth = clamp(preferences.getFloat(KEY_WIDTH, DEFAULT_WIDTH), MIN_WIDTH, MAX_WIDTH);
+        cachedTop = clamp(preferences.getFloat(KEY_TOP, DEFAULT_TOP), 0f, 1f - MIN_HEIGHT);
+        cachedBottom = clamp(preferences.getFloat(KEY_BOTTOM, DEFAULT_BOTTOM), cachedTop + MIN_HEIGHT, 1f);
+        loaded = true;
+    }
+
     public static float width() {
-        return clamp(prefs().getFloat(KEY_WIDTH, DEFAULT_WIDTH), MIN_WIDTH, MAX_WIDTH);
+        ensureLoaded();
+        return cachedWidth;
     }
 
     public static float top() {
-        final float top = clamp(prefs().getFloat(KEY_TOP, DEFAULT_TOP), 0f, 1f - MIN_HEIGHT);
-        return top;
+        ensureLoaded();
+        return cachedTop;
     }
 
     public static float bottom() {
-        return clamp(prefs().getFloat(KEY_BOTTOM, DEFAULT_BOTTOM), top() + MIN_HEIGHT, 1f);
+        ensureLoaded();
+        return cachedBottom;
     }
 
     public static void set(float width, float top, float bottom) {
@@ -59,10 +87,12 @@ public class PrimeSidebarZone {
                 .putFloat(KEY_TOP, clamp(top, 0f, 1f - MIN_HEIGHT))
                 .putFloat(KEY_BOTTOM, clamp(bottom, MIN_HEIGHT, 1f))
                 .apply();
+        loaded = false;
     }
 
     public static void reset() {
         prefs().edit().remove(KEY_WIDTH).remove(KEY_TOP).remove(KEY_BOTTOM).apply();
+        loaded = false;
     }
 
     public static boolean isDefault() {

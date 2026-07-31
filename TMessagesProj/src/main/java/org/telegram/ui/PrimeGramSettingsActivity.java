@@ -461,10 +461,16 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             if (listView == null || height <= 0 || listView.getPaddingTop() == height) {
                 return;
             }
+            final boolean first = listView.getPaddingTop() == 0;
             listView.setClipToPadding(false);
             listView.setPadding(listView.getPaddingLeft(), height,
                     listView.getPaddingRight(), listView.getPaddingBottom());
-            listView.scrollToPosition(0);
+            // Only the first time. The preview changes height as settings change, and scrolling
+            // to the top on every such change threw the list back to the start under the user's
+            // finger - while they were dragging a slider halfway down the page.
+            if (first) {
+                listView.scrollToPosition(0);
+            }
         });
     }
 

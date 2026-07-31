@@ -140,11 +140,30 @@ public class PrimeWhisper {
         return new File(dir, MODEL_FILES[index]);
     }
 
+    /**
+     * Remembered per model, because this is a filesystem stat and it is asked from a view
+     * constructor: every transcribe button built while scrolling a chat full of voice messages
+     * hit the disk twice. The answer changes only when a model is downloaded or deleted, and both
+     * of those clear it.
+     */
+    private static final java.util.HashMap<Integer, Boolean> downloadedCache = new java.util.HashMap<>();
+
     public static boolean isModelDownloaded(int model) {
+        final Boolean cached = downloadedCache.get(model);
+        if (cached != null) {
+            return cached;
+        }
         final File file = getModelFile(model);
         // A partial download left by a killed process would be a file that exists and loads as
         // garbage, so a plausible size is part of "downloaded", not a separate check.
-        return file.exists() && file.length() > MODEL_BYTES[model] / 2;
+        final boolean downloaded = file.exists() && file.length() > MODEL_BYTES[model] / 2;
+        downloadedCache.put(model, downloaded);
+        return downloaded;
+    }
+
+    /** Called whenever a model file appears or disappears. */
+    public static void invalidateModelCache() {
+        downloadedCache.clear();
     }
 
     public static boolean deleteModel(int model) {
@@ -153,7 +172,9 @@ public class PrimeWhisper {
                 releaseLocked();
             }
         }
-        return getModelFile(model).delete();
+        final boolean deleted = getModelFile(model).delete();
+        invalidateModelCache();
+        return deleted;
     }
 
     /** True when this account should use the on-device path instead of Telegram's. */
@@ -209,6 +230,7 @@ public class PrimeWhisper {
                 if (!temp.renameTo(target)) {
                     throw new Exception("не удалось сохранить модель");
                 }
+                invalidateModelCache();
                 AndroidUtilities.runOnUIThread(() -> callback.onFinished(true, null));
             } catch (Throwable t) {
                 FileLog.e("PrimeWhisper.download", t);

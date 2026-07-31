@@ -151,12 +151,15 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
         return primeIdResult != null;
     }
 
+    private int primeIdKind = org.telegram.messenger.PrimeIdentitySearch.KIND_NONE;
+
     private void primeSearchById(String query) {
-        final Long id = org.telegram.messenger.PrimeIdentitySearch.parseId(query);
-        if (id == null) {
+        final int kind = org.telegram.messenger.PrimeIdentitySearch.kindOf(query);
+        if (kind == org.telegram.messenger.PrimeIdentitySearch.KIND_NONE) {
             if (primeIdResult != null || primeIdQuery != null) {
                 primeIdQuery = null;
                 primeIdResult = null;
+                primeIdKind = kind;
                 notifyDataSetChanged();
             }
             return;
@@ -165,8 +168,9 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
             return;
         }
         primeIdQuery = query;
+        primeIdKind = kind;
         primeIdResult = null;
-        org.telegram.messenger.PrimeIdentitySearch.resolve(currentAccount, id, result -> {
+        org.telegram.messenger.PrimeIdentitySearch.resolveQuery(currentAccount, query, result -> {
             // The query may have moved on while the request was in flight; a result for text the
             // user has already replaced would appear under the wrong search.
             if (!TextUtils.equals(primeIdQuery, query)) {
@@ -175,6 +179,34 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
             primeIdResult = result;
             notifyDataSetChanged();
         });
+    }
+
+    private String primeSectionTitle() {
+        switch (primeIdKind) {
+            case org.telegram.messenger.PrimeIdentitySearch.KIND_PHONE:
+                return "Поиск+ · по номеру";
+            case org.telegram.messenger.PrimeIdentitySearch.KIND_LINK:
+                return "Поиск+ · по ссылке";
+            default:
+                return "Поиск+ · по ID";
+        }
+    }
+
+    /**
+     * Appends our two rows to whatever count the caller arrived at.
+     *
+     * <p>Called from every {@code return} in {@link #getItemCount()} rather than only the last
+     * one. That was the bug: the method returns early in several cases - a hashtag query, and the
+     * common one where recent searches are on screen and nothing has been searched yet - and the
+     * section was only added on the path that reaches the bottom. So it appeared sometimes and
+     * not others, which reads exactly like "it does not work".
+     */
+    private int primeAppendSection(int count) {
+        if (primeHasIdSection()) {
+            primeIdSectionStart = count;
+            count += 2;
+        }
+        return count;
     }
     private boolean searchWas;
     private int reqId = 0;
@@ -1395,12 +1427,12 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
         }
         if (!searchResultHashtags.isEmpty()) {
             count += searchResultHashtags.size() + 1;
-            return count;
+            return primeAppendSection(count);
         }
         if (isRecentSearchDisplayed()) {
             count += getRecentItemsCount();
             if (!searchWas) {
-                return count;
+                return primeAppendSection(count);
             }
         }
         if (!searchTopics.isEmpty()) {
@@ -1454,11 +1486,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
         if (localMessagesSearchEndReached) {
             localMessagesLoadingRow = count;
         }
-        if (primeHasIdSection()) {
-            primeIdSectionStart = count;
-            count += 2;
-        }
-        return currentItemCount = count;
+        return currentItemCount = primeAppendSection(count);
     }
 
     public Object getItem(int i) {
@@ -1774,7 +1802,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
             // draw from the position's place among the other sections, and a position past all of
             // them has no place among them.
             if (position == primeIdSectionStart) {
-                ((GraySectionCell) holder.itemView).setText("Поиск+ · по ID");
+                ((GraySectionCell) holder.itemView).setText(primeSectionTitle());
             } else {
                 final ProfileSearchCell cell = (ProfileSearchCell) holder.itemView;
                 cell.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));

@@ -64,6 +64,134 @@ public final class PrimeIdentitySearch {
         }
     }
 
+    /** What kind of identifier a query turned out to be, for the heading above the result. */
+    public static final int KIND_NONE = 0;
+    public static final int KIND_ID = 1;
+    public static final int KIND_PHONE = 2;
+    public static final int KIND_LINK = 3;
+
+    /**
+     * Which of the three this query is, or {@link #KIND_NONE}.
+     *
+     * <p>A bare {@code @username} is deliberately not one of them: the ordinary search already
+     * resolves those against the server, and answering it here would put a second copy of the same
+     * person underneath the first.
+     */
+    public static int kindOf(String query) {
+        if (parseId(query) != null) {
+            return KIND_ID;
+        }
+        if (parseLink(query) != null) {
+            return KIND_LINK;
+        }
+        return parsePhone(query) != null ? KIND_PHONE : KIND_NONE;
+    }
+
+    /** The username inside a t.me or tg:// link, or null. */
+    public static String parseLink(String query) {
+        if (query == null) {
+            return null;
+        }
+        String value = query.trim();
+        final int index = value.indexOf("t.me/");
+        if (index >= 0) {
+            value = value.substring(index + 5);
+        } else if (value.startsWith("tg://resolve?domain=")) {
+            value = value.substring("tg://resolve?domain=".length());
+        } else {
+            return null;
+        }
+        int cut = value.indexOf('?');
+        if (cut >= 0) {
+            value = value.substring(0, cut);
+        }
+        cut = value.indexOf('/');
+        if (cut >= 0) {
+            value = value.substring(0, cut);
+        }
+        // A "+"-prefixed link is a private invite, which is a different request and a different
+        // kind of answer - a chat you have not joined, not a peer you can open.
+        if (value.startsWith("+") || value.isEmpty()) {
+            return null;
+        }
+        return value;
+    }
+
+    /**
+     * The digits of a phone number, or null.
+     *
+     * <p>Requires the query to look dialled - a leading plus, or spacing of some kind. A run of
+     * eleven digits with nothing else is far more likely to be an id, and is claimed by
+     * {@link #parseId} above.
+     */
+    public static String parsePhone(String query) {
+        if (query == null) {
+            return null;
+        }
+        final String text = query.trim();
+        if (!text.startsWith("+") && !text.contains(" ") && !text.contains("-") && !text.contains("(")) {
+            return null;
+        }
+        final String digits = text.replaceAll("[^0-9]", "");
+        return digits.length() >= 7 && digits.length() <= 15 ? digits : null;
+    }
+
+    /**
+     * Resolves whatever kind of identifier this query is, or calls back with null.
+     *
+     * <p>The callback always runs on the main thread, and always runs exactly once.
+     */
+    public static void resolveQuery(int account, String query, Utilities.Callback<TLObject> callback) {
+        if (callback == null) {
+            return;
+        }
+        final Long id = parseId(query);
+        if (id != null) {
+            resolve(account, id, callback);
+            return;
+        }
+        final String username = parseLink(query);
+        if (username != null) {
+            resolveUsername(account, username, callback);
+            return;
+        }
+        final String phone = parsePhone(query);
+        if (phone != null) {
+            resolvePhone(account, phone, callback);
+            return;
+        }
+        AndroidUtilities.runOnUIThread(() -> callback.run(null));
+    }
+
+    private static void resolveUsername(int account, String username, Utilities.Callback<TLObject> callback) {
+        final TLRPC.TL_contacts_resolveUsername req = new TLRPC.TL_contacts_resolveUsername();
+        req.username = username;
+        ConnectionsManager.getInstance(account).sendRequest(req, (response, error) ->
+                AndroidUtilities.runOnUIThread(() -> callback.run(firstPeer(account, response))));
+    }
+
+    private static void resolvePhone(int account, String phone, Utilities.Callback<TLObject> callback) {
+        final TLRPC.TL_contacts_resolvePhone req = new TLRPC.TL_contacts_resolvePhone();
+        req.phone = phone;
+        ConnectionsManager.getInstance(account).sendRequest(req, (response, error) ->
+                AndroidUtilities.runOnUIThread(() -> callback.run(firstPeer(account, response))));
+    }
+
+    /** Stores what came back and returns the peer it names, so tapping the row can open it. */
+    private static TLObject firstPeer(int account, TLObject response) {
+        if (!(response instanceof TLRPC.TL_contacts_resolvedPeer)) {
+            return null;
+        }
+        final TLRPC.TL_contacts_resolvedPeer resolved = (TLRPC.TL_contacts_resolvedPeer) response;
+        MessagesController.getInstance(account).putUsers(resolved.users, false);
+        MessagesController.getInstance(account).putChats(resolved.chats, false);
+        MessagesStorage.getInstance(account).putUsersAndChats(resolved.users, resolved.chats, true, true);
+        if (!resolved.users.isEmpty()) {
+            return resolved.users.get(0);
+        }
+        return resolved.chats.isEmpty() ? null : resolved.chats.get(0);
+    }
+
     /**
      * Resolves an id to a {@link TLRPC.User} or {@link TLRPC.Chat}, or null.
      *

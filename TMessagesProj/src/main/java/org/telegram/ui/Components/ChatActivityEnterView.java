@@ -14599,6 +14599,10 @@ public class ChatActivityEnterView extends FrameLayout implements
         }
         final boolean hasSelection = messageEditText != null
                 && messageEditText.getSelectionStart() != messageEditText.getSelectionEnd();
+        // The settings read is last of the three, and only reached when there is a selection.
+        // This method runs from onSelectionChanged, i.e. on every keystroke and every caret move,
+        // and asking preferences that often for a value that changes when the user visits a
+        // settings screen is work for nothing.
         final boolean visible = primeToolbarAllowed
                 && hasSelection
                 && org.telegram.messenger.PrimeToolbarSettings.isEnabled();

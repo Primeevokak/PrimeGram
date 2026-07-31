@@ -72,12 +72,20 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         super.onFragmentDestroy();
         org.telegram.messenger.NotificationCenter.getInstance(currentAccount).removeObserver(this, org.telegram.messenger.NotificationCenter.messagesDidLoad);
         org.telegram.messenger.NotificationCenter.getInstance(currentAccount).removeObserver(this, org.telegram.messenger.NotificationCenter.dialogsNeedReload);
+        // Both are deferred, so both can still be pending when the screen goes away.
+        AndroidUtilities.cancelRunOnUIThread(primeReadCheck);
+        AndroidUtilities.cancelRunOnUIThread(primeReloadFeed);
     }
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
         if (id == org.telegram.messenger.NotificationCenter.messagesDidLoad || id == org.telegram.messenger.NotificationCenter.dialogsNeedReload) {
-            loadFeed();
+            // Coalesced. dialogsNeedReload arrives in bursts - a sync, a batch of new messages,
+            // a read receipt - and each one rebuilt the entire feed, which means re-querying the
+            // database and then notifyDataSetChanged over a list of the app's heaviest cells.
+            // Rebuilding once after the burst settles looks identical and costs a fraction.
+            AndroidUtilities.cancelRunOnUIThread(primeReloadFeed);
+            AndroidUtilities.runOnUIThread(primeReloadFeed, 400);
         }
     }
 
@@ -99,6 +107,12 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         listView.setLayoutManager(layoutManager);
         adapter = new FeedAdapter(context);
         listView.setAdapter(adapter);
+        // The rows here are ChatMessageCell - the most expensive view in the app - and this list
+        // was left on the defaults: two offscreen views, and an item animator that has nothing to
+        // animate because the feed only ever reloads wholesale. Both cost frames on every fling.
+        listView.setItemAnimator(null);
+        listView.setItemViewCacheSize(6);
+        listView.setHasFixedSize(true);
         listView.setOnItemClickListener((view, position) -> {
             if (position >= 0 && position < feedItems.size()) {
                 MessageObject msg = feedItems.get(position);
@@ -124,7 +138,19 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         listView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                checkVisibleItems();
+                // Not on every scroll frame. Marking posts as read walks every visible position,
+                // asks the layout manager for each view, and can end in a network request - none
+                // of which belongs on a path that runs sixty times a second. Reading is judged by
+                // where the list came to rest, and a fling that flies past a post was never a
+                // person reading it anyway.
+                primeScheduleReadCheck();
+            }
+
+            @Override
+            public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    checkVisibleItems();
+                }
             }
         });
 
@@ -317,6 +343,15 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 });
             }
         });
+    }
+
+    /** Coalesces the read check to one run per half-second of scrolling. */
+    private final Runnable primeReadCheck = this::checkVisibleItems;
+    private final Runnable primeReloadFeed = this::loadFeed;
+
+    private void primeScheduleReadCheck() {
+        AndroidUtilities.cancelRunOnUIThread(primeReadCheck);
+        AndroidUtilities.runOnUIThread(primeReadCheck, 500);
     }
 
     private void checkVisibleItems() {
