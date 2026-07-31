@@ -3030,6 +3030,37 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
      * whenever the user's status changes and puts it back on the bar, so not having one is the
      * only form of "hidden" that holds.
      */
+    /** Guards against the panel being queued twice; dialogsNeedReload arrives more than once. */
+    private boolean primeWhatsNewChecked;
+
+    /**
+     * Shows the release notes on the first launch after an update.
+     *
+     * <p>Tied to the moment the chat list actually has chats in it, rather than to a fragment
+     * callback. A sheet thrown up over a still-loading screen covers the thing the user opened the
+     * app for, and on a slow connection that screen can be empty for several seconds.
+     *
+     * <p>Only on the main list: this fragment is also the archive, the forwarding picker and half
+     * a dozen other things, and none of them is a place to be told what changed.
+     */
+    private void primeShowWhatsNew() {
+        if (primeWhatsNewChecked || folderId != 0 || onlySelect || isArchive()
+                || getParentActivity() == null) {
+            return;
+        }
+        primeWhatsNewChecked = true;
+        if (!org.telegram.messenger.PrimeWhatsNew.shouldShow()) {
+            return;
+        }
+        // A beat after the list settles, so the panel slides over a finished screen rather than
+        // arriving in the middle of the first layout.
+        AndroidUtilities.runOnUIThread(() -> {
+            if (getParentActivity() != null && !isPaused) {
+                org.telegram.ui.Components.PrimeWhatsNewSheet.show(this);
+            }
+        }, 700);
+    }
+
     private void primeApplyMainTitle() {
         if (actionBar == null || getContext() == null) {
             return;
@@ -10688,6 +10719,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             // their chats — the number worth optimising against.
             if (!getMessagesController().getDialogs(folderId).isEmpty()) {
                 org.telegram.messenger.PrimeStartupTrace.finish("dialogs visible");
+                primeShowWhatsNew();
             }
             for (int a = 0; a < viewPages.length; a++) {
                 final ViewPage viewPage = viewPages[a];
