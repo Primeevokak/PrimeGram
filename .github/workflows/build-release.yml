@@ -47,6 +47,12 @@ jobs:
         run: chmod +x gradlew
 
       - name: Compile Standalone Release APK
+        # The credentials come from the repository's secrets, never from a tracked file. Without
+        # them the build still succeeds - it falls back to the public pair - so a fork of the fork
+        # is not blocked, it just connects as somebody else.
+        env:
+          PRIME_APP_ID: ${{ secrets.PRIME_APP_ID }}
+          PRIME_APP_HASH: ${{ secrets.PRIME_APP_HASH }}
         run: ./gradlew :TMessagesProj_AppStandalone:assembleAfatRelease --no-daemon
 
       - name: Rename APKs

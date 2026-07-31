@@ -121,8 +121,17 @@ android {
 
         multiDexEnabled true
 
-        buildConfigField "int", "APP_ID", APP_ID
-        buildConfigField "String", "APP_HASH", "\"" + APP_HASH + "\""
+        // PrimeGram's own api_id and api_hash, taken from wherever they are configured and never
+        // from a tracked file. Order: an environment variable (that is how CI supplies them, out
+        // of the repository's secrets), then local.properties (gitignored, for this machine),
+        // then the public pair in gradle.properties so an unconfigured checkout still builds.
+        //
+        // They cannot be secret in the finished app - a client has to carry them to connect, and
+        // anyone can read them out of the APK. Keeping them out of the repository is about
+        // something narrower: a credential scraped from public source and used for spam gets the
+        // id banned, and that stops every installed copy from connecting.
+        buildConfigField "int", "APP_ID", primeApiId()
+        buildConfigField "String", "APP_HASH", "\"" + primeApiHash() + "\""
 
         // PrimeGram: the Python runtime plugins execute in.
         //
@@ -366,6 +375,31 @@ android {
     namespace 'org.telegram.messenger'
 }
 
+
+/** api_id, from the environment, then local.properties, then the public fallback. */
+def primeApiId() {
+    def fromEnv = System.getenv("PRIME_APP_ID")
+    if (fromEnv != null && !fromEnv.trim().isEmpty()) {
+        return fromEnv.trim()
+    }
+    def fromLocal = getProps("PRIME_APP_ID")
+    if (fromLocal != null && !fromLocal.toString().trim().isEmpty()) {
+        return fromLocal.toString().trim()
+    }
+    return APP_ID
+}
+
+def primeApiHash() {
+    def fromEnv = System.getenv("PRIME_APP_HASH")
+    if (fromEnv != null && !fromEnv.trim().isEmpty()) {
+        return fromEnv.trim()
+    }
+    def fromLocal = getProps("PRIME_APP_HASH")
+    if (fromLocal != null && !fromLocal.toString().trim().isEmpty()) {
+        return fromLocal.toString().trim()
+    }
+    return APP_HASH
+}
 
 def getProps(String propName) {
     def propsFile = rootProject.file('local.properties')
