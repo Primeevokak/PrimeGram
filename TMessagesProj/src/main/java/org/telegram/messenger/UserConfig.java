@@ -276,6 +276,10 @@ public class UserConfig extends BaseController {
     public void setCurrentUser(TLRPC.User user) {
         synchronized (sync) {
             TLRPC.User oldUser = currentUser;
+            // PrimeGram: an emoji status chosen without real Premium exists only on this device,
+            // and every copy of the user that arrives from the server is missing it. This is the
+            // one place all of them pass through, so it is where the choice is put back.
+            PrimeFakeEmojiStatus.restore(currentAccount, user);
             currentUser = user;
             clientUserId = user.id;
             checkPremiumSelf(oldUser, user);

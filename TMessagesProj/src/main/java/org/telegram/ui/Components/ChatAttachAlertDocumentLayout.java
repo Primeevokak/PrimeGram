@@ -791,7 +791,12 @@ public class ChatAttachAlertDocumentLayout extends ChatAttachAlert.AttachAlertLa
                     showErrorBox(LocaleController.formatString("PassportUploadNotImage", R.string.PassportUploadNotImage));
                     return false;
                 }
-                if ((item.file.length() > FileLoader.DEFAULT_MAX_FILE_SIZE && !UserConfig.getInstance(UserConfig.selectedAccount).isPremium()) || item.file.length() > FileLoader.DEFAULT_MAX_FILE_SIZE_PREMIUM) {
+                // hasRealPremium, not isPremium: the latter is this fork's local Premium and
+                // answers yes to everyone. The limit being tested here is the server's, and the
+                // server has not heard of our settings screen - so a 2.7 GB file on an ordinary
+                // account passed this check, went out as a normal attachment, and was refused
+                // half a second later with nothing to show for it.
+                if ((item.file.length() > FileLoader.DEFAULT_MAX_FILE_SIZE && !UserConfig.getInstance(UserConfig.selectedAccount).hasRealPremium()) || item.file.length() > FileLoader.DEFAULT_MAX_FILE_SIZE_PREMIUM) {
                     // PrimeGram: too big for Telegram, not necessarily too big for us.
                     //
                     // Handled here rather than in the send pipeline: the file never becomes a

@@ -2674,6 +2674,11 @@ public class MessagesController extends BaseController implements NotificationCe
         getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_EMOJI_STATUS);
         if (getUserConfig().hasRealPremium() || newStatus instanceof TLRPC.TL_emojiStatusEmpty) {
             getConnectionsManager().sendRequest(r, null);
+        } else if (myself) {
+            // The server is never told, so the only copy is the one on the local user object -
+            // and the server replaces that object on every sync, taking the status with it.
+            // Remembered separately so it can be put back; see PrimeFakeEmojiStatus.
+            PrimeFakeEmojiStatus.remember(currentAccount, new_emoji_status);
         }
     }
 
