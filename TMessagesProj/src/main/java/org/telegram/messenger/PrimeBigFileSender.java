@@ -227,15 +227,42 @@ public final class PrimeBigFileSender implements NotificationCenter.Notification
     }
 
     /**
-     * Cuts one chunk out of the source into the cache, named with its header.
+     * Where a chunk may be written so that it can then be sent.
+     *
+     * <p>Not the app's private cache, which is where this used to write. Telegram refuses to send
+     * anything from its own internal storage - {@code isInternalUri} rejects those paths outright,
+     * with a single hardcoded exception for call logs - so a chunk written there was refused as an
+     * "unsupported attachment" the instant it was handed to the sender. The documents directory is
+     * where the app keeps files it has downloaded, and forwarding one of those is ordinary, so it
+     * is a path the sender already accepts.
+     */
+    private File chunkDirectory() {
+        File base = FileLoader.getDirectory(FileLoader.MEDIA_DIR_DOCUMENT);
+        if (base == null || AndroidUtilities.isInternalUri(android.net.Uri.fromFile(base))) {
+            // Some devices have no external storage for the app; the external cache is the next
+            // place that is ours to write and not "internal" by that check.
+            base = ApplicationLoader.applicationContext.getExternalCacheDir();
+        }
+        if (base == null) {
+            return null;
+        }
+        final File dir = new File(base, CHUNK_DIR);
+        if (!dir.exists() && !dir.mkdirs()) {
+            return null;
+        }
+        return dir;
+    }
+
+    /**
+     * Cuts one chunk out of the source, named with its header.
      *
      * <p>The name is the payload: {@code prepareSendingDocument} takes the file's own name, so the
      * header has to <em>be</em> the temporary file's name for the other side to ever see it.
      */
     private File extract(Transfer transfer, int index) throws IOException {
         final long[] part = transfer.parts.get(index);
-        final File dir = new File(ApplicationLoader.applicationContext.getCacheDir(), CHUNK_DIR);
-        if (!dir.exists() && !dir.mkdirs()) {
+        final File dir = chunkDirectory();
+        if (dir == null) {
             return null;
         }
         final String name = PrimeBigFile.header(transfer.alias, index + 1, transfer.total,
