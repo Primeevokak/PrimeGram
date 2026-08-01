@@ -228,6 +228,74 @@ def send_pie(peer, labels, values):
     client_utils.send_photo(peer, path)
 ```
 
+## Подменить поведение клиента
+
+Хук на метод — способ вмешаться там, где мы не сделали двери заранее.
+
+```python
+from base_plugin import BasePlugin
+from java import jclass
+
+
+class SizePlugin(BasePlugin):
+
+    def on_plugin_load(self):
+        if not self.hooking_available:
+            self.log("на этом устройстве хуки не работают")
+            return
+
+        cls = jclass("org.telegram.messenger.AndroidUtilities").getClass()
+        self.hook_all_methods(cls, "formatFileSize", after=self._round)
+
+    def _round(self, param):
+        # Всё, что меньше мегабайта, показываем как «меньше МБ»
+        if len(param.args) > 0 and param.args[0] < 1024 * 1024:
+            param.setResult("< 1 МБ")
+```
+
+## Свой формат файла
+
+```python
+from base_plugin import BasePlugin
+from file_utils import FilesController
+from ui.bulletin import BulletinHelper
+from android_utils import run_on_ui_thread
+
+
+class BookPlugin(BasePlugin):
+
+    def on_plugin_load(self):
+        self.add_file_hook(FilesController.FileInfo(
+            ext="epub",
+            on_click=self._open,
+        ))
+
+    def _open(self, args):
+        run_on_ui_thread(lambda: BulletinHelper.show_info(
+            "Открываю %s" % args.file_name))
+```
+
+## Своя схема ссылок
+
+```python
+from base_plugin import BasePlugin, IntentHookType
+from intents import IntentsManager
+
+
+class LinkPlugin(BasePlugin):
+
+    def on_plugin_load(self):
+        self.add_intent_hook(
+            IntentsManager.HandlerInfo(callback=self._handle, scheme="myplugin"),
+            IntentHookType.BEFORE,
+        )
+
+    def _handle(self, intent):
+        parsed = IntentsManager.parse(intent.getDataString())
+        self.log("пришло: %s" % parsed)
+        return True          # обработали, дальше не пускаем
+```
+
 ---
 
 ## Три ошибки, на которых спотыкаются все

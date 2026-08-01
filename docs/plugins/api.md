@@ -268,7 +268,117 @@ get_static_private_field(clazz, name)      set_static_private_field(clazz, name,
 Инструмент острый: имена полей меняются между версиями клиента, и молчаливая поломка после
 обновления — обычное дело. Оборачивайте в `try`.
 
-### Чего нет
+### Подмена методов
 
-`hook_method`, `hook_all_methods`, `hook_all_constructors`, `add_file_hook`, `add_intent_hook`.
-Вызовы существуют, чтобы плагин не падал, но ничего не делают и пишут строчку в лог.
+```python
+hook_method(method_or_constructor, xposed_hook=None, priority=None, *,
+            before=None, after=None, before_filters=None, after_filters=None)
+hook_all_methods(hook_class, method_name, xposed_hook=None, priority=None, *, ...)
+hook_all_constructors(hook_class, xposed_hook=None, priority=None, *, ...)
+unhook_method(unhook)
+unhook_all()
+hooking_available          # свойство: умеет ли устройство
+```
+
+Три формы вызова, все равноправны:
+
+```python
+# 1. Голые функции
+self.hook_all_methods(cls, "name", before=lambda p: ..., after=lambda p: ...)
+
+# 2. Объект-хук
+class MyHook(MethodHook):
+    def before_hooked_method(self, param): ...
+    def after_hooked_method(self, param): ...
+
+self.hook_all_methods(cls, "name", MyHook())
+
+# 3. Замена метода целиком
+class MyReplacement(MethodReplacement):
+    def replace_hooked_method(self, param):
+        return "вместо оригинала"
+
+self.hook_method(member, MyReplacement())
+```
+
+В `param` приходит `XC_MethodHook.MethodHookParam`:
+
+| Что | Зачем |
+|---|---|
+| `param.args` | Аргументы вызова, можно менять |
+| `param.thisObject` | Объект, у которого вызвали метод |
+| `param.getResult()` / `param.setResult(v)` | Возвращаемое значение |
+| `param.getThrowable()` / `param.setThrowable(t)` | Исключение |
+| `param.method` | Сам метод |
+
+Выставленный в `before` результат отменяет выполнение оригинала.
+
+Приоритет решает порядок, если хуков на один метод несколько. Хуки плагина снимаются
+автоматически при его выключении — звать `unhook_all` вручную не нужно.
+
+### Фильтры
+
+Ограничивают срабатывание хука, чтобы не проверять условие внутри каждого вызова.
+
+```python
+from base_plugin import HookFilter
+
+self.hook_all_methods(cls, "process",
+                      after=self.handle,
+                      after_filters=[HookFilter.RESULT_NOT_NULL,
+                                     HookFilter.ArgumentEqual(0, "нужное")])
+```
+
+Готовые: `RESULT_IS_NULL`, `RESULT_NOT_NULL`, `RESULT_IS_TRUE`, `RESULT_IS_FALSE`.
+Строятся вызовом: `ResultEqual(v)`, `ResultNotEqual(v)`, `ResultIsInstanceOf(cls)`,
+`ArgumentIsNull(i)`, `ArgumentNotNull(i)`, `ArgumentIsTrue(i)`, `ArgumentIsFalse(i)`,
+`ArgumentEqual(i, v)`, `ArgumentNotEqual(i, v)`, `ArgumentIsInstanceOf(i, cls)`, `Or(*filters)`.
+
+`Condition(expression)` из exteraGram не поддерживается — там выражение на MVEL, интерпретатора у
+нас нет, и такой фильтр не совпадает никогда.
+
+### Файловые хуки
+
+```python
+from file_utils import FilesController
+
+secret = self.add_file_hook(FilesController.FileInfo(
+    ext="epub",
+    on_click=callback,
+    whitelist_places=[],        # необязательно
+    blacklist_places=[],        # необязательно
+))
+self.remove_file_hook("epub", secret)
+```
+
+В `on_click` приходит `OnClickArgs` с полями `place`, `file`, `file_name`, `message`, `activity`.
+
+Одно расширение — один плагин; повторная регистрация поднимет `ExtensionAlreadyRegistered`.
+
+### Intent-хуки
+
+```python
+from base_plugin import IntentHookType
+from intents import IntentsManager
+
+handle = self.add_intent_hook(
+    IntentsManager.HandlerInfo(
+        callback=fn,
+        scheme=None, host=None, path=None,
+        action=None, type=None, categories=None,
+        required_path_args_names=None,
+        whitelist_flags=None, blacklist_flags=None,
+        priority=0,
+    ),
+    IntentHookType.BEFORE,
+)
+self.remove_intent_hook(handle)
+```
+
+Колбэк получает Java-объект `Intent`. Верните `True`, если обработали, — тогда дальше он не пойдёт.
+
+`BEFORE` — до собственной обработки клиента, `AFTER` — только то, что клиент не разобрал сам.
+Заполненные поля `HandlerInfo` работают как фильтр: пустые не проверяются.
+
+`IntentsManager.parse(url)` разбирает ссылку на схему, хост, путь и параметры запроса — удобно
+внутри колбэка.
