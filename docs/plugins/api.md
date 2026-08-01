@@ -126,16 +126,51 @@ if not isinstance(params.message, str):
 ### Хуки запросов и обновлений
 
 ```python
-self.add_hook("messages.sendMessage")                 # точное имя
-self.add_hook("account.", match_substring=True)       # всё семейство
+def pre_request_hook(self, request_name, account, request):
+    return HookResult()
+
+def post_request_hook(self, request_name, account, response, error):
+    return HookResult()
+
+def on_update_hook(self, update_name, account, update):
+    return HookResult()
+
+def on_updates_hook(self, container_name, account, updates):
+    return HookResult()
 ```
 
-Регистрация работает, сортировка по приоритету работает. **Но вызовов пока нет:** в клиенте не
-расставлены точки, из которых `pre_request_hook`, `post_request_hook`, `on_update_hook` и
-`on_updates_hook` дёргались бы. Плагин, построенный на них, установится и будет молчать.
+**Достаточно переопределить метод** — регистрировать ничего не нужно, плагин начнёт получать всё.
+Если событий слишком много, сузьте выборку:
 
-Пишем прямо, чтобы вы не искали ошибку у себя. Если это то, чего вам не хватает, — скажите, и мы
-расставим точки; техника для этого уже есть.
+```python
+self.add_hook("TL_messages_sendMessage")              # точное имя
+self.add_hook("messages.", match_substring=True)      # всё семейство
+```
+
+Имя приходит как имя класса — `TL_messages_sendMessage`. Но сравнивается и с точечной формой
+`messages.sendMessage`, потому что именно так метод называется в документации Telegram API, и
+угадывать, какую из двух мы ждём, вы не должны.
+
+Что можно вернуть:
+
+| Хук | Стратегия | Что произойдёт |
+|---|---|---|
+| `pre_request_hook` | `CANCEL` | Запрос не уйдёт. Вызывающему придёт ошибка `-2000 CANCELED_BY_PLUGIN` |
+| `pre_request_hook` | `MODIFY` + `request=` | На сервер уйдёт ваш объект вместо исходного |
+| `post_request_hook` | `MODIFY` + `response=` | Вызывающий получит ваш ответ вместо настоящего |
+| любой | `MODIFY_FINAL` | Остальные плагины про это событие не узнают |
+
+Про отмену стоит знать одну вещь: вызывающий **всегда** получает ответ. Просто выбросить запрос
+означало бы оставить крутиться спиннер, который никогда не остановится, поэтому вместо тишины
+приходит ошибка.
+
+**Где именно это перехватывается.** Запросы — в `ConnectionsManager.sendRequest`, до сериализации,
+и в момент доставки ответа. Обновления — в `processUpdates` (весь контейнер, `on_updates_hook`) и
+в `processUpdateArray` (каждое по отдельности, `on_update_hook`). Последняя точка ловит всё сразу:
+и то, что пришло по сокету, и то, что приехало пушем, и то, что догрузилось после офлайна.
+
+Оба пути горячие: пока ни один плагин их не переопределил, они стоят одно чтение поля и в Python
+не заходят вовсе.
 
 ### Пункты меню
 

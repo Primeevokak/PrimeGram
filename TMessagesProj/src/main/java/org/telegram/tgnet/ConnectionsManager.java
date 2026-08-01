@@ -391,8 +391,29 @@ public class ConnectionsManager extends BaseController {
 
     public int sendRequest(final TLObject object, final RequestDelegate onComplete, final RequestDelegateTimestamp onCompleteTimestamp, final QuickAckDelegate onQuickAck, final WriteToSocketDelegate onWriteToSocket, final int flags, final int datacenterId, final int connectionType, final boolean immediate) {
         final int requestToken = lastRequestToken.getAndIncrement();
+        // PrimeGram: plugins see the request before it is serialised, and may replace or refuse it.
+        // Here rather than in sendRequestInternal because that one is also reached from
+        // sendRequestSync, and both paths should offer the same thing.
+        final Object primeRequest = org.telegram.messenger.plugins.PrimePluginHooks
+                .onPreRequest(currentAccount, object);
+        if (primeRequest == null) {
+            // Refused. The caller is still waiting for an answer, and leaving it waiting forever
+            // would hang whatever spinner is on screen - so it gets an error instead of silence.
+            final TLRPC.TL_error error = new TLRPC.TL_error();
+            error.code = -2000;
+            error.text = "CANCELED_BY_PLUGIN";
+            Utilities.stageQueue.postRunnable(() -> {
+                if (onComplete != null) {
+                    onComplete.run(null, error);
+                } else if (onCompleteTimestamp != null) {
+                    onCompleteTimestamp.run(null, error, 0);
+                }
+            });
+            return requestToken;
+        }
+        final TLObject request = primeRequest instanceof TLObject ? (TLObject) primeRequest : object;
         Utilities.stageQueue.postRunnable(() -> {
-            sendRequestInternal(object, onComplete, onCompleteTimestamp, onQuickAck, onWriteToSocket, flags, datacenterId, connectionType, immediate, requestToken);
+            sendRequestInternal(request, onComplete, onCompleteTimestamp, onQuickAck, onWriteToSocket, flags, datacenterId, connectionType, immediate, requestToken);
         });
         return requestToken;
     }
@@ -459,6 +480,12 @@ public class ConnectionsManager extends BaseController {
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("java received " + resp + (error != null ? " error = " + error : "") + " messageId = 0x" + Long.toHexString(requestMsgId));
                         FileLog.dumpResponseAndRequest(currentAccount, object, resp, error, requestMsgId, finalStartRequestTime, requestToken);
+                    }
+                    // PrimeGram: plugins see the answer before the caller does, and may replace it.
+                    final Object primeResponse = org.telegram.messenger.plugins.PrimePluginHooks
+                            .onPostRequest(currentAccount, object, resp, error);
+                    if (primeResponse instanceof TLObject && primeResponse != resp) {
+                        resp = (TLObject) primeResponse;
                     }
                     final TLObject finalResponse = resp;
                     final TLRPC.TL_error finalError = error;

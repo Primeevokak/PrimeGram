@@ -17946,6 +17946,8 @@ public class MessagesController extends BaseController implements NotificationCe
 
     // must be run from Utilities.stageQueue
     public void processUpdates(final TLRPC.Updates updates, boolean fromQueue) {
+        // PrimeGram: the container as it arrived, before anything is taken out of it.
+        org.telegram.messenger.plugins.PrimePluginHooks.onUpdates(currentAccount, updates, true);
         ArrayList<Long> needGetChannelsDiff = null;
         boolean needGetDiff = false;
         boolean needReceivedQueue = false;
@@ -18484,6 +18486,9 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public boolean processUpdateArray(ArrayList<TLRPC.Update> updates, ArrayList<TLRPC.User> usersArr, ArrayList<TLRPC.Chat> chatsArr, boolean fromGetDifference, int date) {
+        // PrimeGram: individual updates, whichever way they arrived - a push, a socket, or the
+        // difference fetched after being offline. All three come through here.
+        org.telegram.messenger.plugins.PrimePluginHooks.onUpdates(currentAccount, updates, false);
         if (updates.isEmpty()) {
             if (usersArr != null || chatsArr != null) {
                 AndroidUtilities.runOnUIThread(() -> {

@@ -39,6 +39,94 @@ public final class PrimePluginHooks {
         intentHooks = value;
     }
 
+    /** Requests and updates share a flag: a plugin interested in one is usually interested in both. */
+    private static volatile boolean requestHooks;
+
+    public static void setRequestHooks(boolean value) {
+        requestHooks = value;
+    }
+
+    public static boolean hasRequestHooks() {
+        return requestHooks;
+    }
+
+    /**
+     * Offers an outgoing request to the plugins, before it is serialised.
+     *
+     * @return the request to send - the same object when nobody touched it, a different one when a
+     *         plugin replaced it, or null when a plugin cancelled the whole thing
+     */
+    public static Object onPreRequest(int account, Object request) {
+        if (!requestHooks || request == null) {
+            return request;
+        }
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return request;
+        }
+        try {
+            final PyObject loader = engine.module("_prime_loader");
+            if (loader == null) {
+                return request;
+            }
+            final PyObject result = loader.callAttr("dispatch_pre_request", account, request);
+            if (result == null || result.toJava(Object.class) == null) {
+                return null;
+            }
+            return result.toJava(Object.class);
+        } catch (Throwable e) {
+            // The request goes out unchanged. A plugin must not be able to stop the client from
+            // talking to the server by throwing.
+            FileLog.e(e);
+            return request;
+        }
+    }
+
+    /**
+     * Offers a response to the plugins before the caller sees it.
+     *
+     * @return the response to deliver, which is usually the one that came in
+     */
+    public static Object onPostRequest(int account, Object request, Object response, Object error) {
+        if (!requestHooks) {
+            return response;
+        }
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return response;
+        }
+        try {
+            final PyObject loader = engine.module("_prime_loader");
+            if (loader == null) {
+                return response;
+            }
+            final PyObject result = loader.callAttr("dispatch_post_request", account, request, response, error);
+            return result == null ? response : result.toJava(Object.class);
+        } catch (Throwable e) {
+            FileLog.e(e);
+            return response;
+        }
+    }
+
+    /** Offers a container of updates, and every update inside it, to the plugins. */
+    public static void onUpdates(int account, Object updates, boolean container) {
+        if (!requestHooks || updates == null) {
+            return;
+        }
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return;
+        }
+        try {
+            final PyObject loader = engine.module("_prime_loader");
+            if (loader != null) {
+                loader.callAttr("dispatch_updates", account, updates, container);
+            }
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+    }
+
     /**
      * Offers a file the user tapped to the plugins. Returns true when one of them took it.
      *

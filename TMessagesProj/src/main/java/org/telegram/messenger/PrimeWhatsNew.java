@@ -79,8 +79,8 @@ public final class PrimeWhatsNew {
      */
     public static List<Entry> entries() {
         final List<Entry> entries = new ArrayList<>();
-        entries.add(new Entry("msg_settings", "Плагины",
-                "Расширения на Python, совместимые с exteraGram. Пришлите себе файл .plugin и нажмите на него."));
+        entries.add(new Entry("msg_settings", "Плагины теперь могут всё",
+                "Расширения на Python, совместимые с exteraGram: пришлите себе файл .plugin и нажмите на него. Плагин умеет менять поведение самого клиента, открывать свои форматы файлов и ловить ссылки — а библиотек внутри больше сорока."));
         entries.add(new Entry("msg_sendfile", "Файлы до 8 ГБ",
                 "Файл больше лимита Telegram уходит частями, а PrimeGram на другой стороне собирает его обратно. Включается в настройках медиа."));
         entries.add(new Entry("msg_notifications", "Уведомления приходят сразу",
@@ -95,6 +95,8 @@ public final class PrimeWhatsNew {
                 "Порядок и состав кнопок над полем ввода теперь перетаскиваются."));
         entries.add(new Entry("msg_info", "Гайд по настройкам",
                 "Короткая экскурсия по тому, что здесь вообще настраивается. Внизу экрана настроек PrimeGram."));
+        entries.add(new Entry("msg_language", "Документация для авторов плагинов",
+                "primeevokak.github.io/PrimeGram — как написать свой, справочник по API, список библиотек и готовые примеры."));
         return entries;
     }
 }

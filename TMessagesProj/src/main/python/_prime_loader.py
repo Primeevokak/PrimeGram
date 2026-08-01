@@ -31,6 +31,30 @@ _settings_rows = {}
 _MODULE_PREFIX = "prime_plugin_"
 
 
+_REQUEST_METHODS = ("pre_request_hook", "post_request_hook", "on_update_hook", "on_updates_hook")
+
+
+def _publish_request_hooks():
+    """Tells Java whether anybody is listening to requests and updates.
+
+    Both paths are hot - every request the client makes, every update the server sends - so the
+    cost for a user with no such plugin has to be one field read and nothing else.
+    """
+    wanted = False
+    for plugin in registry.plugins.values():
+        for method in _REQUEST_METHODS:
+            if getattr(type(plugin), method) is not getattr(base_plugin.BasePlugin, method):
+                wanted = True
+                break
+        if wanted:
+            break
+    try:
+        from org.telegram.messenger.plugins import PrimePluginHooks
+        PrimePluginHooks.setRequestHooks(wanted)
+    except Exception:
+        pass
+
+
 def _short_error(exc):
     """The last line of a traceback - what a user can act on, without the machinery above it."""
     lines = traceback.format_exception_only(type(exc), exc)
@@ -124,6 +148,7 @@ def load_plugin(plugin_id, path):
         registry.plugins[plugin_id] = plugin
         plugin.on_plugin_load()
         plugin.initialized = True
+        _publish_request_hooks()
     except Exception as e:
         log("plugin %s failed to load:\n%s" % (plugin_id, traceback.format_exc()))
         unload_plugin(plugin_id)
@@ -148,6 +173,7 @@ def unload_plugin(plugin_id):
         plugin.enabled = False
         plugin.initialized = False
     registry.remove_plugin(plugin_id)
+    _publish_request_hooks()
     _settings_rows.pop(plugin_id, None)
     plugin_settings.forget(plugin_id)
     sys.modules.pop(_MODULE_PREFIX + plugin_id, None)
@@ -321,3 +347,106 @@ def dispatch_intent(intent, after):
     except Exception:
         log("intent dispatch failed:\n%s" % traceback.format_exc())
         return False
+
+
+def _request_name(obj):
+    """Both shapes of the name a plugin might have registered.
+
+    Telegram's own classes are called ``TL_messages_sendMessage``; plugins are equally likely to
+    have written ``messages.sendMessage``, because that is how the method is called in the API
+    documentation. Matching on either costs one string operation and saves the author a guess.
+    """
+    raw = type(obj).__name__
+    dotted = raw
+    if dotted.startswith("TL_"):
+        dotted = dotted[3:]
+    dotted = dotted.replace("_", ".", 1)
+    return raw, dotted
+
+
+def _interested(plugin, method_name, names):
+    """Whether this plugin should hear about an event with these names.
+
+    A plugin that registered names is asked only about those. One that registered none but
+    overrode the method hears everything - otherwise the override would look broken, and the
+    plugin author has already said what they want by writing the method.
+    """
+    if getattr(type(plugin), method_name) is getattr(base_plugin.BasePlugin, method_name):
+        return False
+    registered = [h for h in registry.request_hooks if h[3] is plugin]
+    if not registered:
+        return True
+    for name, substring, _priority, _plugin in registered:
+        for candidate in names:
+            if (name in candidate) if substring else (name == candidate):
+                return True
+    return False
+
+
+def dispatch_pre_request(account, request):
+    """Java asks what to send. Returns the request, a replacement, or None to cancel."""
+    if not registry.plugins:
+        return request
+    names = _request_name(request)
+    for plugin in list(registry.plugins.values()):
+        if not _interested(plugin, "pre_request_hook", names):
+            continue
+        try:
+            result = plugin.pre_request_hook(names[0], account, request)
+        except Exception:
+            log("plugin %s failed before a request:\n%s" % (plugin.id, traceback.format_exc()))
+            continue
+        if result is None:
+            continue
+        if result.strategy == base_plugin.HookStrategy.CANCEL:
+            return None
+        if result.request is not None:
+            request = result.request
+            names = _request_name(request)
+        if result.strategy == base_plugin.HookStrategy.MODIFY_FINAL:
+            break
+    return request
+
+
+def dispatch_post_request(account, request, response, error):
+    """Java asks what to hand back to the caller. Returns the response, possibly replaced."""
+    if not registry.plugins:
+        return response
+    names = _request_name(request)
+    for plugin in list(registry.plugins.values()):
+        if not _interested(plugin, "post_request_hook", names):
+            continue
+        try:
+            result = plugin.post_request_hook(names[0], account, response, error)
+        except Exception:
+            log("plugin %s failed after a request:\n%s" % (plugin.id, traceback.format_exc()))
+            continue
+        if result is None:
+            continue
+        if result.response is not None:
+            response = result.response
+        if result.strategy == base_plugin.HookStrategy.MODIFY_FINAL:
+            break
+    return response
+
+
+def dispatch_updates(account, updates, container):
+    """Java hands over either an updates container or a list of individual updates."""
+    if not registry.plugins:
+        return
+    try:
+        if container:
+            names = _request_name(updates)
+            for plugin in list(registry.plugins.values()):
+                if _interested(plugin, "on_updates_hook", names):
+                    plugin.on_updates_hook(names[0], account, updates)
+            return
+        # A list. Walking it here rather than calling into Python once per update keeps the cost
+        # of a hundred updates at one crossing instead of a hundred.
+        for update in updates:
+            names = _request_name(update)
+            for plugin in list(registry.plugins.values()):
+                if _interested(plugin, "on_update_hook", names):
+                    plugin.on_update_hook(names[0], account, update)
+    except Exception:
+        log("update dispatch failed:\n%s" % traceback.format_exc())
