@@ -69,6 +69,8 @@ public final class PrimeBigFileSender implements NotificationCenter.Notification
     private final List<Transfer> transfers = new ArrayList<>();
     private Transfer current;
     private String currentChunkPath;
+    /** The message carrying the chunk being sent, so a failed one can be cleared away. */
+    private MessageObject currentMessage;
     private boolean observing;
 
     private PrimeBigFileSender() {
@@ -301,11 +303,14 @@ public final class PrimeBigFileSender implements NotificationCenter.Notification
         deleteCurrentChunk();
         if (!success) {
             // Left in place at the same index; the next pump retries this part rather than
-            // skipping it, because a gap in the middle makes the whole file unusable.
+            // skipping it, because a gap in the middle makes the whole file unusable. The failed
+            // message goes, though - a retry that succeeds should not leave the failure on screen.
+            discardChunkMessage(transfer.account);
             current = null;
             AndroidUtilities.runOnUIThread(this::pump, 5000);
             return;
         }
+        currentMessage = null;
         transfer.sent++;
         save();
         notifyChanged();
@@ -329,6 +334,21 @@ public final class PrimeBigFileSender implements NotificationCenter.Notification
         pump();
     }
 
+    private void discardChunkMessage(int account) {
+        final MessageObject message = currentMessage;
+        currentMessage = null;
+        if (message == null) {
+            return;
+        }
+        AndroidUtilities.runOnUIThread(() -> {
+            try {
+                SendMessagesHelper.getInstance(account).cancelSendingMessage(message);
+            } catch (Throwable e) {
+                FileLog.e("PrimeBigFileSender.discardChunkMessage", e);
+            }
+        });
+    }
+
     private void deleteCurrentChunk() {
         final String path = currentChunkPath;
         currentChunkPath = null;
@@ -350,10 +370,10 @@ public final class PrimeBigFileSender implements NotificationCenter.Notification
         }
         observing = true;
         AndroidUtilities.runOnUIThread(() -> {
-            NotificationCenter.getInstance(current != null ? current.account : UserConfig.selectedAccount)
-                    .addObserver(this, NotificationCenter.fileUploaded);
-            NotificationCenter.getInstance(current != null ? current.account : UserConfig.selectedAccount)
-                    .addObserver(this, NotificationCenter.fileUploadFailed);
+            final int account = current != null ? current.account : UserConfig.selectedAccount;
+            NotificationCenter.getInstance(account).addObserver(this, NotificationCenter.fileUploaded);
+            NotificationCenter.getInstance(account).addObserver(this, NotificationCenter.fileUploadFailed);
+            NotificationCenter.getInstance(account).addObserver(this, NotificationCenter.didReceiveNewMessages);
         });
     }
 
@@ -366,12 +386,17 @@ public final class PrimeBigFileSender implements NotificationCenter.Notification
             for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
                 NotificationCenter.getInstance(a).removeObserver(this, NotificationCenter.fileUploaded);
                 NotificationCenter.getInstance(a).removeObserver(this, NotificationCenter.fileUploadFailed);
+                NotificationCenter.getInstance(a).removeObserver(this, NotificationCenter.didReceiveNewMessages);
             }
         });
     }
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.didReceiveNewMessages) {
+            rememberChunkMessage(args);
+            return;
+        }
         if (currentChunkPath == null || args.length == 0 || !(args[0] instanceof String)) {
             return;
         }
@@ -384,6 +409,32 @@ public final class PrimeBigFileSender implements NotificationCenter.Notification
             onChunkDone(true);
         } else if (id == NotificationCenter.fileUploadFailed) {
             onChunkDone(false);
+        }
+    }
+
+    /**
+     * Picks the chunk's own message out of the new ones, matched by the file it is carrying.
+     *
+     * <p>Kept so that a chunk whose send fails can be taken out of the chat. Without this the
+     * failed attempt stays behind as a message in the error state - invisible in the conversation,
+     * because parts after the first are hidden, but perfectly visible in the chat list, where it
+     * is the last message and draws a red exclamation mark next to a transfer that went through.
+     */
+    @SuppressWarnings("unchecked")
+    private void rememberChunkMessage(Object... args) {
+        if (currentChunkPath == null || args.length < 2 || !(args[1] instanceof ArrayList)) {
+            return;
+        }
+        for (Object item : (ArrayList<Object>) args[1]) {
+            if (!(item instanceof MessageObject)) {
+                continue;
+            }
+            final MessageObject message = (MessageObject) item;
+            if (message.messageOwner != null
+                    && currentChunkPath.equals(message.messageOwner.attachPath)) {
+                currentMessage = message;
+                return;
+            }
         }
     }
 

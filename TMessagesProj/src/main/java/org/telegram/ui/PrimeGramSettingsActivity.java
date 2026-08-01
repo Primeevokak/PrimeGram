@@ -63,6 +63,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_BOT_LOGIN = 30;
     private static final int ID_LINK_PREVIEW = 31;
     private static final int ID_STARTUP_TRACE = 33;
+    private static final int ID_PUSH_STATUS = 32;
     private static final int ID_FEED_HIDDEN = 34;
     private static final int ID_ADBLOCK = 35;
     private static final int ID_ADBLOCK_DNS = 36;
@@ -1362,6 +1363,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Подробные логи", org.telegram.messenger.BuildVars.LOGS_ENABLED));
             row(button(ID_STARTUP_TRACE, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
                     "Трасса запуска", "диагностика"));
+            row(button(ID_PUSH_STATUS, IconBackgroundColors.ORANGE, R.drawable.msg_notifications,
+                    "Состояние уведомлений", primePushSummary()));
             endCard(items);
             items.add(info(6, "Подробные логи",
                     "Нужны только когда мы просим трассировку запуска.",
@@ -1778,9 +1781,69 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             MainTabsActivity.refreshFeedTabVisibility();
         } else if (item.id == ID_STARTUP_TRACE) {
             showStartupTrace();
+        } else if (item.id == ID_PUSH_STATUS) {
+            showPushStatus();
         } else if (item.id == ID_BOT_LOGIN) {
             presentFragment(new BotLoginActivity());
         }
+    }
+
+    /**
+     * PrimeGram: whether push actually works, in one line.
+     *
+     * <p>Written because "уведомления не приходят" has four completely different causes - no token
+     * from Firebase, a token never sent to Telegram, the background connection off, or the system
+     * withholding notifications - and none of them are visible from the outside.
+     */
+    private String primePushSummary() {
+        if (org.telegram.messenger.SharedConfig.pushString == null
+                || org.telegram.messenger.SharedConfig.pushString.isEmpty()) {
+            return "нет токена";
+        }
+        return org.telegram.messenger.UserConfig.getInstance(currentAccount).registeredForPush
+                ? "работают" : "токен не отправлен";
+    }
+
+    private void showPushStatus() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final String token = org.telegram.messenger.SharedConfig.pushString;
+        final boolean hasToken = token != null && !token.isEmpty();
+        final StringBuilder text = new StringBuilder();
+
+        text.append("Токен Firebase: ").append(hasToken ? "получен" : "нет");
+        if (hasToken) {
+            // Enough to tell one token from another when re-registering; never the whole thing.
+            text.append(" (").append(token.substring(0, Math.min(12, token.length()))).append("…, ")
+                .append(token.length()).append(" симв.)");
+        } else if (org.telegram.messenger.SharedConfig.pushStringStatus != null
+                && !org.telegram.messenger.SharedConfig.pushStringStatus.isEmpty()) {
+            text.append("\nСостояние: ").append(org.telegram.messenger.SharedConfig.pushStringStatus);
+        }
+        text.append("\nТип: ").append(org.telegram.messenger.SharedConfig.pushType
+                == org.telegram.messenger.PushListenerController.PUSH_TYPE_FIREBASE ? "FCM" : "Huawei");
+        text.append("\nОтправлен в Telegram: ")
+            .append(org.telegram.messenger.UserConfig.getInstance(currentAccount).registeredForPush ? "да" : "нет");
+        text.append("\nФоновое соединение: ")
+            .append(org.telegram.tgnet.ConnectionsManager.getInstance(currentAccount)
+                    .isPushConnectionEnabled() ? "включено" : "выключено");
+        text.append("\nСистема разрешила уведомления: ")
+            .append(androidx.core.app.NotificationManagerCompat.from(getParentActivity()).areNotificationsEnabled()
+                    ? "да" : "нет");
+
+        text.append("\n\nЕсли токена нет — приложение не смогло получить его у Firebase: проверьте, что установлена сборка с вашим google-services.json и что на устройстве есть сервисы Google.\n\nЕсли токен есть, но не отправлен — Telegram его не принял; помогает переустановка и повторный вход.");
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Состояние уведомлений");
+        builder.setMessage(text.toString());
+        builder.setPositiveButton("Скопировать", (dialog, which) -> {
+            AndroidUtilities.addToClipboard(text.toString());
+            org.telegram.ui.Components.BulletinFactory.of(this)
+                    .createSimpleBulletin(R.raw.copy, "Скопировано").show();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
     }
 
     private void showStartupTrace() {

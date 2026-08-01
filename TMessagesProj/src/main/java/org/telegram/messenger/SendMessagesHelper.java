@@ -2055,7 +2055,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
     }
 
     public int sendMessage(
-        ArrayList<MessageObject> messages,
+        ArrayList<MessageObject> messagesIn,
         final long peer,
         boolean forwardFromMyName,
         boolean hideCaption,
@@ -2068,7 +2068,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         long monoForumPeerId,
         MessageSuggestionParams suggestionParams
     ) {
-        if (messages == null || messages.isEmpty()) {
+        if (messagesIn == null || messagesIn.isEmpty()) {
             return 0;
         }
         // PrimeGram: a file sent in parts shows as one message and forwards as all of them. Done
@@ -2076,13 +2076,11 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         // action bar, the context menu, the share sheet, a drag onto another chat - arrives at
         // this method, and a forward that carried only the visible part would leave the other
         // side holding a first chunk and waiting for sixteen that never come.
-        // Filled in place rather than reassigned: the parameter is captured by lambdas further
-        // down, and a copy would leave them forwarding the unexpanded list.
-        final ArrayList<MessageObject> primeExpanded = PrimeBigFileReceiver.getInstance().withChunks(messages);
-        if (primeExpanded != messages) {
-            messages.clear();
-            messages.addAll(primeExpanded);
-        }
+        //
+        // A separate list, never the caller's. Filling the caller's list in place is what the
+        // first attempt did, and the caller goes on using it after this returns - it walked away
+        // with four entries where it had put one, and crashed the moment it indexed into it.
+        final ArrayList<MessageObject> messages = PrimeBigFileReceiver.getInstance().withChunks(messagesIn);
         int sendResult = 0;
         long myId = getUserConfig().getClientUserId();
         boolean isChannel = false;

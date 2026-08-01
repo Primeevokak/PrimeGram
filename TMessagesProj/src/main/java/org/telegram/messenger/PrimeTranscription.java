@@ -195,6 +195,11 @@ public class PrimeTranscription {
             int code = connection.getResponseCode();
             String body = readAll(code / 100 == 2 ? connection.getInputStream() : connection.getErrorStream());
             if (code / 100 != 2) {
+                // Logged as well as shown: a refusal that arrives as an HTML page from something
+                // in front of the service says nothing in the interface, and the difference
+                // between "wrong key" and "we do not serve your country" lives in this body.
+                FileLog.e("PrimeTranscription: " + getEndpoint() + " answered " + code + ": "
+                        + (body == null ? "" : body.substring(0, Math.min(400, body.length()))));
                 throw new IllegalStateException(describeError(code, body));
             }
             String text = new JSONObject(body).optString("text", "").trim();

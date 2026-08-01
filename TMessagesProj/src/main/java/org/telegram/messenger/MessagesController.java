@@ -16218,26 +16218,11 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void performLogout(int type) {
-        try {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-            java.util.List<String> logList = org.telegram.messenger.TgWsProxyService.getLogBuffer();
-            StringBuilder sb = new StringBuilder();
-            sb.append("=== PrimeGram Proxy Logs on Logout/Session Terminated ===\n");
-            for (String logLine : logList) {
-                sb.append(logLine).append("\n");
-            }
-            sb.append("\n=== PrimeGram General Application Logs ===\n");
-            sb.append(FileLog.getLastLogLines(500));
-            sb.append("\n=== PrimeGram MTProto Application Logs ===\n");
-            sb.append(FileLog.getLastMTProtoLogLines(500));
-            android.content.ClipData clip = android.content.ClipData.newPlainText("PrimeGram Proxy & App Logs", sb.toString());
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(clip);
-                FileLog.d("Copied proxy and app logs to clipboard on logout.");
-            }
-        } catch (Throwable t) {
-            FileLog.e(t);
-        }
+        // Logging out used to dump the proxy log, five hundred lines of the app log and five
+        // hundred of the MTProto log into the clipboard. That was for us, while the proxy was
+        // being written; on a shipped build it hands a user's connection history to whatever they
+        // paste into next, and silently destroys whatever they were actually carrying there. The
+        // logs are still readable on purpose - PrimeGram settings, TgWs server, the log screen.
         if (type == 1) {
             unregistedPush();
             TLRPC.TL_auth_logOut req = new TLRPC.TL_auth_logOut();

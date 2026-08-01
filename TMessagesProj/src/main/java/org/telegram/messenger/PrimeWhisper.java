@@ -442,16 +442,20 @@ public class PrimeWhisper {
                 // Called from inside the decoder, so it does nothing but hand the text to the main
                 // thread: whatever the interface does with it must not be happening while whisper
                 // is holding its context.
+                final Typewriter typewriter = new Typewriter(callback);
                 final SegmentListener listener = textSoFar -> {
                     if (!TextUtils.isEmpty(textSoFar)) {
-                        AndroidUtilities.runOnUIThread(() -> callback.onPartial(textSoFar.trim()));
+                        AndroidUtilities.runOnUIThread(() -> typewriter.offer(textSoFar.trim()));
                     }
                 };
                 final String text = run(file, listener);
                 if (TextUtils.isEmpty(text)) {
-                    AndroidUtilities.runOnUIThread(() -> callback.onError("Не удалось разобрать речь"));
+                    AndroidUtilities.runOnUIThread(() -> {
+                        typewriter.stop();
+                        callback.onError("Не удалось разобрать речь");
+                    });
                 } else {
-                    AndroidUtilities.runOnUIThread(() -> callback.onResult(text));
+                    AndroidUtilities.runOnUIThread(() -> typewriter.finish(text));
                 }
             } catch (Throwable t) {
                 FileLog.e("PrimeWhisper.transcribe", t);
@@ -459,6 +463,95 @@ public class PrimeWhisper {
                 AndroidUtilities.runOnUIThread(() -> callback.onError(message));
             }
         });
+    }
+
+    /**
+     * Reveals the transcript a few characters at a time instead of in whole slabs.
+     *
+     * <p>whisper decodes in thirty-second windows and cannot be persuaded otherwise: the encoder
+     * always works on a fixed-length spectrogram, so a two-minute recording produces four bursts
+     * of text and a short one produces exactly one, at the end. Making that arrive as typing does
+     * not make it faster, but it turns four jumps into something that reads as work in progress.
+     *
+     * <p>Everything here runs on the main thread, one post at a time - no thread, no lock.
+     */
+    private static final class Typewriter {
+
+        /** Slow enough to read as typing, fast enough not to become the thing you wait for. */
+        private static final long TICK_MS = 33;
+        private static final int MIN_PER_TICK = 2;
+        /** However far behind it falls, it catches up within about this long. */
+        private static final long MAX_LAG_MS = 1200;
+
+        private final Callback callback;
+        private String pending = "";
+        private int shown;
+        private boolean finishing;
+        private boolean stopped;
+        private Runnable tick;
+
+        Typewriter(Callback callback) {
+            this.callback = callback;
+        }
+
+        /** More text has been decoded; it always starts with what is already on screen. */
+        void offer(String text) {
+            if (stopped || text == null || text.length() <= pending.length()) {
+                return;
+            }
+            pending = text;
+            schedule();
+        }
+
+        /** The last of it. Types out the remainder and only then calls the transcript final. */
+        void finish(String text) {
+            if (stopped) {
+                return;
+            }
+            if (text != null && text.length() >= pending.length()) {
+                pending = text;
+            }
+            finishing = true;
+            schedule();
+        }
+
+        void stop() {
+            stopped = true;
+            if (tick != null) {
+                AndroidUtilities.cancelRunOnUIThread(tick);
+                tick = null;
+            }
+        }
+
+        private void schedule() {
+            if (tick != null || stopped) {
+                return;
+            }
+            tick = this::step;
+            AndroidUtilities.runOnUIThread(tick, TICK_MS);
+        }
+
+        private void step() {
+            tick = null;
+            if (stopped) {
+                return;
+            }
+            final int remaining = pending.length() - shown;
+            if (remaining <= 0) {
+                if (finishing) {
+                    stopped = true;
+                    callback.onResult(pending);
+                }
+                return;
+            }
+            // The rate follows how much is waiting, so a long tail does not take a minute to
+            // appear while a short one still looks like typing.
+            final int perTick = Math.max(MIN_PER_TICK,
+                    (int) Math.ceil(remaining / (double) (MAX_LAG_MS / TICK_MS)));
+            shown = Math.min(pending.length(), shown + perTick);
+            callback.onPartial(pending.substring(0, shown));
+            schedule();
+        }
     }
 
     private static String run(File file, SegmentListener listener) throws Exception {
