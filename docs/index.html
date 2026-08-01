@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PrimeGram — Telegram, который просто работает</title>
-<meta name="description" content="Клиент Telegram для Android: стабильное соединение, файлы до 8 ГБ, расшифровка голосовых на устройстве и плагины на Python.">
+<meta name="description" content="Клиент Telegram для Android: файлы до 8 ГБ, расшифровка голосовых на устройстве, лента каналов и плагины.">
 <meta property="og:title" content="PrimeGram">
-<meta property="og:description" content="Telegram для Android с модификациями для качества соединения, файлами до 8 ГБ и плагинами на Python.">
+<meta property="og:description" content="Telegram для Android: файлы до 8 ГБ, расшифровка голосовых на устройстве и плагины.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;900&family=Golos+Text:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -43,10 +43,7 @@ body::after{
 
 /* ── шапка ───────────────────────────────────────────── */
 header{position:relative;z-index:3;padding:30px 0}
-.bar{display:flex;align-items:center;justify-content:space-between;gap:20px}
-.mark{display:flex;align-items:center;gap:11px;font-family:'Unbounded';font-weight:600;font-size:17px;letter-spacing:-.02em}
-.dot{width:11px;height:11px;border-radius:50%;background:var(--amber);box-shadow:0 0 20px var(--amber);animation:pulse 3.2s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.85)}}
+.bar{display:flex;align-items:center;justify-content:flex-end;gap:20px}
 .nav{display:flex;gap:26px;font-size:15px}
 .nav a{color:var(--muted);text-decoration:none;transition:color .25s}
 .nav a:hover{color:var(--text)}
@@ -140,7 +137,6 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);f
 .hero .rise{transition-delay:var(--d,0ms)}
 @media(prefers-reduced-motion:reduce){
   .rise{opacity:1;transform:none;transition:none}
-  .dot{animation:none}
   #field{display:none}
 }
 </style>
@@ -151,7 +147,6 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);f
 
 <header>
   <div class="wrap bar">
-    <div class="mark"><span class="dot"></span>PrimeGram</div>
     <nav class="nav">
       <a href="#features">Возможности</a>
       <a href="#dev">Плагины</a>
@@ -170,14 +165,13 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);f
     а всё остальное можно дописать самому.
   </p>
   <div class="cta rise" style="--d:260ms">
-    <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest/download/PrimeGram-arm64-v8a.apk">
-      ↓ Скачать APK
+    <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest">
+      ↓ Скачать
     </a>
     <a class="btn btn-ghost" href="plugins/">Написать плагин</a>
   </div>
   <p class="sub rise" style="--d:340ms">
-    Подходит почти любому современному телефону.
-    <a href="https://github.com/Primeevokak/PrimeGram/releases/latest">Другие версии и что нового →</a>
+    На странице релиза выберите файл для своего телефона — в большинстве случаев это arm64-v8a.
   </p>
 </div>
 
@@ -189,8 +183,8 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);f
     <div class="grid">
       <div class="card rise">
         <span class="n">01</span>
-        <h3>Связь без плясок</h3>
-        <p>Клиент сам разбирается, как достучаться до серверов. Без сторонних программ, без настроек и без ожидания при каждом запуске.</p>
+        <h3>Соединение само по себе</h3>
+        <p>Клиент подбирает маршрут до серверов сам и переключается, если выбранный перестал отвечать. Ставить и настраивать ничего не нужно.</p>
       </div>
       <div class="card rise">
         <span class="n">02</span>
@@ -220,7 +214,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);f
   <div class="wrap dev">
     <div>
       <div class="eyebrow rise">Для тех, кто пишет код</div>
-      <h2 class="rise">Плагины на Python</h2>
+      <h2 class="rise">Плагины</h2>
       <p class="section-lede rise" style="margin-bottom:0">
         Один файл — и клиент делает то, что вам нужно. Совместимы с exteraGram:
         написанное под него обычно работает без правок.
@@ -261,7 +255,7 @@ __name__ = "Hello World"</span>
       Приложение само проверяет обновления, так что скачивать вручную придётся ровно один раз.
     </p>
     <div class="cta rise" style="justify-content:center">
-      <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest/download/PrimeGram-arm64-v8a.apk">↓ Скачать PrimeGram</a>
+      <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest">↓ Скачать PrimeGram</a>
     </div>
   </div>
 </section>
