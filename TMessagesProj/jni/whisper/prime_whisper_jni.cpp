@@ -45,12 +45,59 @@ Java_org_telegram_messenger_PrimeWhisper_nativeFree(JNIEnv *env, jclass clazz, j
     }
 }
 
+// What the streaming listener needs while whisper is running.
+//
+// whisper_full is synchronous and calls its segment callback on the thread that called it, so the
+// JNIEnv captured here is the right one and no thread has to be attached. Anything else - a
+// callback delivered from a worker inside ggml - would need attaching and would make this a good
+// deal more delicate than it is.
+struct segment_sink {
+    JNIEnv *env;
+    jobject listener;
+    jmethodID method;
+    std::string text;
+};
+
+static void on_new_segment(struct whisper_context *ctx, struct whisper_state *state, int n_new,
+                           void *user_data) {
+    auto *sink = static_cast<segment_sink *>(user_data);
+    if (sink == nullptr || sink->listener == nullptr || sink->method == nullptr) {
+        return;
+    }
+    const int total = whisper_full_n_segments(ctx);
+    for (int i = total - n_new; i < total; i++) {
+        if (i < 0) {
+            continue;
+        }
+        const char *segment = whisper_full_get_segment_text(ctx, i);
+        if (segment != nullptr) {
+            sink->text += segment;
+        }
+    }
+    // Sent whole rather than as a delta: the Java side then has nothing to assemble and no way to
+    // end up showing a sentence with a hole in it if one call is dropped.
+    jstring text = sink->env->NewStringUTF(sink->text.c_str());
+    if (text == nullptr) {
+        return;
+    }
+    sink->env->CallVoidMethod(sink->listener, sink->method, text);
+    sink->env->DeleteLocalRef(text);
+    if (sink->env->ExceptionCheck()) {
+        // A listener that threw must not take whisper down mid-decode; the final result still
+        // arrives through the return value.
+        sink->env->ExceptionClear();
+    }
+}
+
 // pcm must be mono 16 kHz float samples in [-1, 1]; the Java side is responsible for the
 // conversion, which it does with the decoder that already ships in this app.
+//
+// listener may be null. When it is not, it receives the transcript so far each time a segment is
+// decoded - a minute of audio otherwise means a minute of staring at a spinner.
 JNIEXPORT jstring JNICALL
 Java_org_telegram_messenger_PrimeWhisper_nativeTranscribe(JNIEnv *env, jclass clazz, jlong ptr,
                                                           jfloatArray pcm, jstring language,
-                                                          jint threads) {
+                                                          jint threads, jobject listener) {
     if (ptr == 0 || pcm == nullptr) {
         return nullptr;
     }
@@ -89,6 +136,25 @@ Java_org_telegram_messenger_PrimeWhisper_nativeTranscribe(JNIEnv *env, jclass cl
     // An empty language means auto-detect, which is what whisper's "auto" does.
     wparams.language = lang.empty() ? "auto" : lang.c_str();
     wparams.detect_language = false;
+
+    segment_sink sink{env, nullptr, nullptr, std::string()};
+    if (listener != nullptr) {
+        jclass listenerClass = env->GetObjectClass(listener);
+        if (listenerClass != nullptr) {
+            sink.method = env->GetMethodID(listenerClass, "onSegment", "(Ljava/lang/String;)V");
+            env->DeleteLocalRef(listenerClass);
+        }
+        if (sink.method != nullptr) {
+            sink.listener = listener;
+            wparams.new_segment_callback = on_new_segment;
+            wparams.new_segment_callback_user_data = &sink;
+        } else {
+            // Not fatal: without the callback this simply behaves as it did before, returning
+            // everything at the end.
+            env->ExceptionClear();
+            LOGE("listener has no onSegment(String)");
+        }
+    }
 
     const int result = whisper_full(ctx, wparams, samples, sampleCount);
     env->ReleaseFloatArrayElements(pcm, samples, JNI_ABORT);

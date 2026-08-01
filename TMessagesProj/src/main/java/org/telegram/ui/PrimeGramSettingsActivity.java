@@ -62,7 +62,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_TEXT_TOOLBAR = 29;
     private static final int ID_BOT_LOGIN = 30;
     private static final int ID_LINK_PREVIEW = 31;
-    private static final int ID_SESSION_NAME = 32;
     private static final int ID_STARTUP_TRACE = 33;
     private static final int ID_FEED_HIDDEN = 34;
     private static final int ID_ADBLOCK = 35;
@@ -1173,11 +1172,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             endCard(items);
             items.add(UItem.asShadow("Поиск+ находит профиль по числовому ID, номеру телефона, @username или ссылке t.me — там, где обычный поиск отказывается искать.\n\nВременная подписка отписывает от канала сама, через выбранный срок от часа до месяца. Включается в меню самого канала."));
 
-            row(button(ID_SESSION_NAME, IconBackgroundColors.GRAY, R.drawable.msg2_devices,
-                    "Имя клиента в сессиях", org.telegram.messenger.PrimeClientIdentity.getSessionName()));
-            endCard(items);
-            items.add(UItem.asShadow("Заголовок строки в списке активных сессий. Подпись «Telegram Web» под ним приходит от сервера по api_id и не меняется. Сервер ждёт здесь имя браузера — если его не узнать, пишет «Unknown Browser», поэтому в значении стоит оставить Chrome, Safari, Firefox, Edge или Opera. Применяется после перезапуска."));
-
             row(button(ID_BOT_LOGIN, IconBackgroundColors.PURPLE, R.drawable.msg_bot,
                     "Вход в бота", "по токену"));
             endCard(items);
@@ -1209,7 +1203,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                             "Язык записи", whisperLanguageName()));
                 }
                 endCard(items);
-                items.add(UItem.asShadow("Распознавание идёт прямо на телефоне: запись никуда не отправляется и работает без сети. Взамен нужно один раз скачать модель и подождать — на слабом телефоне минута речи разбирается заметно дольше, чем на сервере.\n\nЕсли скачана модель и включён внешний сервис одновременно, используется устройство: бесплатно и ничего не уходит наружу."
+                items.add(UItem.asShadow("Распознавание идёт прямо на телефоне: запись никуда не отправляется и работает без сети. Взамен нужно один раз скачать модель и подождать — на слабом телефоне минута речи разбирается заметно дольше, чем на сервере.\n\nЭтот переключатель и внешний сервис исключают друг друга: включение одного выключает другой."
                         + (hasPremium ? "\n\nУ вас есть Telegram Premium, поэтому расшифровка и так работает родными средствами — мгновенно и без скачивания модели. Переключатель выше нужен, если качество на устройстве вас устраивает больше: на некоторых голосах локальная модель разбирает речь точнее." : "")));
 
                 row(check(ID_STT_ENABLED, IconBackgroundColors.PURPLE, R.drawable.msg_satellite,
@@ -1518,6 +1512,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 // The loaded model is tens of megabytes of resident memory; switching the feature
                 // off has to actually give it back.
                 org.telegram.messenger.PrimeWhisper.release();
+            } else if (org.telegram.messenger.PrimeTranscription.isEnabled()) {
+                // Two transcribers at once is a state with no useful meaning: only one of them
+                // can answer, so the other is a switch that is on and does nothing.
+                org.telegram.messenger.PrimeTranscription.setEnabled(false);
+                org.telegram.ui.Components.BulletinFactory.of(this)
+                        .createSimpleBulletin(R.raw.info, "Внешний сервис выключен",
+                                "Расшифровка работает в одном месте: на устройстве или на сервере").show();
             }
             listView.adapter.update(true);
         } else if (item.id == ID_WHISPER_MODEL) {
@@ -1564,7 +1565,15 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
             listView.adapter.update(true);
         } else if (item.id == ID_STT_ENABLED) {
-            org.telegram.messenger.PrimeTranscription.setEnabled(!org.telegram.messenger.PrimeTranscription.isEnabled());
+            final boolean enabled = !org.telegram.messenger.PrimeTranscription.isEnabled();
+            org.telegram.messenger.PrimeTranscription.setEnabled(enabled);
+            if (enabled && org.telegram.messenger.PrimeWhisper.isEnabled()) {
+                org.telegram.messenger.PrimeWhisper.setEnabled(false);
+                org.telegram.messenger.PrimeWhisper.release();
+                org.telegram.ui.Components.BulletinFactory.of(this)
+                        .createSimpleBulletin(R.raw.info, "Расшифровка на устройстве выключена",
+                                "Расшифровка работает в одном месте: на устройстве или на сервере").show();
+            }
             listView.adapter.update(true);
         } else if (item.id == ID_STT_TOKEN) {
             showTextInputDialog("Ключ сервиса",
@@ -1769,8 +1778,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             MainTabsActivity.refreshFeedTabVisibility();
         } else if (item.id == ID_STARTUP_TRACE) {
             showStartupTrace();
-        } else if (item.id == ID_SESSION_NAME) {
-            showSessionNameDialog();
         } else if (item.id == ID_BOT_LOGIN) {
             presentFragment(new BotLoginActivity());
         }
@@ -2602,41 +2609,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
             org.telegram.messenger.browser.PrimeDns.setCustomEndpoint(value);
             org.telegram.messenger.browser.PrimeDns.setPreset(org.telegram.messenger.browser.PrimeDns.PRESET_CUSTOM);
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
-    }
-
-    private void showSessionNameDialog() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Имя клиента в сессиях");
-        builder.setMessage("Заголовок строки в списке активных сессий. Сервер ждёт здесь имя браузера, поэтому оставьте в значении Chrome, Safari, Firefox, Edge или Opera — иначе получится «Unknown Browser». Пустое поле вернёт настоящую модель устройства.");
-
-        final EditTextBoldCursor editText = new EditTextBoldCursor(getParentActivity());
-        editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
-        editText.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
-        editText.setHintTextColor(Theme.getColor(Theme.key_dialogTextHint));
-        editText.setHint(org.telegram.messenger.PrimeClientIdentity.getDefaultName());
-        editText.setCursorColor(Theme.getColor(Theme.key_dialogTextBlack));
-        editText.setCursorSize(AndroidUtilities.dp(20));
-        editText.setCursorWidth(1.5f);
-        editText.setSingleLine(true);
-        editText.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
-        editText.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4));
-        editText.setText(org.telegram.messenger.PrimeClientIdentity.getSessionName());
-        editText.setSelection(editText.getText().length());
-
-        LinearLayout container = new LinearLayout(getParentActivity());
-        container.setOrientation(LinearLayout.VERTICAL);
-        container.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(4), AndroidUtilities.dp(24), 0);
-        container.addView(editText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-        builder.setView(container);
-        builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> {
-            org.telegram.messenger.PrimeClientIdentity.setSessionName(editText.getText().toString());
             listView.adapter.update(true);
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);

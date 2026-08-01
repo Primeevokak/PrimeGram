@@ -212,18 +212,24 @@ public class PrimeTranscription {
      * happen are a bad key and a spent quota, and "HTTP 401" tells nobody anything.
      */
     private static String describeError(int code, String body) {
+        // The provider's own words first, whatever the code. "Сервис отклонил ключ" covered both
+        // an invalid key and a region the provider refuses to serve - which are the same HTTP
+        // status and completely different problems, one of which no amount of retyping fixes.
+        String message = "";
+        try {
+            final JSONObject json = new JSONObject(body);
+            final JSONObject error = json.optJSONObject("error");
+            message = error != null ? error.optString("message", "") : json.optString("message", "");
+        } catch (Throwable ignore) {
+        }
+        if (!TextUtils.isEmpty(message)) {
+            return message.length() > 200 ? message.substring(0, 200) : message;
+        }
         if (code == 401 || code == 403) {
-            return "Сервис отклонил ключ";
+            return "Сервис отклонил ключ или отказал в доступе (" + code + ")";
         }
         if (code == 429) {
             return "Лимит сервиса исчерпан, попробуйте позже";
-        }
-        try {
-            String message = new JSONObject(body).getJSONObject("error").optString("message", "");
-            if (!TextUtils.isEmpty(message)) {
-                return message;
-            }
-        } catch (Throwable ignore) {
         }
         return "Сервис ответил ошибкой " + code;
     }

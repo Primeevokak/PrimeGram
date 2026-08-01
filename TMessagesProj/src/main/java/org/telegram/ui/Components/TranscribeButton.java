@@ -730,6 +730,20 @@ public class TranscribeButton {
                         public void onError(String message) {
                             callback.onError(message);
                         }
+
+                        @Override
+                        public void onPartial(String text) {
+                            // The same shape the server's own pending transcriptions take: text
+                            // set, final still false. Nothing is written to storage yet - these
+                            // are drafts, and the one that matters arrives at onResult.
+                            if (TextUtils.isEmpty(text)) {
+                                return;
+                            }
+                            messageObject.messageOwner.voiceTranscriptionFinal = false;
+                            NotificationCenter.getInstance(account).postNotificationName(
+                                    NotificationCenter.voiceTranscriptionUpdate, messageObject,
+                                    (Long) localId, (String) text, (Boolean) true, (Boolean) false);
+                        }
                     });
                 } else {
                     org.telegram.messenger.PrimeTranscription.transcribe(messageObject, callback);

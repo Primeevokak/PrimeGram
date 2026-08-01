@@ -240,7 +240,6 @@ public class ConnectionsManager extends BaseController {
         if (systemVersion.trim().length() == 0) {
             systemVersion = "SDK Unknown";
         }
-        deviceModel = org.telegram.messenger.PrimeClientIdentity.decorateDeviceModel(deviceModel);
         getUserConfig().loadConfig();
         String pushString = getRegId();
         String fingerprint = AndroidUtilities.getCertificateSHA256Fingerprint();

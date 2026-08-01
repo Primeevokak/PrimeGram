@@ -162,6 +162,20 @@ public class PrimeWhisper {
     public interface Callback {
         void onResult(String text);
         void onError(String message);
+
+        /**
+         * The transcript as far as it has been decoded, on the main thread.
+         *
+         * <p>Called several times before {@link #onResult}, each time with the whole text rather
+         * than the newest piece. A minute of audio takes a while on a phone, and watching the
+         * sentence appear is the difference between "it is working" and "it has hung".
+         */
+        void onPartial(String text);
+    }
+
+    /** What the native side calls as each segment comes out of the decoder. */
+    public interface SegmentListener {
+        void onSegment(String textSoFar);
     }
 
     public interface DownloadCallback {
@@ -377,7 +391,8 @@ public class PrimeWhisper {
 
     private static native long nativeInit(String modelPath);
     private static native void nativeFree(long ptr);
-    private static native String nativeTranscribe(long ptr, float[] pcm, String language, int threads);
+    private static native String nativeTranscribe(long ptr, float[] pcm, String language, int threads,
+                                                  SegmentListener listener);
 
     private static synchronized boolean ensureLibrary() {
         if (libraryLoaded) {
@@ -424,7 +439,15 @@ public class PrimeWhisper {
         }
         Utilities.globalQueue.postRunnable(() -> {
             try {
-                final String text = run(file);
+                // Called from inside the decoder, so it does nothing but hand the text to the main
+                // thread: whatever the interface does with it must not be happening while whisper
+                // is holding its context.
+                final SegmentListener listener = textSoFar -> {
+                    if (!TextUtils.isEmpty(textSoFar)) {
+                        AndroidUtilities.runOnUIThread(() -> callback.onPartial(textSoFar.trim()));
+                    }
+                };
+                final String text = run(file, listener);
                 if (TextUtils.isEmpty(text)) {
                     AndroidUtilities.runOnUIThread(() -> callback.onError("Не удалось разобрать речь"));
                 } else {
@@ -438,7 +461,7 @@ public class PrimeWhisper {
         });
     }
 
-    private static String run(File file) throws Exception {
+    private static String run(File file, SegmentListener listener) throws Exception {
         if (!ensureLibrary()) {
             throw new Exception("Модуль распознавания недоступен");
         }
@@ -464,7 +487,8 @@ public class PrimeWhisper {
             // threads, and two contexts would mean two copies of the model in memory.
             final int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() - 1));
             final String language = getLanguage();
-            return nativeTranscribe(context, pcm, TextUtils.isEmpty(language) ? "auto" : language, threads);
+            return nativeTranscribe(context, pcm, TextUtils.isEmpty(language) ? "auto" : language,
+                    threads, listener);
         }
     }
 
