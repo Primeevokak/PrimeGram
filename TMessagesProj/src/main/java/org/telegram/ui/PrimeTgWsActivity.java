@@ -38,8 +38,12 @@ public class PrimeTgWsActivity extends UniversalFragment {
     private static final int ID_PORT = 2;
     private static final int ID_MEASURE = 3;
     private static final int ID_LOG = 4;
+    private static final int ID_WORKERS_ENABLED = 5;
+    private static final int ID_WORKER_ADD = 6;
+    private static final int ID_WORKER_HELP = 7;
     private static final int ID_DOMAIN_AUTO = 100;
     private static final int ID_DOMAIN_BASE = 200;
+    private static final int ID_WORKER_BASE = 300;
 
     private final String[] domains = TgWsProxyService.baseDomains();
     private final HashMap<String, Long> latencies = new HashMap<>();
@@ -100,6 +104,19 @@ public class PrimeTgWsActivity extends UniversalFragment {
         items.add(UItem.asButton(ID_MEASURE, measuring ? "Проверяем…" : "Проверить задержку"));
         items.add(UItem.asShadow("Обычно домен выбирается сам — по тому, кто первым ответит. Закрепите один, если конкретный провайдер режет остальные: тогда сервер не будет перебирать их при каждом обрыве.\n\nЗамер идёт с этого устройства и через тот же DNS, что и сам туннель, поэтому цифры здесь — то же самое, что видит сервер."));
 
+        items.add(UItem.asHeader("Свои Cloudflare Workers"));
+        items.add(UItem.asCheck(ID_WORKERS_ENABLED, "Использовать свои воркеры")
+                .setChecked(org.telegram.messenger.PrimeCfWorkers.isEnabled()));
+        if (org.telegram.messenger.PrimeCfWorkers.isEnabled()) {
+            final java.util.List<String> workers = org.telegram.messenger.PrimeCfWorkers.getDomains();
+            for (int i = 0; i < workers.size(); i++) {
+                items.add(UItem.asButton(ID_WORKER_BASE + i, workers.get(i), "удалить"));
+            }
+            items.add(UItem.asButton(ID_WORKER_ADD, "Добавить воркер"));
+            items.add(UItem.asButton(ID_WORKER_HELP, "Как развернуть", "инструкция"));
+        }
+        items.add(UItem.asShadow("Свой бесплатный туннель на серверах Cloudflare — запасной путь, когда наши домены не отвечают. Добавляйте сколько угодно."));
+
         items.add(UItem.asButton(ID_LOG, "Журнал сервера"));
         items.add(UItem.asShadow("Последние 200 строк: выбор домена, переподключения, ошибки."));
     }
@@ -153,7 +170,74 @@ public class PrimeTgWsActivity extends UniversalFragment {
             pin("");
         } else if (item.id >= ID_DOMAIN_BASE && item.id < ID_DOMAIN_BASE + domains.length) {
             pin(domains[item.id - ID_DOMAIN_BASE]);
+        } else if (item.id == ID_WORKERS_ENABLED) {
+            org.telegram.messenger.PrimeCfWorkers.setEnabled(
+                    !org.telegram.messenger.PrimeCfWorkers.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_WORKER_ADD) {
+            showWorkerDialog();
+        } else if (item.id == ID_WORKER_HELP) {
+            org.telegram.messenger.browser.Browser.openUrl(getParentActivity(),
+                    "https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/CfWorker.md");
+        } else if (item.id >= ID_WORKER_BASE) {
+            final java.util.List<String> workers = org.telegram.messenger.PrimeCfWorkers.getDomains();
+            final int index = item.id - ID_WORKER_BASE;
+            if (index >= 0 && index < workers.size()) {
+                confirmWorkerRemoval(workers.get(index));
+            }
         }
+    }
+
+    private void confirmWorkerRemoval(String domain) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity())
+                .setTitle("Удалить воркер")
+                .setMessage(domain)
+                .setPositiveButton(LocaleController.getString(R.string.Delete), (dialog, which) -> {
+                    org.telegram.messenger.PrimeCfWorkers.remove(domain);
+                    listView.adapter.update(true);
+                })
+                .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
+                .show();
+    }
+
+    private void showWorkerDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final org.telegram.ui.Components.EditTextBoldCursor editText =
+                new org.telegram.ui.Components.EditTextBoldCursor(getParentActivity());
+        editText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16);
+        editText.setSingleLine(true);
+        editText.setBackgroundDrawable(null);
+        editText.setTextColor(getThemedColor(org.telegram.ui.ActionBar.Theme.key_dialogTextBlack));
+        editText.setHintTextColor(getThemedColor(org.telegram.ui.ActionBar.Theme.key_dialogTextHint));
+        editText.setCursorColor(getThemedColor(org.telegram.ui.ActionBar.Theme.key_dialogTextBlack));
+        editText.setHint("name-1234.username.workers.dev");
+
+        final android.widget.FrameLayout container = new android.widget.FrameLayout(getParentActivity());
+        container.addView(editText, org.telegram.ui.Components.LayoutHelper.createFrame(
+                org.telegram.ui.Components.LayoutHelper.MATCH_PARENT,
+                org.telegram.ui.Components.LayoutHelper.WRAP_CONTENT,
+                android.view.Gravity.LEFT | android.view.Gravity.TOP, 24, 4, 24, 4));
+
+        new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity())
+                .setTitle("Адрес воркера")
+                .setMessage("Скопируйте домен из панели Cloudflare после развёртывания. Адрес целиком, ссылкой или без неё — разберём.")
+                .setView(container)
+                .setPositiveButton(LocaleController.getString(R.string.Add), (dialog, which) -> {
+                    final String error = org.telegram.messenger.PrimeCfWorkers
+                            .add(editText.getText().toString());
+                    if (error != null) {
+                        BulletinFactory.of(this).createErrorBulletin(error).show();
+                        return;
+                    }
+                    listView.adapter.update(true);
+                })
+                .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
+                .show();
     }
 
     private void pin(String domain) {

@@ -1642,6 +1642,11 @@ public class TgWsProxyService extends Service {
                 wsConn = connectToWebSocket(dcId, isMedia);
             }
             if (wsConn == null) {
+                // Everything of ours is unreachable. If the user brought their own Worker, this
+                // is what it is for.
+                wsConn = connectThroughWorker(dcId, isMedia, destIp);
+            }
+            if (wsConn == null) {
                 logInfo("All CF proxy domains failed!");
                 client.close();
                 return;
@@ -1761,11 +1766,13 @@ public class TgWsProxyService extends Service {
     }
 
     private void wsHandshake(SSLSocket socket, String domain, int dcId, boolean isUnified) throws IOException {
+        wsHandshake(socket, domain, dcId, isUnified, isUnified ? ("/apiws?dc=" + dcId) : "/apiws");
+    }
+
+    private void wsHandshake(SSLSocket socket, String domain, int dcId, boolean isUnified, String path) throws IOException {
         byte[] keyBytes = new byte[16];
         RANDOM.nextBytes(keyBytes);
         String wsKey = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP);
-
-        String path = isUnified ? ("/apiws?dc=" + dcId) : "/apiws";
 
         String req =
                 "GET " + path + " HTTP/1.1\r\n" +
@@ -1899,6 +1906,63 @@ public class TgWsProxyService extends Service {
 
             return payload; // Binary/Text frame data
         }
+    }
+
+    /**
+     * PrimeGram: a way out through a Worker the user deployed themselves.
+     *
+     * <p>Unlike our own domains, a Worker is not a Telegram endpoint at all: it opens a plain TCP
+     * connection to the data centre's own address and shuttles bytes. Which means everything past
+     * this point is unchanged - the same obfuscated init, the same bridge - because what the
+     * client would have sent down a direct socket is exactly what goes into the pipe.
+     *
+     * <p>Tried in order, and only after our own domains have all failed. A Worker belongs to the
+     * user and has a request budget attached to their Cloudflare account; spending it while the
+     * ordinary route works would be rude.
+     */
+    private WsConnection connectThroughWorker(int dcId, boolean isMedia, String destIp) {
+        if (!PrimeCfWorkers.isEnabled() || destIp == null || destIp.isEmpty()) {
+            return null;
+        }
+        final List<String> domains = PrimeCfWorkers.getDomains();
+        if (domains.isEmpty()) {
+            return null;
+        }
+        final String path = "/apiws?dst=" + destIp + "&dc=" + dcId;
+        for (String domain : domains) {
+            final Long until = ipFailUntil.get(domain);
+            if (until != null && until > System.currentTimeMillis()) {
+                logInfo("Worker " + domain + " is in cooldown, skipping");
+                continue;
+            }
+            final long startedAt = System.currentTimeMillis();
+            SSLSocket socket = null;
+            try {
+                socket = createTlsSocketWithIpv4Preference(domain, 443, 10_000);
+                socket.setUseClientMode(true);
+                socket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
+                socket.setTcpNoDelay(true);
+                socket.setSoTimeout(10_000);
+                wsHandshake(socket, domain, dcId, false, path);
+                ipFailUntil.remove(domain);
+                primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " up via worker "
+                        + domain + " in " + (System.currentTimeMillis() - startedAt) + " ms");
+                logInfo("Connected through user worker " + domain + " -> " + destIp + " (DC" + dcId + ")");
+                return new WsConnection(socket, domain);
+            } catch (Exception e) {
+                logError("Worker " + domain + " failed: " + e.getMessage(), null);
+                if (socket != null) {
+                    try {
+                        socket.close();
+                    } catch (IOException ignored) {
+                    }
+                }
+                // Half an hour, not an hour: a Worker that ran out of its daily requests comes
+                // back on its own, and the user has far fewer of these than we have domains.
+                ipFailUntil.put(domain, System.currentTimeMillis() + 1800_000L);
+            }
+        }
+        return null;
     }
 
     private byte[] generateRelayInit(byte[] clientHandshake, int dcId, boolean isMedia) {
