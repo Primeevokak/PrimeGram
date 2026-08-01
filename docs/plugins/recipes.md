@@ -228,6 +228,42 @@ def send_pie(peer, labels, values):
     client_utils.send_photo(peer, path)
 ```
 
+## Ужиться с другими плагинами
+
+Хуки отправки выстраиваются по приоритету, больший идёт первым. Плагин, который **дополняет**
+сообщение, должен возвращать `MODIFY` и пропускать остальных дальше:
+
+```python
+def on_plugin_load(self):
+    self.add_on_send_message_hook(priority=10)      # раньше обычных
+
+def on_send_message_hook(self, account, params):
+    if not isinstance(params.message, str):
+        return HookResult()
+    if params.message.startswith("!"):
+        params.message = params.message[1:]
+        params.notify = False                        # тихая отправка
+        return HookResult(strategy=HookStrategy.MODIFY)   # не FINAL
+    return HookResult()
+```
+
+`MODIFY_FINAL` берите только тогда, когда чужое вмешательство после вас всё испортит — например,
+если вы уже собрали готовый HTML и любая доработка текста сломает разметку.
+
+## Отправить без превью и без звука
+
+Всё это поля того же `params`, менять их можно из любого хука:
+
+```python
+def on_send_message_hook(self, account, params):
+    if isinstance(params.message, str) and params.message.startswith("тихо "):
+        params.message = params.message[5:]
+        params.notify = False          # получатель не услышит уведомление
+        params.searchLinks = False     # ссылка уйдёт без карточки превью
+        return HookResult(strategy=HookStrategy.MODIFY)
+    return HookResult()
+```
+
 ## Подменить поведение клиента
 
 Хук на метод — способ вмешаться там, где мы не сделали двери заранее.
@@ -271,8 +307,12 @@ class BookPlugin(BasePlugin):
         ))
 
     def _open(self, args):
-        run_on_ui_thread(lambda: BulletinHelper.show_info(
-            "Открываю %s" % args.file_name))
+        # args.file — java.io.File, уже скачанный. args.message — сообщение, из которого
+        # его открыли, или None, если открывали не из чата.
+        size = args.file.length()
+        sender = args.message.getSenderName() if args.message is not None else "неизвестно"
+        run_on_ui_thread(lambda: BulletinHelper.show_two_line(
+            args.file_name, "%d КБ, от %s" % (size // 1024, sender), 0))
 ```
 
 ## Своя схема ссылок
@@ -308,3 +348,10 @@ class LinkPlugin(BasePlugin):
 
 **Забытый `return HookResult()`.** Если из хука ничего не вернуть, получится `None`. Сообщение
 уйдёт, но в логе останется мусор, а поведение при нескольких плагинах станет непредсказуемым.
+
+**`params.message` не всегда строка.** Для фотографии, стикера или голосового там `None`, и
+`params.message.strip()` на этом месте уронит хук. Проверяйте тип первой же строкой.
+
+**Тяжёлая работа внутри хука метода.** Хук выполняется на потоке того, кого вы хукнули, — часто на
+главном. Сеть, диск и вычисления оттуда надо уводить через `client_utils.run_on_queue`, иначе вы
+держите кадр, и интерфейс встаёт.
