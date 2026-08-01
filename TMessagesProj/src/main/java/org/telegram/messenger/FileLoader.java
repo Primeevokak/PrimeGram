@@ -1568,7 +1568,12 @@ public class FileLoader extends BaseController {
             return null;
         }
         if (document.file_name_fixed != null) {
-            return document.file_name_fixed;
+            // Not returned as-is: this field is filled in when a document is prepared for sending,
+            // so it is the sender's own copy of a chunk that comes through here - and the sender
+            // was seeing "[PG1 k3f9x2 01-04 7580M] holiday.zip" in their own chat bubble while the
+            // recipient saw the file's real name.
+            final PrimeBigFile.Header fixedHeader = PrimeBigFile.parse(document.file_name_fixed);
+            return fixedHeader != null ? fixedHeader.fileName : document.file_name_fixed;
         }
         String fileName = null;
         if (document != null) {
@@ -1598,13 +1603,19 @@ public class FileLoader extends BaseController {
         return fileName != null ? fileName : "";
     }
 
-    /** The name as it arrived, header and all. Only the chunk machinery wants this. */
+    /**
+     * The name as it arrived, header and all. Only the chunk machinery wants this.
+     *
+     * <p>Deliberately consults file_name_fixed last, where getDocumentFileName consults it first.
+     * That field is filled in when a document is deserialized, by calling getDocumentFileName -
+     * which strips the header. Reading it here first meant that every chunk that came off the
+     * wire, which is every chunk after the app is restarted, looked like an ordinary file: the
+     * parts stopped being recognised as parts and a file sent in four pieces showed up as four
+     * unrelated attachments. The attributes underneath still carry the name as sent.
+     */
     public static String getRawDocumentFileName(TLRPC.Document document) {
         if (document == null) {
             return null;
-        }
-        if (document.file_name_fixed != null) {
-            return document.file_name_fixed;
         }
         if (document.file_name != null) {
             return document.file_name;
@@ -1615,7 +1626,7 @@ public class FileLoader extends BaseController {
                 return attribute.file_name;
             }
         }
-        return null;
+        return document.file_name_fixed;
     }
 
     public static String getMimeTypePart(String mime) {

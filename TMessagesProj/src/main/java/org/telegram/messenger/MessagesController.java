@@ -9390,6 +9390,13 @@ public class MessagesController extends BaseController implements NotificationCe
         if ((messages == null || messages.isEmpty()) && taskId == 0) {
             return;
         }
+        // PrimeGram: deleting the row that stands for a chunked file deletes every part of it.
+        // Only for a deletion the user asked for: a cache-only sweep or a resumed task is working
+        // from a list somebody else decided on, and quietly adding messages to that is how a
+        // house-keeping pass turns into data loss.
+        if (!cacheOnly && taskId == 0 && !scheduled && !quickReplies) {
+            messages = PrimeBigFileReceiver.getInstance().withChunkIds(dialogId, messages);
+        }
         ArrayList<Integer> toSend = null;
         long channelId;
         if (taskId == 0) {

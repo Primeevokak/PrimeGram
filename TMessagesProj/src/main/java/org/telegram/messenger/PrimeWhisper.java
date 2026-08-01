@@ -35,32 +35,126 @@ public class PrimeWhisper {
     public static final int MODEL_TINY = 0;
     public static final int MODEL_BASE = 1;
     public static final int MODEL_SMALL = 2;
+    public static final int MODEL_MEDIUM = 3;
+    public static final int MODEL_TURBO = 4;
 
-    public static final String[] MODEL_NAMES = {"Tiny", "Base", "Small"};
+    public static final String[] MODEL_NAMES = {"Tiny", "Base", "Small", "Medium", "Large v3 Turbo"};
 
     /**
      * What each model costs and buys.
      *
-     * <p>All three are the q5_1 quantisations rather than the full-precision files: on a phone the
-     * accuracy difference is small and the size difference is roughly threefold, and a 466 MB
-     * download for a feature people try once is not a reasonable ask.
+     * <p>All of them are quantised rather than full-precision: on a phone the accuracy difference
+     * is small and the size difference is roughly threefold, and a 1.5 GB download for a feature
+     * people try once is not a reasonable ask.
+     *
+     * <p>Large v3 proper is deliberately absent. Its encoder is the same as the turbo variant's
+     * and its decoder is eight times deeper, so on a phone it buys a barely measurable amount of
+     * accuracy for several times the wait and twice the download. Turbo is what large-quality
+     * transcription looks like on a device you hold in your hand.
      */
     public static final String[] MODEL_DESCRIPTIONS = {
         "31 МБ · быстро, разборчивую речь узнаёт",
         "57 МБ · заметно точнее, разумный выбор",
-        "181 МБ · точнее всех, но медленно на слабых телефонах"
+        "181 МБ · точнее всех, но медленно на слабых телефонах",
+        "514 МБ · для мощных телефонов, заметно медленнее Small",
+        "547 МБ · лучшее качество, только для флагманов"
     };
 
-    public static final long[] MODEL_BYTES = {32_600_000L, 60_000_000L, 190_000_000L};
+    public static final long[] MODEL_BYTES = {
+        32_600_000L, 60_000_000L, 190_000_000L, 539_212_467L, 574_041_195L
+    };
 
     private static final String[] MODEL_FILES = {
         "ggml-tiny-q5_1.bin",
         "ggml-base-q5_1.bin",
-        "ggml-small-q5_1.bin"
+        "ggml-small-q5_1.bin",
+        "ggml-medium-q5_0.bin",
+        "ggml-large-v3-turbo-q5_0.bin"
     };
 
     private static final String MODEL_BASE_URL =
         "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
+
+    // ---- what the device can actually carry ----
+
+    /**
+     * Models that are not a reasonable default for anybody.
+     *
+     * <p>Small already transcribes remarkably well; these two exist for people who want the last
+     * few percent and have a phone that can pay for it. Offering them without saying so would be
+     * handing somebody a half-gigabyte download and a transcription that never finishes.
+     */
+    public static boolean isHeavy(int model) {
+        return model >= MODEL_MEDIUM;
+    }
+
+    /**
+     * Roughly what the model occupies while it runs: the weights, plus the key-value cache and
+     * the compute buffers ggml allocates around them.
+     */
+    public static long requiredMemory(int model) {
+        if (model < 0 || model >= MODEL_BYTES.length) {
+            return 0;
+        }
+        return MODEL_BYTES[model] * 3 / 2 + 250L * 1024 * 1024;
+    }
+
+    /** Physical RAM, or 0 when the system will not say. */
+    public static long deviceMemory() {
+        try {
+            final android.app.ActivityManager manager = (android.app.ActivityManager)
+                ApplicationLoader.applicationContext.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            if (manager == null) {
+                return 0;
+            }
+            final android.app.ActivityManager.MemoryInfo info = new android.app.ActivityManager.MemoryInfo();
+            manager.getMemoryInfo(info);
+            return info.totalMem;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /**
+     * Whether this phone is likely to run the model at all.
+     *
+     * <p>Four times what the model needs, not once: Android hands an app a fraction of the total,
+     * the rest of the messenger is in that fraction too, and a native allocation that cannot be
+     * met does not fail politely - it takes the process with it.
+     */
+    public static boolean deviceCanHandle(int model) {
+        if (!isHeavy(model)) {
+            return true;
+        }
+        final long memory = deviceMemory();
+        if (memory > 0 && memory < requiredMemory(model) * 4) {
+            return false;
+        }
+        return SharedConfig.getDevicePerformanceClass() >= SharedConfig.PERFORMANCE_CLASS_AVERAGE;
+    }
+
+    /** What the user should be told before choosing this model, or null when there is nothing. */
+    public static String capabilityWarning(int model) {
+        if (!isHeavy(model)) {
+            return null;
+        }
+        final StringBuilder text = new StringBuilder();
+        if (!deviceCanHandle(model)) {
+            text.append("Судя по характеристикам, этот телефон её не потянет. ");
+        }
+        text.append("Модель занимает около ")
+            .append(AndroidUtilities.formatFileSize(requiredMemory(model)))
+            .append(" оперативной памяти во время работы и расшифровывает в несколько раз дольше, чем Small.");
+        final long memory = deviceMemory();
+        if (memory > 0) {
+            text.append(" На этом устройстве всего ")
+                .append(AndroidUtilities.formatFileSize(memory))
+                .append(".");
+        }
+        text.append("\n\nSmall при этом даёт качество, которое почти невозможно отличить на слух — "
+            + "выбирайте это, только если разница действительно нужна.");
+        return text.toString();
+    }
 
     /** whisper wants exactly this: mono, 16 kHz, float samples in [-1, 1]. */
     private static final int TARGET_RATE = 16000;
@@ -177,12 +271,38 @@ public class PrimeWhisper {
         return deleted;
     }
 
+    public static final String KEY_PREFER_OVER_PREMIUM = "primegram_whisper_prefer";
+
+    /**
+     * Whether to use the on-device model even on an account that has real Premium.
+     *
+     * <p>Off by default, because Telegram's own transcription is instant and costs the user
+     * nothing they have not already paid for. On, because it turns out the local model reads some
+     * voices markedly better - and someone who has noticed that should not have to give up their
+     * subscription to act on it.
+     */
+    public static boolean preferOverPremium() {
+        try {
+            return prefs().getBoolean(KEY_PREFER_OVER_PREMIUM, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setPreferOverPremium(boolean prefer) {
+        try {
+            prefs().edit().putBoolean(KEY_PREFER_OVER_PREMIUM, prefer).apply();
+        } catch (Throwable ignore) {
+        }
+    }
+
     /** True when this account should use the on-device path instead of Telegram's. */
     public static boolean shouldHandle(int account) {
         try {
-            return !UserConfig.getInstance(account).hasRealPremium()
-                && isEnabled()
-                && isModelDownloaded(getModel());
+            if (!isEnabled() || !isModelDownloaded(getModel())) {
+                return false;
+            }
+            return !UserConfig.getInstance(account).hasRealPremium() || preferOverPremium();
         } catch (Throwable t) {
             return false;
         }

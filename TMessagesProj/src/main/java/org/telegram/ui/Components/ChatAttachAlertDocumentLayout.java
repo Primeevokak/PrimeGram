@@ -758,13 +758,25 @@ public class ChatAttachAlertDocumentLayout extends ChatAttachAlert.AttachAlertLa
             fmessages.add(selectedMessages.get(hashId));
         }
         final ArrayList<String> files = new ArrayList<>(selectedFilesOrder);
+        // PrimeGram: oversized picks leave the ordinary list here and go out as chunks instead.
+        final ArrayList<String> bigFiles = primeExtractBigFiles(files);
 
         final CharSequence[] message = new CharSequence[]{ parentAlert.getCommentView().getText() };
         final ArrayList<TLRPC.MessageEntity> captionEntities = MediaDataController.getInstance(parentAlert.currentAccount).getEntities(message, true);
         final String caption = message[0].toString();
 
+        if (!bigFiles.isEmpty() && files.isEmpty() && fmessages.isEmpty() && TextUtils.isEmpty(caption)) {
+            // Nothing left for the ordinary pipeline, so it is not asked - a paid-message
+            // confirmation for zero messages would be both wrong and confusing.
+            sendPressed = true;
+            primeSendBigFiles(bigFiles);
+            parentAlert.dismiss(true);
+            return true;
+        }
+
         return AlertsCreator.ensurePaidMessageConfirmation(parentAlert.currentAccount, parentAlert.getDialogId(), (!TextUtils.isEmpty(caption) ? 1 : 0) + files.size() + parentAlert.getAdditionalMessagesCount(), payStars -> {
             sendPressed = true;
+            primeSendBigFiles(bigFiles);
             delegate.didSelectFiles(files, caption, captionEntities, fmessages, notify, scheduleDate, 0, effectId, invertMedia, payStars);
             parentAlert.dismiss(true);
         });
@@ -799,17 +811,26 @@ public class ChatAttachAlertDocumentLayout extends ChatAttachAlert.AttachAlertLa
                 if ((item.file.length() > FileLoader.DEFAULT_MAX_FILE_SIZE && !UserConfig.getInstance(UserConfig.selectedAccount).hasRealPremium()) || item.file.length() > FileLoader.DEFAULT_MAX_FILE_SIZE_PREMIUM) {
                     // PrimeGram: too big for Telegram, not necessarily too big for us.
                     //
-                    // Handled here rather than in the send pipeline: the file never becomes a
-                    // normal selection, so nothing downstream has to learn about chunking. The
-                    // transfer starts immediately and the picker closes, which is what choosing a
-                    // file to send is supposed to do.
-                    if (primeStartBigFileSend(item.file)) {
+                    // Selecting it only selects it. Tapping a file used to begin a multi-gigabyte
+                    // upload there and then, which is not what tapping a file means anywhere else
+                    // in this picker - the send button is what sends.
+                    if (primeBigFileTarget() != 0 && !canSelectOnlyImageFiles && !isSoundPicker) {
+                        final String reason = org.telegram.messenger.PrimeBigFileSender
+                                .checkSendable(UserConfig.selectedAccount, item.file.length());
+                        if (reason != null) {
+                            // Our own limit or our own switch: say so, rather than offering
+                            // Telegram Premium to someone who only has to flip a setting.
+                            showErrorBox(reason);
+                            return false;
+                        }
+                        // Falls through and is selected like any other file; the split happens on
+                        // send, in sendSelectedItems.
+                    } else {
+                        LimitReachedBottomSheet limitReachedBottomSheet = new LimitReachedBottomSheet(parentAlert.baseFragment, parentAlert.getContainer().getContext(), LimitReachedBottomSheet.TYPE_LARGE_FILE, UserConfig.selectedAccount, null);
+                        limitReachedBottomSheet.setVeryLargeFile(true);
+                        limitReachedBottomSheet.show();
                         return false;
                     }
-                    LimitReachedBottomSheet limitReachedBottomSheet = new LimitReachedBottomSheet(parentAlert.baseFragment, parentAlert.getContainer().getContext(), LimitReachedBottomSheet.TYPE_LARGE_FILE, UserConfig.selectedAccount, null);
-                    limitReachedBottomSheet.setVeryLargeFile(true);
-                    limitReachedBottomSheet.show();
-                    return false;
                 }
                 if (maxSelectedFiles >= 0 && selectedFiles.size() >= maxSelectedFiles) {
                     showErrorBox(LocaleController.formatString("PassportUploadMaxReached", R.string.PassportUploadMaxReached, LocaleController.formatPluralString("Files", maxSelectedFiles)));
@@ -1265,41 +1286,79 @@ public class ChatAttachAlertDocumentLayout extends ChatAttachAlert.AttachAlertLa
     }
 
     /**
-     * PrimeGram: starts an oversized file on its way as a set of chunks.
+     * PrimeGram: the chat an oversized file would be split into, or 0 when there is not one.
      *
-     * @return true when the transfer was started and the picker should simply close
+     * <p>Chunking is a conversation between two clients, so it only exists when a conversation is
+     * what we are attaching to. Ringtone and passport pickers and the story composer keep the
+     * stock behaviour.
      */
-    private boolean primeStartBigFileSend(java.io.File file) {
+    private long primeBigFileTarget() {
+        if (parentAlert == null || parentAlert.isPollAttach || parentAlert.storyMediaPicker) {
+            return 0;
+        }
+        if (!(parentAlert.baseFragment instanceof org.telegram.ui.ChatActivity)) {
+            return 0;
+        }
+        return ((org.telegram.ui.ChatActivity) parentAlert.baseFragment).getDialogId();
+    }
+
+    /**
+     * PrimeGram: removes the oversized selections from the ordinary list and returns them.
+     *
+     * <p>They are taken out rather than flagged so that nothing downstream of the send button has
+     * to learn what a chunk is: the delegate receives a list of files Telegram can carry, exactly
+     * as it always did.
+     */
+    private ArrayList<String> primeExtractBigFiles(ArrayList<String> files) {
+        final ArrayList<String> big = new ArrayList<>();
+        if (primeBigFileTarget() == 0) {
+            return big;
+        }
         final int account = UserConfig.selectedAccount;
-        final String reason = org.telegram.messenger.PrimeBigFileSender.checkSendable(account, file.length());
-        if (reason != null) {
-            showErrorBox(reason);
-            return true;
+        final Iterator<String> iterator = files.iterator();
+        while (iterator.hasNext()) {
+            final String path = iterator.next();
+            final ListItem item = selectedFiles.get(path);
+            if (item == null || item.file == null) {
+                continue;
+            }
+            if (org.telegram.messenger.PrimeBigFile.needsSplitting(account, item.file.length())) {
+                big.add(path);
+                iterator.remove();
+            }
         }
-        long dialogId = 0;
-        if (parentAlert != null && parentAlert.baseFragment instanceof org.telegram.ui.ChatActivity) {
-            dialogId = ((org.telegram.ui.ChatActivity) parentAlert.baseFragment).getDialogId();
+        return big;
+    }
+
+    /** PrimeGram: starts the chunked transfers for the files taken out above. */
+    private void primeSendBigFiles(ArrayList<String> paths) {
+        if (paths.isEmpty()) {
+            return;
         }
+        final int account = UserConfig.selectedAccount;
+        final long dialogId = primeBigFileTarget();
         if (dialogId == 0) {
-            // Nowhere to send it. Falling through to the stock message is more honest than a
-            // transfer that starts and goes nowhere.
-            return false;
+            return;
         }
-        final String alias = org.telegram.messenger.PrimeBigFileSender.getInstance()
-                .send(account, dialogId, file, file.getName());
-        if (alias == null) {
-            showErrorBox("Не удалось начать отправку файла.");
-            return true;
+        int started = 0;
+        for (String path : paths) {
+            final java.io.File file = new java.io.File(path);
+            if (org.telegram.messenger.PrimeBigFileSender.getInstance()
+                    .send(account, dialogId, file, file.getName()) != null) {
+                started++;
+            }
         }
-        if (parentAlert != null && parentAlert.baseFragment != null) {
+        if (parentAlert == null || parentAlert.baseFragment == null) {
+            return;
+        }
+        if (started > 0) {
             BulletinFactory.of(parentAlert.baseFragment).createSimpleBulletin(
-                    R.raw.ic_download, "Файл отправляется частями",
+                    R.raw.ic_download, started == 1 ? "Файл отправляется частями" : "Файлы отправляются частями",
                     "Не закрывайте приложение полностью — отправка продолжится в фоне").show();
+        } else {
+            BulletinFactory.of(parentAlert.baseFragment).createErrorBulletin(
+                    "Не удалось начать отправку файла.").show();
         }
-        if (parentAlert != null) {
-            parentAlert.dismiss();
-        }
-        return true;
     }
 
     private void showErrorBox(String error) {

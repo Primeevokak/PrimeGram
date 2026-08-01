@@ -2071,6 +2071,18 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         if (messages == null || messages.isEmpty()) {
             return 0;
         }
+        // PrimeGram: a file sent in parts shows as one message and forwards as all of them. Done
+        // here rather than where the selection is made because every way of forwarding - the
+        // action bar, the context menu, the share sheet, a drag onto another chat - arrives at
+        // this method, and a forward that carried only the visible part would leave the other
+        // side holding a first chunk and waiting for sixteen that never come.
+        // Filled in place rather than reassigned: the parameter is captured by lambdas further
+        // down, and a copy would leave them forwarding the unexpanded list.
+        final ArrayList<MessageObject> primeExpanded = PrimeBigFileReceiver.getInstance().withChunks(messages);
+        if (primeExpanded != messages) {
+            messages.clear();
+            messages.addAll(primeExpanded);
+        }
         int sendResult = 0;
         long myId = getUserConfig().getClientUserId();
         boolean isChannel = false;

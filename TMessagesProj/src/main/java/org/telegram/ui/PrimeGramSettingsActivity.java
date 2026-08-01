@@ -119,6 +119,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_WHISPER_MODEL = 86;
     private static final int ID_WHISPER_DOWNLOAD = 87;
     private static final int ID_WHISPER_LANGUAGE = 88;
+    private static final int ID_WHISPER_PREFER = 111;
     private static final int ID_ROUND_VIDEO_REAR = 89;
     private static final int ID_CAMERA2 = 90;
     private static final int ID_LIVE_PREVIEW = 91;
@@ -1185,11 +1186,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
         if (section == SECTION_TOOLS_STT) {
             boolean hasPremium = org.telegram.messenger.UserConfig.getInstance(currentAccount).hasRealPremium();
-            if (hasPremium) {
-                items.add(UItem.asShadow("У этого аккаунта есть Telegram Premium — расшифровка работает родными средствами Telegram и лучше интегрирована, поэтому подменять её нечем и незачем."));
-            } else {
+            {
                 row(check(ID_WHISPER_ENABLED, IconBackgroundColors.GREEN, R.drawable.msg_tabs_mic1,
                         "Расшифровывать на устройстве", org.telegram.messenger.PrimeWhisper.isEnabled()));
+                // Offered to Premium accounts too. The assumption used to be that Telegram's own
+                // transcription makes this pointless for them; in practice the local model reads
+                // some voices better, and someone who has noticed that should be able to choose
+                // without giving up their subscription.
+                if (hasPremium && org.telegram.messenger.PrimeWhisper.isEnabled()) {
+                    row(check(ID_WHISPER_PREFER, IconBackgroundColors.PURPLE, R.drawable.msg_tabs_mic1,
+                            "Вместо расшифровки Telegram",
+                            org.telegram.messenger.PrimeWhisper.preferOverPremium()));
+                }
                 if (org.telegram.messenger.PrimeWhisper.isEnabled()) {
                     final int model = org.telegram.messenger.PrimeWhisper.getModel();
                     row(button(ID_WHISPER_MODEL, IconBackgroundColors.BLUE, R.drawable.msg_download_settings,
@@ -1201,7 +1209,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                             "Язык записи", whisperLanguageName()));
                 }
                 endCard(items);
-                items.add(UItem.asShadow("Распознавание идёт прямо на телефоне: запись никуда не отправляется и работает без сети. Взамен нужно один раз скачать модель и подождать — на слабом телефоне минута речи разбирается заметно дольше, чем на сервере.\n\nЕсли скачана модель и включён внешний сервис одновременно, используется устройство: бесплатно и ничего не уходит наружу."));
+                items.add(UItem.asShadow("Распознавание идёт прямо на телефоне: запись никуда не отправляется и работает без сети. Взамен нужно один раз скачать модель и подождать — на слабом телефоне минута речи разбирается заметно дольше, чем на сервере.\n\nЕсли скачана модель и включён внешний сервис одновременно, используется устройство: бесплатно и ничего не уходит наружу."
+                        + (hasPremium ? "\n\nУ вас есть Telegram Premium, поэтому расшифровка и так работает родными средствами — мгновенно и без скачивания модели. Переключатель выше нужен, если качество на устройстве вас устраивает больше: на некоторых голосах локальная модель разбирает речь точнее." : "")));
 
                 row(check(ID_STT_ENABLED, IconBackgroundColors.PURPLE, R.drawable.msg_satellite,
                         "Расшифровывать через внешний сервис", org.telegram.messenger.PrimeTranscription.isEnabled()));
@@ -1498,6 +1507,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             // Straight to the stock screen rather than a copy of it here: the presets are one
             // stored value, and two screens writing it would eventually disagree.
             presentFragment(new org.telegram.ui.DataSettingsActivity());
+        } else if (item.id == ID_WHISPER_PREFER) {
+            org.telegram.messenger.PrimeWhisper.setPreferOverPremium(
+                    !org.telegram.messenger.PrimeWhisper.preferOverPremium());
+            listView.adapter.update(true);
         } else if (item.id == ID_WHISPER_ENABLED) {
             final boolean enabled = !org.telegram.messenger.PrimeWhisper.isEnabled();
             org.telegram.messenger.PrimeWhisper.setEnabled(enabled);
@@ -2238,11 +2251,44 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
         builder.setTitle("Модель распознавания");
         builder.setItems(options, (dialog, which) -> {
+            final String warning = org.telegram.messenger.PrimeWhisper.capabilityWarning(which);
+            if (warning != null) {
+                confirmHeavyWhisperModel(which, warning);
+                return;
+            }
             org.telegram.messenger.PrimeWhisper.setModel(which);
             listView.adapter.update(true);
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         showDialog(builder.create());
+    }
+
+    /**
+     * The heavy models are half a gigabyte each and can be too much for the phone holding them.
+     * Asked before the choice is made rather than after the download, which is the point at which
+     * finding out is expensive.
+     */
+    private void confirmHeavyWhisperModel(int model, String warning) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final boolean risky = !org.telegram.messenger.PrimeWhisper.deviceCanHandle(model);
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(org.telegram.messenger.PrimeWhisper.MODEL_NAMES[model]);
+        builder.setMessage(warning);
+        builder.setPositiveButton(risky ? "Всё равно выбрать" : "Выбрать", (dialog, which) -> {
+            org.telegram.messenger.PrimeWhisper.setModel(model);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        final AlertDialog alert = builder.create();
+        showDialog(alert);
+        if (risky) {
+            final android.view.View button = alert.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
+            if (button instanceof android.widget.TextView) {
+                ((android.widget.TextView) button).setTextColor(Theme.getColor(Theme.key_text_RedBold));
+            }
+        }
     }
 
     private AlertDialog whisperProgressDialog;

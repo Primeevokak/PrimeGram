@@ -126,6 +126,33 @@ public final class PrimeBigFile {
         }
     }
 
+    /**
+     * Whether a file of this size has to be split, and may be.
+     *
+     * <p>The one place that answers the question, so the file picker's idea of an oversized file
+     * and the sender's cannot drift apart - a file selected as splittable and then sent as an
+     * ordinary attachment would be refused by the server with nothing to show for it.
+     */
+    public static boolean needsSplitting(int account, long size) {
+        return isSendingEnabled() && size > sendLimitFor(account) && size <= maxSendableSize();
+    }
+
+    /**
+     * What Telegram itself will accept from this account in one file.
+     *
+     * <p>Not {@link #chunkLimitFor}: that one sits deliberately below this so a chunk has room to
+     * be a chunk. Splitting has to begin exactly where the server stops accepting, or a file
+     * between the two numbers would be split for no reason.
+     */
+    public static long sendLimitFor(int account) {
+        try {
+            return UserConfig.getInstance(account).hasRealPremium()
+                    ? FileLoader.DEFAULT_MAX_FILE_SIZE_PREMIUM : FileLoader.DEFAULT_MAX_FILE_SIZE;
+        } catch (Throwable e) {
+            return FileLoader.DEFAULT_MAX_FILE_SIZE;
+        }
+    }
+
     // endregion
 
     // region planning
