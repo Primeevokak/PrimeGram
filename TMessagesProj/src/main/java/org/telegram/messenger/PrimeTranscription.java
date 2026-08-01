@@ -39,8 +39,17 @@ public class PrimeTranscription {
     public static final String KEY_MODEL = "primegram_stt_model";
     public static final String KEY_LANGUAGE = "primegram_stt_language";
 
+    public static final String KEY_SMART_DNS = "primegram_stt_smart_dns";
+
     public static final String DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
     public static final String DEFAULT_MODEL = "whisper-large-v3-turbo";
+
+    /**
+     * A resolver that answers for services which refuse whole countries by returning its own
+     * gateway, which then forwards by SNI. Used for this one request and nothing else - the
+     * client's own traffic keeps going wherever it was going.
+     */
+    public static final String SMART_DNS_ENDPOINT = "https://xbox-dns.ru/dns-query";
 
     private static final int CONNECT_TIMEOUT_MS = 15_000;
     private static final int READ_TIMEOUT_MS = 60_000;
@@ -103,6 +112,18 @@ public class PrimeTranscription {
                 .putString(KEY_LANGUAGE, value == null ? "" : value.trim()).apply();
     }
 
+    public static boolean isSmartDnsEnabled() {
+        try {
+            return MessagesController.getGlobalMainSettings().getBoolean(KEY_SMART_DNS, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setSmartDnsEnabled(boolean enabled) {
+        MessagesController.getGlobalMainSettings().edit().putBoolean(KEY_SMART_DNS, enabled).apply();
+    }
+
     public static boolean isConfigured() {
         return isEnabled() && !TextUtils.isEmpty(getEndpoint()) && !TextUtils.isEmpty(getToken());
     }
@@ -161,6 +182,15 @@ public class PrimeTranscription {
 
     private static String upload(File file, String fileName) throws Exception {
         final String boundary = "----PrimeGram" + System.currentTimeMillis();
+        if (isSmartDnsEnabled()) {
+            final String text = uploadThroughSmartDns(file, fileName, boundary);
+            if (text != null) {
+                return text;
+            }
+            // The resolver had nothing to say, so this falls through to the ordinary path rather
+            // than failing: a service that was reachable all along should not stop working
+            // because a resolver was down.
+        }
         HttpURLConnection connection = (HttpURLConnection) new URL(getEndpoint()).openConnection();
         try {
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -173,23 +203,7 @@ public class PrimeTranscription {
             connection.setFixedLengthStreamingMode(bodyLength(file, fileName, boundary));
 
             DataOutputStream out = new DataOutputStream(connection.getOutputStream());
-            writeField(out, boundary, "model", getModel());
-            if (!TextUtils.isEmpty(getLanguage())) {
-                writeField(out, boundary, "language", getLanguage());
-            }
-            writeField(out, boundary, "response_format", "json");
-            out.writeBytes("--" + boundary + "\r\n");
-            out.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n");
-            out.writeBytes("Content-Type: application/octet-stream\r\n\r\n");
-            InputStream in = new BufferedInputStream(new FileInputStream(file));
-            byte[] chunk = new byte[16 * 1024];
-            int read;
-            while ((read = in.read(chunk)) > 0) {
-                out.write(chunk, 0, read);
-            }
-            in.close();
-            out.writeBytes("\r\n--" + boundary + "--\r\n");
-            out.flush();
+            writeBody(out, file, fileName, boundary);
             out.close();
 
             int code = connection.getResponseCode();
@@ -210,6 +224,43 @@ public class PrimeTranscription {
         } finally {
             connection.disconnect();
         }
+    }
+
+    /**
+     * The same request, sent to the address the smart resolver gave for this host.
+     *
+     * @return the transcript, or null when the resolver could not be used and the caller should
+     *         fall back to an ordinary connection
+     */
+    private static String uploadThroughSmartDns(File file, String fileName, String boundary) throws Exception {
+        final java.net.URL url = new URL(getEndpoint());
+        if (!"https".equalsIgnoreCase(url.getProtocol())) {
+            return null;
+        }
+        final org.telegram.messenger.browser.PrimeDns.Result resolved =
+                org.telegram.messenger.browser.PrimeDns.resolveVia(SMART_DNS_ENDPOINT, url.getHost());
+        if (resolved == null || resolved.blocked || resolved.addresses.isEmpty()) {
+            return null;
+        }
+
+        final java.util.LinkedHashMap<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("Authorization", "Bearer " + getToken());
+        headers.put("Content-Type", "multipart/form-data; boundary=" + boundary);
+
+        final PrimeDirectHttps.Response response = PrimeDirectHttps.post(url,
+                resolved.addresses.get(0), headers, bodyLength(file, fileName, boundary),
+                out -> writeBody(new DataOutputStream(out), file, fileName, boundary));
+
+        if (response.code / 100 != 2) {
+            FileLog.e("PrimeTranscription (smart dns): " + url.getHost() + " answered " + response.code
+                    + ": " + response.body.substring(0, Math.min(400, response.body.length())));
+            throw new IllegalStateException(describeError(response.code, response.body));
+        }
+        final String text = new JSONObject(response.body).optString("text", "").trim();
+        if (TextUtils.isEmpty(text)) {
+            throw new IllegalStateException("Сервис вернул пустой ответ");
+        }
+        return text;
     }
 
     /**
@@ -237,6 +288,30 @@ public class PrimeTranscription {
             return "Лимит сервиса исчерпан, попробуйте позже";
         }
         return "Сервис ответил ошибкой " + code;
+    }
+
+    /** The multipart body, written the same way whichever connection carries it. */
+    private static void writeBody(DataOutputStream out, File file, String fileName, String boundary) throws Exception {
+        writeField(out, boundary, "model", getModel());
+        if (!TextUtils.isEmpty(getLanguage())) {
+            writeField(out, boundary, "language", getLanguage());
+        }
+        writeField(out, boundary, "response_format", "json");
+        out.writeBytes("--" + boundary + "\r\n");
+        out.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n");
+        out.writeBytes("Content-Type: application/octet-stream\r\n\r\n");
+        InputStream in = new BufferedInputStream(new FileInputStream(file));
+        try {
+            byte[] chunk = new byte[16 * 1024];
+            int read;
+            while ((read = in.read(chunk)) > 0) {
+                out.write(chunk, 0, read);
+            }
+        } finally {
+            in.close();
+        }
+        out.writeBytes("\r\n--" + boundary + "--\r\n");
+        out.flush();
     }
 
     private static long bodyLength(File file, String fileName, String boundary) throws Exception {

@@ -50,6 +50,7 @@ public class PrimeDns {
             "AdGuard DNS без фильтрации",
             "Cloudflare",
             "Google",
+            "xbox-dns — открывает заблокированные по стране сервисы",
     };
 
     public static final String[] PRESET_URLS = {
@@ -58,6 +59,7 @@ public class PrimeDns {
             "https://unfiltered.adguard-dns.com/dns-query",
             "https://cloudflare-dns.com/dns-query",
             "https://dns.google/dns-query",
+            "https://xbox-dns.ru/dns-query",
     };
 
     private static final int TYPE_A = 1;
@@ -186,15 +188,25 @@ public class PrimeDns {
      * so callers can tell "not configured" from "configured and failed".
      */
     public static Result resolve(String host) {
-        final String endpoint = currentEndpoint();
+        return resolveVia(currentEndpoint(), host);
+    }
+
+    /**
+     * The same lookup against a resolver of the caller's choosing.
+     *
+     * <p>Exists because one feature can need a particular resolver without the browser's setting
+     * following it around: a service that refuses whole countries is reachable through a resolver
+     * that answers with its own gateway, and that is a decision about that service, not about
+     * everything the user browses.
+     */
+    public static Result resolveVia(String endpoint, String host) {
         if (endpoint == null || TextUtils.isEmpty(host)) {
             return null;
         }
-        if (!endpoint.equals(cachedEndpoint)) {
-            cache.clear();
-            cachedEndpoint = endpoint;
-        }
-        final String key = host.toLowerCase(Locale.ROOT);
+        // Keyed by resolver as well as name: two resolvers answer differently on purpose, and
+        // that is the entire reason this overload exists.
+        final String key = endpoint + "|" + host.toLowerCase(Locale.ROOT);
+        final String name = host.toLowerCase(Locale.ROOT);
         final long now = System.currentTimeMillis();
 
         Result cached = cache.get(key);
@@ -204,11 +216,11 @@ public class PrimeDns {
 
         Result result = new Result();
         try {
-            byte[] response = post(endpoint, buildQuery(key, TYPE_A));
+            byte[] response = post(endpoint, buildQuery(name, TYPE_A));
             long ttlMs = parseAnswer(response, result);
             if (result.addresses.isEmpty() && !result.blocked) {
                 // No A record is not automatically an error — the host may be v6 only.
-                byte[] response6 = post(endpoint, buildQuery(key, TYPE_AAAA));
+                byte[] response6 = post(endpoint, buildQuery(name, TYPE_AAAA));
                 long ttl6 = parseAnswer(response6, result);
                 ttlMs = Math.max(ttlMs, ttl6);
             }

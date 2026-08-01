@@ -72,6 +72,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_LIMIT_RECENT_STICKERS = 39;
     private static final int ID_ONLINE_DOTS = 40;
     private static final int ID_STT_ENABLED = 41;
+    private static final int ID_STT_SMART_DNS = 138;
     private static final int ID_STT_TOKEN = 42;
     private static final int ID_STT_ENDPOINT = 43;
     private static final int ID_STT_MODEL = 44;
@@ -1217,9 +1218,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                             "Адрес сервиса", org.telegram.messenger.PrimeTranscription.getEndpoint()));
                     row(button(ID_STT_MODEL, IconBackgroundColors.GRAY, R.drawable.msg_download_settings,
                             "Модель", org.telegram.messenger.PrimeTranscription.getModel()));
+                    row(check(ID_STT_SMART_DNS, IconBackgroundColors.GREEN, R.drawable.msg_language,
+                            "Обход блокировки по стране",
+                            org.telegram.messenger.PrimeTranscription.isSmartDnsEnabled()));
                 }
                 endCard(items);
-                items.add(UItem.asShadow("Telegram отдаёт расшифровку только по Premium. Эта настройка отправляет голосовое во внешний сервис и подставляет ответ на место родной расшифровки.\n\nПо умолчанию — Groq: бесплатный тариф без карты, около 2000 расшифровок в сутки, ключ берётся на console.groq.com. Подойдёт любой сервис с совместимым API (OpenAI, Cloudflare, свой сервер) — впишите его адрес и модель.\n\nПонимайте, на что соглашаетесь: голосовое уходит на сервер, который не принадлежит ни Telegram, ни нам. Поэтому выключено по умолчанию и включается руками."));
+                items.add(UItem.asShadow("Telegram отдаёт расшифровку только по Premium. Эта настройка отправляет голосовое во внешний сервис и подставляет ответ на место родной расшифровки.\n\nПо умолчанию — Groq: бесплатный тариф без карты, около 2000 расшифровок в сутки, ключ берётся на console.groq.com. Подойдёт любой сервис с совместимым API (OpenAI, Cloudflare, свой сервер) — впишите его адрес и модель.\n\nПонимайте, на что соглашаетесь: голосовое уходит на сервер, который не принадлежит ни Telegram, ни нам. Поэтому выключено по умолчанию и включается руками.\n\n«Обход блокировки по стране» нужен, если сервис отвечает отказом всем адресам вашей страны. Тогда адрес сервиса ищется через сторонний резолвер (xbox-dns.ru), который отвечает адресом своего шлюза, и запрос идёт через него. Соединение остаётся зашифрованным от начала до конца — шлюз видит только поток байтов, — но в пути появляется ещё один посредник, и знать об этом стоит. Затрагивается ровно этот запрос: весь остальной трафик клиента идёт как шёл."));
             }
         }
 
@@ -1577,6 +1581,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                         .createSimpleBulletin(R.raw.info, "Расшифровка на устройстве выключена",
                                 "Расшифровка работает в одном месте: на устройстве или на сервере").show();
             }
+            listView.adapter.update(true);
+        } else if (item.id == ID_STT_SMART_DNS) {
+            org.telegram.messenger.PrimeTranscription.setSmartDnsEnabled(
+                    !org.telegram.messenger.PrimeTranscription.isSmartDnsEnabled());
             listView.adapter.update(true);
         } else if (item.id == ID_STT_TOKEN) {
             showTextInputDialog("Ключ сервиса",
