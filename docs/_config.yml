@@ -1,0 +1,9 @@
+title: PrimeGram
+description: Клиент Telegram для Android с модификациями для качества соединения и плагинами на Python
+theme: jekyll-theme-cayman
+lang: ru
+
+# Служебные файлы репозитория не должны превращаться в страницы сайта.
+exclude:
+  - Gemfile
+  - Gemfile.lock

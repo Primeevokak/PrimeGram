@@ -1,53 +1,81 @@
 # PrimeGram
 
-*🇺🇸 Scroll down for English | 🇷🇺 Русская версия ниже*
+Клиент Telegram для Android с рядом модификаций, улучшающих качество соединения. Сетевая часть
+построена на основе [TgWs by Flowseal](https://github.com/Flowseal/tg-ws-proxy).
+
+Поддерживает плагины и совместим с exteraGram — написанное под него обычно работает здесь без
+правок. Список библиотек, доступных разработчику плагинов, при этом заметно шире.
+
+**[Скачать](https://github.com/Primeevokak/PrimeGram/releases)** ·
+**[Документация](https://primeevokak.github.io/PrimeGram/)** ·
+**[Как написать плагин](https://primeevokak.github.io/PrimeGram/plugins/)**
 
 ---
 
-## 🇺🇸 English
+## Что умеет
 
-**PrimeGram** is an advanced, highly optimized fork of the official [Telegram App for Android](https://play.google.com/store/apps/details?id=org.telegram.messenger). 
-Our primary focus is delivering maximum performance, reducing battery consumption, seamlessly bypassing censorship, and providing a clean, extended user experience without aggressive tracking.
+**Соединение.** Клиент сам заботится о том, как добраться до серверов — без настроек, без
+стороннего софта, без плясок при каждом запуске. При желании можно подключить свой бесплатный
+туннель на Cloudflare и пользоваться им.
 
-### 🔥 Key Features
+**Файлы до 8 гигабайт.** Telegram не даёт отправить больше двух, с Premium — четырёх. PrimeGram
+режет файл на части, отправляет их с паузами, а такой же клиент на другой стороне собирает обратно
+и показывает одним файлом с настоящим именем и размером. Получателю ничего делать не нужно.
 
-* **Built-in Anti-Censorship:** Includes an integrated proxy service that allows you to connect automatically, even in heavily restricted networks.
-* **Smart Channel Feed ("The Wall"):** A custom feed that combines all unread posts from your favorite channels into a single, unified timeline.
-* **In-app Browser:** A fast, integrated browser with customizable search engines (Google, etc.) so you don't have to leave the app to read articles or open links.
-* **Battery & Performance Optimization:** Video decoding and heavy UI blur effects are fully hardware-accelerated. This drastically lowers CPU usage, saves battery life, and prevents your device from overheating.
-* **Super-Fast Networking:** Massive file downloads and heavy media loading will no longer freeze the app thanks to our optimized multi-threaded network engine.
-* **120fps Smooth Scrolling:** We've patched various layout bottlenecks from the original Telegram app to ensure buttery-smooth scrolling in chats.
-* **Enhanced Privacy:** We removed aggressive permission requests on startup. Furthermore, your authorization tokens are **no longer** backed up to the Google Cloud.
-* **Built-in Auto-Updater:** Automatically fetches and installs the latest PrimeGram updates directly from GitHub.
-* **Custom Sidebar:** A tailored navigation sidebar for quicker access to your favorite features.
+**Расшифровка голосовых на устройстве.** Без Premium и без интернета, на whisper.cpp. Текст
+появляется по мере распознавания. Модель выбираете сами — от 31 мегабайта для быстрого разбора до
+уровня large для тяжёлых записей, с честным предупреждением, потянет ли её ваш телефон.
 
-### 🛠 Compilation Guide
-You will require Android Studio, Android NDK, and Android SDK.
-1. Clone the repository.
-2. Setup your `release.keystore`, `google-services.json`, and `BuildVars.java`.
-3. Run the custom build script (`.\build_primegram.bat`) or compile manually via Gradle.
+**Плагины на Python.** Совместимы с exteraGram. Больше сорока библиотек уже внутри — `requests`,
+`pillow`, `pandas`, `matplotlib`, вся криптография, работа со звуком, — а чистые Python-пакеты
+плагин доставит с PyPI сам.
 
----
+**Встроенный браузер** с вкладками, блокировщиком рекламы и шифрованным DNS.
 
-## 🇷🇺 Русский
+**Лента каналов** — все непрочитанные посты подписок одной лентой, без прыжков по чатам.
 
-**PrimeGram** — это продвинутый и глубоко оптимизированный форк официального [клиента Telegram для Android](https://play.google.com/store/apps/details?id=org.telegram.messenger).
-Наша главная цель: максимальная производительность, экономия заряда батареи, бесшовный обход блокировок и расширенный функционал без слежки и назойливых уведомлений.
+**Поиск+** — по числовому ID, номеру телефона или ссылке `t.me`, прямо в обычном поиске.
 
-### 🔥 Главные фичи
+**Временные подписки** — подписаться на канал на час, день или месяц, дальше клиент отпишется сам.
 
-* **Встроенный обход блокировок:** Интегрированный прокси-сервис позволяет приложению автоматически обходить цензуру и подключаться даже в сетях с жесткими ограничениями.
-* **Умная лента ("Стена"):** Удобная лента, объединяющая все непрочитанные посты из ваших подписок в один общий скролл. Больше не нужно прыгать по десяткам каналов!
-* **Встроенный браузер:** Быстрый внутренний браузер с возможностью выбора поисковика. Открывайте ссылки и читайте статьи, не покидая мессенджер.
-* **Оптимизация батареи и видео:** Воспроизведение тяжелых видеороликов и эффекты размытия интерфейса теперь обрабатываются напрямую видеочипом (аппаратное ускорение). Телефон больше не греется, а заряд батареи экономится.
-* **Молниеносная загрузка файлов:** Благодаря переписанному сетевому движку, скачивание сотен файлов и тяжелого кэша больше не заставляет приложение зависать.
-* **Идеально плавный интерфейс:** Мы исправили системные баги оригинального Telegram, вызывавшие просадки кадров. Теперь скроллинг в чатах работает стабильно и плавно (вплоть до 120fps).
-* **Улучшенная приватность:** Отключены агрессивные запросы разрешений при старте приложения. Токены авторизации **больше не копируются** в облако Google (Cloud Backup полностью вырезан).
-* **Встроенное автообновление:** Приложение само проверяет, скачивает и устанавливает новые версии PrimeGram напрямую с GitHub.
-* **Кастомное боковое меню:** Переработанная навигация для самого быстрого доступа ко всем важным разделам.
+И по мелочи: настраиваемая зона свайпа боковой панели, редактор панели форматирования, локальные
+эмодзи-статусы, управление кэшем, свои переводчики, панель «что нового» после обновления.
 
-### 🛠 Инструкция по сборке
-Вам понадобится Android Studio, Android NDK и Android SDK.
-1. Склонируйте репозиторий.
-2. Настройте `release.keystore`, `google-services.json` и `BuildVars.java`.
-3. Запустите скрипт сборки (`.\build_primegram.bat`) или скомпилируйте проект вручную через Gradle.
+## Производительность
+
+Часть работы ушла не в функции, а в то, чтобы всё это не тормозило: ленивая загрузка аккаунтов при
+старте, аппаратное декодирование видео, GLESv3, нативный пул потоков в сетевом слое, кэширование в
+горячих путях отрисовки, сторож главного потока. Есть встроенная трассировка запуска — видно, куда
+уходят миллисекунды на холодном старте.
+
+## Сборка
+
+Нужны Android Studio, Android SDK и NDK.
+
+```bash
+git clone https://github.com/Primeevokak/PrimeGram.git
+cd PrimeGram
+./gradlew :TMessagesProj_AppStandalone:assembleAfatRelease
+```
+
+Ключи Telegram API берутся из переменных окружения `PRIME_APP_ID` и `PRIME_APP_HASH`, а если их
+нет — из `local.properties`. В репозитории лежит публичная запасная пара: с ней проект соберётся,
+но свои ключи лучше получить на [my.telegram.org](https://my.telegram.org).
+
+Для сборки с уведомлениями понадобится собственный `google-services.json` — тот, что в
+репозитории, привязан к чужому проекту Firebase и токенов не выдаст.
+
+## Обновления
+
+Приложение проверяет релизы на GitHub само и предлагает поставить новую версию. Вручную скачивать
+достаточно один раз.
+
+## Благодарности
+
+[Flowseal](https://github.com/Flowseal/tg-ws-proxy) — за подход, на котором построена сетевая
+часть. [exteraGram](https://github.com/exteraSquad/exteraGram) — за API плагинов, который мы
+сохранили совместимым. [Telegram](https://github.com/DrKLO/Telegram) — за исходники клиента.
+
+## Лицензия
+
+GPL v2, как и у оригинального клиента Telegram.
