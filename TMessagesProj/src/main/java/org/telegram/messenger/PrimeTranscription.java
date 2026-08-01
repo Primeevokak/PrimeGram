@@ -243,18 +243,39 @@ public class PrimeTranscription {
             return null;
         }
 
+        // Whether the resolver actually sent us somewhere else. These gateways only substitute for
+        // the services they carry; for anything else they answer with the ordinary address, and
+        // then this whole path is an elaborate way of making the same refused connection. Worth
+        // knowing, because "did not help" and "did not apply" look identical from the outside.
+        final java.net.InetAddress address = resolved.addresses.get(0);
+        boolean redirected = true;
+        try {
+            for (java.net.InetAddress system : java.net.InetAddress.getAllByName(url.getHost())) {
+                if (system.equals(address)) {
+                    redirected = false;
+                    break;
+                }
+            }
+        } catch (Throwable ignore) {
+        }
+        FileLog.d("PrimeTranscription (smart dns): " + url.getHost() + " -> " + address.getHostAddress()
+                + (redirected ? " (шлюз)" : " (обычный адрес, подмены нет)"));
+
         final java.util.LinkedHashMap<String, String> headers = new java.util.LinkedHashMap<>();
         headers.put("Authorization", "Bearer " + getToken());
         headers.put("Content-Type", "multipart/form-data; boundary=" + boundary);
 
-        final PrimeDirectHttps.Response response = PrimeDirectHttps.post(url,
-                resolved.addresses.get(0), headers, bodyLength(file, fileName, boundary),
+        final PrimeDirectHttps.Response response = PrimeDirectHttps.post(url, address, headers,
+                bodyLength(file, fileName, boundary),
                 out -> writeBody(new DataOutputStream(out), file, fileName, boundary));
 
         if (response.code / 100 != 2) {
             FileLog.e("PrimeTranscription (smart dns): " + url.getHost() + " answered " + response.code
                     + ": " + response.body.substring(0, Math.min(400, response.body.length())));
-            throw new IllegalStateException(describeError(response.code, response.body));
+            final String reason = describeError(response.code, response.body);
+            throw new IllegalStateException(redirected ? reason
+                    : reason + "\n\nОбход не применился: резолвер не обслуживает " + url.getHost()
+                            + " и вернул обычный адрес.");
         }
         final String text = new JSONObject(response.body).optString("text", "").trim();
         if (TextUtils.isEmpty(text)) {
