@@ -1752,6 +1752,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @SuppressLint("Range")
     private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser.Progress progress, boolean rebuildFragments, boolean openedTelegram) {
+        // PrimeGram: plugins get first refusal on an incoming intent, and another look afterwards
+        // if nobody took it. Before the app's own handling on purpose - a plugin that claims a
+        // link scheme has to be asked before the client decides the link is not for it.
+        if (org.telegram.messenger.plugins.PrimePluginHooks.onIntent(intent, false)) {
+            return true;
+        }
         if (GiftInfoBottomSheet.handleIntent(intent, progress)) {
             return true;
         }

@@ -165,10 +165,89 @@ class FilesController:
         def __init__(self, ext, secret):
             super().__init__("wrong secret for %s" % ext)
 
+    # ext -> (secret, FileInfo). One plugin per extension: two plugins both claiming ".zip"
+    # would give a file two owners and the user no say in which one opens it.
+    _registered = {}
+
     @classmethod
     def register(cls, file_info):
-        raise NotImplementedError("file hooks are not available in this build")
+        """Claims an extension. Returns a secret that unregistering asks for."""
+        ext = (file_info.ext or "").lower().lstrip(".")
+        if not ext:
+            raise ValueError("empty extension")
+        if ext in cls._registered:
+            raise cls.ExtensionAlreadyRegistered(ext)
+        secret = "%s_%d" % (ext, id(file_info))
+        cls._registered[ext] = (secret, file_info)
+        cls._publish()
+        return secret
 
     @classmethod
     def unregister(cls, ext, secret):
-        raise NotImplementedError("file hooks are not available in this build")
+        ext = (ext or "").lower().lstrip(".")
+        entry = cls._registered.get(ext)
+        if entry is None:
+            raise cls.ExtensionNotRegistered(ext)
+        if entry[0] != secret:
+            raise cls.SecretInvalid(ext, secret)
+        cls._registered.pop(ext, None)
+        cls._publish()
+
+    @classmethod
+    def forget_all(cls, infos):
+        """Drops the given registrations without asking for secrets. Used when a plugin unloads."""
+        for ext, (secret, info) in list(cls._registered.items()):
+            if info in infos:
+                cls._registered.pop(ext, None)
+        cls._publish()
+
+    @classmethod
+    def _publish(cls):
+        # Tells the Java side whether to bother asking at all. Opening a file is not a hot path,
+        # but a check that costs one field read is still better than a call into Python.
+        try:
+            from org.telegram.messenger.plugins import PrimePluginHooks
+            PrimePluginHooks.setFileHooks(bool(cls._registered))
+        except Exception:
+            pass
+
+    @classmethod
+    def dispatch(cls, path, file_name, message, activity, place_name):
+        """Called from Java when the user taps a file. True means a plugin took it."""
+        if not cls._registered:
+            return False
+        name = file_name or ""
+        dot = name.rfind(".")
+        ext = name[dot + 1:].lower() if dot >= 0 else ""
+        entry = cls._registered.get(ext)
+        if entry is None:
+            return False
+
+        info = entry[1]
+        try:
+            place = FilesController.Place[place_name]
+        except Exception:
+            place = FilesController.Place.UNKNOWN
+        if info.whitelist_places and place not in info.whitelist_places:
+            return False
+        if info.blacklist_places and place in info.blacklist_places:
+            return False
+
+        from java.io import File as JavaFile
+        args = FilesController.OnClickArgs(
+            place=place,
+            file=JavaFile(path),
+            file_name=name,
+            message=message,
+            activity=activity,
+        )
+        try:
+            info.on_click(args)
+            return True
+        except Exception:
+            import traceback
+            from android_utils import log
+            log("file hook for .%s failed: %s" % (ext, traceback.format_exc()))
+            # The plugin claimed the file and then broke. Opening it the ordinary way now would
+            # be a surprise, so the tap simply does nothing and the log says why.
+            return True

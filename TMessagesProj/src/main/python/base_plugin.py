@@ -96,10 +96,77 @@ class MenuItemData:
 # ---------------------------------------------------------------------------
 # method hooking
 #
-# Patching arbitrary app methods needs a hooking runtime, which PrimeGram does not yet carry. The
-# classes exist so that a plugin importing them loads and its other features work; the hooking
-# calls say so plainly rather than pretending to have worked, because a hook that silently never
-# fires is the worst of the three possible outcomes.
+# Real hooking, on LSPlant through PrimePluginXposed: the app rewrites entry points of its own
+# methods, in its own process, with no root and nothing installed. Plugins written for exteraGram
+# use this without knowing anything is different.
+#
+# Where LSPlant cannot start - an ART version it has not been taught - hooking reports itself
+# unavailable and says so in the log. That is deliberate: a hook that silently never fires is the
+# worst of the possible outcomes, because the plugin looks installed and does nothing.
+
+
+def _make_callback(plugin, xposed_hook, before, after, before_filters, after_filters):
+    """Turns everything a plugin might have passed into one Java-facing callback.
+
+    exteraGram accepts three shapes for the same thing - a hook object, plain before/after
+    callables, or a MethodReplacement - and plugins in the wild use all three. They are
+    normalised here so the Java side sees exactly one interface.
+    """
+    from java import dynamic_proxy
+    from org.telegram.messenger.plugins import PrimePluginXposed
+
+    if not PrimePluginXposed.isAvailable():
+        plugin.log("подмена методов недоступна на этом устройстве")
+        return None
+
+    replacement = None
+    before_fn = before
+    after_fn = after
+
+    if xposed_hook is not None:
+        if isinstance(xposed_hook, MethodReplacement):
+            replacement = xposed_hook.replace_hooked_method
+        else:
+            if before_fn is None and hasattr(xposed_hook, "before_hooked_method"):
+                before_fn = xposed_hook.before_hooked_method
+            if after_fn is None and hasattr(xposed_hook, "after_hooked_method"):
+                after_fn = xposed_hook.after_hooked_method
+            if before_filters is None:
+                before_filters = getattr(xposed_hook, "before_filters", None)
+            if after_filters is None:
+                after_filters = getattr(xposed_hook, "after_filters", None)
+
+    def passes(filters, param):
+        if not filters:
+            return True
+        for item in filters:
+            data = item.filter_data if isinstance(item, HookFilter) else item
+            if not data.matches(param):
+                return False
+        return True
+
+    class _Callback(dynamic_proxy(PrimePluginXposed.Callback)):
+
+        def before(self, param):
+            try:
+                if replacement is not None:
+                    # A replacement runs instead of the method: its return value becomes the
+                    # result, and setting a result is what stops the original from running.
+                    param.setResult(replacement(param))
+                    return
+                if before_fn is not None and passes(before_filters, param):
+                    before_fn(param)
+            except Exception as error:
+                plugin.log("ошибка в before-хуке: %r" % (error,))
+
+        def after(self, param):
+            try:
+                if replacement is None and after_fn is not None and passes(after_filters, param):
+                    after_fn(param)
+            except Exception as error:
+                plugin.log("ошибка в after-хуке: %r" % (error,))
+
+    return _Callback()
 
 
 class XposedHook(abc.ABC):
@@ -154,8 +221,65 @@ class HookFilterData:
     instance_of: Any = None
     object: Any = None
 
+    def matches(self, param):
+        """Whether this filter lets the hook run for this call.
+
+        Evaluated here rather than handed to a Java filter object, as exteraGram does: their
+        filters live in their own class, ours would have to be a copy of it, and the whole thing
+        amounts to a handful of comparisons that Python does perfectly well.
+        """
+        kind = self.filter_type
+        try:
+            if kind == "result_is_null":
+                return param.getResult() is None
+            if kind == "result_not_null":
+                return param.getResult() is not None
+            if kind == "result_is_true":
+                return param.getResult() is True
+            if kind == "result_is_false":
+                return param.getResult() is False
+            if kind == "result_equal":
+                return param.getResult() == self.object
+            if kind == "result_not_equal":
+                return param.getResult() != self.object
+            if kind == "result_instance_of":
+                return self.instance_of.isInstance(param.getResult())
+
+            if kind.startswith("argument"):
+                args = param.args
+                if self.arg_index is None or self.arg_index >= len(args):
+                    return False
+                value = args[self.arg_index]
+                if kind == "argument_is_null":
+                    return value is None
+                if kind == "argument_not_null":
+                    return value is not None
+                if kind == "argument_is_true":
+                    return value is True
+                if kind == "argument_is_false":
+                    return value is False
+                if kind == "argument_equal":
+                    return value == self.object
+                if kind == "argument_not_equal":
+                    return value != self.object
+                if kind == "argument_instance_of":
+                    return self.instance_of.isInstance(value)
+
+            if kind == "or":
+                return any(f.matches(param) for f in (self.or_filters or []))
+
+            if kind == "condition":
+                # exteraGram evaluates an MVEL expression here. We have no MVEL, and inventing a
+                # half-working expression language would be worse than saying no: a filter that
+                # quietly misjudges is harder to find than one that never matches.
+                return False
+        except Exception:
+            return False
+        return False
+
     def to_java_filter(self):
-        raise NotImplementedError("method hooking is not available in this build")
+        # Kept for plugins that call it directly; ours are evaluated in Python.
+        return self
 
 
 class HookFilter(Enum):
@@ -291,7 +415,12 @@ class BasePlugin:
         registry.last_defined.append(cls)
 
     def __init__(self):
-        pass
+        # (unhook, callback) for every hook this plugin placed. The callback half is here for a
+        # reason: once a hook is in place the only reference to its proxy is from native code,
+        # which the garbage collector cannot see, and a collected proxy takes the hook with it.
+        self._prime_hooks = []
+        self._prime_files = []
+        self._prime_intents = []
 
     # --- lifecycle, overridden by plugins -------------------------------------------------
 
@@ -340,16 +469,36 @@ class BasePlugin:
         ]
 
     def add_file_hook(self, file_info):
-        raise NotImplementedError("file hooks are not available in this build")
+        """Claims a file extension: tapping such a file anywhere in the app runs the plugin."""
+        from file_utils import FilesController
+        secret = FilesController.register(file_info)
+        self._prime_files.append(file_info)
+        return secret
 
     def remove_file_hook(self, ext, secret):
-        pass
+        from file_utils import FilesController
+        FilesController.unregister(ext, secret)
+        self._prime_files = [
+            info for info in self._prime_files
+            if (info.ext or "").lower().lstrip(".") != (ext or "").lower().lstrip(".")
+        ]
 
     def add_intent_hook(self, info, type):
-        raise NotImplementedError("intent hooks are not available in this build")
+        """Claims incoming intents matching ``info``, before or after the app's own handling."""
+        from intents import IntentsManager
+        if type == IntentHookType.AFTER:
+            handle = IntentsManager.new_global_after_handler(info)
+        else:
+            handle = IntentsManager.new_global_before_handler(info)
+        self._prime_intents.append(info)
+        return handle
 
     def remove_intent_hook(self, handler_id):
-        pass
+        from intents import IntentsManager
+        try:
+            IntentsManager.unhandle(handler_id)
+        except Exception:
+            pass
 
     def get_setting(self, key, default=None):
         return plugin_settings.get_setting(self.id, key, default)
@@ -369,21 +518,79 @@ class BasePlugin:
 
     def hook_method(self, method_or_constructor, xposed_hook=None, priority=None, *,
                     before=None, after=None, before_filters=None, after_filters=None):
-        self.log("hook_method is not available in this build")
-        return None
+        from org.telegram.messenger.plugins import PrimePluginXposed
+        callback = _make_callback(self, xposed_hook, before, after,
+                                  before_filters, after_filters)
+        if callback is None:
+            return None
+        unhook = PrimePluginXposed.hookMethod(method_or_constructor,
+                                              0 if priority is None else int(priority), callback)
+        if unhook is None:
+            self.log("не удалось повесить хук на %s" % method_or_constructor)
+            return None
+        # Kept alive by the plugin: the proxy is referenced only from native code once the hook is
+        # in place, and a garbage-collected callback takes the hook down with it.
+        self._prime_hooks.append((unhook, callback))
+        return unhook
 
     def hook_all_methods(self, hook_class, method_name, xposed_hook=None, priority=None, *,
                          before=None, after=None, before_filters=None, after_filters=None):
-        self.log("hook_all_methods is not available in this build")
-        return None
+        from org.telegram.messenger.plugins import PrimePluginXposed
+        callback = _make_callback(self, xposed_hook, before, after,
+                                  before_filters, after_filters)
+        if callback is None:
+            return None
+        unhooks = PrimePluginXposed.hookAllMethods(
+            hook_class, method_name, 0 if priority is None else int(priority), callback)
+        result = list(unhooks or [])
+        for unhook in result:
+            self._prime_hooks.append((unhook, callback))
+        if not result:
+            self.log("не нашлось методов %s.%s" % (hook_class, method_name))
+        return result
 
     def hook_all_constructors(self, hook_class, xposed_hook=None, priority=None, *,
                               before=None, after=None, before_filters=None, after_filters=None):
-        self.log("hook_all_constructors is not available in this build")
-        return None
+        from org.telegram.messenger.plugins import PrimePluginXposed
+        callback = _make_callback(self, xposed_hook, before, after,
+                                  before_filters, after_filters)
+        if callback is None:
+            return None
+        unhooks = PrimePluginXposed.hookAllConstructors(
+            hook_class, 0 if priority is None else int(priority), callback)
+        result = list(unhooks or [])
+        for unhook in result:
+            self._prime_hooks.append((unhook, callback))
+        return result
 
     def unhook_method(self, unhook):
+        from org.telegram.messenger.plugins import PrimePluginXposed
+        if unhook is None:
+            return None
+        PrimePluginXposed.unhook(unhook)
+        self._prime_hooks = [pair for pair in self._prime_hooks if pair[0] is not unhook]
         return None
+
+    def unhook_all(self):
+        """Takes down everything this plugin claimed. Called for you when it is switched off."""
+        from org.telegram.messenger.plugins import PrimePluginXposed
+        for unhook, _ in self._prime_hooks:
+            PrimePluginXposed.unhook(unhook)
+        self._prime_hooks = []
+        if self._prime_files:
+            from file_utils import FilesController
+            FilesController.forget_all(self._prime_files)
+            self._prime_files = []
+        if self._prime_intents:
+            from intents import IntentsManager
+            IntentsManager.forget_all(self._prime_intents)
+            self._prime_intents = []
+
+    @property
+    def hooking_available(self):
+        """False on devices whose ART version the hooking library does not know."""
+        from org.telegram.messenger.plugins import PrimePluginXposed
+        return bool(PrimePluginXposed.isAvailable())
 
     def log(self, message):
         _log("%s: %s" % (self.id or self.__class__.__name__, message))

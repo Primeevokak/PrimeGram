@@ -139,6 +139,12 @@ def unload_plugin(plugin_id):
             plugin.on_plugin_unload()
         except Exception:
             log("plugin %s failed while unloading:\n%s" % (plugin_id, traceback.format_exc()))
+        try:
+            # Not the plugin's job to remember. A method left hooked by a plugin that is gone
+            # keeps calling into code that no longer exists, and the crash lands far from here.
+            plugin.unhook_all()
+        except Exception:
+            log("plugin %s failed while removing hooks:\n%s" % (plugin_id, traceback.format_exc()))
         plugin.enabled = False
         plugin.initialized = False
     registry.remove_plugin(plugin_id)
@@ -295,3 +301,23 @@ def dispatch_app_event(event_name):
             plugin.on_app_event(event)
         except Exception:
             log("plugin %s failed on %s:\n%s" % (plugin.id, event_name, traceback.format_exc()))
+
+
+def dispatch_file_open(path, file_name, message, activity, place):
+    """Java asks whether a plugin claimed this file. Never raises - the file must still open."""
+    try:
+        from file_utils import FilesController
+        return bool(FilesController.dispatch(path, file_name, message, activity, place))
+    except Exception:
+        log("file dispatch failed:\n%s" % traceback.format_exc())
+        return False
+
+
+def dispatch_intent(intent, after):
+    """Java asks whether a plugin handled this intent. Never raises."""
+    try:
+        from intents import IntentsManager
+        return bool(IntentsManager.dispatch(intent, bool(after)))
+    except Exception:
+        log("intent dispatch failed:\n%s" % traceback.format_exc())
+        return False

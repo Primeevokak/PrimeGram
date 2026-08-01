@@ -3,6 +3,10 @@ apply plugin: 'com.android.application'
 repositories {
     mavenCentral()
     google()
+    // PrimeGram: AliuHook comes in through TMessagesProj, but a transitive dependency is resolved
+    // against the repositories of the module doing the resolving - so the app module needs to
+    // know where it lives too.
+    maven { url 'https://maven.aliucord.com/releases' }
 }
 
 configurations {

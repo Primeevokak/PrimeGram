@@ -6,6 +6,9 @@ apply plugin: 'com.chaquo.python'
 repositories {
     mavenCentral()
     google()
+    // PrimeGram: AliuHook, the in-process method hooking used by the plugin engine. Published
+    // only here - it is not on Maven Central.
+    maven { url 'https://maven.aliucord.com/releases' }
 }
 
 configurations {
@@ -38,6 +41,12 @@ dependencies {
 
     compileOnly 'org.checkerframework:checker-qual:2.5.2'
     compileOnly 'org.checkerframework:checker-compat-qual:2.5.0'
+    // PrimeGram: method hooking for plugins, on LSPlant. Gives the real de.robv.android.xposed
+    // API, which is what exteraGram plugins import - so a plugin written against hook_method
+    // there works here without knowing anything changed. Supports Android 5 through 15 on all
+    // four ABIs; where it cannot initialise, hooking is simply unavailable and the rest of the
+    // client is untouched.
+    implementation 'com.aliucord:Aliuhook:1.1.4'
     implementation 'com.google.firebase:firebase-messaging:22.0.0'
     implementation 'com.google.firebase:firebase-config:21.0.1'
     implementation 'com.google.firebase:firebase-datatransport:18.1.0'

@@ -4341,7 +4341,20 @@ public class AndroidUtilities {
     }
 
     public static boolean openForView(File f, String fileName, String mimeType, final Activity activity, Theme.ResourcesProvider resourcesProvider, boolean restrict) {
+        return openForView(f, fileName, mimeType, activity, resourcesProvider, restrict, null);
+    }
+
+    /**
+     * PrimeGram: the message overload passes itself down here so a plugin that claimed the
+     * extension gets it. Every other caller passes null, which is honest - they opened a file, not
+     * a message, and there is nothing to hand over.
+     */
+    public static boolean openForView(File f, String fileName, String mimeType, final Activity activity, Theme.ResourcesProvider resourcesProvider, boolean restrict, MessageObject primeMessage) {
         if (f != null && f.exists()) {
+            if (!restrict && org.telegram.messenger.plugins.PrimePluginHooks.onFileOpen(
+                    f, fileName, primeMessage, activity, "ChatActivity")) {
+                return true;
+            }
             if (!restrict && primeOpenHtmlInBrowser(f, fileName, mimeType, activity)) {
                 return true;
             }
@@ -4410,7 +4423,7 @@ public class AndroidUtilities {
             f = FileLoader.getInstance(message.currentAccount).getPathToMessage(message.messageOwner);
         }
         String mimeType = message.type == MessageObject.TYPE_FILE || message.type == MessageObject.TYPE_TEXT ? message.getMimeType() : null;
-        return openForView(f, message.getFileName(), mimeType, activity, resourcesProvider, restrict);
+        return openForView(f, message.getFileName(), mimeType, activity, resourcesProvider, restrict, message);
     }
 
     public static boolean openForView(TLRPC.Document document, boolean forceCache, Activity activity) {
