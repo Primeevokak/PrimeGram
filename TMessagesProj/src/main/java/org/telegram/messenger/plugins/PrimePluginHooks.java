@@ -39,6 +39,29 @@ public final class PrimePluginHooks {
         intentHooks = value;
     }
 
+    public static void setMenuItems(String json) {
+        PrimePluginMenuItems.setItems(json);
+    }
+
+    /** Tells the plugin its menu item was picked. Fire-and-forget, same as any other click - there
+     *  is no answer for the app to wait on. */
+    public static void onMenuItemClick(String itemId, java.util.Map<String, Object> context) {
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return;
+        }
+        engine.queue().postRunnable(() -> {
+            try {
+                final PyObject loader = engine.module("_prime_loader");
+                if (loader != null) {
+                    loader.callAttr("dispatch_menu_click", itemId, context);
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+        });
+    }
+
     /** Requests and updates share a flag: a plugin interested in one is usually interested in both. */
     private static volatile boolean requestHooks;
 

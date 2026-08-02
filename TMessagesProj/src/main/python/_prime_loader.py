@@ -8,10 +8,12 @@ into the app.
 """
 
 import json
+import re
 import sys
 import traceback
 import types
 
+import _prime_java_compat
 import _prime_pip
 import base_plugin
 import plugin_settings
@@ -21,11 +23,16 @@ from android_utils import log
 # Downloaded packages have to be importable before any plugin runs, and this module is imported
 # before any of them does.
 _prime_pip.ensure_on_path()
+# Same reasoning, for exteraGram's own Java classes: registered once, before the first plugin gets
+# a chance to ask for one.
+_prime_java_compat.install()
 
 #: Loaded plugin instances by id.
 _loaded = {}
 
-#: The rows each plugin last described, so Java can refer to them by index.
+#: The rows each plugin last described, keyed by (plugin_id, path) - "" for its own screen, and a
+#: slash-joined index trail for a sub-fragment a row opened - so Java can refer to a row by index
+#: on whichever screen it is currently looking at.
 _settings_rows = {}
 
 _MODULE_PREFIX = "prime_plugin_"
@@ -60,6 +67,30 @@ def _short_error(exc):
     lines = traceback.format_exception_only(type(exc), exc)
     return lines[-1].strip() if lines else repr(exc)
 
+# Roots no real PyPI distribution is published under, because pip's package name and its import
+# name are the same thing for every pure-Python package we could install anyway. A plugin that
+# fails to import one of these has reached for a Java package that this build does not have -
+# most often a class from exteraGram's own app, which is a different codebase under a different
+# package name and was never going to be here. Trying to "fetch" it from PyPI used to produce a
+# raw 404 with no indication of what actually went wrong.
+_JAVA_LOOKING_ROOTS = frozenset((
+    "com", "org", "net", "android", "androidx", "java", "javax",
+    "kotlin", "kotlinx", "dalvik", "de",
+))
+
+
+def _guess_java_path(source, root):
+    """The full dotted path a plugin tried to import, when we can find it in the source.
+
+    Falls back to the bare root: worse than the full path, but still tells the user which family
+    of name failed rather than showing them the inside of a stack trace.
+    """
+    match = re.search(
+        r"^\s*(?:from|import)\s+(" + re.escape(root) + r"(?:\.[A-Za-z_][\w]*)+)",
+        source, re.M,
+    )
+    return match.group(1) if match else root
+
 
 def load_plugin(plugin_id, path):
     """Runs a plugin file and starts its plugin. Returns None on success, a message on failure."""
@@ -91,7 +122,16 @@ def load_plugin(plugin_id, path):
         # it is the difference between "works" and a plugin the user has no way to repair.
         missing = e.name or ""
         installed, reason = (False, None)
-        if missing:
+        if missing and missing in _JAVA_LOOKING_ROOTS:
+            # Not a PyPI name at all - pip would 404 on it every time, for a reason that has
+            # nothing to do with packages. Most often this is a plugin written against
+            # exteraGram's own app, reaching for one of its Java classes directly; ours is a
+            # different codebase under a different package name and never had it.
+            full_path = _guess_java_path(source, missing)
+            log("plugin %s wants Java class %s, which this build does not have"
+                % (plugin_id, full_path))
+            reason = "плагину нужен класс Java «%s», которого нет в этой сборке" % full_path
+        elif missing:
             log("plugin %s wants %s; trying to fetch it" % (plugin_id, missing))
             installed, reason = _prime_pip.install(missing)
         if installed:
@@ -174,7 +214,8 @@ def unload_plugin(plugin_id):
         plugin.initialized = False
     registry.remove_plugin(plugin_id)
     _publish_request_hooks()
-    _settings_rows.pop(plugin_id, None)
+    for key in [k for k in _settings_rows if k[0] == plugin_id]:
+        _settings_rows.pop(key, None)
     plugin_settings.forget(plugin_id)
     sys.modules.pop(_MODULE_PREFIX + plugin_id, None)
 
@@ -231,11 +272,16 @@ def _row_to_dict(index, row):
             data[name] = value
     data["clickable"] = getattr(row, "on_click", None) is not None
     data["long_clickable"] = getattr(row, "on_long_click", None) is not None
+    data["has_sub_fragment"] = getattr(row, "create_sub_fragment", None) is not None
     return data
 
 
+def _store_rows(plugin_id, path, rows):
+    _settings_rows[(plugin_id, path)] = list(rows)
+
+
 def build_settings(plugin_id):
-    """The plugin's settings as JSON, for the Java screen to draw. ``"[]"`` when it offers none."""
+    """The plugin's own settings screen, as JSON. ``"[]"`` when it offers none."""
     plugin = _loaded.get(plugin_id)
     if plugin is None:
         return "[]"
@@ -244,7 +290,7 @@ def build_settings(plugin_id):
     except Exception:
         log("plugin %s failed to build settings:\n%s" % (plugin_id, traceback.format_exc()))
         return "[]"
-    _settings_rows[plugin_id] = list(rows)
+    _store_rows(plugin_id, "", rows)
     try:
         return json.dumps([_row_to_dict(i, row) for i, row in enumerate(rows)])
     except Exception:
@@ -252,14 +298,80 @@ def build_settings(plugin_id):
         return "[]"
 
 
-def _row(plugin_id, index):
-    rows = _settings_rows.get(plugin_id) or []
+def build_sub_settings(plugin_id, parent_path, index):
+    """The screen a ``create_sub_fragment`` row opens, as JSON ``{"title", "rows"}``.
+
+    ``parent_path`` is where the row itself lives - ``""`` for the plugin's own screen, or wherever
+    an earlier call here landed - so a row two screens deep is found the same way its parent was:
+    by walking down from the plugin's own screen one index at a time, never by index alone, because
+    the same index means a different row on every screen.
+    """
+    empty = json.dumps({"title": "", "rows": []})
+    row = _row(plugin_id, parent_path, index)
+    if row is None:
+        return empty
+    opener = getattr(row, "create_sub_fragment", None)
+    if opener is None:
+        return empty
+    try:
+        rows = opener() or []
+    except Exception:
+        log("plugin %s failed to build a sub-screen:\n%s" % (plugin_id, traceback.format_exc()))
+        return empty
+    child_path = "%s/%s" % (parent_path, index) if parent_path else str(index)
+    _store_rows(plugin_id, child_path, rows)
+    try:
+        return json.dumps({
+            "title": getattr(row, "text", "") or "",
+            "rows": [_row_to_dict(i, r) for i, r in enumerate(rows)],
+        })
+    except Exception:
+        log("plugin %s produced a sub-screen we cannot describe:\n%s" % (plugin_id, traceback.format_exc()))
+        return empty
+
+
+def build_custom_view(plugin_id, path, index):
+    """The live View for a ``Custom`` row - can't travel through JSON like the rest of a row, so
+    it takes a separate trip, made only once the row is actually about to be shown.
+
+    ``view`` is used directly if the plugin already built one. Otherwise, if ``factory`` is set,
+    it is called to build one now - ``factory(context, factory_args)``, or ``factory.create(context,
+    factory_args)`` for an object rather than a bare function - which is our own answer to
+    exteraGram's ``Factory``: theirs is a Java class the app instantiates, which would need a class
+    generated from Python at runtime (the same machinery ``ClassBuilder`` needs, and which this
+    build does not have); a Python callable does the same job - build a view lazily, parametrised by
+    ``factory_args`` - without needing a Java class to exist at all. A plugin ported from
+    exteraGram's exact ``CustomSetting.Factory`` subclass still will not work unmodified, because
+    that subclass itself cannot be created here; a plugin written against this callable form does.
+    """
+    row = _row(plugin_id, path, index)
+    if row is None or getattr(row, "type", None) != "custom":
+        return None
+    view = getattr(row, "view", None)
+    if view is not None:
+        return view
+    factory = getattr(row, "factory", None)
+    if factory is None:
+        return None
+    from org.telegram.messenger import ApplicationLoader
+    context = ApplicationLoader.applicationContext
+    build = getattr(factory, "create", factory)
+    try:
+        return build(context, getattr(row, "factory_args", None))
+    except Exception:
+        log("plugin %s: фабрика настройки #%s упала при создании view:\n%s" %
+            (plugin_id, index, traceback.format_exc()))
+        return None
+
+
+def _row(plugin_id, path, index):
+    rows = _settings_rows.get((plugin_id, path)) or []
     return rows[index] if 0 <= index < len(rows) else None
 
 
-def on_setting_changed(plugin_id, index, value_json):
+def on_setting_changed(plugin_id, path, index, value_json):
     """A row the user moved. The value is already stored; this is only the plugin's chance to react."""
-    row = _row(plugin_id, index)
+    row = _row(plugin_id, path, index)
     if row is None:
         return
     handler = getattr(row, "on_change", None)
@@ -271,8 +383,8 @@ def on_setting_changed(plugin_id, index, value_json):
         log("plugin %s on_change failed:\n%s" % (plugin_id, traceback.format_exc()))
 
 
-def on_setting_clicked(plugin_id, index):
-    row = _row(plugin_id, index)
+def on_setting_clicked(plugin_id, path, index):
+    row = _row(plugin_id, path, index)
     if row is None:
         return
     handler = getattr(row, "on_click", None)
@@ -347,6 +459,23 @@ def dispatch_intent(intent, after):
     except Exception:
         log("intent dispatch failed:\n%s" % traceback.format_exc())
         return False
+
+
+def dispatch_menu_click(item_id, context):
+    """A menu item the user picked. ``context`` is the same java.util.Map the app used to decide
+    whether the item should show at all - readable from Python like any dict, since Chaquopy wraps
+    a Java Map that way. Never raises: whichever screen showed the menu has already dismissed it by
+    the time this runs, so there is nothing left here for a plugin's mistake to break."""
+    entry = base_plugin.registry.menu_items.get(item_id)
+    if entry is None:
+        return
+    plugin, data = entry
+    if not plugin.enabled or data.on_click is None:
+        return
+    try:
+        data.on_click(context)
+    except Exception:
+        log("plugin %s menu item %s failed:\n%s" % (plugin.id, item_id, traceback.format_exc()))
 
 
 def _request_name(obj):

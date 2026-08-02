@@ -47,6 +47,14 @@ dependencies {
     // four ABIs; where it cannot initialise, hooking is simply unavailable and the rest of the
     // client is untouched.
     implementation 'com.aliucord:Aliuhook:1.1.4'
+    // PrimeGram: MVEL for HookFilter.Condition() - the same engine exteraGram itself evaluates
+    // plugin condition expressions with, so a condition string a plugin author wrote for
+    // exteraGram means the same thing here.
+    implementation 'org.mvel:mvel2:2.5.2.Final'
+    // PrimeGram: runtime DEX generation for ClassBuilder - a plugin subclassing an app class from
+    // Python needs an actual Java class to exist, which Chaquopy alone cannot produce. Same
+    // package (com.android.dx) exteraGram's own class generator builds on.
+    implementation 'com.linkedin.dexmaker:dexmaker:2.28.6'
     implementation 'com.google.firebase:firebase-messaging:22.0.0'
     implementation 'com.google.firebase:firebase-config:21.0.1'
     implementation 'com.google.firebase:firebase-datatransport:18.1.0'

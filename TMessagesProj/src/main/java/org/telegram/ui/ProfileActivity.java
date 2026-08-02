@@ -455,6 +455,12 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private TopView topView;
     private long userId;
     private long chatId;
+    // PrimeGram: plugin items on the overflow menu. Rebuilt every createActionBarMenu() call
+    // alongside everything else on it, so the index into this list is only ever valid until the
+    // next rebuild - which is fine, because a click can only happen on a menu that is on screen.
+    private static final int PRIME_MENU_ITEM_BASE = 1_000_000;
+    private final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeProfileMenuItems = new java.util.ArrayList<>();
+    private java.util.Map<String, Object> primeProfileMenuContext = java.util.Collections.emptyMap();
     private long topicId;
     public boolean saved;
     private long dialogId;
@@ -2535,6 +2541,14 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             @Override
             public void onItemClick(final int id) {
                 if (getParentActivity() == null) {
+                    return;
+                }
+                if (id >= PRIME_MENU_ITEM_BASE) {
+                    final int primeIndex = id - PRIME_MENU_ITEM_BASE;
+                    if (primeIndex >= 0 && primeIndex < primeProfileMenuItems.size()) {
+                        org.telegram.messenger.plugins.PrimePluginMenuItems.click(
+                                primeProfileMenuItems.get(primeIndex), primeProfileMenuContext);
+                    }
                     return;
                 }
                 if (id == -1) {
@@ -12088,6 +12102,23 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         Context context = actionBar.getContext();
         otherItem.removeAllSubItems();
         animatingItem = null;
+
+        primeProfileMenuItems.clear();
+        final java.util.Map<String, Object> primeMenuContext = new java.util.HashMap<>();
+        primeMenuContext.put("account", getCurrentAccount());
+        if (userId != 0) {
+            primeMenuContext.put("user_id", userId);
+        }
+        if (chatId != 0) {
+            primeMenuContext.put("chat_id", chatId);
+        }
+        primeProfileMenuContext = primeMenuContext;
+        for (org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem :
+                org.telegram.messenger.plugins.PrimePluginMenuItems.forType("profile_action_menu", primeMenuContext)) {
+            primeProfileMenuItems.add(primeItem);
+            otherItem.addSubItem(PRIME_MENU_ITEM_BASE + primeProfileMenuItems.size() - 1,
+                    primeItem.iconResId, primeItem.text);
+        }
 
         editItemVisible = false;
         callItemVisible = false;

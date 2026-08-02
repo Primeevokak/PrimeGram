@@ -11,19 +11,23 @@ import org.telegram.messenger.plugins.PrimePlugin;
 import org.telegram.messenger.plugins.PrimePluginsController;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.Components.BulletinFactory;
+import org.telegram.ui.Components.PrimePluginCardCell;
 import org.telegram.ui.Components.UItem;
 import org.telegram.ui.Components.UniversalAdapter;
 import org.telegram.ui.Components.UniversalFragment;
 
+import java.io.File;
+import java.util.HashMap;
 import java.util.List;
 
 /**
  * PrimeGram: the list of installed plugins.
  *
- * <p>One row per plugin, and the row says the two things a user can act on: whether it is running,
- * and what went wrong if it is not. A plugin that failed keeps its row rather than disappearing -
- * a plugin that vanishes after an update looks like the app lost it, and the user still has a file
- * they may want to delete.
+ * <p>Each row is a card: an icon, whether it is running, and the four things a user can actually
+ * do about a plugin without going anywhere else - open its settings, share the file, delete it,
+ * and see why it failed if it did. Everything on the card is a real, independently working
+ * control; the row itself carries no click of its own, so there is nothing left that looks
+ * interactive and is not.
  */
 public class PrimePluginsActivity extends UniversalFragment implements NotificationCenter.NotificationCenterDelegate {
 
@@ -33,6 +37,10 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
     private List<PrimePlugin> shown;
     /** Name to version, filled in behind the screen; empty until the engine answers. */
     private org.json.JSONObject libraries = new org.json.JSONObject();
+
+    /** Cells are kept and rebound, not recreated - a fresh view on every update would restart
+     * the switch's own animation and drop mid-scroll ripples on the action buttons. */
+    private final HashMap<Integer, PrimePluginCardCell> cells = new HashMap<>();
 
     private static final String PREF_WARNED = "primegram_plugins_warned";
 
@@ -102,27 +110,65 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
 
         items.add(UItem.asHeader("Установленные"));
         for (int i = 0; i < shown.size(); i++) {
-            final PrimePlugin plugin = shown.get(i);
-            // A row, not a switch: the switch lives on the plugin's own page, next to the settings
-            // it governs. A list of switches would make the common tap - "what does this thing
-            // even do" - the one gesture that is not available.
-            items.add(UItem.asButtonCheck(ID_PLUGIN_BASE + i, plugin.name(), subtitle(plugin))
-                    .setChecked(plugin.isEnabled()));
+            items.add(pluginRow(ID_PLUGIN_BASE + i, shown.get(i)));
         }
-        items.add(UItem.asShadow("Нажатие открывает настройки плагина, долгое — удаляет его вместе с ними.\n\nПлагины выполняются внутри приложения и могут читать и изменять всё, к чему у него есть доступ. Устанавливайте только те, чьему автору доверяете."));
+        items.add(UItem.asShadow("Плагины выполняются внутри приложения и могут читать и изменять всё, к чему у него есть доступ. Устанавливайте только те, чьему автору доверяете."));
 
         items.add(UItem.asButton(ID_LIBRARIES, "Скачанные библиотеки", librariesSummary()));
         items.add(UItem.asShadow("Плагин может попросить библиотеку, которой нет в приложении — она скачивается с PyPI при установке. Удалить их можно в любой момент: нужное скачается снова."));
     }
 
-    /** What is worth saying under the name: the failure if there is one, otherwise who wrote it. */
-    private static CharSequence subtitle(PrimePlugin plugin) {
-        if (plugin.hasError()) {
-            final Throwable error = plugin.error();
-            final String message = error == null || error.getMessage() == null
-                    ? "не удалось загрузить" : error.getMessage();
-            return "Ошибка: " + message;
+    private UItem pluginRow(int id, PrimePlugin plugin) {
+        PrimePluginCardCell cell = cells.get(id);
+        if (cell == null) {
+            final Context context = getContext();
+            if (context == null) {
+                return UItem.asShadow(null);
+            }
+            cell = new PrimePluginCardCell(context, getResourceProvider());
+            cells.put(id, cell);
         }
+        final PrimePluginCardCell bound = cell;
+        cell.setListener(new PrimePluginCardCell.Listener() {
+            @Override
+            public void onToggle() {
+                togglePlugin(plugin);
+            }
+
+            @Override
+            public void onOpenSettings() {
+                presentFragment(new PrimePluginSettingsActivity(plugin));
+            }
+
+            @Override
+            public void onShare() {
+                shareFile(plugin);
+            }
+
+            @Override
+            public void onDelete() {
+                confirmDelete(plugin);
+            }
+        });
+        cell.set(plugin, subtitle(plugin), description(plugin), plugin.hasError());
+        return UItem.asCustom(id, bound);
+    }
+
+    /** A toggle on a failed plugin means "try again" - there is nothing else it could mean. */
+    private void togglePlugin(PrimePlugin plugin) {
+        final boolean enable = plugin.hasError() || !plugin.isEnabled();
+        PrimePluginsController.getInstance().setEnabled(getParentActivity(), plugin, enable);
+        if (plugin.hasError() && enable) {
+            BulletinFactory.of(this).createSimpleBulletin(
+                    org.telegram.messenger.R.raw.info, "Пробуем снова").show();
+        }
+        if (listView != null && listView.adapter != null) {
+            listView.adapter.update(true);
+        }
+    }
+
+    /** Author and version, or nothing worth a second line. */
+    private static CharSequence subtitle(PrimePlugin plugin) {
         final StringBuilder builder = new StringBuilder();
         if (plugin.manifest.author != null && !plugin.manifest.author.isEmpty()) {
             builder.append(plugin.manifest.author);
@@ -133,10 +179,17 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
             }
             builder.append("v").append(plugin.manifest.version);
         }
-        if (builder.length() == 0 && plugin.manifest.description != null) {
-            builder.append(plugin.manifest.description);
-        }
         return builder;
+    }
+
+    /** What goes where the description sits: the failure if there is one, otherwise the blurb. */
+    private static CharSequence description(PrimePlugin plugin) {
+        if (plugin.hasError()) {
+            final Throwable error = plugin.error();
+            return error != null && error.getMessage() != null
+                    ? error.getMessage() : "Плагин не удалось загрузить.";
+        }
+        return plugin.manifest.description;
     }
 
     private CharSequence librariesSummary() {
@@ -185,50 +238,35 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
         dialog.redPositive();
     }
 
-    private PrimePlugin pluginAt(UItem item) {
-        final int index = item.id - ID_PLUGIN_BASE;
-        return shown != null && index >= 0 && index < shown.size() ? shown.get(index) : null;
-    }
-
-    @Override
-    protected void onClick(UItem item, View view, int position, float x, float y) {
-        if (item.id == ID_LIBRARIES) {
-            confirmClearLibraries();
+    private void shareFile(PrimePlugin plugin) {
+        if (getParentActivity() == null || plugin.file == null || !plugin.file.exists()) {
             return;
         }
-        final PrimePlugin plugin = pluginAt(item);
-        if (plugin == null) {
-            return;
+        try {
+            final android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            intent.setType("application/octet-stream");
+            final android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    getParentActivity(),
+                    org.telegram.messenger.ApplicationLoader.getApplicationId() + ".provider",
+                    plugin.file);
+            intent.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+            intent.setFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getParentActivity().startActivityForResult(
+                    android.content.Intent.createChooser(intent, LocaleController.getString(org.telegram.messenger.R.string.ShareFile)), 500);
+        } catch (Throwable e) {
+            org.telegram.messenger.FileLog.e(e);
+            BulletinFactory.of(this).createErrorBulletin("Не удалось поделиться файлом").show();
         }
-        if (plugin.hasError()) {
-            // A plugin that refused to load has no settings to show and cannot be switched on.
-            // The reason is the only useful thing left, so that is what the row does.
-            showError(plugin);
-            return;
-        }
-        presentFragment(new PrimePluginSettingsActivity(plugin));
     }
 
-    private void showError(PrimePlugin plugin) {
-        final Throwable error = plugin.error();
-        new AlertDialog.Builder(getContext(), getResourceProvider())
-                .setTitle(plugin.name())
-                .setMessage(error != null && error.getMessage() != null
-                        ? error.getMessage() : "Плагин не удалось загрузить.")
-                .setPositiveButton(LocaleController.getString(org.telegram.messenger.R.string.OK), null)
-                .show();
-    }
-
-    @Override
-    protected boolean onLongClick(UItem item, View view, int position, float x, float y) {
-        final PrimePlugin plugin = pluginAt(item);
-        if (plugin == null) {
-            return false;
-        }
+    private void confirmDelete(PrimePlugin plugin) {
         final AlertDialog.Builder builder = new AlertDialog.Builder(getContext(), getResourceProvider());
         builder.setTitle("Удалить «" + plugin.name() + "»?");
         builder.setMessage("Файл плагина и все его настройки будут удалены.");
         builder.setPositiveButton(LocaleController.getString(org.telegram.messenger.R.string.Delete), (dialog, which) -> {
+            // Cells are keyed by row index, not by plugin - one fewer plugin just means the
+            // cached cell at the tail gets rebound to whatever now falls at that index on the
+            // next fillItems, same as it would for any other change to the list.
             PrimePluginsController.getInstance().delete(plugin);
             if (listView != null && listView.adapter != null) {
                 listView.adapter.update(true);
@@ -240,7 +278,21 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
         final AlertDialog dialog = builder.create();
         dialog.show();
         dialog.redPositive();
-        AndroidUtilities.vibrateCursor(view);
-        return true;
+    }
+
+    @Override
+    protected void onClick(UItem item, View view, int position, float x, float y) {
+        // Plugin cards are VIEW_TYPE_CUSTOM and wire their own buttons directly - this is only
+        // ever reached for the plain rows below the list, "Скачанные библиотеки" among them.
+        if (item.id == ID_LIBRARIES) {
+            confirmClearLibraries();
+        }
+    }
+
+    @Override
+    protected boolean onLongClick(UItem item, View view, int position, float x, float y) {
+        // Every action a long press used to reach - delete, and now share and settings too - is a
+        // button on the card. Nothing is left for this gesture to do.
+        return false;
     }
 }

@@ -1643,6 +1643,13 @@ public class ChatActivity extends BaseFragment implements
     /** PrimeGram: browse this chat's locally tagged messages. */
     private final static int prime_chat_tags = 902;
 
+    /** PrimeGram: plugin items on the header ("...") menu. See createActionBarMenu()'s equivalent
+     *  in ProfileActivity for the same pattern - rebuilt whenever this block runs, valid until it
+     *  runs again, which is the same lifetime every other item in this menu already has. */
+    private final static int PRIME_MENU_ITEM_BASE = 1_000_000;
+    private final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeChatActionMenuItems = new java.util.ArrayList<>();
+    private java.util.Map<String, Object> primeChatActionMenuContext = java.util.Collections.emptyMap();
+
     /**
      * PrimeGram: upstream capped manual selection at 100 because a single delete/forward
      * request can't carry more. Both paths batch now — forwarding was already chunked
@@ -3856,6 +3863,12 @@ public class ChatActivity extends BaseFragment implements
                     showTempSubAlert();
                 } else if (id == prime_chat_tags) {
                     presentFragment(new MessageTagsActivity(dialog_id));
+                } else if (id >= PRIME_MENU_ITEM_BASE) {
+                    final int primeIndex = id - PRIME_MENU_ITEM_BASE;
+                    if (primeIndex >= 0 && primeIndex < primeChatActionMenuItems.size()) {
+                        org.telegram.messenger.plugins.PrimePluginMenuItems.click(
+                                primeChatActionMenuItems.get(primeIndex), primeChatActionMenuContext);
+                    }
                 } else if (id == clear_history || id == delete_chat || id == auto_delete_timer) {
                     if (getParentActivity() == null) {
                         return;
@@ -4477,6 +4490,25 @@ public class ChatActivity extends BaseFragment implements
             // PrimeGram: only worth a menu slot once this chat actually has tagged messages.
             if (chatMode == 0 && !org.telegram.messenger.MessageTagsStore.getTagsInDialog(dialog_id).isEmpty()) {
                 headerItem.lazilyAddSubItem(prime_chat_tags, R.drawable.msg_pin, "Сообщения по тегу");
+            }
+            primeChatActionMenuItems.clear();
+            final java.util.Map<String, Object> primeChatMenuContext = new java.util.HashMap<>();
+            primeChatMenuContext.put("account", currentAccount);
+            primeChatMenuContext.put("dialog_id", dialog_id);
+            if (currentChat != null) {
+                primeChatMenuContext.put("chat", currentChat);
+                primeChatMenuContext.put("chat_id", currentChat.id);
+            }
+            if (currentUser != null) {
+                primeChatMenuContext.put("user", currentUser);
+                primeChatMenuContext.put("user_id", currentUser.id);
+            }
+            primeChatActionMenuContext = primeChatMenuContext;
+            for (org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem :
+                    org.telegram.messenger.plugins.PrimePluginMenuItems.forType("chat_action_menu", primeChatMenuContext)) {
+                primeChatActionMenuItems.add(primeItem);
+                headerItem.lazilyAddSubItem(PRIME_MENU_ITEM_BASE + primeChatActionMenuItems.size() - 1,
+                        primeItem.iconResId, primeItem.text);
             }
             if (chatMode == 0 && !isTopic && ChatObject.isChannel(currentChat) && !currentChat.creator && !ChatObject.isNotInChat(currentChat)) {
                 headerItem.lazilyAddSubItem(prime_temp_sub, R.drawable.msg_autodelete,

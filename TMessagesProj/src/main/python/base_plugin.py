@@ -136,12 +136,20 @@ def _make_callback(plugin, xposed_hook, before, after, before_filters, after_fil
             if after_filters is None:
                 after_filters = getattr(xposed_hook, "after_filters", None)
 
-    def passes(filters, param):
+    # @hook_filters(...) on before_hooked_method/after_hooked_method stashes the filter list on
+    # the function itself; bound-method attribute access forwards to it, so this reads the same
+    # place the decorator wrote to, whether the method came from a hook class or was passed bare.
+    if before_filters is None and before_fn is not None:
+        before_filters = getattr(before_fn, "__hook_filters__", None)
+    if after_filters is None and after_fn is not None:
+        after_filters = getattr(after_fn, "__hook_filters__", None)
+
+    def passes(filters, param, is_before):
         if not filters:
             return True
         for item in filters:
             data = item.filter_data if isinstance(item, HookFilter) else item
-            if not data.matches(param):
+            if not data.matches(param, is_before):
                 return False
         return True
 
@@ -154,14 +162,14 @@ def _make_callback(plugin, xposed_hook, before, after, before_filters, after_fil
                     # result, and setting a result is what stops the original from running.
                     param.setResult(replacement(param))
                     return
-                if before_fn is not None and passes(before_filters, param):
+                if before_fn is not None and passes(before_filters, param, True):
                     before_fn(param)
             except Exception as error:
                 plugin.log("ошибка в before-хуке: %r" % (error,))
 
         def after(self, param):
             try:
-                if replacement is None and after_fn is not None and passes(after_filters, param):
+                if replacement is None and after_fn is not None and passes(after_filters, param, False):
                     after_fn(param)
             except Exception as error:
                 plugin.log("ошибка в after-хуке: %r" % (error,))
@@ -221,12 +229,16 @@ class HookFilterData:
     instance_of: Any = None
     object: Any = None
 
-    def matches(self, param):
+    def matches(self, param, is_before=False):
         """Whether this filter lets the hook run for this call.
 
         Evaluated here rather than handed to a Java filter object, as exteraGram does: their
         filters live in their own class, ours would have to be a copy of it, and the whole thing
-        amounts to a handful of comparisons that Python does perfectly well.
+        amounts to a handful of comparisons that Python does perfectly well. ``condition`` is the
+        one exception - it is MVEL, and rather than write a second interpreter we hand the
+        expression to the same engine exteraGram itself uses (org.mvel:mvel2), through
+        PrimePluginXposed.evalCondition, so a condition string a plugin author wrote for
+        exteraGram evaluates identically here.
         """
         kind = self.filter_type
         try:
@@ -269,10 +281,9 @@ class HookFilterData:
                 return any(f.matches(param) for f in (self.or_filters or []))
 
             if kind == "condition":
-                # exteraGram evaluates an MVEL expression here. We have no MVEL, and inventing a
-                # half-working expression language would be worse than saying no: a filter that
-                # quietly misjudges is harder to find than one that never matches.
-                return False
+                from org.telegram.messenger.plugins import PrimePluginXposed
+                return bool(PrimePluginXposed.evalCondition(
+                    self.mvel_expression, param, is_before, self.object))
         except Exception:
             return False
         return False
@@ -369,10 +380,31 @@ class _Registry:
         self.send_message_hooks = [h for h in self.send_message_hooks if h[1].id != plugin_id]
         self.menu_items = {k: v for k, v in self.menu_items.items() if v[0].id != plugin_id}
         self.publish_send_hooks()
+        self.publish_menu_items()
 
     def publish_send_hooks(self):
         """Tells the app whether the send path has anyone on it, so it can skip us entirely."""
         PrimePluginHooks.setSendMessageHooks(bool(self.send_message_hooks))
+
+    def publish_menu_items(self):
+        """Pushes the whole set of menu items to Java - a plain field there, read fresh every time
+        one of the app's own menus is about to be shown, because nothing here is on a hot path the
+        way a hook is: a menu opens once per tap, not once per frame.
+        """
+        import json as _json
+        rows = []
+        for item_id, (plugin, data) in self.menu_items.items():
+            rows.append({
+                "id": item_id,
+                "plugin_id": plugin.id,
+                "menu_type": data.menu_type.value,
+                "text": data.text,
+                "subtext": data.subtext,
+                "icon": data.icon,
+                "condition": data.condition,
+                "priority": data.priority,
+            })
+        PrimePluginHooks.setMenuItems(_json.dumps(rows))
 
 
 registry = _Registry()
@@ -603,7 +635,11 @@ class BasePlugin:
         item_id = menu_item_data.item_id or ("%s_%d" % (self.id, len(registry.menu_items)))
         menu_item_data.item_id = item_id
         registry.menu_items[item_id] = (self, menu_item_data)
+        registry.publish_menu_items()
         return item_id
 
     def remove_menu_item(self, item_id):
-        return registry.menu_items.pop(item_id, None) is not None
+        removed = registry.menu_items.pop(item_id, None) is not None
+        if removed:
+            registry.publish_menu_items()
+        return removed

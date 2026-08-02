@@ -106,6 +106,10 @@ class Custom:
 
     Nothing about it is themed or laid out by us, which is the trade being made. Plugins reaching
     for this are usually after a preview or a chart, and there is no honest way to describe those.
+
+    ``view`` for a view already built. ``factory`` for one that should be built lazily or from
+    ``factory_args`` - called as ``factory(context, factory_args)``, or ``factory.create(context,
+    factory_args)`` if it is an object rather than a bare function - right before the row is drawn.
     """
 
     type: str = field(default=TYPE_CUSTOM, init=False)

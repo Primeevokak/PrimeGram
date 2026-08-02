@@ -2,6 +2,7 @@ package org.telegram.messenger.plugins;
 
 import android.content.Context;
 import android.text.TextUtils;
+import android.view.View;
 
 import com.chaquo.python.PyObject;
 
@@ -307,6 +308,14 @@ public final class PrimePluginsController {
         if (plugin == null) {
             return;
         }
+        if (enabled) {
+            // Cleared before setEnabled, not after: PrimePlugin.setEnabled refuses to turn on a
+            // plugin that still has an error on it, and that error is whatever the *last* attempt
+            // left behind. Without this, asking to retry a failed plugin silently did nothing -
+            // the flag went in, isEnabled() stayed false because the stale error was still there,
+            // and loadIntoPython below ran without the UI ever reflecting that anything happened.
+            plugin.setError(null);
+        }
         PrimePluginStore.setEnabled(plugin.id(), enabled);
         plugin.setEnabled(enabled);
         notifyChanged();
@@ -431,6 +440,54 @@ public final class PrimePluginsController {
     }
 
     /**
+     * The screen a {@code create_sub_fragment} row opens, as JSON: {@code {"title", "rows"}}.
+     * {@code parentPath} is the screen the row itself lives on - {@code ""} for the plugin's own
+     * screen, or whatever an earlier call here returned as a child path - because the same row
+     * index means a different row on every screen.
+     */
+    public void requestSubSettings(String pluginId, String parentPath, int index,
+                                    org.telegram.messenger.Utilities.Callback<String> callback) {
+        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
+            String json = "{\"title\":\"\",\"rows\":[]}";
+            try {
+                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
+                if (loader != null) {
+                    json = loader.callAttr("build_sub_settings", pluginId, parentPath, index).toString();
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+            final String result = json;
+            AndroidUtilities.runOnUIThread(() -> callback.run(result));
+        });
+    }
+
+    /**
+     * The live {@link View} for one {@code "custom"} row - the one piece of a settings screen that
+     * cannot ride along in {@link #requestSettings}'s JSON, because JSON cannot hold a Java object.
+     * Fetched separately, once the row is actually about to be drawn. {@code path} is the screen
+     * the row lives on, same as in {@link #requestSubSettings}.
+     */
+    public void requestCustomView(String pluginId, String path, int index, org.telegram.messenger.Utilities.Callback<View> callback) {
+        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
+            View view = null;
+            try {
+                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
+                if (loader != null) {
+                    final PyObject result = loader.callAttr("build_custom_view", pluginId, path, index);
+                    if (result != null && result.toJava(Object.class) != null) {
+                        view = result.toJava(View.class);
+                    }
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+            final View result = view;
+            AndroidUtilities.runOnUIThread(() -> callback.run(result));
+        });
+    }
+
+    /**
      * What the downloader has fetched, as a JSON object of name to version.
      *
      * <p>Worth showing because these arrive without the user asking: a plugin declares what it
@@ -470,12 +527,12 @@ public final class PrimePluginsController {
     }
 
     /** Tells the plugin a row moved. The value is already stored - this is only its chance to react. */
-    public void notifySettingChanged(String pluginId, int index, String valueJson) {
+    public void notifySettingChanged(String pluginId, String path, int index, String valueJson) {
         PrimePythonEngine.getInstance().queue().postRunnable(() -> {
             try {
                 final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
                 if (loader != null) {
-                    loader.callAttr("on_setting_changed", pluginId, index, valueJson);
+                    loader.callAttr("on_setting_changed", pluginId, path, index, valueJson);
                 }
             } catch (Throwable e) {
                 FileLog.e(e);
@@ -483,12 +540,12 @@ public final class PrimePluginsController {
         });
     }
 
-    public void notifySettingClicked(String pluginId, int index) {
+    public void notifySettingClicked(String pluginId, String path, int index) {
         PrimePythonEngine.getInstance().queue().postRunnable(() -> {
             try {
                 final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
                 if (loader != null) {
-                    loader.callAttr("on_setting_clicked", pluginId, index);
+                    loader.callAttr("on_setting_clicked", pluginId, path, index);
                 }
             } catch (Throwable e) {
                 FileLog.e(e);

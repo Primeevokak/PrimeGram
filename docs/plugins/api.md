@@ -254,13 +254,24 @@ Text(text, subtext="", icon="", accent=False, red=False, on_click=None,
      create_sub_fragment=None)
 Header(text)
 Divider(text="")
-Custom(view)
+Custom(view=None, factory=None, factory_args=None, on_click=None)
 ```
 
-`Text` с `create_sub_fragment` открывает вложенный экран — верните из него список виджетов.
+`create_sub_fragment` открывает вложенный экран: верните из него список тех же виджетов, и по
+клику на строку появится новый экран с этим списком (заголовок — `text` строки). Работает для
+любой строки, у которой есть `create_sub_fragment`, сколько угодно уровней вложенности.
 
-`Custom` принимает вашу собственную `View`. Мы её не оформляем и не выравниваем — это осознанный
-размен: за такое обычно берутся ради превью или графика, а их честно описать нечем.
+`Custom` — строка, которую рисует сам плагин. `view` — самый прямой путь: постройте
+`android.view.View` через Chaquopy и передайте готовый объект, мы разместим его как есть, без
+оформления и выравнивания (осознанный размен — за такое обычно берутся ради превью или графика, а
+их честно описать нечем). `factory` — для view, который нужно построить лениво или параметрически:
+функция вида `factory(context, factory_args)`, вызывается прямо перед показом строки, должна
+вернуть `View`; либо объект с методом `.create(context, factory_args)` вместо голой функции. Это
+наш собственный аналог `Factory` из exteraGram — тот у них Java-класс, который приложение
+инстанцирует само, а мы просто вызываем ваш код. Из-за этого плагин, портированный из exteraGram
+с подклассом их `CustomSetting.Factory`, работать не будет — этот подкласс сам по себе не может
+быть создан без генерации Java-класса из Python в рантайме (то же самое, что нужно
+`ClassBuilder`). Плагин, написанный под `factory=...` в этом виде — будет.
 
 Значения хранятся отдельно от Java-настроек клиента, в каталоге плагинов, и переживают
 переустановку плагина.
@@ -445,8 +456,15 @@ self.hook_all_methods(cls, "process",
 `ArgumentIsNull(i)`, `ArgumentNotNull(i)`, `ArgumentIsTrue(i)`, `ArgumentIsFalse(i)`,
 `ArgumentEqual(i, v)`, `ArgumentNotEqual(i, v)`, `ArgumentIsInstanceOf(i, cls)`, `Or(*filters)`.
 
-`Condition(expression)` из exteraGram не поддерживается — там выражение на MVEL, интерпретатора у
-нас нет, и такой фильтр не совпадает никогда.
+`Condition(expression, object=None)` — выражение на MVEL, вычисляется тем же движком
+(`org.mvel:mvel2`), что и в самом exteraGram, так что строка, написанная под exteraGram, значит
+то же самое и здесь. Внутри выражения доступны `param` (аргументы метода), `result` (после хука —
+результат оригинала, до хука — `None`) и `object` (то, что передали в `Condition`); контекст
+выражения (`this`) — экземпляр, на котором вызван метод:
+
+```python
+HookFilter.Condition("param.args[0] == object || this instanceof android.view.View", object=42)
+```
 
 ### Файловые хуки
 

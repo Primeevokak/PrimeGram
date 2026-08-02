@@ -184,6 +184,13 @@ public class ApplicationLoaderImpl extends ApplicationLoader {
                 }
             });
         }
+
+        // PrimeGram: plugin menu items. This build has no separate side drawer - its items live
+        // here too - so both MAIN_MENU and DRAWER_MENU end up in the one overflow menu that exists.
+        final java.util.Map<String, Object> primeMenuContext = new java.util.HashMap<>();
+        primeMenuContext.put("account", UserConfig.selectedAccount);
+        org.telegram.messenger.plugins.PrimePluginMenuItems.appendTo(itemOptions, "main_menu", primeMenuContext);
+        org.telegram.messenger.plugins.PrimePluginMenuItems.appendTo(itemOptions, "drawer_menu", primeMenuContext);
     }
 
     @Override
