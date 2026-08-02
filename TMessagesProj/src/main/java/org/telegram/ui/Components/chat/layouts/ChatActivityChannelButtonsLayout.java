@@ -136,13 +136,16 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
             }
 
             ScaleStateListAnimator.apply(button, .13f, 2f);
+            if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+                button.setBlurredBackgroundDrawable(null);
+            }
             button.setVisibility(GONE);
             button.setOnClickListener(v -> {
                 if (onClickListeners[buttonId] != null) {
                     onClickListeners[buttonId].onClick(v);
                 }
             });
-            addView(button, LayoutHelper.createFrame(56, 56));
+            addView(button, LayoutHelper.createFrame(56, 56, Gravity.CENTER_VERTICAL | Gravity.LEFT));
 
             buttonHolders[buttonId] = new ButtonHolder(button, visibilityAnimator);
             checkButtonsPositionsAndVisibility();
@@ -153,10 +156,14 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
 
     private BlurredBackgroundDrawable containerDrawable;
     public void setupDrawableForContainer() {
+        final boolean flat = org.telegram.messenger.NonIslandHelper.chatElements();
+        if (flat) {
+            container.setOutlineProvider(ViewOutlineProviderImpl.boundsWithPaddingRoundRect(0, 0));
+        }
         containerDrawable = blurredBackgroundDrawableViewFactory.create(this)
             .setColorProvider(colorProvider)
-            .setRadius(dp(22))
-            .setPadding(dp(6));
+            .setRadius(dp(flat ? 0 : 22))
+            .setPadding(dp(flat ? 0 : 6));
     }
 
     public boolean isButtonVisible(final int buttonId) {
@@ -278,6 +285,10 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
                 continue;
             }
             paddingRight += holder.visibilityAnimator.getValue() ? dp(44 + 10) : 0;
+        }
+
+        if (org.telegram.messenger.NonIslandHelper.chatElements() && containerDrawable != null) {
+            paddingLeft = paddingRight = 0;
         }
 
         final MarginLayoutParams lp = (MarginLayoutParams) container.getLayoutParams();
@@ -414,10 +425,14 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
     @Override
     protected boolean drawChild(@NonNull Canvas canvas, View child, long drawingTime) {
         if (child == container && containerDrawable != null) {
-            tmpRect.set(
-                totalWidthLeft + dp(1), 0,
-                getMeasuredWidth() - dp(1) - totalWidthRight,
-                getMeasuredHeight());
+            if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+                tmpRect.set(0, 0, getMeasuredWidth(), getMeasuredHeight());
+            } else {
+                tmpRect.set(
+                    totalWidthLeft + dp(1), 0,
+                    getMeasuredWidth() - dp(1) - totalWidthRight,
+                    getMeasuredHeight());
+            }
 
             tmpRect.round(AndroidUtilities.rectTmp2);
             containerDrawable.setBounds(AndroidUtilities.rectTmp2);

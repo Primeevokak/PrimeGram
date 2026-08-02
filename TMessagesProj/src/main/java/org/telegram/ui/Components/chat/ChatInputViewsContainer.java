@@ -78,6 +78,10 @@ public class ChatInputViewsContainer extends FrameLayout {
     private BlurredBackgroundDrawable underKeyboardBackgroundDrawable;
     public void setInputIslandBubbleDrawable(BlurredBackgroundDrawable drawable) {
         blurredBackgroundDrawable = drawable;
+        if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+            blurredBackgroundDrawable.setStrokeWidth(0, 0);
+            return;
+        }
         blurredBackgroundDrawable.setPadding(dp(7));
         blurredBackgroundDrawable.setRadius(dp(INPUT_BUBBLE_RADIUS));
     }
@@ -85,7 +89,8 @@ public class ChatInputViewsContainer extends FrameLayout {
     public void setUnderKeyboardBackgroundDrawable(BlurredBackgroundDrawable drawable) {
         underKeyboardBackgroundDrawable = drawable;
         underKeyboardBackgroundDrawable.enableInAppKeyboardOptimization();
-        underKeyboardBackgroundDrawable.setRadius(dp(INPUT_KEYBOARD_RADIUS), dp(INPUT_KEYBOARD_RADIUS), 0, 0);
+        final int topRadius = org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : dp(INPUT_KEYBOARD_RADIUS);
+        underKeyboardBackgroundDrawable.setRadius(topRadius, topRadius, 0, 0);
         underKeyboardBackgroundDrawable.setThickness(dp(32));
         underKeyboardBackgroundDrawable.setIntensity(0.4f);
     }
@@ -177,7 +182,8 @@ public class ChatInputViewsContainer extends FrameLayout {
                     rightBottomRadius = bottomRight == null ? 0 : bottomRight.getRadius();
                 }
             }
-            underKeyboardBackgroundDrawable.setRadius(dp(INPUT_KEYBOARD_RADIUS), dp(INPUT_KEYBOARD_RADIUS), rightBottomRadius, leftBottomRadius, true);
+            final int topRadius = org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : dp(INPUT_KEYBOARD_RADIUS);
+            underKeyboardBackgroundDrawable.setRadius(topRadius, topRadius, rightBottomRadius, leftBottomRadius, true);
         }
     }
 

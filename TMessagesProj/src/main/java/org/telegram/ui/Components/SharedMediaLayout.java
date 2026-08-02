@@ -439,6 +439,14 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
         }
     }
 
+    private boolean inu_flatTabBar() {
+        return org.telegram.messenger.NonIslandHelper.sharedMediaTabs();
+    }
+
+    private int inu_actionModeHeight() {
+        return inu_flatTabBar() ? 44 : 48;
+    }
+
     public void drawListForBlur(Canvas blurCanvas, ArrayList<SizeNotifierFrameLayout.IViewWithInvalidateCallback> views) {
         for (int i = 0; i < mediaPages.length; i++) {
             if (mediaPages[i] != null && mediaPages[i].getVisibility() == View.VISIBLE) {
@@ -2312,7 +2320,7 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
             savedMessagesContainer.chatActivity.setSavedDialog(dialog_id);
             savedMessagesContainer.chatActivity.reversed = true;
             savedMessagesContainer.setClipToOutline(true);
-            savedMessagesContainer.setOutlineProvider(new ViewOutlineProvider() {
+            savedMessagesContainer.setOutlineProvider(inu_flatTabBar() ? null : new ViewOutlineProvider() {
                 @Override
                 public void getOutline(View view, Outline outline) {
                     outline.setRoundRect(0, 0, view.getWidth(), view.getHeight() + dp(24), dp(24));
@@ -3126,7 +3134,7 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
                     if (view instanceof SharedPhotoVideoCell2) {
                         SharedPhotoVideoCell2 cell = (SharedPhotoVideoCell2) view;
                         final int position = mediaPage.animationSupportingListView.getChildAdapterPosition(cell), spanCount = mediaPage.animationSupportingLayoutManager.getSpanCount();
-                        cell.isTop = position < spanCount;
+                        cell.isTop = position < spanCount && !inu_flatTabBar();
                         cell.isFirst = position % spanCount == 0;
                         cell.isLast = position % spanCount == spanCount - 1;
                         outRect.left = 0;
@@ -3159,7 +3167,7 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
                     } else if (view instanceof SharedPhotoVideoCell2) {
                         SharedPhotoVideoCell2 cell = (SharedPhotoVideoCell2) view;
                         final int position = mediaPage.listView.getChildAdapterPosition(cell), spanCount = mediaPage.layoutManager.getSpanCount();
-                        cell.isTop = position < spanCount;
+                        cell.isTop = position < spanCount && !inu_flatTabBar();
                         cell.isFirst = position % spanCount == 0;
                         cell.isLast = position % spanCount == spanCount - 1;
                         outRect.left = 0;
@@ -3732,6 +3740,10 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
                 fragmentContextView.isInsideBubble = true;
                 fragmentContextViewWrapper.addView(fragmentContextView);
                 addView(topPanelLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP, 0, 48 -14, 0, 0));
+                if (inu_flatTabBar()) {
+                    topPanelLayout.inu_blurHelper = org.telegram.messenger.BlurBehindHelper.create(topPanelLayout, sizeNotifierFrameLayout, Theme.key_windowBackgroundWhite);
+                    topPanelLayout.setPadding(0, 0, 0, 0);
+                }
             } else {
                 addView(fragmentContextView = new FragmentContextView(context, parent, this, false, resourcesProvider), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 38, Gravity.TOP | Gravity.LEFT, 0, 48, 0, 0));
             }
@@ -3754,6 +3766,10 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
                 addView(scrollSlidingTextTabStrip, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 50, Gravity.CENTER_HORIZONTAL | Gravity.TOP, -2, 0, -2, 0));
             } else {
                 addView(scrollSlidingTextTabStrip, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.TOP));
+            }
+            if (inu_flatTabBar()) {
+                scrollSlidingTextTabStrip.setLayoutParams(LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 44, Gravity.LEFT | Gravity.TOP, 0, 0, 0, 0));
+                scrollSlidingTextTabStrip.inu_makeNonIsland(org.telegram.messenger.BlurBehindHelper.create(scrollSlidingTextTabStrip, sizeNotifierFrameLayout, Theme.key_windowBackgroundWhite));
             }
             searchTagsList = new SearchTagsList(getContext(), profileActivity, profileActivity.getCurrentAccount(), includeSavedDialogs() ? 0 : dialog_id, resourcesProvider) {
                 @Override
@@ -3799,7 +3815,7 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
             };
             searchTagsList.setShown(0f);
             addView(searchTagsList, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 38, Gravity.LEFT | Gravity.TOP, 0, 4, 0, 0));
-            addView(actionModeLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.TOP));
+            addView(actionModeLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, inu_actionModeHeight(), Gravity.LEFT | Gravity.TOP));
         }
 
         updateTabs(false);
@@ -7402,7 +7418,7 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
                         Theme.isCurrentThemeDark()
                     )
                 );
-                mediaPages[a].setOutlineProvider(new ViewOutlineProvider() {
+                mediaPages[a].setOutlineProvider(inu_flatTabBar() ? null : new ViewOutlineProvider() {
                     @Override
                     public void getOutline(View view, Outline outline) {
                         outline.setRoundRect(0, dp(50), view.getWidth(), view.getHeight() + dp(24), dp(24));
@@ -11563,6 +11579,7 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
 
         @Override
         protected void dispatchDraw(@NonNull Canvas canvas) {
+            if (inu_nonIsland) { super.dispatchDraw(canvas); return; }
             if (backgroundColor != Color.TRANSPARENT) {
                 if (backgroundPaint == null) {
                     backgroundPaint = new Paint();
