@@ -188,7 +188,8 @@ public class FragmentSearchField extends FrameLayout implements FactorAnimator.T
     @Override
     protected void dispatchDraw(@NonNull Canvas canvas) {
         canvas.save();
-        if (bg != null) {
+        if (inu_blurHelper != null) inu_blurHelper.draw(canvas);
+        if (inu_blurHelper == null && bg != null) {
             bg.setBounds(
                 getPaddingLeft(),
                 getPaddingTop(),
@@ -210,8 +211,10 @@ public class FragmentSearchField extends FrameLayout implements FactorAnimator.T
     }
 
     public void setupBlurredBackground(BlurredBackgroundDrawable drawable) {
-        drawable.setRadius(dp(20));
-        drawable.setPadding(dp(4));
+        if (drawable != null) {
+            drawable.setRadius(dp(20));
+            drawable.setPadding(dp(4));
+        }
         blurredBackgroundDrawable = drawable;
     }
 

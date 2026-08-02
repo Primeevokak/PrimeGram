@@ -450,6 +450,22 @@ public class ScrollSlidingTextTabStrip extends HorizontalScrollView implements T
         backgroundDrawable.setCallback(this);
     }
 
+    public boolean inu_nonIsland;
+    public org.telegram.messenger.BlurBehindHelper inu_blurBehindHelper;
+    public void inu_makeNonIsland(org.telegram.messenger.BlurBehindHelper blurBehindHelper) {
+        inu_nonIsland = true;
+        inu_blurBehindHelper = blurBehindHelper;
+        setPadding(0, 0, 0, 0);
+        setClipToPadding(false);
+        tabsContainer.setPadding(0, 0, 0, 0);
+        backgroundDrawable.setRadius(0);
+        backgroundDrawable.setPadding(0);
+        float rad = AndroidUtilities.dpf2(3);
+        selectorDrawable.setCornerRadii(new float[]{rad, rad, rad, rad, 0, 0, 0, 0});
+        updateColors();
+        checkBoundsAndClipping();
+    }
+
     public final Path clipPath = new Path();
     private final RectF prevRect = new RectF();
     private final RectF rect = new RectF();
@@ -458,6 +474,7 @@ public class ScrollSlidingTextTabStrip extends HorizontalScrollView implements T
     private final AnimatedFloat open = new AnimatedFloat(this, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
 
     private void checkBoundsAndClipping() {
+        if (inu_nonIsland) return;
         final float rectT = this.rectT.set(1f);
         rect.set(getPaddingLeft(), 0, getMeasuredWidth() - getPaddingRight(), getMeasuredHeight());
         rect.inset(dp(7), dp(7));

@@ -64,6 +64,12 @@ public final class NonIslandHelper {
         return isEnabled();
     }
 
+    // inugram swaps to a dedicated flat send icon (R.drawable.ic_send) here; we don't carry that
+    // asset, so the flat mode keeps the stock plane icon rather than importing a new drawable.
+    public static int chatSendIcon() {
+        return org.telegram.messenger.R.drawable.send_plane_24;
+    }
+
     public static int chatInputRowHeight() {
         return chatElements() ? 48 : 44;
     }

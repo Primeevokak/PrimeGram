@@ -20,6 +20,8 @@ import org.telegram.ui.Components.blur3.drawable.BlurredBackgroundDrawable;
 import me.vkryl.android.animator.ListAnimator;
 
 public class DialogsActivityTopPanelLayout extends AnimatedLinearLayout {
+    public org.telegram.messenger.BlurBehindHelper inu_blurHelper;
+
     public DialogsActivityTopPanelLayout(@NonNull Context context) {
         super(context);
 
@@ -61,7 +63,7 @@ public class DialogsActivityTopPanelLayout extends AnimatedLinearLayout {
 
         clipRectF.set(getPaddingLeft(), getPaddingTop(), getMeasuredWidth() - getPaddingRight(), getPaddingTop() + bgHeight);
 
-        final float r = Math.min(dp(defaultRadiusDp), Math.min(clipRectF.width(), clipRectF.height()) / 2f);
+        final float r = inu_blurHelper != null ? 0 : Math.min(dp(defaultRadiusDp), Math.min(clipRectF.width(), clipRectF.height()) / 2f);
         clipPath.rewind();
         clipPath.addRoundRect(clipRectF, r, r, Path.Direction.CW);
 
@@ -89,7 +91,9 @@ public class DialogsActivityTopPanelLayout extends AnimatedLinearLayout {
     protected void dispatchDraw(@NonNull Canvas canvas) {
         if (getMetadata().getTotalVisibility() == 0) return;
 
-        if (backgroundDrawable != null) {
+        if (inu_blurHelper != null) {
+            inu_blurHelper.draw(canvas, (int) getAnimatedHeightWithPadding(0), (int) (getMetadata().getTotalVisibility() * 255));
+        } else if (backgroundDrawable != null) {
             backgroundDrawable.draw(canvas);
         }
 
