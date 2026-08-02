@@ -181,13 +181,20 @@ self.add_menu_item(MenuItemData(
     menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
     text="Моё действие",
     on_click=lambda ctx: ...,
-    icon=None,
+    icon=None,        # имя drawable-ресурса приложения, как у обычных строк настроек
+    condition=None,    # выражение на MVEL — тот же движок, что у HookFilter.Condition
     priority=0,
 ))
 ```
 
-`MenuItemType`: `MESSAGE_CONTEXT_MENU`, `CHAT_ACTION_MENU`, `PROFILE_ACTION_MENU`, `DRAWER_MENU`,
-`MAIN_MENU`.
+`MenuItemType`: `MESSAGE_CONTEXT_MENU` (меню сообщения по долгому тапу), `CHAT_ACTION_MENU`
+(шапка чата, «...»), `PROFILE_ACTION_MENU` (меню профиля, «...»), `MAIN_MENU` (меню списка чатов,
+«...»), `DRAWER_MENU`. В этой сборке нет отдельного бокового меню — пункты `DRAWER_MENU` выходят
+туда же, где `MAIN_MENU`.
+
+`on_click` и `condition` получают контекст — `dict`-подобный объект с ключами вроде `account`,
+`dialog_id`, `chat`/`chat_id`, `user`/`user_id`, `message` (только у `MESSAGE_CONTEXT_MENU`) —
+какие есть, зависит от типа меню и от того, открыт ли сейчас личный чат или групповой.
 
 ---
 

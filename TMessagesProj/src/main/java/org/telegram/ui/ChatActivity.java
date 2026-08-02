@@ -34001,8 +34001,22 @@ public class ChatActivity extends BaseFragment implements
         MediaController.saveFile(path, getParentActivity(), messageObject.isVideo() ? 1 : 0, null, null);
     }
 
+    /** PrimeGram: parallel to primeMessageMenuItems - which plugin item primeFillMessageMenu put
+     *  at each OPTION_PRIME_MENU_ITEM_BASE-relative slot, valid until the menu is rebuilt. */
+    private final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeMessageMenuItems = new java.util.ArrayList<>();
+    private java.util.Map<String, Object> primeMessageMenuContext = java.util.Collections.emptyMap();
+    public final static int OPTION_PRIME_MENU_ITEM_BASE = 1_000_000;
+
     private void processSelectedOption(int option) {
         if (selectedObject == null || getParentActivity() == null) {
+            return;
+        }
+        if (option >= OPTION_PRIME_MENU_ITEM_BASE) {
+            final int primeIndex = option - OPTION_PRIME_MENU_ITEM_BASE;
+            if (primeIndex >= 0 && primeIndex < primeMessageMenuItems.size()) {
+                org.telegram.messenger.plugins.PrimePluginMenuItems.click(
+                        primeMessageMenuItems.get(primeIndex), primeMessageMenuContext);
+            }
             return;
         }
         boolean preserveDim = false;
@@ -46982,6 +46996,27 @@ public class ChatActivity extends BaseFragment implements
             items.add("Удалить все сообщения");
             options.add(OPTION_PRIME_DELETE_ALL_FROM);
             icons.add(R.drawable.msg_delete);
+        }
+        primeMessageMenuItems.clear();
+        final java.util.Map<String, Object> primeMenuContext = new java.util.HashMap<>();
+        primeMenuContext.put("account", currentAccount);
+        primeMenuContext.put("dialog_id", getDialogId());
+        primeMenuContext.put("message", message);
+        if (currentChat != null) {
+            primeMenuContext.put("chat", currentChat);
+            primeMenuContext.put("chat_id", currentChat.id);
+        }
+        if (currentUser != null) {
+            primeMenuContext.put("user", currentUser);
+            primeMenuContext.put("user_id", currentUser.id);
+        }
+        primeMessageMenuContext = primeMenuContext;
+        for (org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem :
+                org.telegram.messenger.plugins.PrimePluginMenuItems.forType("message_context_menu", primeMenuContext)) {
+            primeMessageMenuItems.add(primeItem);
+            items.add(primeItem.text);
+            options.add(OPTION_PRIME_MENU_ITEM_BASE + primeMessageMenuItems.size() - 1);
+            icons.add(primeItem.iconResId);
         }
     }
 
