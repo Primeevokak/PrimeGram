@@ -114,6 +114,8 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
         }
         items.add(UItem.asShadow("Плагины выполняются внутри приложения и могут читать и изменять всё, к чему у него есть доступ. Устанавливайте только те, чьему автору доверяете."));
 
+        items.add(UItem.asCenterShadow(engineStatusSummary()));
+
         items.add(UItem.asButton(ID_LIBRARIES, "Скачанные библиотеки", librariesSummary()));
         items.add(UItem.asShadow("Плагин может попросить библиотеку, которой нет в приложении — она скачивается с PyPI при установке. Удалить их можно в любой момент: нужное скачается снова."));
     }
@@ -179,6 +181,12 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
             }
             builder.append("v").append(plugin.manifest.version);
         }
+        if (plugin.isNotResponding()) {
+            if (builder.length() > 0) {
+                builder.append(" · ");
+            }
+            builder.append("не отвечает");
+        }
         return builder;
     }
 
@@ -190,6 +198,16 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
                     ? error.getMessage() : "Плагин не удалось загрузить.";
         }
         return plugin.manifest.description;
+    }
+
+    /** How many plugins are actually running, and whether any of them are on the request/update
+     *  path - the two most common reasons "why is nothing happening" turns out to be "a plugin
+     *  failed to load" or "a plugin is watching something, one way or another". */
+    private CharSequence engineStatusSummary() {
+        final int active = org.telegram.messenger.plugins.PrimePluginHooks.activeCount();
+        final boolean requestHooks = org.telegram.messenger.plugins.PrimePluginHooks.hasRequestHooks();
+        return "Активно: " + active + " из " + shown.size()
+                + (requestHooks ? " · есть хуки запросов/обновлений" : "");
     }
 
     private CharSequence librariesSummary() {

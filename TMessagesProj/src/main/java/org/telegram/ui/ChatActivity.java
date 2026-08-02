@@ -595,7 +595,7 @@ public class ChatActivity extends BaseFragment implements
     private Runnable hideAlertViewRunnable;
     private TextView alertNameTextView;
     private TextView alertTextView;
-    private final int searchContainerHeight = 44;
+    private final int searchContainerHeight = ChatActivityEnterView.DEFAULT_HEIGHT;
     private FrameLayout searchContainer;
     private ImageView searchCalendarButton;
     private ImageView searchUserButton;
@@ -1643,12 +1643,9 @@ public class ChatActivity extends BaseFragment implements
     /** PrimeGram: browse this chat's locally tagged messages. */
     private final static int prime_chat_tags = 902;
 
-    /** PrimeGram: plugin items on the header ("...") menu. See createActionBarMenu()'s equivalent
-     *  in ProfileActivity for the same pattern - rebuilt whenever this block runs, valid until it
-     *  runs again, which is the same lifetime every other item in this menu already has. */
-    private final static int PRIME_MENU_ITEM_BASE = 1_000_000;
-    private final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeChatActionMenuItems = new java.util.ArrayList<>();
-    private java.util.Map<String, Object> primeChatActionMenuContext = java.util.Collections.emptyMap();
+    /** PrimeGram: plugin items on the header ("...") menu. */
+    private final org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter primeChatMenuRouter =
+            new org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter();
 
     /**
      * PrimeGram: upstream capped manual selection at 100 because a single delete/forward
@@ -2602,7 +2599,7 @@ public class ChatActivity extends BaseFragment implements
             scheduledOrNoSoundHint = new HintView(getParentActivity(), 4, themeDelegate) {
                 @Override
                 protected int offsetCx() {
-                    return dp(100 - 44) / 2;
+                    return dp(100 - ChatActivityEnterView.DEFAULT_HEIGHT) / 2;
                 }
             };
             scheduledOrNoSoundHint.createCloseButton();
@@ -2655,9 +2652,9 @@ public class ChatActivity extends BaseFragment implements
             glassBackgroundSourceFrostedRenderNode.setUnderSource(navbarContentSourceWallpaper);
 
             glassBackgroundDrawableFactoryFrosted = new BlurredBackgroundDrawableViewFactory(glassBackgroundSourceFrostedRenderNode);
-            glassBackgroundDrawableFactoryFrosted.setLiquidGlassEffectAllowed(LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS));
+            glassBackgroundDrawableFactoryFrosted.setLiquidGlassEffectAllowed(!org.telegram.messenger.NonIslandHelper.chatElements() && LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS));
 
-            if (LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS)) {
+            if (!org.telegram.messenger.NonIslandHelper.chatElements() && LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS)) {
                 glassBackgroundSourceRenderNode = new BlurredBackgroundSourceRenderNode(navbarContentSourceWallpaper);
                 glassBackgroundSourceRenderNode.setOnDrawablesRelativePositionChangeListener(this::invalidateMergedVisibleBlurredPositionsAndSourcesPositions);
                 glassBackgroundSourceRenderNode.setScrollableNoiseSuppressor(scrollableViewNoiseSuppressor, DownscaleScrollableNoiseSuppressor.DRAW_GLASS);
@@ -3863,12 +3860,8 @@ public class ChatActivity extends BaseFragment implements
                     showTempSubAlert();
                 } else if (id == prime_chat_tags) {
                     presentFragment(new MessageTagsActivity(dialog_id));
-                } else if (id >= PRIME_MENU_ITEM_BASE) {
-                    final int primeIndex = id - PRIME_MENU_ITEM_BASE;
-                    if (primeIndex >= 0 && primeIndex < primeChatActionMenuItems.size()) {
-                        org.telegram.messenger.plugins.PrimePluginMenuItems.click(
-                                primeChatActionMenuItems.get(primeIndex), primeChatActionMenuContext);
-                    }
+                } else if (primeChatMenuRouter.owns(id)) {
+                    primeChatMenuRouter.handle(id);
                 } else if (id == clear_history || id == delete_chat || id == auto_delete_timer) {
                     if (getParentActivity() == null) {
                         return;
@@ -4491,7 +4484,6 @@ public class ChatActivity extends BaseFragment implements
             if (chatMode == 0 && !org.telegram.messenger.MessageTagsStore.getTagsInDialog(dialog_id).isEmpty()) {
                 headerItem.lazilyAddSubItem(prime_chat_tags, R.drawable.msg_pin, "Сообщения по тегу");
             }
-            primeChatActionMenuItems.clear();
             final java.util.Map<String, Object> primeChatMenuContext = new java.util.HashMap<>();
             primeChatMenuContext.put("account", currentAccount);
             primeChatMenuContext.put("dialog_id", dialog_id);
@@ -4503,12 +4495,11 @@ public class ChatActivity extends BaseFragment implements
                 primeChatMenuContext.put("user", currentUser);
                 primeChatMenuContext.put("user_id", currentUser.id);
             }
-            primeChatActionMenuContext = primeChatMenuContext;
-            for (org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem :
-                    org.telegram.messenger.plugins.PrimePluginMenuItems.forType("chat_action_menu", primeChatMenuContext)) {
-                primeChatActionMenuItems.add(primeItem);
-                headerItem.lazilyAddSubItem(PRIME_MENU_ITEM_BASE + primeChatActionMenuItems.size() - 1,
-                        primeItem.iconResId, primeItem.text);
+            final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeChatMenuItems =
+                    primeChatMenuRouter.load("chat_action_menu", primeChatMenuContext);
+            for (int primeI = 0; primeI < primeChatMenuItems.size(); primeI++) {
+                final org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem = primeChatMenuItems.get(primeI);
+                headerItem.lazilyAddSubItem(primeChatMenuRouter.idFor(primeI), primeItem.iconResId, primeItem.text);
             }
             if (chatMode == 0 && !isTopic && ChatObject.isChannel(currentChat) && !currentChat.creator && !ChatObject.isNotInChat(currentChat)) {
                 headerItem.lazilyAddSubItem(prime_temp_sub, R.drawable.msg_autodelete,
@@ -4636,6 +4627,7 @@ public class ChatActivity extends BaseFragment implements
 
         contentView.setOccupyStatusBar(!inBubbleMode && !isInsideContainer && !inPreviewMode);
 
+        actionBar.inu_nonIsland = org.telegram.messenger.NonIslandHelper.chatElements();
         actionBar.setupGlass(
             glassBackgroundDrawableFactory,
             BlurredBackgroundProviderImpl.topPanelChatActivity(themeDelegate),
@@ -5485,7 +5477,7 @@ public class ChatActivity extends BaseFragment implements
                             j++;
                         }
 
-                        lastTop = messageSkeletons.isEmpty() ? getHeight() - blurredViewBottomOffset : messageSkeletons.get(0).lastBottom + AndroidUtilities.dp(3f);
+                        lastTop = messageSkeletons.isEmpty() ? getHeight() - blurredViewBottomOffset + (org.telegram.messenger.NonIslandHelper.chatElements() ? dp(16) : 0) : messageSkeletons.get(0).lastBottom + AndroidUtilities.dp(3f);
                         int left = dp(noAvatar ? 3 : 51);
                         if (isSideMenued()) {
                             left = lerp(left, dp(SIDE_MENU_WIDTH), getSideMenuAlpha());
@@ -6481,7 +6473,7 @@ public class ChatActivity extends BaseFragment implements
             chatListView.setClipChildren(false);
         }
         chatListView.setAnimateEmptyView(true, RecyclerListView.EMPTY_VIEW_ANIMATION_TYPE_ALPHA_SCALE);
-        chatListView.setScrollBarStyle(View.SCROLLBARS_OUTSIDE_OVERLAY);
+        chatListView.setScrollBarStyle(org.telegram.messenger.NonIslandHelper.chatElements() ? View.SCROLLBARS_INSIDE_OVERLAY : View.SCROLLBARS_OUTSIDE_OVERLAY);
         chatListViewPaddingsAnimator = new ChatListViewPaddingsAnimator(chatListView);
         chatListViewPaddingTop = 0;
         paddingTopHeight = 0;
@@ -7859,7 +7851,7 @@ public class ChatActivity extends BaseFragment implements
                 .setColorProvider(BlurredBackgroundProviderImpl.topPanelChatActivity(resourceProvider))
                 .setRadius(dp(18)).setPadding(dp(7f)));
 
-            contentView.addView(hashtagSearchTabs, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 50, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, -dp(5), 0, 0));
+            contentView.addView(hashtagSearchTabs, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 50, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : -dp(5), 0, 0));
         }
         contentView.addView(topPanelLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP));
 
@@ -7960,7 +7952,7 @@ public class ChatActivity extends BaseFragment implements
                         }
 
                         // chatListView.setTranslationY(dy);
-                        if (topView != null && topView.getVisibility() == View.VISIBLE) {
+                        if (!org.telegram.messenger.NonIslandHelper.chatElements() && topView != null && topView.getVisibility() == View.VISIBLE) {
                             topView.setTranslationY(animatedTop + (1f - getTopViewEnterProgress()) * topView.getLayoutParams().height);
                         }
 
@@ -7968,7 +7960,7 @@ public class ChatActivity extends BaseFragment implements
                         changeBoundAnimator.addUpdateListener(a -> {
                             float top = (float) a.getAnimatedValue();
                             setAnimatedTop((int) top);
-                            if (topView != null && topView.getVisibility() == View.VISIBLE) {
+                            if (!org.telegram.messenger.NonIslandHelper.chatElements() && topView != null && topView.getVisibility() == View.VISIBLE) {
                                 topView.setTranslationY(top + (1f - getTopViewEnterProgress()) * topView.getLayoutParams().height);
                             } else {
                                 invalidateChatListViewTopPadding();
@@ -7981,7 +7973,7 @@ public class ChatActivity extends BaseFragment implements
                             @Override
                             public void onAnimationEnd(Animator animation) {
                                 setAnimatedTop(0);
-                                if (topView != null && topView.getVisibility() == View.VISIBLE) {
+                                if (!org.telegram.messenger.NonIslandHelper.chatElements() && topView != null && topView.getVisibility() == View.VISIBLE) {
                                     topView.setTranslationY(animatedTop + (1f - getTopViewEnterProgress()) * topView.getLayoutParams().height);
                                 }
                                 changeBoundAnimator = null;
@@ -8150,7 +8142,7 @@ public class ChatActivity extends BaseFragment implements
         chatActivityEnterView.setViewParentForEmoji(chatInputInAppContainer);
         checkSendButtonBlockedByTyping(false);
 
-        chatInputBubbleContainer.addView(chatActivityEnterView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.BOTTOM, 7, 0, 7, 0));
+        chatInputBubbleContainer.addView(chatActivityEnterView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.BOTTOM, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 7, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 7, org.telegram.messenger.NonIslandHelper.chatElements() ? -9 : 0));
 
         int chatListIndex = contentView.indexOfChild(chatListView);
         chatListIndex = chatListIndex < 0 ? contentView.getChildCount() : (chatListIndex + 1);
@@ -8191,7 +8183,7 @@ public class ChatActivity extends BaseFragment implements
         bottomViewsVisibilityController.setViewVisible(MESSAGE_ACTION_CONTAINER, false, false);
         actionsButtonsLayout.setPadding(0, dp(56), 0, 0);
         actionsButtonsLayout.setClipToPadding(false);
-        chatInputBubbleContainer.addView(actionsButtonsLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 106, Gravity.BOTTOM));
+        chatInputBubbleContainer.addView(actionsButtonsLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 106, Gravity.BOTTOM, 0, 0, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? -9 : 0));
         chatActivityEnterView.setSuggestionButtonVisible(ChatObject.isMonoForum(currentChat), false);
 
         chatActivityEnterTopView = new ChatActivityEnterTopView(context) {
@@ -8420,7 +8412,7 @@ public class ChatActivity extends BaseFragment implements
         bottomOverlay.setFocusable(true);
         bottomOverlay.setFocusableInTouchMode(true);
         bottomOverlay.setClickable(true);
-        chatInputBubbleContainer.addView(bottomOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 44, Gravity.BOTTOM, 7, 0, 7, 0));
+        chatInputBubbleContainer.addView(bottomOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, ChatActivityEnterView.DEFAULT_HEIGHT, Gravity.BOTTOM, 7, 0, 7, 0));
 
         bottomOverlayText = new TextView(context);
         bottomOverlayText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
@@ -8507,7 +8499,7 @@ public class ChatActivity extends BaseFragment implements
             chatInputViewsContainer.setInputBubbleOffsets(l, r);
         });
 
-        chatInputBubbleContainer.addView(bottomChannelButtonsLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 56, Gravity.BOTTOM, 0, 0, 0, (44 - 56) / 2));
+        chatInputBubbleContainer.addView(bottomChannelButtonsLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 56, Gravity.BOTTOM, 0, 0, 0, (ChatActivityEnterView.DEFAULT_HEIGHT - 56) / 2 - (org.telegram.messenger.NonIslandHelper.chatElements() ? 10 : 0)));
 
         bottomOverlayStartButton = new TextView(context) {
             CellFlickerDrawable cellFlickerDrawable;
@@ -9028,7 +9020,12 @@ public class ChatActivity extends BaseFragment implements
                 glassBackgroundDrawableFactory,
                 BlurredBackgroundProviderImpl.topPanelChatActivityTags(resourceProvider)
             );
-            contentView.addView(actionBarSearchTags, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 38, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, -dp(3), 0, 0));
+            if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+                actionBarSearchTags.setBackground(glassBackgroundDrawableFactory.create(actionBarSearchTags)
+                    .setColorProvider(BlurredBackgroundProviderImpl.topPanelChatActivityTags(resourceProvider))
+                    .setRadius(0));
+            }
+            contentView.addView(actionBarSearchTags, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 38, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : -dp(3), 0, 0));
         }
 
         if (getDialogId() == getUserConfig().getClientUserId()) {
@@ -9074,14 +9071,19 @@ public class ChatActivity extends BaseFragment implements
                 glassBackgroundDrawableFactory,
                 BlurredBackgroundProviderImpl.topPanelChatActivityTags(resourceProvider)
             );
-            contentView.addView(actionBarSearchTags, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 38, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, -dp(3), 0, 0));
+            if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+                actionBarSearchTags.setBackground(glassBackgroundDrawableFactory.create(actionBarSearchTags)
+                    .setColorProvider(BlurredBackgroundProviderImpl.topPanelChatActivityTags(resourceProvider))
+                    .setRadius(0));
+            }
+            contentView.addView(actionBarSearchTags, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 38, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : -dp(3), 0, 0));
         }
 
         checkUi_topPanelLayoutWidth();
         topPanelLayout.setBlurredBackground(glassBackgroundDrawableFactory.create(topPanelLayout)
             .setColorProvider(BlurredBackgroundProviderImpl.topPanelChatActivity(themeDelegate))
-            .setRadius(dp(18))
-            .setPadding(dp(7)));
+            .setRadius(dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 18))
+            .setPadding(dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 7)));
 
         if (chatMode == MODE_SEARCH) {
             animatorSearchResultAsListVisibility.setValue(true, false);
@@ -9846,6 +9848,7 @@ public class ChatActivity extends BaseFragment implements
         reportSpamButton = new TextView(getContext());
         reportSpamButton.setTextColor(getThemedColor(Theme.key_text_RedBold));
         reportSpamButton.setBackground(Theme.createInsetRoundRectDrawable(getThemedColor(Theme.key_text_RedBold) & 0x19ffffff, dp(18), dp(4)));
+        org.telegram.messenger.NonIslandHelper.applyChatTopPanelButton(reportSpamButton);
         reportSpamButton.setTag(Theme.key_text_RedBold);
         reportSpamButton.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
         reportSpamButton.setTypeface(AndroidUtilities.bold());
@@ -9882,6 +9885,7 @@ public class ChatActivity extends BaseFragment implements
         addToContactsButton.setPadding(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
         addToContactsButton.setGravity(Gravity.CENTER);
         addToContactsButton.setBackground(Theme.createInsetRoundRectDrawable(getThemedColor(Theme.key_chat_addContact) & 0x19ffffff, dp(18), dp(4)));
+        org.telegram.messenger.NonIslandHelper.applyChatTopPanelButton(addToContactsButton);
         topChatPanelView.addView(addToContactsButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
         addToContactsButton.setOnClickListener(v -> {
             if (addToContactsButtonArchive) {
@@ -9941,6 +9945,7 @@ public class ChatActivity extends BaseFragment implements
         restartTopicButton.setGravity(Gravity.CENTER);
         restartTopicButton.setText(LocaleController.getString(R.string.RestartTopic));
         restartTopicButton.setBackground(Theme.createSelectorDrawable(getThemedColor(Theme.key_chat_addContact) & 0x19ffffff, 3));
+        org.telegram.messenger.NonIslandHelper.applyChatTopPanelButton(restartTopicButton);
         topPanelLayout.addView(restartTopicButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
         topPanelLayout.setPriority(restartTopicButton, 40);
         topPanelLayout.setDebugName(restartTopicButton, "restart topic button");
@@ -10037,6 +10042,7 @@ public class ChatActivity extends BaseFragment implements
             });
         });
         ScaleStateListAnimator.apply(addProfilePictureButton, 0.04f, 1.5f);
+        org.telegram.messenger.NonIslandHelper.applyChatTopPanelButton(addProfilePictureButton);
         topPanelLayout.addView(addProfilePictureButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, Gravity.LEFT | Gravity.BOTTOM));
         topPanelLayout.setPriority(addProfilePictureButton, 120);
         topPanelLayout.setDebugName(addProfilePictureButton, "add profile picture button");
@@ -10359,7 +10365,7 @@ public class ChatActivity extends BaseFragment implements
             index = index2 + 1;
         }
 
-        contentView.addView(topicsTabs, index, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT, 0, -dp(5), 0, 0));
+        contentView.addView(topicsTabs, index, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : -dp(5), 0, 0));
         topicsTabs.updateSidemenuPosition();
         if (mentionContainer != null) {
             mentionContainer.bringToFront();
@@ -10471,7 +10477,7 @@ public class ChatActivity extends BaseFragment implements
         selectedMessagesCountTextView.setEllipsizeByGradient(true);
         selectedMessagesCountTextView.setRightPadding(dp(8));
         selectedMessagesCountTextView.getDrawable().setOverrideFullWidth(dp(300));
-        actionMode.addView(selectedMessagesCountTextView, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1.0f, 85, 0, 5, 0));
+        actionMode.addView(selectedMessagesCountTextView, org.telegram.messenger.NonIslandHelper.chatElements() ? LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1.0f, 65, 0, 0, 0) : LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1.0f, 85, 0, 5, 0));
         actionMode.setOnLayoutListener(actionBar::invalidate);
 
         if (currentEncryptedChat == null) {
@@ -10701,7 +10707,7 @@ public class ChatActivity extends BaseFragment implements
         searchCountText.setTextColor(getThemedColor(Theme.key_chat_searchPanelText));
         searchCountText.setGravity(Gravity.LEFT);
         searchContainer.addView(searchCountText, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 30, Gravity.CENTER_VERTICAL, 0, -1, 97.33f, 0));
-        chatInputBubbleContainer.addView(searchContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, searchContainerHeight, Gravity.BOTTOM, 7, 0, 7, 0));
+        chatInputBubbleContainer.addView(searchContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, searchContainerHeight, Gravity.BOTTOM, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 7, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 7, org.telegram.messenger.NonIslandHelper.chatElements() ? -9 : 0));
 
         searchExpandList = new AnimatedTextView(getContext(), true, false, true);
         searchExpandList.setAnimationProperties(0, 0, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
@@ -10740,7 +10746,7 @@ public class ChatActivity extends BaseFragment implements
             searchUserButton.setImageResource(R.drawable.msg_usersearch);
             searchUserButton.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_chat_searchPanelIcons), PorterDuff.Mode.MULTIPLY));
             searchUserButton.setBackgroundDrawable(Theme.createSelectorDrawable(getThemedColor(Theme.key_actionBarActionModeDefaultSelector), 1));
-            searchContainer.addView(searchUserButton, LayoutHelper.createFrame(44, 44, Gravity.LEFT | Gravity.TOP, 48, 0, 0, 0));
+            searchContainer.addView(searchUserButton, LayoutHelper.createFrame(ChatActivityEnterView.DEFAULT_HEIGHT, ChatActivityEnterView.DEFAULT_HEIGHT, Gravity.LEFT | Gravity.TOP, 48, 0, 0, 0));
             searchUserButton.setOnClickListener(view -> {
                 if (mentionContainer != null) {
                     mentionContainer.setReversed(true);
@@ -10766,7 +10772,7 @@ public class ChatActivity extends BaseFragment implements
             searchCalendarButton.setImageResource(R.drawable.msg_calendar);
             searchCalendarButton.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_chat_searchPanelIcons), PorterDuff.Mode.MULTIPLY));
             searchCalendarButton.setBackgroundDrawable(Theme.createSelectorDrawable(getThemedColor(Theme.key_actionBarActionModeDefaultSelector), 1));
-            searchContainer.addView(searchCalendarButton, LayoutHelper.createFrame(44, 44, Gravity.LEFT | Gravity.TOP, 2.66f, 0, 0, 0));
+            searchContainer.addView(searchCalendarButton, LayoutHelper.createFrame(ChatActivityEnterView.DEFAULT_HEIGHT, ChatActivityEnterView.DEFAULT_HEIGHT, Gravity.LEFT | Gravity.TOP, 2.66f, 0, 0, 0));
             searchCalendarButton.setOnClickListener(view -> {
                 if (getParentActivity() == null) {
                     return;
@@ -11056,13 +11062,13 @@ public class ChatActivity extends BaseFragment implements
             float baseTranslationY2 = -windowInsetsStateHolder.getAnimatedMaxBottomInset()
                 - chatInputViewsContainer.getInputBubbleHeight()
                 - getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
-                - dp(ChatInputViewsContainer.INPUT_BUBBLE_BOTTOM + 4);
+                - dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 4 : ChatInputViewsContainer.INPUT_BUBBLE_BOTTOM + 4);
             sideControlsButtonsLayout.setTranslationY(baseTranslationY2);
         }
 
         if (suggestEmojiPanel != null) {
             float baseTranslationY2 = -windowInsetsStateHolder.getAnimatedMaxBottomInset()
-                - dp(ChatInputViewsContainer.INPUT_BUBBLE_BOTTOM + 7);
+                - dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 7 : ChatInputViewsContainer.INPUT_BUBBLE_BOTTOM + 7);
             suggestEmojiPanel.setTranslationY(baseTranslationY2);
         }
     }
@@ -12088,7 +12094,7 @@ public class ChatActivity extends BaseFragment implements
         if (!invalidateChatListViewTopPadding || chatListView == null || (fixedKeyboardHeight > 0 && searchExpandProgress == 0)) {
             return;
         }
-        float pinnedViewH = getTopPanelHeightWithPadding(dp(7))
+        float pinnedViewH = getTopPanelHeightWithPadding(dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 7))
             + (actionBarSearchTags != null ? dp((28 + 7) * actionBarSearchTags.shownT) : 0)
             + (dp(36 + 7) * getHashtagTabsShownT());
 
@@ -12191,7 +12197,7 @@ public class ChatActivity extends BaseFragment implements
         if (isInsideContainer && parentChatActivity == null) {
             paddingBottom = AndroidUtilities.navigationBarHeight;
         } else {
-            paddingBottom = blurredViewBottomOffset + dp(9 + 7)
+            paddingBottom = blurredViewBottomOffset + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 3 : 9 + 7)
                 + inputIslandHeightCurrent
                 + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
                 + windowInsetsStateHolder.getAnimatedMaxBottomInset();
@@ -12226,7 +12232,7 @@ public class ChatActivity extends BaseFragment implements
 
         if (undoView != null) {
             undoView.setAdditionalTranslationY(
-                windowInsetsStateHolder.getAnimatedMaxBottomInset() + dp(9 + 7)
+                windowInsetsStateHolder.getAnimatedMaxBottomInset() + dp(9 + 7 - (org.telegram.messenger.NonIslandHelper.chatElements() ? 16 : 0))
                     + chatInputViewsContainer.getInputBubbleHeight() + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM));
         }
 
@@ -12255,7 +12261,7 @@ public class ChatActivity extends BaseFragment implements
         }
 
         if (topPanelLayout != null) {
-            topPanelLayout.setTranslationY(ty - dp(5) - getTopicTabsSideSize(TopicsTabsView.Position.TOP) * getHashtagTabsShownT());
+            topPanelLayout.setTranslationY(ty - dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 5) - getTopicTabsSideSize(TopicsTabsView.Position.TOP) * getHashtagTabsShownT());
         }
     }
 
@@ -17247,6 +17253,10 @@ public class ChatActivity extends BaseFragment implements
     private boolean shouldHaveLightNavigationBarIcons;
 
     public boolean isShouldHaveLightNavigationBarIcons() {
+        if (chatInputViewsContainer != null) {
+            Boolean override = org.telegram.messenger.NonIslandHelper.needChatLightNavBar(chatInputViewsContainer.getInputBubbleHeight(), themeDelegate);
+            if (override != null) return override;
+        }
         return shouldHaveLightNavigationBarIcons && (!windowInsetsStateHolder.inAppViewIsVisible() || themeDelegate != null && themeDelegate.isDark);
     }
 
@@ -17818,6 +17828,9 @@ public class ChatActivity extends BaseFragment implements
                     canvas.restore();
                 }
             }
+            if (child == actionBar && parentLayout != null) {
+                org.telegram.messenger.NonIslandHelper.drawChatHeaderShadow(parentLayout, canvas, topPanelLayout, mentionContainer, getTopicTabsSideSize(TopicsTabsView.Position.TOP), actionBar.getVisibility() == VISIBLE ? (int) actionBar.getTranslationY() + actionBar.getMeasuredHeight() + (actionBarSearchTags != null ? (int) (actionBarSearchTags.getCurrentHeight() - dp(3) * actionBarSearchTags.shownT) : 0) + (hashtagSearchTabs != null ? hashtagSearchTabs.getCurrentHeight() : 0) : 0);
+            }
             return result;
         }
 
@@ -17836,7 +17849,7 @@ public class ChatActivity extends BaseFragment implements
             float canvasOffsetX = chatListView.getLeft() + cell.getX();
             float canvasOffsetY = chatListView.getY() + cell.getY() + cell.getPaddingTop();
             float alpha = cell.shouldDrawAlphaLayer() ? cell.getAlpha() : 1f;
-            canvas.clipRect(chatListView.getLeft(), listTop, chatListView.getRight(), chatListView.getY() + chatListView.getMeasuredHeight() - blurredViewBottomOffset - windowInsetsStateHolder.getCurrentMaxBottomInset() - inputIslandHeightCurrent - dp(9));
+            canvas.clipRect(chatListView.getLeft(), listTop, chatListView.getRight(), chatListView.getY() + chatListView.getMeasuredHeight() - blurredViewBottomOffset - windowInsetsStateHolder.getCurrentMaxBottomInset() - inputIslandHeightCurrent - dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 9));
             canvas.translate(canvasOffsetX, canvasOffsetY);
             cell.setInvalidatesParent(true);
             if (type == 0) {
@@ -18059,7 +18072,7 @@ public class ChatActivity extends BaseFragment implements
                             float viewClipBottom2 = getMeasuredHeight()
                                     - windowInsetsStateHolder.getCurrentMaxBottomInset()
                                     - inputIslandHeightCurrent
-                                    - dp(9)
+                                    - dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 9)
                                     - (mentionContainer != null ? mentionContainer.clipBottom() : 0);
 
                             canvas.clipRect(0, listTop + (mentionContainer != null ? mentionContainer.clipTop() : 0), getMeasuredWidth(), viewClipBottom2);
@@ -18080,7 +18093,7 @@ public class ChatActivity extends BaseFragment implements
                             - windowInsetsStateHolder.getCurrentMaxBottomInset()
                             - inputIslandHeightCurrent
                             - getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
-                            - dp(9);
+                            - dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 9);
 
                         float clipTop = 0, clipBottom = 0;
                         if (mentionContainer != null) {
@@ -18731,12 +18744,12 @@ public class ChatActivity extends BaseFragment implements
                         childTop = chatActivityEnterView.getBottom();
                     }
                 } else if (chatActivityEnterView != null && chatActivityEnterView.isRecordCircleOrControlsView(child)) {
-                    childTop -= windowInsetsStateHolder.getCurrentMaxBottomInset() + dp(7);
-                    childLeft -= dp(3);
+                    childTop -= windowInsetsStateHolder.getCurrentMaxBottomInset() + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? -2 : 7);
+                    childLeft -= dp(org.telegram.messenger.NonIslandHelper.chatElements() ? -4 : 3);
                 } else if (child == emojiButtonRed) {
-                    childTop -= windowInsetsStateHolder.getCurrentMaxBottomInset() + dp(7);
+                    childTop -= windowInsetsStateHolder.getCurrentMaxBottomInset() + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? -2 : 7);
                 } else if (chatActivityEnterView != null && child == chatActivityEnterView.recordedAudioPanel) {
-                    childTop -= windowInsetsStateHolder.getCurrentMaxBottomInset() + dp(9);
+                    childTop -= windowInsetsStateHolder.getCurrentMaxBottomInset() + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 9);
                 } else if (child == gifHintTextView || child == voiceHintTextView || child == mediaBanTooltip || child == emojiHintTextView) {
                     childTop -= inputFieldHeight;
                 } else if (child == chatListView || child == chatListThanosEffect || child == floatingDateView || child == floatingTopicSeparator || child == infoTopView) {
@@ -18747,7 +18760,7 @@ public class ChatActivity extends BaseFragment implements
                     }
                 } else if (child == actionBar) {
                     childTop -= getPaddingTop();
-                    if (isInPreviewMode()) {
+                    if (isInPreviewMode() && !org.telegram.messenger.NonIslandHelper.chatElements()) {
                         childTop += dp(1);
                     }
                 } else if (child == videoPlayerContainer) {
@@ -19581,7 +19594,7 @@ public class ChatActivity extends BaseFragment implements
                 return;
             }
             if (selectedMessagesCountTextView != null && (selectedMessagesIds[0].size() != 0 || selectedMessagesIds[1].size() != 0)) {
-                selectedMessagesCountTextView.setText(LocaleController.formatPluralString("MessagesSelected", selectedMessagesIds[0].size() + selectedMessagesIds[1].size()), true);
+                selectedMessagesCountTextView.setText(org.telegram.messenger.NonIslandHelper.chatElements() ? String.valueOf(selectedMessagesIds[0].size() + selectedMessagesIds[1].size()) : LocaleController.formatPluralString("MessagesSelected", selectedMessagesIds[0].size() + selectedMessagesIds[1].size()), true);
             }
         } else {
             int size = selectedMessagesIds[0].size() + selectedMessagesIds[1].size();
@@ -20169,7 +20182,7 @@ public class ChatActivity extends BaseFragment implements
                 }
                 object.clipTopAddition = (int) (chatListViewPaddingTop - chatListViewPaddingVisibleOffset - AndroidUtilities.dp(4));
                 object.clipBottomAddition = (int) (blurredViewBottomOffset
-                    + dp(9)
+                    + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 9)
                     + windowInsetsStateHolder.getAnimatedMaxBottomInset()
                     + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
                     + inputIslandHeightCurrent);
@@ -20369,7 +20382,7 @@ public class ChatActivity extends BaseFragment implements
                 object.radius = imageReceiver.getRoundRadius(true);
                 object.clipTopAddition = (int) (chatListViewPaddingTop - chatListViewPaddingVisibleOffset - AndroidUtilities.dp(4));
                 object.clipBottomAddition = (int) (blurredViewBottomOffset
-                    + dp(9)
+                    + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 9)
                     + windowInsetsStateHolder.getAnimatedMaxBottomInset()
                     + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
                     + inputIslandHeightCurrent);
@@ -29967,7 +29980,7 @@ public class ChatActivity extends BaseFragment implements
 
                 return Math.round(windowInsetsStateHolder.getAnimatedMaxBottomInset()
                     + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
-                    + (chatInputViewsContainer.getInputBubbleHeight() + dp(9 + 7)));
+                    + (chatInputViewsContainer.getInputBubbleHeight() + dp(9 + 7 - (org.telegram.messenger.NonIslandHelper.chatElements() ? 16 : 0))));
             }
 
             @Override
@@ -33202,7 +33215,7 @@ public class ChatActivity extends BaseFragment implements
         }
 
         if (selectedMessagesCountTextView != null) {
-            selectedMessagesCountTextView.setText(LocaleController.formatPluralString("MessagesSelected", selectedMessagesIds[0].size() + selectedMessagesIds[1].size()), false);
+            selectedMessagesCountTextView.setText(org.telegram.messenger.NonIslandHelper.chatElements() ? String.valueOf(selectedMessagesIds[0].size() + selectedMessagesIds[1].size()) : LocaleController.formatPluralString("MessagesSelected", selectedMessagesIds[0].size() + selectedMessagesIds[1].size()), false);
         }
         updateVisibleRows();
         if (chatActivityEnterView != null) {
@@ -34001,22 +34014,16 @@ public class ChatActivity extends BaseFragment implements
         MediaController.saveFile(path, getParentActivity(), messageObject.isVideo() ? 1 : 0, null, null);
     }
 
-    /** PrimeGram: parallel to primeMessageMenuItems - which plugin item primeFillMessageMenu put
-     *  at each OPTION_PRIME_MENU_ITEM_BASE-relative slot, valid until the menu is rebuilt. */
-    private final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeMessageMenuItems = new java.util.ArrayList<>();
-    private java.util.Map<String, Object> primeMessageMenuContext = java.util.Collections.emptyMap();
-    public final static int OPTION_PRIME_MENU_ITEM_BASE = 1_000_000;
+    /** PrimeGram: plugin items on the message long-press menu. */
+    private final org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter primeMessageMenuRouter =
+            new org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter();
 
     private void processSelectedOption(int option) {
         if (selectedObject == null || getParentActivity() == null) {
             return;
         }
-        if (option >= OPTION_PRIME_MENU_ITEM_BASE) {
-            final int primeIndex = option - OPTION_PRIME_MENU_ITEM_BASE;
-            if (primeIndex >= 0 && primeIndex < primeMessageMenuItems.size()) {
-                org.telegram.messenger.plugins.PrimePluginMenuItems.click(
-                        primeMessageMenuItems.get(primeIndex), primeMessageMenuContext);
-            }
+        if (primeMessageMenuRouter.owns(option)) {
+            primeMessageMenuRouter.handle(option);
             return;
         }
         boolean preserveDim = false;
@@ -44923,6 +44930,8 @@ public class ChatActivity extends BaseFragment implements
             }
             return ColorUtils.calculateLuminance(color) > 0.7f;
         }
+        Boolean inu_override = org.telegram.messenger.NonIslandHelper.needChatLightStatusBar(themeDelegate);
+        if (inu_override != null) return inu_override;
         if (actionBar == null) {
             return !Theme.isCurrentThemeDark();
         }
@@ -46997,7 +47006,6 @@ public class ChatActivity extends BaseFragment implements
             options.add(OPTION_PRIME_DELETE_ALL_FROM);
             icons.add(R.drawable.msg_delete);
         }
-        primeMessageMenuItems.clear();
         final java.util.Map<String, Object> primeMenuContext = new java.util.HashMap<>();
         primeMenuContext.put("account", currentAccount);
         primeMenuContext.put("dialog_id", getDialogId());
@@ -47010,12 +47018,12 @@ public class ChatActivity extends BaseFragment implements
             primeMenuContext.put("user", currentUser);
             primeMenuContext.put("user_id", currentUser.id);
         }
-        primeMessageMenuContext = primeMenuContext;
-        for (org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem :
-                org.telegram.messenger.plugins.PrimePluginMenuItems.forType("message_context_menu", primeMenuContext)) {
-            primeMessageMenuItems.add(primeItem);
+        final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeMessageItems =
+                primeMessageMenuRouter.load("message_context_menu", primeMenuContext);
+        for (int primeI = 0; primeI < primeMessageItems.size(); primeI++) {
+            final org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem = primeMessageItems.get(primeI);
             items.add(primeItem.text);
-            options.add(OPTION_PRIME_MENU_ITEM_BASE + primeMessageMenuItems.size() - 1);
+            options.add(primeMessageMenuRouter.idFor(primeI));
             icons.add(primeItem.iconResId);
         }
     }
@@ -47169,13 +47177,13 @@ public class ChatActivity extends BaseFragment implements
     private void checkUi_botMenuPosition() {
         final float margin = windowInsetsStateHolder.getAnimatedMaxBottomInset()
             + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
-            + (chatInputViewsContainer.getInputBubbleHeight() + dp(9 + 6));
+            + (chatInputViewsContainer.getInputBubbleHeight() + dp(9 + 6 - (org.telegram.messenger.NonIslandHelper.chatElements() ? 16 : 0)));
 
         if (chatActivityEnterView != null && chatActivityEnterView.botCommandsMenuContainer != null) {
             chatActivityEnterView.botCommandsMenuContainer.setTranslationY(-margin);
         }
         if (mentionContainer != null) {
-            mentionContainer.setTranslationY(mentionContainer.isReversed() ? dp(5) : -margin);
+            mentionContainer.setTranslationY(mentionContainer.isReversed() ? dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 5) : -margin);
         }
     }
 
@@ -47193,9 +47201,9 @@ public class ChatActivity extends BaseFragment implements
 
     private float calculateInputIslandHeight(boolean target) {
         final float enterViewIslandHeight = Math.max(
-            chatActivityEnterView != null ? chatActivityEnterView.getIslandTotalHeight(target): 0, dp(44));
+            chatActivityEnterView != null ? chatActivityEnterView.getIslandTotalHeight(target): 0, dp(ChatActivityEnterView.DEFAULT_HEIGHT));
 
-        final float defaultIslandHeight = dp(44);
+        final float defaultIslandHeight = dp(ChatActivityEnterView.DEFAULT_HEIGHT);
         final float enterViewFactor;
         float visibility;
         float pollAddVisibility;
@@ -47211,7 +47219,7 @@ public class ChatActivity extends BaseFragment implements
         }
 
         if (!isInsideContainer && !isInPreviewMode()) {
-            return lerp(Math.max(lerp(defaultIslandHeight, enterViewIslandHeight, enterViewFactor) * visibility, dp(44)), -dp(7), pollAddVisibility);
+            return lerp(Math.max(lerp(defaultIslandHeight, enterViewIslandHeight, enterViewFactor) * visibility, dp(ChatActivityEnterView.DEFAULT_HEIGHT)), -dp(7), pollAddVisibility);
         } else {
             return lerp(defaultIslandHeight, enterViewIslandHeight, enterViewFactor) * visibility;
         }
@@ -47229,10 +47237,15 @@ public class ChatActivity extends BaseFragment implements
             return;
         }
 
+        final boolean inu_prevHadBubble = inputIslandHeightCurrent > 0;
         inputIslandHeightCurrent = calculateInputIslandHeight(false);
         inputIslandHeightTarget = calculateInputIslandHeight(true);
 
         chatInputViewsContainer.setInputBubbleHeight(inputIslandHeightCurrent);
+        // input bg covering navbar area changes => re-evaluate nav icon color
+        if (org.telegram.messenger.NonIslandHelper.chatElements() && inu_prevHadBubble != (inputIslandHeightCurrent > 0)) {
+            checkSystemBarColors();
+        }
         updatePagedownButtonsPosition();
         updateBotforumTabsBottomMargin();
         checkUi_botMenuPosition();
@@ -47272,6 +47285,10 @@ public class ChatActivity extends BaseFragment implements
     private void checkUi_topFade() {
         if (parentChatActivity != null) {
             parentChatActivity.checkUi_topFade();
+        }
+        if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+            chatActivityFadeView.setFadeZoneTop(0);
+            return;
         }
 
         float fadeHeight = actionBar.getMeasuredHeight();
@@ -47334,6 +47351,10 @@ public class ChatActivity extends BaseFragment implements
                 * (1f - animatorSearchResultAsListVisibility.getFloatValue())
                 * (1f - getHashtagTabsShownT());
 
+            if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+                topPanelLayout.setPadding((int) sideMenu, 0, 0, 0);
+                return;
+            }
             topPanelLayout.setPadding(dp(7) + (int) sideMenu, dp(7), dp(7), dp(7));
         }
     }
@@ -47924,7 +47945,7 @@ public class ChatActivity extends BaseFragment implements
     }
 
     private float getTopicTabsSideSize(TopicsTabsView.Position position) {
-        return topicsTabs != null ? topicsTabs.getTabsVisibleSpaceWithPadding(position, dp(7)) : 0;
+        return topicsTabs != null ? topicsTabs.getTabsVisibleSpaceWithPadding(position, dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 7)) : 0;
     }
 
     private OnPostDrawView invalidateBlurredSourcesView;

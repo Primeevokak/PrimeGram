@@ -278,6 +278,18 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private android.content.res.Resources primeResources;
     private android.content.res.AssetManager primeAssetManager;
 
+    // PrimeGram: checks whether a plugin has stopped returning, every few seconds while the app is
+    // actually on screen - see PrimePluginWatchdog for why this has to run from outside the queue
+    // it is watching.
+    private static final long PRIME_WATCHDOG_INTERVAL_MS = 3000;
+    private final Runnable primeWatchdogTick = new Runnable() {
+        @Override
+        public void run() {
+            org.telegram.messenger.plugins.PrimePluginWatchdog.check();
+            AndroidUtilities.runOnUIThread(this, PRIME_WATCHDOG_INTERVAL_MS);
+        }
+    };
+
     @Override
     public android.content.res.Resources getResources() {
         final android.content.res.Resources base = super.getResources();
@@ -412,6 +424,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity.onCreate begin");
         isActive = true;
         activeInstanceCount++;
+        if (activeInstanceCount == 1) {
+            org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("start");
+        }
         if (BuildVars.DEBUG_VERSION) {
             StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder(StrictMode.getVmPolicy())
                 .detectLeakedClosableObjects()
@@ -6955,6 +6970,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     protected void onPause() {
         super.onPause();
         isResumed = false;
+        org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("pause");
+        AndroidUtilities.cancelRunOnUIThread(primeWatchdogTick);
         pipActivityHandler.onPause();
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.stopAllHeavyOperations, 4096);
         ApplicationLoader.mainInterfacePaused = true;
@@ -7078,6 +7095,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         unregisterReceiver(batteryReceiver);
 
         if (activeInstanceCount == 0) {
+            org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("stop");
             onDestroyStaticResources();
         }
 
@@ -7185,6 +7203,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         super.onResume();
         updateSidebarVisibility();
         isResumed = true;
+        org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("resume");
+        AndroidUtilities.cancelRunOnUIThread(primeWatchdogTick);
+        AndroidUtilities.runOnUIThread(primeWatchdogTick, PRIME_WATCHDOG_INTERVAL_MS);
         // PrimeGram: sweep expired temporary subscriptions. Self-throttling and a no-op when
         // nothing is scheduled, so running it on every resume costs nothing.
         try {

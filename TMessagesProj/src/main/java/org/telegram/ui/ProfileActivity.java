@@ -359,6 +359,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private Long emojiStatusGiftId;
     private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[] emojiStatusDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[2];
     private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[] botVerificationDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[2];
+    // PrimeGram: a badge next to the name - rightDrawable3, alongside emoji-status/premium
+    // (rightDrawable) and verified (rightDrawable2), not instead of either.
+    private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[] primeBadgeDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[2];
     private final Drawable[] verifiedCheckDrawable = new Drawable[2];
     private final CrossfadeDrawable[] verifiedCrossfadeDrawable = new CrossfadeDrawable[2];
     private final CrossfadeDrawable[] premiumCrossfadeDrawable = new CrossfadeDrawable[2];
@@ -456,11 +459,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private long userId;
     private long chatId;
     // PrimeGram: plugin items on the overflow menu. Rebuilt every createActionBarMenu() call
-    // alongside everything else on it, so the index into this list is only ever valid until the
-    // next rebuild - which is fine, because a click can only happen on a menu that is on screen.
-    private static final int PRIME_MENU_ITEM_BASE = 1_000_000;
-    private final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeProfileMenuItems = new java.util.ArrayList<>();
-    private java.util.Map<String, Object> primeProfileMenuContext = java.util.Collections.emptyMap();
+    // alongside everything else on it.
+    private final org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter primeMenuRouter =
+            new org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter();
     private long topicId;
     public boolean saved;
     private long dialogId;
@@ -2543,12 +2544,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 if (getParentActivity() == null) {
                     return;
                 }
-                if (id >= PRIME_MENU_ITEM_BASE) {
-                    final int primeIndex = id - PRIME_MENU_ITEM_BASE;
-                    if (primeIndex >= 0 && primeIndex < primeProfileMenuItems.size()) {
-                        org.telegram.messenger.plugins.PrimePluginMenuItems.click(
-                                primeProfileMenuItems.get(primeIndex), primeProfileMenuContext);
-                    }
+                if (primeMenuRouter.owns(id)) {
+                    primeMenuRouter.handle(id);
                     return;
                 }
                 if (id == -1) {
@@ -3472,6 +3469,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         botVerificationDrawable[i].attach();
                     }
                 }
+                for (int i = 0; i < primeBadgeDrawable.length; ++i) {
+                    if (primeBadgeDrawable[i] != null) {
+                        primeBadgeDrawable[i].attach();
+                    }
+                }
             }
 
             @Override
@@ -3486,6 +3488,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 for (int i = 0; i < botVerificationDrawable.length; ++i) {
                     if (botVerificationDrawable[i] != null) {
                         botVerificationDrawable[i].detach();
+                    }
+                }
+                for (int i = 0; i < primeBadgeDrawable.length; ++i) {
+                    if (primeBadgeDrawable[i] != null) {
+                        primeBadgeDrawable[i].detach();
                     }
                 }
             }
@@ -11178,6 +11185,25 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         return emojiStatusDrawable[a];
     }
 
+    /** The badge next to this name, or {@code null} to clear it - {@code user} may be null for a
+     *  chat/channel profile, in which case {@code chatId} is what's looked up instead. */
+    private Drawable getPrimeBadgeDrawable(int a, TLRPC.User user, long chatId) {
+        final org.telegram.messenger.PrimeBadges.Badge badge = user != null
+                ? org.telegram.messenger.PrimeBadges.getUserBadge(user.id)
+                : (chatId != 0 ? org.telegram.messenger.PrimeBadges.getChatBadge(chatId) : null);
+        if (badge == null) {
+            return null;
+        }
+        if (primeBadgeDrawable[a] == null) {
+            primeBadgeDrawable[a] = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable(nameTextView[a], AndroidUtilities.dp(24), AnimatedEmojiDrawable.CACHE_TYPE_EMOJI_STATUS);
+            if (fragmentViewAttached) {
+                primeBadgeDrawable[a].attach();
+            }
+        }
+        primeBadgeDrawable[a].set(badge.customEmojiId, true);
+        return primeBadgeDrawable[a];
+    }
+
     private float lastEmojiStatusProgress;
 
     private void updateEmojiStatusDrawableColor() {
@@ -11502,6 +11528,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         nameTextView[a].setRightDrawable(null);
                         nameTextViewRightDrawableContentDescription = null;
                     }
+                    nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, user, 0));
                 } else if (a == 1) {
                     if (user.scam || user.fake) {
                         nameTextView[a].setRightDrawable2(getScamDrawable(user.scam ? 0 : 1));
@@ -11521,6 +11548,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     } else {
                         nameTextView[a].setRightDrawable(null);
                     }
+                    nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, user, 0));
                 }
                 if (leftIcon == null && currentEncryptedChat == null && user.bot_verification_icon != 0) {
                     nameTextView[a].setLeftDrawableOutside(true);
@@ -12103,7 +12131,6 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         otherItem.removeAllSubItems();
         animatingItem = null;
 
-        primeProfileMenuItems.clear();
         final java.util.Map<String, Object> primeMenuContext = new java.util.HashMap<>();
         primeMenuContext.put("account", getCurrentAccount());
         if (userId != 0) {
@@ -12112,12 +12139,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         if (chatId != 0) {
             primeMenuContext.put("chat_id", chatId);
         }
-        primeProfileMenuContext = primeMenuContext;
-        for (org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem :
-                org.telegram.messenger.plugins.PrimePluginMenuItems.forType("profile_action_menu", primeMenuContext)) {
-            primeProfileMenuItems.add(primeItem);
-            otherItem.addSubItem(PRIME_MENU_ITEM_BASE + primeProfileMenuItems.size() - 1,
-                    primeItem.iconResId, primeItem.text);
+        final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeItems =
+                primeMenuRouter.load("profile_action_menu", primeMenuContext);
+        for (int i = 0; i < primeItems.size(); i++) {
+            final org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem = primeItems.get(i);
+            otherItem.addSubItem(primeMenuRouter.idFor(i), primeItem.iconResId, primeItem.text);
         }
 
         editItemVisible = false;

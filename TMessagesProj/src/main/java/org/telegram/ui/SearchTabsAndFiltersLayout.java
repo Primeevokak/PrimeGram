@@ -16,6 +16,10 @@ public class SearchTabsAndFiltersLayout extends FrameLayout implements Theme.Col
     private final Path clipPath = new Path();
     private BlurredBackgroundDrawable blurredBackgroundDrawable;
 
+    /** Set by {@link org.telegram.messenger.NonIslandHelper#applyGlobalSearchTabs} when the classic
+     *  flat look is on - ported from inugram's {@code inu_blurHelper}. */
+    public org.telegram.messenger.BlurBehindHelper inu_blurHelper;
+
     public SearchTabsAndFiltersLayout(@NonNull Context context) {
         super(context);
     }

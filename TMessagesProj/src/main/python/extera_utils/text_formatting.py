@@ -24,7 +24,8 @@ def remove_surrogates(text):
 class Markdown:
     @classmethod
     def parse(cls, text, strict=False):
-        return parse_text(text, "markdown")
+        parsed = parse_markdown(text)
+        return {"text": parsed.text, "entities": list(parsed.entities)}
 
     @staticmethod
     def unparse(text, entities):

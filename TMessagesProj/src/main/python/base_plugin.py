@@ -187,6 +187,22 @@ class MethodReplacement(XposedHook, metaclass=abc.ABCMeta):
         ...
 
 
+def invoke_original(param):
+    """The un-hooked implementation, called directly - the only way to reach it once a
+    ``MethodReplacement`` (or a ``before`` hook that called ``param.setResult(...)``) has taken
+    over, since the real method no longer runs on its own from here on.
+
+    Takes the same ``param`` every hook already receives - ``param.method``, ``param.thisObject``
+    and ``param.args`` are exactly what the original call needs, so there is nothing else for a
+    plugin to supply. This existed on the Java side (``PrimePluginXposed.invokeOriginal``, wrapping
+    Xposed's own ``invokeOriginalMethod``) since hooking was first built, with no Python-facing way
+    to reach it - a ``MethodReplacement`` that wanted to wrap rather than fully replace the
+    original had no path to do that at all.
+    """
+    from org.telegram.messenger.plugins import PrimePluginXposed
+    return PrimePluginXposed.invokeOriginal(param.method, param.thisObject, param.args)
+
+
 class MethodHook(XposedHook):
     def before_hooked_method(self, param):
         pass
@@ -556,7 +572,7 @@ class BasePlugin:
         if callback is None:
             return None
         unhook = PrimePluginXposed.hookMethod(method_or_constructor,
-                                              0 if priority is None else int(priority), callback)
+                                              10 if priority is None else int(priority), callback)
         if unhook is None:
             self.log("не удалось повесить хук на %s" % method_or_constructor)
             return None
@@ -573,7 +589,7 @@ class BasePlugin:
         if callback is None:
             return None
         unhooks = PrimePluginXposed.hookAllMethods(
-            hook_class, method_name, 0 if priority is None else int(priority), callback)
+            hook_class, method_name, 10 if priority is None else int(priority), callback)
         result = list(unhooks or [])
         for unhook in result:
             self._prime_hooks.append((unhook, callback))
@@ -589,7 +605,7 @@ class BasePlugin:
         if callback is None:
             return None
         unhooks = PrimePluginXposed.hookAllConstructors(
-            hook_class, 0 if priority is None else int(priority), callback)
+            hook_class, 10 if priority is None else int(priority), callback)
         result = list(unhooks or [])
         for unhook in result:
             self._prime_hooks.append((unhook, callback))

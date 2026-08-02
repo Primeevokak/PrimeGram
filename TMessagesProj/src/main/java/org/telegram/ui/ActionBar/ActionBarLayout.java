@@ -2096,7 +2096,7 @@ public class ActionBarLayout extends FrameLayout implements INavigationLayout, F
 
                         @Override
                         public void getOutline(View view, Outline outline) {
-                            final float rTop = dp(29);
+                            final float rTop = dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 12 : 29);
                             final float rBottom = dp(12);
                             final float[] radii = new float[] {
                                 rTop, rTop, rTop, rTop,

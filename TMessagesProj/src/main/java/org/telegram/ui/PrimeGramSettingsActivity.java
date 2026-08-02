@@ -104,6 +104,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HIDE_ALL_CHATS = 70;
     private static final int ID_AVATAR_CORNERS = 71;
     private static final int ID_ICON_PACKS = 139;
+    private static final int ID_NON_ISLAND_UI = 140;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -651,6 +652,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else {
             word = "плагинов";
         }
+        // The active count only means something once the interpreter has actually run every
+        // plugin at least once - before that it is just "0", which would read as every plugin
+        // being broken rather than as "hasn't started yet".
+        final int active = org.telegram.messenger.plugins.PrimePluginHooks.activeCount();
+        if (active > 0 && active < count) {
+            return count + " " + word + " · " + active + " активно";
+        }
         return count + " " + word;
     }
 
@@ -1053,13 +1061,15 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Снег круглый год", org.telegram.messenger.PrimeTweaks.FORCE_SNOW));
             row(button(ID_ICON_PACKS, IconBackgroundColors.RED, R.drawable.msg_photos,
                     "Наборы иконок", iconPackSummary()));
+            row(check(ID_NON_ISLAND_UI, IconBackgroundColors.GRAY, R.drawable.msg_colors,
+                    "Классический плоский вид", org.telegram.messenger.NonIslandHelper.isEnabled()));
             endCard(items);
             if (avatarCornersCell() != null) {
                 items.add(UItem.asCustom(ID_AVATAR_CORNERS, avatarCornersCell()));
             }
             items.add(info(1, "Оформление",
                     "Форма аватарок меняется сразу и везде.",
-                    "Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате.\n\nЗаголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами.\n\nСкругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере показаны сразу четыре размера."));
+                    "Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате.\n\nЗаголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами.\n\nСкругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере показаны сразу четыре размера.\n\n«Классический плоский вид» откатывает недавний «island»-редизайн (скруглённые плавающие панели, стеклянные эффекты) обратно к плоскому виду прежних версий Telegram — панель ввода, вкладки, шапки чатов и списка чатов. Открытые экраны обновляются при следующем открытии."));
         }
 
         if (section == SECTION_UI_REACTIONS) {
@@ -1669,6 +1679,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             if (LaunchActivity.instance != null) {
                 LaunchActivity.instance.updateSidebarVisibility();
             }
+            listView.adapter.update(true);
+        } else if (item.id == ID_NON_ISLAND_UI) {
+            org.telegram.messenger.NonIslandHelper.setEnabled(!org.telegram.messenger.NonIslandHelper.isEnabled());
             listView.adapter.update(true);
         } else if (item.id == ID_SIDEBAR_ZONE) {
             showSidebarZoneSheet();

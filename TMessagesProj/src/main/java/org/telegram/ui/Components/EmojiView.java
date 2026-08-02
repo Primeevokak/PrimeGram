@@ -8498,6 +8498,21 @@ public class EmojiView extends FrameLayout implements
             return currentTabs.size();
         }
 
+        /**
+         * PrimeGram: {@code currentTabs} was built to hold this app's own fixed tab set - GIFs,
+         * stickers, emoji - decided once and never touched again. A plugin adding a tab of its own
+         * to that list at run time is now something that happens (through reflection, since there
+         * is no API for it), and without this override, ViewPager keeps treating every page as
+         * unchanged after {@code notifyDataSetChanged()} - it compares the new count to what it
+         * cached at last layout and throws rather than trust a count that moved. Returning {@code
+         * POSITION_NONE} unconditionally tells it "assume nothing survived, rebuild" - the standard
+         * answer for an adapter whose item set is not fixed, and the one this one was missing.
+         */
+        @Override
+        public int getItemPosition(Object object) {
+            return POSITION_NONE;
+        }
+
         public Drawable getPageIconDrawable(int position) {
             return null;
 //            return tabIcons[position];

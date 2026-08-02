@@ -77,6 +77,11 @@ public class FilterTabsView extends FrameLayout {
 
     private final Theme.ResourcesProvider resourcesProvider;
 
+    /** Set by {@link org.telegram.messenger.NonIslandHelper#applyFilterTabBar} when the classic
+     *  flat look is on - the flat blur strip this bar draws behind itself instead of the island
+     *  pill background, ported from inugram's {@code inu_blurHelper}. */
+    public org.telegram.messenger.BlurBehindHelper inu_blurHelper;
+
     public int getCurrentTabStableId() {
         return positionToStableId.get(currentPosition, -1);
     }

@@ -328,6 +328,93 @@ public final class PrimePluginsController {
         });
     }
 
+    /**
+     * Disables exactly {@code pluginId} and whatever is joined to it by an import - not every
+     * installed plugin, exteraGram's own Safe Mode's answer to the same problem. A plugin that
+     * crashed mid-call is still linked into every other plugin's process, and a library plugin that
+     * threw could just as easily be dragged down by, or drag down, whoever imported from it - so the
+     * whole connected component gets disabled, on the reasoning that a link to something broken is
+     * itself a reason not to trust the other side of it, not because the other side did anything
+     * wrong itself.
+     *
+     * <p>Called from wherever a plugin's own code was caught misbehaving - most often from Python,
+     * from inside the very call that failed - so this does nothing that could re-enter Python
+     * synchronously: unloading happens on the engine queue, same as {@link #setEnabled}.
+     */
+    public void disableAfterCrash(String pluginId, String reason) {
+        final PrimePlugin culprit = findById(pluginId);
+        if (culprit == null) {
+            return;
+        }
+        final java.util.LinkedHashSet<String> chain = dependencyChain(pluginId);
+        chain.add(pluginId);
+        for (String id : chain) {
+            final PrimePlugin plugin = findById(id);
+            if (plugin == null) {
+                continue;
+            }
+            PrimePluginStore.setEnabled(id, false);
+            plugin.setError(new PluginCrashException(id.equals(pluginId)
+                    ? reason : "отключён вместе с «" + culprit.name() + "» - они связаны через импорт"));
+            PrimePythonEngine.getInstance().queue().postRunnable(() -> unloadFromPython(id));
+        }
+        notifyChanged();
+        showCrashDialog(culprit, chain.size() > 1);
+    }
+
+    /** Every plugin id reachable from {@code pluginId} by an import in either direction - not just
+     *  what it imports, but who imports it too, since either side of that link can pull the other
+     *  down. */
+    private java.util.LinkedHashSet<String> dependencyChain(String pluginId) {
+        final java.util.LinkedHashSet<String> visited = new java.util.LinkedHashSet<>();
+        final java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>();
+        queue.add(pluginId);
+        visited.add(pluginId);
+        while (!queue.isEmpty()) {
+            final String current = queue.poll();
+            for (String neighbor : neighbors(current)) {
+                if (visited.add(neighbor)) {
+                    queue.add(neighbor);
+                }
+            }
+        }
+        visited.remove(pluginId);
+        return visited;
+    }
+
+    private java.util.Set<String> neighbors(String pluginId) {
+        final java.util.LinkedHashSet<String> result = new java.util.LinkedHashSet<>(PrimePluginStore.getDependencies(pluginId));
+        final List<PrimePlugin> snapshot = getPlugins();
+        for (int i = 0; i < snapshot.size(); i++) {
+            final String otherId = snapshot.get(i).id();
+            if (PrimePluginStore.getDependencies(otherId).contains(pluginId)) {
+                result.add(otherId);
+            }
+        }
+        return result;
+    }
+
+    private void showCrashDialog(PrimePlugin culprit, boolean tookOthersWithIt) {
+        final org.telegram.ui.LaunchActivity activity = org.telegram.ui.LaunchActivity.instance;
+        if (activity == null) {
+            return;
+        }
+        AndroidUtilities.runOnUIThread(() -> new org.telegram.ui.ActionBar.AlertDialog.Builder(activity)
+                .setTitle("Плагин отключён")
+                .setMessage("«" + culprit.name() + "» вызвал сбой и был отключён."
+                        + (tookOthersWithIt ? " Вместе с ним отключены связанные с ним плагины." : ""))
+                .setPositiveButton("Понятно", null)
+                .show());
+    }
+
+    /** Records that a plugin (as opposed to us) is why a call failed - shown on its settings row the
+     *  same way any other load failure is. */
+    public static final class PluginCrashException extends RuntimeException {
+        public PluginCrashException(String message) {
+            super(message);
+        }
+    }
+
     private void startEnabled() {
         final Context context = ApplicationLoader.applicationContext;
         final List<PrimePlugin> snapshot = getPlugins();

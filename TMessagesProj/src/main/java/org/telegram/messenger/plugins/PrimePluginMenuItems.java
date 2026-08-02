@@ -152,4 +152,50 @@ public final class PrimePluginMenuItems {
             }
         }
     }
+
+    /**
+     * The other case: a menu built out of {@code (id, icon, text)} triples handed to some older
+     * API - {@code ActionBarMenuItem.addSubItem}, or the three parallel lists {@code
+     * ChatActivity.fillMessageMenu} still uses - that has no room for a {@link Runnable} per item,
+     * only an {@code int} it hands back on click. One of these, kept as a field on whichever screen
+     * owns the menu, replaces the id-range-plus-index-lookup bookkeeping that used to be written out
+     * by hand at every such call site (there were three, all doing the same thing slightly
+     * differently). {@code load} at menu-build time, {@link #idFor} for each row added, {@link
+     * #owns}/{@link #handle} in the click callback.
+     */
+    public static final class ClickRouter {
+        private static final int BASE = 1_000_000;
+
+        private List<Item> items = Collections.emptyList();
+        private Map<String, Object> context = Collections.emptyMap();
+
+        /** Call once per menu build, before adding any row. Returns the items to add, in order. */
+        public List<Item> load(String menuType, Map<String, Object> context) {
+            this.items = forType(menuType, context);
+            this.context = context;
+            return items;
+        }
+
+        /** The id to give row {@code index} of whatever {@link #load} just returned. */
+        public int idFor(int index) {
+            return BASE + index;
+        }
+
+        /** Whether {@code id} is one this router handed out - check before falling through to a
+         *  screen's own {@code switch} on native ids, which share no range with this one. */
+        public boolean owns(int id) {
+            return id >= BASE;
+        }
+
+        /** Routes a click by the id {@link #idFor} produced. Returns false for an id from a stale
+         *  build (the menu was rebuilt since), which a caller can treat as a no-op. */
+        public boolean handle(int id) {
+            final int index = id - BASE;
+            if (index < 0 || index >= items.size()) {
+                return false;
+            }
+            click(items.get(index), context);
+            return true;
+        }
+    }
 }

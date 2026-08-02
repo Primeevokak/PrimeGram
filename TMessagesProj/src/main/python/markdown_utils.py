@@ -86,15 +86,22 @@ def _utf16_len(text):
     return sum(2 if ord(char) > 0xFFFF else 1 for char in text)
 
 
-#: Longest first, so ``**`` is never read as two ``*``.
+#: Telegram's own MarkdownV2, not GitHub's - single ``*`` is bold here, not double, and ``_``/``__``
+#: split italic from underline instead of one meaning the other doubled. Longest prefix first,
+#: because the match loop below takes the first one that fits at each position: ``__`` has to be
+#: tried before ``_`` finds it first and reads two empty italics, and ``` ``` ``` before a lone
+#: backtick for the same reason.
 _DELIMITERS = (
     ("```", TLEntityType.PRE),
-    ("**", TLEntityType.BOLD),
-    ("__", TLEntityType.ITALIC),
-    ("~~", TLEntityType.STRIKETHROUGH),
+    ("__", TLEntityType.UNDERLINE),
     ("||", TLEntityType.SPOILER),
+    ("*", TLEntityType.BOLD),
+    ("_", TLEntityType.ITALIC),
+    ("~", TLEntityType.STRIKETHROUGH),
     ("`", TLEntityType.CODE),
 )
+
+_EMOJI_URL_RE = _re.compile(r"tg://emoji\?id=(\d+)")
 
 
 def parse_markdown(markdown):
@@ -114,6 +121,20 @@ def parse_markdown(markdown):
             offset += _utf16_len(markdown[i + 1])
             i += 2
             continue
+
+        if char == "!" and i + 1 < length and markdown[i + 1] == "[":
+            close = markdown.find("](", i + 1)
+            end = markdown.find(")", close + 2) if close != -1 else -1
+            if close != -1 and end != -1:
+                match = _EMOJI_URL_RE.match(markdown[close + 2:end])
+                if match:
+                    label = markdown[i + 2:close]
+                    entities.append(RawEntity(TLEntityType.CUSTOM_EMOJI, offset,
+                                              _utf16_len(label), document_id=int(match.group(1))))
+                    text.append(label)
+                    offset += _utf16_len(label)
+                    i = end + 1
+                    continue
 
         if char == "[":
             close = markdown.find("](", i)
@@ -182,8 +203,10 @@ _HTML_TAGS = {
     "a": TLEntityType.TEXT_LINK,
     "span": TLEntityType.SPOILER,       # only when class="tg-spoiler"
     "tg-spoiler": TLEntityType.SPOILER,
+    "spoiler": TLEntityType.SPOILER,
     "blockquote": TLEntityType.BLOCKQUOTE,
     "tg-emoji": TLEntityType.CUSTOM_EMOJI,
+    "emoji": TLEntityType.CUSTOM_EMOJI,
 }
 
 
@@ -290,14 +313,14 @@ class _HTMLParser:
             match = _LANGUAGE_CLASS_RE.search(attrs.get("class") or "")
             return RawEntity(kind, offset, length, language=match.group(1) if match else None)
         if kind is TLEntityType.CUSTOM_EMOJI:
-            raw_id = attrs.get("emoji-id") or attrs.get("data-document-id")
+            raw_id = attrs.get("emoji-id") or attrs.get("id") or attrs.get("data-document-id")
             try:
                 document_id = int(raw_id) if raw_id else None
             except ValueError:
                 document_id = None
             return RawEntity(kind, offset, length, document_id=document_id)
         if kind is TLEntityType.BLOCKQUOTE:
-            return RawEntity(kind, offset, length, collapsed="expandable" in attrs)
+            return RawEntity(kind, offset, length, collapsed="expandable" in attrs or "collapsed" in attrs)
         return RawEntity(kind, offset, length)
 
 
@@ -351,8 +374,11 @@ def parse_html(text):
     return _HTMLParser(text).parse()
 
 
-def parse_text(text, parse_mode="markdown", is_caption=False):
-    """The shape ``client_utils`` expects: a dict with ``text`` and ``entities``.
+def parse_text(text, parse_mode="HTML", is_caption=False):
+    """The documented shape: a dict with ``entities`` and, keyed by whether this text is going out
+    as a caption or a message body, ``message`` or ``caption`` - the same two fields a send request
+    itself carries one of, which is the point: a plugin building a request payload can drop this
+    dict's non-entities key straight in under its own name.
 
     An unknown mode returns the text untouched rather than guessing - a plugin that asked for a
     mode we silently do not support would otherwise produce messages full of visible markup.
@@ -360,8 +386,10 @@ def parse_text(text, parse_mode="markdown", is_caption=False):
     mode = (parse_mode or "").lower()
     if mode in ("md", "markdown", "markdownv2"):
         parsed = parse_markdown(text)
-        return {"text": parsed.text, "entities": list(parsed.entities)}
-    if mode == "html":
+        result_text, entities = parsed.text, list(parsed.entities)
+    elif mode == "html":
         parsed = parse_html(text)
-        return {"text": parsed.text, "entities": list(parsed.entities)}
-    return {"text": text, "entities": []}
+        result_text, entities = parsed.text, list(parsed.entities)
+    else:
+        result_text, entities = text, []
+    return {("caption" if is_caption else "message"): result_text, "entities": entities}

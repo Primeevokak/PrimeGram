@@ -42,10 +42,12 @@ _REQUEST_METHODS = ("pre_request_hook", "post_request_hook", "on_update_hook", "
 
 
 def _publish_request_hooks():
-    """Tells Java whether anybody is listening to requests and updates.
+    """Tells Java whether anybody is listening to requests and updates, and how many plugins are
+    actually running right now - both only ever change at the same moments load_plugin/unload_plugin
+    do, so one publish covers both.
 
-    Both paths are hot - every request the client makes, every update the server sends - so the
-    cost for a user with no such plugin has to be one field read and nothing else.
+    The request/update path is hot - every request the client makes, every update the server sends -
+    so the cost for a user with no such plugin has to be one field read and nothing else.
     """
     wanted = False
     for plugin in registry.plugins.values():
@@ -58,6 +60,7 @@ def _publish_request_hooks():
     try:
         from org.telegram.messenger.plugins import PrimePluginHooks
         PrimePluginHooks.setRequestHooks(wanted)
+        PrimePluginHooks.setActiveCount(len(_loaded))
     except Exception:
         pass
 
@@ -189,11 +192,47 @@ def load_plugin(plugin_id, path):
         plugin.on_plugin_load()
         plugin.initialized = True
         _publish_request_hooks()
+        _publish_dependencies(plugin_id, module)
     except Exception as e:
         log("plugin %s failed to load:\n%s" % (plugin_id, traceback.format_exc()))
         unload_plugin(plugin_id)
         return _short_error(e)
     return None
+
+
+def _publish_dependencies(plugin_id, module):
+    """Which other loaded plugins ended up in {@code module}'s own namespace - the closest thing to
+    "this plugin is a library for that one" this SDK has, since a plugin never declares another
+    plugin as a dependency; it just imports it, the same as any other module. Handed to Java so a
+    crash can compute the chain to disable without needing Python at all, which matters because the
+    crash that triggers it may be happening on a thread with no safe way back into Python.
+    """
+    other_ids = set()
+    for value in vars(module).values():
+        name = value.__name__ if isinstance(value, types.ModuleType) else getattr(value, "__module__", None)
+        if isinstance(name, str) and name.startswith(_MODULE_PREFIX):
+            other_id = name[len(_MODULE_PREFIX):]
+            if other_id and other_id != plugin_id and other_id in _loaded:
+                other_ids.add(other_id)
+    try:
+        from org.telegram.messenger.plugins import PrimePluginStore
+        PrimePluginStore.setDependencies(plugin_id, list(other_ids))
+    except Exception:
+        pass
+
+
+def disable_crashed_plugin(plugin_id, reason):
+    """A plugin's own code broke out past every guard meant to keep it from doing that - a
+    class-proxy override that raised, most likely. Disables it (and, as a precaution, whatever it is
+    joined to by an import) rather than every plugin in the catalogue, and names it specifically:
+    exteraGram's Safe Mode goes the blunt route because it has no per-plugin story to tell here; this
+    SDK does.
+    """
+    try:
+        from org.telegram.messenger.plugins import PrimePluginsController
+        PrimePluginsController.getInstance().disableAfterCrash(plugin_id, reason)
+    except Exception:
+        log("could not disable crashed plugin %s:\n%s" % (plugin_id, traceback.format_exc()))
 
 
 def unload_plugin(plugin_id):
@@ -400,6 +439,38 @@ def on_setting_clicked(plugin_id, path, index):
 # dispatch
 
 
+class _watchdog:
+    """Brackets one plugin's turn on the dispatch queue, so a Java-side timer checking in from the
+    UI thread can tell whether the queue is stuck and, if so, on whom - the only way to notice a
+    hang from outside it: everything here runs on one thread, and a plugin that never returns has
+    no opportunity to say so itself.
+
+    Silent about its own failure - a watchdog that could crash the thing it is watching would be
+    worse than none.
+    """
+
+    __slots__ = ("plugin_id",)
+
+    def __init__(self, plugin_id):
+        self.plugin_id = plugin_id
+
+    def __enter__(self):
+        try:
+            from org.telegram.messenger.plugins import PrimePluginWatchdog
+            PrimePluginWatchdog.beginDispatch(self.plugin_id)
+        except Exception:
+            pass
+        return self
+
+    def __exit__(self, *exc_info):
+        try:
+            from org.telegram.messenger.plugins import PrimePluginWatchdog
+            PrimePluginWatchdog.endDispatch()
+        except Exception:
+            pass
+        return False
+
+
 def dispatch_send_message(account, params):
     """
     Every plugin that asked about outgoing messages, in priority order.
@@ -414,7 +485,8 @@ def dispatch_send_message(account, params):
     with client_utils.account_scope(account):
         for _, plugin in list(hooks):
             try:
-                result = plugin.on_send_message_hook(account, params)
+                with _watchdog(plugin.id):
+                    result = plugin.on_send_message_hook(account, params)
             except Exception:
                 log("plugin %s failed on send:\n%s" % (plugin.id, traceback.format_exc()))
                 continue
@@ -436,7 +508,8 @@ def dispatch_app_event(event_name):
         return
     for plugin in list(_loaded.values()):
         try:
-            plugin.on_app_event(event)
+            with _watchdog(plugin.id):
+                plugin.on_app_event(event)
         except Exception:
             log("plugin %s failed on %s:\n%s" % (plugin.id, event_name, traceback.format_exc()))
 
@@ -473,7 +546,8 @@ def dispatch_menu_click(item_id, context):
     if not plugin.enabled or data.on_click is None:
         return
     try:
-        data.on_click(context)
+        with _watchdog(plugin.id):
+            data.on_click(context)
     except Exception:
         log("plugin %s menu item %s failed:\n%s" % (plugin.id, item_id, traceback.format_exc()))
 
@@ -521,7 +595,8 @@ def dispatch_pre_request(account, request):
         if not _interested(plugin, "pre_request_hook", names):
             continue
         try:
-            result = plugin.pre_request_hook(names[0], account, request)
+            with _watchdog(plugin.id):
+                result = plugin.pre_request_hook(names[0], account, request)
         except Exception:
             log("plugin %s failed before a request:\n%s" % (plugin.id, traceback.format_exc()))
             continue
@@ -546,7 +621,8 @@ def dispatch_post_request(account, request, response, error):
         if not _interested(plugin, "post_request_hook", names):
             continue
         try:
-            result = plugin.post_request_hook(names[0], account, response, error)
+            with _watchdog(plugin.id):
+                result = plugin.post_request_hook(names[0], account, response, error)
         except Exception:
             log("plugin %s failed after a request:\n%s" % (plugin.id, traceback.format_exc()))
             continue
@@ -568,7 +644,8 @@ def dispatch_updates(account, updates, container):
             names = _request_name(updates)
             for plugin in list(registry.plugins.values()):
                 if _interested(plugin, "on_updates_hook", names):
-                    plugin.on_updates_hook(names[0], account, updates)
+                    with _watchdog(plugin.id):
+                        plugin.on_updates_hook(names[0], account, updates)
             return
         # A list. Walking it here rather than calling into Python once per update keeps the cost
         # of a hundred updates at one crossing instead of a hundred.
@@ -576,6 +653,7 @@ def dispatch_updates(account, updates, container):
             names = _request_name(update)
             for plugin in list(registry.plugins.values()):
                 if _interested(plugin, "on_update_hook", names):
-                    plugin.on_update_hook(names[0], account, update)
+                    with _watchdog(plugin.id):
+                        plugin.on_update_hook(names[0], account, update)
     except Exception:
         log("update dispatch failed:\n%s" % traceback.format_exc())
