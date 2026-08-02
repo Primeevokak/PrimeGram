@@ -270,6 +270,23 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private boolean finished;
     private String videoPath;
+
+    // PrimeGram: icon packs. Wrapping Resources is the one place that reaches nearly every icon
+    // load in the app - see PrimeResources for why - so this activity's getResources() is where
+    // it has to happen. Rebuilt only when the underlying AssetManager actually changes (a
+    // configuration change can swap it), not on every call - getResources() runs constantly.
+    private android.content.res.Resources primeResources;
+    private android.content.res.AssetManager primeAssetManager;
+
+    @Override
+    public android.content.res.Resources getResources() {
+        final android.content.res.Resources base = super.getResources();
+        if (primeAssetManager != base.getAssets() || primeResources == null) {
+            primeResources = new org.telegram.messenger.PrimeResources(base);
+            primeAssetManager = base.getAssets();
+        }
+        return primeResources;
+    }
     private String voicePath;
     private CharSequence sendingText;
     private ArrayList<SendMessagesHelper.SendingMediaInfo> photoPathsArray;

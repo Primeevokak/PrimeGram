@@ -103,6 +103,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HIDE_ARCHIVE_FOLDER = 69;
     private static final int ID_HIDE_ALL_CHATS = 70;
     private static final int ID_AVATAR_CORNERS = 71;
+    private static final int ID_ICON_PACKS = 139;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -740,6 +741,19 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 + " · " + (pinned.isEmpty() ? "домен авто" : pinned);
     }
 
+    private CharSequence iconPackSummary() {
+        final String activeId = org.telegram.messenger.PrimeIconPacks.getActivePackId();
+        if (activeId == null) {
+            return "родные иконки";
+        }
+        for (org.telegram.messenger.PrimeIconPacks.Pack pack : org.telegram.messenger.PrimeIconPacks.listPacks()) {
+            if (pack.id.equals(activeId)) {
+                return pack.name;
+            }
+        }
+        return "родные иконки";
+    }
+
     private UItem section(int section, IconBackgroundColors colors, int icon, CharSequence title, CharSequence subtitle) {
         return SettingsActivity.SettingCell.Factory.of(
                 ID_SECTION_BASE + section, colors.top, colors.bottom, icon, title, subtitle);
@@ -1037,6 +1051,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Пузыри без хвостика", org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL));
             row(tweak(ID_FORCE_SNOW, IconBackgroundColors.CYAN, R.drawable.msg_colors,
                     "Снег круглый год", org.telegram.messenger.PrimeTweaks.FORCE_SNOW));
+            row(button(ID_ICON_PACKS, IconBackgroundColors.RED, R.drawable.msg_photos,
+                    "Наборы иконок", iconPackSummary()));
             endCard(items);
             if (avatarCornersCell() != null) {
                 items.add(UItem.asCustom(ID_AVATAR_CORNERS, avatarCornersCell()));
@@ -1622,6 +1638,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             presentFragment(new PrimePluginsActivity());
         } else if (item.id == ID_TGWS_SETTINGS) {
             presentFragment(new PrimeTgWsActivity());
+        } else if (item.id == ID_ICON_PACKS) {
+            presentFragment(new PrimeIconPacksActivity());
         } else if (item.id == ID_TOOLBAR_BUTTONS) {
             showToolbarButtonsSheet();
         } else if (item.id == ID_GUIDE) {

@@ -55,6 +55,9 @@ dependencies {
     // Python needs an actual Java class to exist, which Chaquopy alone cannot produce. Same
     // package (com.android.dx) exteraGram's own class generator builds on.
     implementation 'com.linkedin.dexmaker:dexmaker:2.28.6'
+    // PrimeGram: SVG rendering for icon packs - the same library exteraGram's own IconManager
+    // renders vector icon packs with.
+    implementation 'com.caverock:androidsvg:1.4'
     implementation 'com.google.firebase:firebase-messaging:22.0.0'
     implementation 'com.google.firebase:firebase-config:21.0.1'
     implementation 'com.google.firebase:firebase-datatransport:18.1.0'

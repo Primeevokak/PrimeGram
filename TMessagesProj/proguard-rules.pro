@@ -114,6 +114,10 @@
 -dontwarn org.checkerframework.**
 -dontwarn javax.annotation.**
 
+# MVEL's JSR-223 scripting-engine integration is optional and unused here - we only ever call
+# MVEL.compileExpression/executeExpression directly - and javax.script does not exist on Android.
+-dontwarn javax.script.**
+
 -keep class io.nano.tex.** {*;}
 
 # JLatexMath: macro/atom classes are loaded reflectively by Class.forName
