@@ -2193,6 +2193,8 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
     private final static int gallery_menu_chromecast = 24;
     private final static int gallery_menu_create_sticker = 25;
     private final static int gallery_menu_delete2 = 26;
+    private final static int gallery_menu_reverse_search = 27;
+    private final static int gallery_menu_translate_image = 28;
 
     private final static int ads_sponsor_info = 101;
     private final static int ads_about = 102;
@@ -4637,6 +4639,72 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         }
     }
 
+    /** Same local-file lookup {@link #onSharePressed()} uses, minus the video branch - reverse
+     *  image search only makes sense for a still photo. */
+    private File getCurrentImageFileForSearch() {
+        try {
+            File f = null;
+            if (currentMessageObject != null) {
+                if (currentMessageObject.isVideo()) {
+                    return null;
+                }
+                if (!TextUtils.isEmpty(currentMessageObject.messageOwner.attachPath)) {
+                    f = new File(currentMessageObject.messageOwner.attachPath);
+                    if (!f.exists()) {
+                        f = null;
+                    }
+                }
+                if (f == null) {
+                    f = FileLoader.getInstance(currentAccount).getPathToMessage(currentMessageObject.messageOwner);
+                }
+            } else if (currentFileLocationVideo != null) {
+                f = FileLoader.getInstance(currentAccount).getPathToAttach(getFileLocation(currentFileLocationVideo), getFileLocationExt(currentFileLocationVideo), avatarsDialogId != 0 || isEvent);
+                if (f == null || !f.exists()) {
+                    f = FileLoader.getInstance(currentAccount).getPathToAttach(getFileLocation(currentFileLocationVideo), getFileLocationExt(currentFileLocationVideo), false);
+                }
+            } else if (pageBlocksAdapter != null) {
+                f = pageBlocksAdapter.getFile(currentIndex);
+            }
+            if (f != null && !f.exists()) {
+                f = new File(FileLoader.getDirectory(FileLoader.MEDIA_DIR_CACHE), f.getName());
+            }
+            return f != null && f.exists() ? f : null;
+        } catch (Exception e) {
+            FileLog.e(e);
+            return null;
+        }
+    }
+
+    private void onReverseImageSearchPressed() {
+        if (parentActivity == null) {
+            return;
+        }
+        final File file = getCurrentImageFileForSearch();
+        if (file == null) {
+            showDownloadAlert();
+            return;
+        }
+        final ItemOptions options = ItemOptions.makeOptions(containerView, new DarkThemeResourceProvider(), menuItem);
+        for (org.telegram.ui.Components.PrimeReverseImageSearchSheet.Provider provider : org.telegram.ui.Components.PrimeReverseImageSearchSheet.Provider.values()) {
+            options.add(R.drawable.msg_search, provider.title, () -> {
+                new org.telegram.ui.Components.PrimeReverseImageSearchSheet(parentActivity, file, provider, new DarkThemeResourceProvider()).show();
+            });
+        }
+        options.show();
+    }
+
+    private void onTranslateImagePressed() {
+        if (parentActivity == null) {
+            return;
+        }
+        final File file = getCurrentImageFileForSearch();
+        if (file == null) {
+            showDownloadAlert();
+            return;
+        }
+        new org.telegram.ui.Components.PrimeImageTranslateSheet(parentActivity, file, new DarkThemeResourceProvider()).show();
+    }
+
     private void setScaleToFill() {
         float bitmapWidth = centerImage.getBitmapWidth();
         float bitmapHeight = centerImage.getBitmapHeight();
@@ -5739,6 +5807,10 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                     }
                 } else if (id == gallery_menu_share || id == gallery_menu_share2) {
                     onSharePressed();
+                } else if (id == gallery_menu_reverse_search) {
+                    onReverseImageSearchPressed();
+                } else if (id == gallery_menu_translate_image) {
+                    onTranslateImagePressed();
                 } else if (id == gallery_menu_openin) {
                     try {
                         if (isEmbedVideo) {
@@ -6137,6 +6209,8 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         menuItem.addSubItem(gallery_menu_reply, R.drawable.menu_reply, getString(R.string.Reply)).setColors(0xfffafafa, 0xfffafafa);
         menuItem.addSubItem(gallery_menu_report, R.drawable.msg_report, getString(R.string.ReportProfilePhoto)).setColors(0xfffafafa, 0xfffafafa);
         menuItem.addSubItem(gallery_menu_share, R.drawable.msg_shareout, getString(R.string.ShareFile)).setColors(0xfffafafa, 0xfffafafa);
+        menuItem.addSubItem(gallery_menu_reverse_search, R.drawable.msg_search, "Поиск по картинке").setColors(0xfffafafa, 0xfffafafa);
+        menuItem.addSubItem(gallery_menu_translate_image, R.drawable.msg_translate, "Перевести изображение").setColors(0xfffafafa, 0xfffafafa);
         menuItem.addSubItem(gallery_menu_masks2, R.drawable.msg_sticker, getString(R.string.ShowStickers)).setColors(0xfffafafa, 0xfffafafa);
         //menuItem.addSubItem(gallery_menu_edit_avatar, R.drawable.photo_paint, LocaleController.getString(R.string.EditPhoto)).setColors(0xfffafafa, 0xfffafafa);
         menuItem.addSubItem(gallery_menu_set_as_main, R.drawable.msg_openprofile, getString(R.string.SetAsMain)).setColors(0xfffafafa, 0xfffafafa);

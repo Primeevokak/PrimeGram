@@ -92,12 +92,19 @@ public class TranslateController extends BaseController {
     }
 
     public boolean isFeatureAvailable() {
-        return isChatTranslateEnabled() && UserConfig.getInstance(currentAccount).isPremium();
+        return isChatTranslateEnabled() && (PrimeTranslator.isExternal() || UserConfig.getInstance(currentAccount).isPremium());
     }
 
     public boolean isFeatureAvailable(long dialogId) {
         if (!isChatTranslateEnabled()) {
             return false;
+        }
+        // Telegram's own translate call is a paid server feature - fair enough, it costs them
+        // compute. PrimeTranslator's keyless engines cost nobody anything, so the Premium gate
+        // has no reason to apply once one of them is doing the actual work, including in a plain
+        // 1-on-1 chat that never had a chat-level autotranslation flag to begin with.
+        if (PrimeTranslator.isExternal()) {
+            return true;
         }
         final TLRPC.Chat chat = getMessagesController().getChat(-dialogId);
         return (

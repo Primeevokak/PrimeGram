@@ -12206,6 +12206,18 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     topicKeys.add(MessagesStorage.TopicKey.of(selectedDialogs.get(i), 0));
                 delegate.didSelectDialogs(DialogsActivity.this, topicKeys, commentView.getFieldText(), false, notify, scheduleDate, scheduleRepeatPeriod, null);
             })
+            .addIf(initialDialogsType == DIALOGS_TYPE_FORWARD, R.drawable.msg_secret, "Без подписи автора", () -> {
+                if (delegate == null || selectedDialogs.isEmpty()) {
+                    return;
+                }
+                final ArrayList<MessagesStorage.TopicKey> topicKeys = new ArrayList<>();
+                for (int i = 0; i < selectedDialogs.size(); i++)
+                    topicKeys.add(MessagesStorage.TopicKey.of(selectedDialogs.get(i), 0));
+                // "param" is otherwise unused by ChatActivity.didSelectDialogs - repurposed here
+                // to carry drop_author through to SendMessagesHelper's forwardFromMyName, which
+                // Telegram's own forwardMessages API already supports server-side.
+                delegate.didSelectDialogs(DialogsActivity.this, topicKeys, commentView.getFieldText(), true, notify, scheduleDate, scheduleRepeatPeriod, null);
+            })
             .addIf(canSchedule, R.drawable.msg_calendar2, LocaleController.getString(R.string.ScheduleMessage), () -> {
                 AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), onlyMyselfFinal ? getUserConfig().getClientUserId() : -1, new AlertsCreator.ScheduleDatePickerDelegate() {
                     @Override

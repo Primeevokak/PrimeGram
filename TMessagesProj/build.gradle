@@ -79,6 +79,9 @@ dependencies {
 
     implementation 'com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1'
     implementation 'com.google.android.gms:play-services-mlkit-image-labeling:16.0.8'
+    // PrimeGram: on-device OCR for the "translate this image" sheet - offline, no key, same
+    // philosophy as the on-device voice transcription.
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
 
     implementation "androidx.credentials:credentials:1.6.0-alpha04"
     implementation "androidx.credentials:credentials-play-services-auth:1.6.0-alpha04"

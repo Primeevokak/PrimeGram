@@ -4817,6 +4817,34 @@ public class ChatActivityEnterView extends FrameLayout implements
                     });
                     sendPopupLayout.addView(sendWithoutSoundButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, DEFAULT_HEIGHT));
                 }
+                if (!isStories && dialog_id != 0) {
+                    final boolean translateOn = org.telegram.messenger.PrimeSendTranslate.isEnabled(dialog_id);
+                    final ActionBarMenuSubItem translateBeforeSendButton = new ActionBarMenuSubItem(getContext(), false, true, resourcesProvider);
+                    translateBeforeSendButton.setTextAndIcon(
+                            (translateOn ? "Перевод перед отправкой: " : "Перевести перед отправкой") +
+                                    (translateOn ? org.telegram.messenger.PrimeSendTranslate.getLanguageName(org.telegram.messenger.PrimeSendTranslate.getLanguage(dialog_id)) : ""),
+                            R.drawable.msg_translate);
+                    translateBeforeSendButton.setChecked(translateOn);
+                    translateBeforeSendButton.setMinimumWidth(dp(196));
+                    translateBeforeSendButton.setOnClickListener(v -> {
+                        if (sendPopupWindow != null && sendPopupWindow.isShowing()) {
+                            sendPopupWindow.dismiss();
+                        }
+                        if (org.telegram.messenger.PrimeSendTranslate.isEnabled(dialog_id)) {
+                            org.telegram.messenger.PrimeSendTranslate.setEnabled(dialog_id, false);
+                        } else {
+                            showSendTranslateLanguagePicker(true);
+                        }
+                    });
+                    translateBeforeSendButton.setOnLongClickListener(v -> {
+                        if (sendPopupWindow != null && sendPopupWindow.isShowing()) {
+                            sendPopupWindow.dismiss();
+                        }
+                        showSendTranslateLanguagePicker(false);
+                        return true;
+                    });
+                    sendPopupLayout.addView(translateBeforeSendButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, DEFAULT_HEIGHT));
+                }
                 sendPopupLayout.setupRadialSelectors(getThemedColor(Theme.key_dialogButtonSelector));
 
                 sendPopupWindow = new ActionBarPopupWindow(sendPopupLayout, LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT) {
@@ -7255,7 +7283,54 @@ public class ChatActivityEnterView extends FrameLayout implements
         }
     }
 
+    /** Shows the short curated language list, sets it as this chat's send-translate target, and
+     *  (unless just changing the language of an already-on toggle) turns the feature on. */
+    private void showSendTranslateLanguagePicker(boolean alsoEnable) {
+        if (parentActivity == null) {
+            return;
+        }
+        final String[] names = org.telegram.messenger.PrimeSendTranslate.LANGUAGE_NAMES;
+        final String[] codes = org.telegram.messenger.PrimeSendTranslate.LANGUAGE_CODES;
+        AlertDialog.Builder builder = new AlertDialog.Builder(parentActivity, resourcesProvider);
+        builder.setTitle("Язык перевода для этого чата");
+        builder.setItems(names, (dialog, which) -> {
+            org.telegram.messenger.PrimeSendTranslate.setLanguage(dialog_id, codes[which]);
+            if (alsoEnable) {
+                org.telegram.messenger.PrimeSendTranslate.setEnabled(dialog_id, true);
+            }
+        });
+        builder.show();
+    }
+
+    private boolean primeTranslatingBeforeSend;
+
+    private void primeTranslateBeforeSend(boolean notify, int scheduleDate, int scheduleRepeatPeriod, long payStars, boolean allowConfirm) {
+        final String original = messageEditText.getText().toString();
+        final String lang = org.telegram.messenger.PrimeSendTranslate.getLanguage(dialog_id);
+        final ArrayList<TLRPC.TL_textWithEntities> texts = new ArrayList<>();
+        final TLRPC.TL_textWithEntities t = new TLRPC.TL_textWithEntities();
+        t.text = original;
+        texts.add(t);
+        primeTranslatingBeforeSend = true;
+        org.telegram.messenger.PrimeTranslator.translate(texts, lang, (response, error) -> {
+            primeTranslatingBeforeSend = false;
+            if (response instanceof TLRPC.TL_messages_translateResult) {
+                final TLRPC.TL_messages_translateResult result = (TLRPC.TL_messages_translateResult) response;
+                if (!result.result.isEmpty() && !TextUtils.isEmpty(result.result.get(0).text) && messageEditText != null) {
+                    messageEditText.setText(result.result.get(0).text);
+                    messageEditText.setSelection(messageEditText.length());
+                }
+            }
+            sendMessageInternal(notify, scheduleDate, scheduleRepeatPeriod, payStars, allowConfirm);
+        });
+    }
+
     protected boolean sendMessageInternal(boolean notify, int scheduleDate, int scheduleRepeatPeriod, long payStars, boolean allowConfirm) {
+        if (!primeTranslatingBeforeSend && dialog_id != 0 && org.telegram.messenger.PrimeSendTranslate.isEnabled(dialog_id)
+                && messageEditText != null && !TextUtils.isEmpty(messageEditText.getText())) {
+            primeTranslateBeforeSend(notify, scheduleDate, scheduleRepeatPeriod, payStars, allowConfirm);
+            return true;
+        }
         final boolean allowConfirmFinal = allowConfirm && !animatorEphemeralMessageVisibility.getValue();
 
         final Runnable send = () -> {

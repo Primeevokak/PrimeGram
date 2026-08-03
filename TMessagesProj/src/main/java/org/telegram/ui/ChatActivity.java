@@ -35181,7 +35181,9 @@ public class ChatActivity extends BaseFragment implements
                         // as the user's own message instead. See MessageCopyResender.
                         resendAsCopy(fmessages, did);
                     } else {
-                        getSendMessagesHelper().sendMessage(fmessages, did, false, false, notify, scheduleDate, scheduleRepeatPeriod, null, -1, price == null ? 0 : price, getSendMonoForumPeerId(), getSendMessageSuggestionParams());
+                        // param carries "drop the sender's name" from the forward picker's long-press
+                        // menu (DialogsActivity.onSendLongClick) - otherwise unused by this callback.
+                        getSendMessagesHelper().sendMessage(fmessages, did, param, false, notify, scheduleDate, scheduleRepeatPeriod, null, -1, price == null ? 0 : price, getSendMonoForumPeerId(), getSendMessageSuggestionParams());
                     }
                 }
                 fragment.finishFragment();
