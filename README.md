@@ -71,8 +71,7 @@ cd PrimeGram
 ## Благодарности
 
 [Flowseal](https://github.com/Flowseal/tg-ws-proxy) — за подход, на котором построена сетевая
-часть. [exteraGram](https://github.com/exteraSquad/exteraGram) — за API плагинов, который мы
-сохранили совместимым. [Telegram](https://github.com/DrKLO/Telegram) — за исходники клиента.
+часть. [Telegram](https://github.com/DrKLO/Telegram) — за исходники клиента.
 
 ## Лицензия
 
