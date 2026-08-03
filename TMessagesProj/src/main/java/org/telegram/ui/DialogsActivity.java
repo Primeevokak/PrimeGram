@@ -3550,7 +3550,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         });
         fragmentSearchFieldWatcher.setDoNotCloseAfterFieldEmpty();
 
-        if (initialDialogsType == DIALOGS_TYPE_DEFAULT) {
+        if (initialDialogsType == DIALOGS_TYPE_DEFAULT && !(org.telegram.messenger.DrawerHelper.isEnabled() && !isArchive() && communityId == 0)) {
             optionsItem = menu.addItem(4, R.drawable.ic_ab_other);
             optionsItem.setContentDescription(LocaleController.getString(R.string.AccDescrMoreOptions));
             optionsItem.setOnClickListener(v -> {
@@ -3611,6 +3611,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         } else {
             if (searchString != null || folderId != 0 || communityId != 0) {
                 actionBar.setBackButtonDrawable(backDrawable = new BackDrawable(false));
+            } else if (!hasMainTabs && org.telegram.messenger.DrawerHelper.isEnabled()) {
+                org.telegram.ui.ActionBar.MenuDrawable menuDrawable = new org.telegram.ui.ActionBar.MenuDrawable();
+                menuDrawable.setRoundCap();
+                actionBar.setBackButtonDrawable(menuDrawable);
             }
             if (folderId != 0) {
                 actionBar.setTitle(getString(R.string.ArchivedChats));
@@ -3974,6 +3978,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     return;
                 }
                 if (id == -1) {
+                    if (!hasMainTabs && !actionBar.isActionModeShowed() && org.telegram.messenger.DrawerHelper.isEnabled()
+                            && folderId == 0 && communityId == 0 && searchString == null
+                            && org.telegram.messenger.DrawerHelper.toggleDrawer(parentLayout)) {
+                        return;
+                    }
                     if (rightSlidingDialogContainer != null && rightSlidingDialogContainer.hasFragment()) {
                         if (actionBar.isActionModeShowed()) {
                             if (searchViewPager != null && searchViewPager.getVisibility() == View.VISIBLE && searchViewPager.actionModeShowing()) {
@@ -5431,7 +5440,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         };
         dialogStoriesCell.setActionBar(actionBar);
-        dialogStoriesCell.setMenuItemsOffset(isArchive() ? dp(68) : dpf2(16.66f));
+        dialogStoriesCell.setMenuItemsOffset(isArchive() || org.telegram.messenger.DrawerHelper.isEnabled() ? dp(68) : dpf2(16.66f));
         dialogStoriesCell.allowGlobalUpdates = false;
         dialogStoriesCell.setVisibility(View.GONE);
         animateToHasStories = false;
@@ -5990,6 +5999,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             yoff = -(actionBar.getHeight() - AndroidUtilities.rectTmp2.centerY()) - dp(16);
             xoff = AndroidUtilities.rectTmp2.centerX() - dp(16);
             xoff += dp(4);
+            if (!hasMainTabs && org.telegram.messenger.DrawerHelper.isEnabled()) {
+                xoff -= dp(4);
+            }
             if (animatedStatusView != null) {
                 animatedStatusView.translate(AndroidUtilities.rectTmp2.centerX(), AndroidUtilities.rectTmp2.centerY());
             }
@@ -9255,6 +9267,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         selectedDialogs.clear();
         if (backDrawable != null) {
             backDrawable.setRotation(0, true);
+        } else if (actionBar.backButtonImageView != null && actionBar.backButtonImageView.getDrawable() instanceof org.telegram.ui.ActionBar.MenuDrawable) {
+            ((org.telegram.ui.ActionBar.MenuDrawable) actionBar.backButtonImageView.getDrawable()).setRotation(0, true);
         }
         if (filterTabsView != null) {
             filterTabsView.animateColorsTo(Theme.key_actionBarTabLine, Theme.key_actionBarTabActiveText, Theme.key_actionBarTabUnactiveText, Theme.key_actionBarTabSelector, Theme.key_windowBackgroundWhite);
@@ -10334,6 +10348,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
             if (backDrawable != null) {
                 backDrawable.setRotation(1, true);
+            } else if (actionBar.backButtonImageView != null && actionBar.backButtonImageView.getDrawable() instanceof org.telegram.ui.ActionBar.MenuDrawable) {
+                ((org.telegram.ui.ActionBar.MenuDrawable) actionBar.backButtonImageView.getDrawable()).setRotation(1, true);
             }
         }
         updateCounters(false);

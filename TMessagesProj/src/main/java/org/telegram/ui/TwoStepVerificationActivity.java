@@ -1297,9 +1297,14 @@ public class TwoStepVerificationActivity extends BaseFragment implements Notific
         if (otherwiseReloginDays >= 0) {
             final Bundle args = new Bundle();
             args.putBoolean("afterSignup", true);
-            MainTabsActivity mainTabsActivity = new MainTabsActivity();
-            mainTabsActivity.prepareDialogsActivity(args);
-            presentFragment(mainTabsActivity, true);
+            if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+                presentFragment(org.telegram.messenger.DrawerHelper.createMainFragment(args), true);
+            } else {
+                MainTabsActivity mainTabsActivity = new MainTabsActivity();
+                mainTabsActivity.prepareDialogsActivity(args);
+                presentFragment(mainTabsActivity, true);
+            }
         } else {
             super.finishFragment();
         }

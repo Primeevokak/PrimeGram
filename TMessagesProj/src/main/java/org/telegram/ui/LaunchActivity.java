@@ -858,6 +858,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (actionBarLayout.getFragmentStack().isEmpty() && (layersActionBarLayout == null || layersActionBarLayout.getFragmentStack().isEmpty())) {
             if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
                 actionBarLayout.addFragmentToStack(getClientNotActivatedFragment());
+            } else if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                org.telegram.messenger.DrawerHelper.setupMainFragment(this, actionBarLayout, drawerLayoutContainer);
             } else {
                 MainTabsActivity mainTabsActivity = new MainTabsActivity();
                 actionBarLayout.addFragmentToStack(mainTabsActivity);
@@ -1093,6 +1095,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         }
                     }
                 };
+                if (Build.VERSION.SDK_INT >= 34) {
+                    onBackAnimationCallback = org.telegram.messenger.DrawerBackGesture.wrap(this, (OnBackAnimationCallback) onBackAnimationCallback);
+                }
             }
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -1462,10 +1467,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private boolean switchingAccount;
     public void switchToAccount(int account, boolean removeAll) {
-        switchToAccount(account, removeAll, obj -> new MainTabsActivity());
+        switchToAccount(account, removeAll, obj -> org.telegram.messenger.DrawerHelper.isEnabled()
+            ? org.telegram.messenger.DrawerHelper.createMainFragment()
+            : new MainTabsActivity());
     }
 
-    public void switchToAccount(int account, boolean removeAll, GenericProvider<Void, MainTabsActivity> dialogsActivityProvider) {
+    public void switchToAccount(int account, boolean removeAll, GenericProvider<Void, org.telegram.ui.ActionBar.BaseFragment> dialogsActivityProvider) {
         if (account == UserConfig.selectedAccount || !UserConfig.isValidAccount(account)) {
             return;
         }
@@ -1495,7 +1502,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         } else {
             actionBarLayout.removeFragmentFromStack(0);
         }
-        MainTabsActivity mainTabsActivity = dialogsActivityProvider.provide(null);
+        org.telegram.ui.ActionBar.BaseFragment mainTabsActivity = dialogsActivityProvider.provide(null);
         actionBarLayout.addFragmentToStack(mainTabsActivity, INavigationLayout.FORCE_ATTACH_VIEW_AS_FIRST);
         actionBarLayout.rebuildFragments(INavigationLayout.REBUILD_FLAG_REBUILD_LAST);
         if (AndroidUtilities.isTablet()) {
@@ -1509,6 +1516,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             showTosActivity(account, UserConfig.getInstance(account).unacceptedTermsOfService);
         }
         updateCurrentConnectionState(currentAccount);
+        org.telegram.messenger.DrawerHelper.notifyDataChanged();
 
         switchingAccount = false;
     }
@@ -3584,18 +3592,24 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     }
                 } else {
                     if (actionBarLayout.getFragmentStack().isEmpty()) {
-                        MainTabsActivity mainTabsActivity = new MainTabsActivity();
-                        DialogsActivity dialogsActivity = mainTabsActivity.prepareDialogsActivity(null);
-                        if (searchQuery != null) {
-                            dialogsActivity.setInitialSearchString(searchQuery);
+                        if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                            org.telegram.messenger.DrawerHelper.addMainFragmentToStack(actionBarLayout, searchQuery);
+                        } else {
+                            MainTabsActivity mainTabsActivity = new MainTabsActivity();
+                            DialogsActivity dialogsActivity = mainTabsActivity.prepareDialogsActivity(null);
+                            if (searchQuery != null) {
+                                dialogsActivity.setInitialSearchString(searchQuery);
+                            }
+                            actionBarLayout.addFragmentToStack(mainTabsActivity, INavigationLayout.FORCE_NOT_ATTACH_VIEW);
                         }
-                        actionBarLayout.addFragmentToStack(mainTabsActivity, INavigationLayout.FORCE_NOT_ATTACH_VIEW);
                     }
                 }
             } else {
                 if (actionBarLayout.getFragmentStack().isEmpty()) {
                     if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
                         actionBarLayout.addFragmentToStack(getClientNotActivatedFragment(), INavigationLayout.FORCE_NOT_ATTACH_VIEW);
+                    } else if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                        org.telegram.messenger.DrawerHelper.addMainFragmentToStack(actionBarLayout, searchQuery);
                     } else {
                         MainTabsActivity mainTabsActivity = new MainTabsActivity();
                         DialogsActivity dialogsActivity = mainTabsActivity.prepareDialogsActivity(null);

@@ -154,8 +154,14 @@ public class DrawerLayoutContainer extends FrameLayout {
         parentActionBarLayout = layout;
     }
 
+    private boolean drawCurrentPreviewFragmentAbove;
+
     public boolean isDrawCurrentPreviewFragmentAbove() {
-        return false;
+        return drawCurrentPreviewFragmentAbove;
+    }
+
+    public void setDrawCurrentPreviewFragmentAbove(boolean value) {
+        drawCurrentPreviewFragmentAbove = value;
     }
 
     public boolean onTouchEvent(MotionEvent ev) {
