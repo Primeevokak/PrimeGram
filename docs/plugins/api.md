@@ -181,13 +181,22 @@ self.add_menu_item(MenuItemData(
     menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
     text="Моё действие",
     on_click=lambda ctx: ...,
-    icon=None,
+    icon=None,        # имя drawable-ресурса приложения, как у обычных строк настроек
+    condition=None,    # выражение на MVEL — тот же движок, что у HookFilter.Condition
     priority=0,
 ))
 ```
 
-`MenuItemType`: `MESSAGE_CONTEXT_MENU`, `CHAT_ACTION_MENU`, `PROFILE_ACTION_MENU`, `DRAWER_MENU`,
-`MAIN_MENU`.
+`MenuItemType`: `MESSAGE_CONTEXT_MENU` (меню сообщения по долгому тапу), `CHAT_ACTION_MENU`
+(шапка чата, «...»), `PROFILE_ACTION_MENU` (меню профиля, «...»), `DRAWER_MENU` (классическое
+боковое меню — пункт добавится, только если пользователь включил его в настройках интерфейса
+вместо вкладок снизу; проверить это можно через `android_utils.is_navigation_drawer()`, чтобы не
+удивляться, почему пункт «не появляется» у тестировщика с настройками по умолчанию). `MAIN_MENU`
+пока никуда не подключён — добавленные туда пункты не показываются нигде.
+
+`on_click` и `condition` получают контекст — `dict`-подобный объект с ключами вроде `account`,
+`dialog_id`, `chat`/`chat_id`, `user`/`user_id`, `message` (только у `MESSAGE_CONTEXT_MENU`) —
+какие есть, зависит от типа меню и от того, открыт ли сейчас личный чат или групповой.
 
 ---
 
@@ -254,13 +263,24 @@ Text(text, subtext="", icon="", accent=False, red=False, on_click=None,
      create_sub_fragment=None)
 Header(text)
 Divider(text="")
-Custom(view)
+Custom(view=None, factory=None, factory_args=None, on_click=None)
 ```
 
-`Text` с `create_sub_fragment` открывает вложенный экран — верните из него список виджетов.
+`create_sub_fragment` открывает вложенный экран: верните из него список тех же виджетов, и по
+клику на строку появится новый экран с этим списком (заголовок — `text` строки). Работает для
+любой строки, у которой есть `create_sub_fragment`, сколько угодно уровней вложенности.
 
-`Custom` принимает вашу собственную `View`. Мы её не оформляем и не выравниваем — это осознанный
-размен: за такое обычно берутся ради превью или графика, а их честно описать нечем.
+`Custom` — строка, которую рисует сам плагин. `view` — самый прямой путь: постройте
+`android.view.View` через Chaquopy и передайте готовый объект, мы разместим его как есть, без
+оформления и выравнивания (осознанный размен — за такое обычно берутся ради превью или графика, а
+их честно описать нечем). `factory` — для view, который нужно построить лениво или параметрически:
+функция вида `factory(context, factory_args)`, вызывается прямо перед показом строки, должна
+вернуть `View`; либо объект с методом `.create(context, factory_args)` вместо голой функции. Это
+наш собственный аналог `Factory` из exteraGram — тот у них Java-класс, который приложение
+инстанцирует само, а мы просто вызываем ваш код. Из-за этого плагин, портированный из exteraGram
+с подклассом их `CustomSetting.Factory`, работать не будет — этот подкласс сам по себе не может
+быть создан без генерации Java-класса из Python в рантайме (то же самое, что нужно
+`ClassBuilder`). Плагин, написанный под `factory=...` в этом виде — будет.
 
 Значения хранятся отдельно от Java-настроек клиента, в каталоге плагинов, и переживают
 переустановку плагина.
@@ -308,6 +328,18 @@ copy_to_clipboard(text)
 log(data)
 OnClickListener(func)        # готовые прокси для Java-слушателей
 OnLongClickListener(func)
+```
+
+Режим интерфейса — PrimeGram даёт пользователю переключаться между современным видом и
+классическим (плоским, с боковым меню вместо вкладок), так что отступы, скругления и сам набор
+экранов на устройстве могут отличаться от того, что видно у вас при разработке. Официальные хуки
+и меню этого не замечают, но если плагин трогает Java-экраны напрямую — стоит спросить сначала:
+
+```python
+is_classic_ui()             # включён плоский интерфейс (до редизайна)
+is_navigation_drawer()      # боковое меню вместо вкладок снизу
+is_bottom_tabs_hidden()     # вкладок снизу вообще нет (включает случай бокового меню)
+is_bottom_tabs_compact()    # вкладки снизу — только иконки, без подписей
 ```
 
 ---
@@ -445,8 +477,15 @@ self.hook_all_methods(cls, "process",
 `ArgumentIsNull(i)`, `ArgumentNotNull(i)`, `ArgumentIsTrue(i)`, `ArgumentIsFalse(i)`,
 `ArgumentEqual(i, v)`, `ArgumentNotEqual(i, v)`, `ArgumentIsInstanceOf(i, cls)`, `Or(*filters)`.
 
-`Condition(expression)` из exteraGram не поддерживается — там выражение на MVEL, интерпретатора у
-нас нет, и такой фильтр не совпадает никогда.
+`Condition(expression, object=None)` — выражение на MVEL, вычисляется тем же движком
+(`org.mvel:mvel2`), что и в самом exteraGram, так что строка, написанная под exteraGram, значит
+то же самое и здесь. Внутри выражения доступны `param` (аргументы метода), `result` (после хука —
+результат оригинала, до хука — `None`) и `object` (то, что передали в `Condition`); контекст
+выражения (`this`) — экземпляр, на котором вызван метод:
+
+```python
+HookFilter.Condition("param.args[0] == object || this instanceof android.view.View", object=42)
+```
 
 ### Файловые хуки
 

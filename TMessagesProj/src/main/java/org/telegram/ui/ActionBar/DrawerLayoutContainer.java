@@ -31,7 +31,79 @@ import org.telegram.messenger.FileLog;
 
 public class DrawerLayoutContainer extends FrameLayout {
 
-    private INavigationLayout parentActionBarLayout;
+    public INavigationLayout parentActionBarLayout;
+
+    /** PrimeGram: set by {@link org.telegram.messenger.DrawerHelper#setupMainFragment} when the
+     *  classic drawer navigation is on - see {@link DrawerSwipeController}. */
+    public DrawerSwipeController inu_drawer;
+
+    public boolean inu_superDrawChild(Canvas canvas, View child, long drawingTime) {
+        return super.drawChild(canvas, child, drawingTime);
+    }
+
+    public void setDrawerLayout(FrameLayout layout, View listView) {
+        if (inu_drawer == null) inu_drawer = new DrawerSwipeController(this);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, android.view.Gravity.LEFT);
+        inu_drawer.setDrawerLayout(layout, listView, lp);
+    }
+
+    public void moveDrawerByX(float dx) {
+        if (inu_drawer != null) inu_drawer.dragDrawerTo(inu_drawer.getDrawerPosition() + dx);
+    }
+
+    public void setDrawerPosition(float value) {
+        if (inu_drawer != null) inu_drawer.setDrawerPosition(value);
+    }
+
+    public float getDrawerPosition() {
+        return inu_drawer != null ? inu_drawer.getDrawerPosition() : 0f;
+    }
+
+    public void cancelCurrentAnimation() {
+        if (inu_drawer != null) inu_drawer.cancelCurrentAnimation();
+    }
+
+    public void openDrawer(boolean fast) {
+        if (inu_drawer != null) inu_drawer.openDrawer(fast);
+    }
+
+    public void closeDrawer(boolean fast) {
+        if (inu_drawer != null) inu_drawer.closeDrawer(fast);
+    }
+
+    public void closeDrawer() {
+        closeDrawer(false);
+    }
+
+    public void setAllowOpenDrawer(boolean value, boolean animated) {
+        if (inu_drawer != null) inu_drawer.setAllowOpenDrawer(value, animated);
+    }
+
+    public boolean isAllowOpenDrawer() {
+        return inu_drawer != null && inu_drawer.isAllowOpenDrawer();
+    }
+
+    public boolean isDrawerOpened() {
+        return inu_drawer != null && inu_drawer.isDrawerOpened();
+    }
+
+    public void presentFragment(BaseFragment fragment) {
+        if (parentActionBarLayout != null) parentActionBarLayout.presentFragment(fragment);
+    }
+
+    public INavigationLayout getParentActionBarLayout() {
+        return parentActionBarLayout;
+    }
+
+    private int behindKeyboardColor;
+
+    public void setBehindKeyboardColor(int color) {
+        behindKeyboardColor = color;
+    }
+
+    public int getBehindKeyboardColor() {
+        return behindKeyboardColor;
+    }
 
     private boolean hasCutout;
 
@@ -82,17 +154,30 @@ public class DrawerLayoutContainer extends FrameLayout {
         parentActionBarLayout = layout;
     }
 
+    private boolean drawCurrentPreviewFragmentAbove;
+
     public boolean isDrawCurrentPreviewFragmentAbove() {
-        return false;
+        return drawCurrentPreviewFragmentAbove;
+    }
+
+    public void setDrawCurrentPreviewFragmentAbove(boolean value) {
+        drawCurrentPreviewFragmentAbove = value;
     }
 
     public boolean onTouchEvent(MotionEvent ev) {
+        if (inu_drawer != null) return inu_drawer.onTouchEvent(ev);
         return false;
     }
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        return parentActionBarLayout.checkTransitionAnimation();
+        return parentActionBarLayout.checkTransitionAnimation() || onTouchEvent(ev);
+    }
+
+    @Override
+    public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+        if (inu_drawer != null) inu_drawer.onParentDisallowIntercept();
+        super.requestDisallowInterceptTouchEvent(disallowIntercept);
     }
 
     @Override
@@ -108,7 +193,11 @@ public class DrawerLayoutContainer extends FrameLayout {
 
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
             try {
-                child.layout(lp.leftMargin, lp.topMargin + getPaddingTop(), lp.leftMargin + child.getMeasuredWidth(), lp.topMargin + child.getMeasuredHeight() + getPaddingTop());
+                if (inu_drawer != null && inu_drawer.isDrawerChild(child)) {
+                    child.layout(-child.getMeasuredWidth(), lp.topMargin + getPaddingTop(), 0, lp.topMargin + child.getMeasuredHeight() + getPaddingTop());
+                } else {
+                    child.layout(lp.leftMargin, lp.topMargin + getPaddingTop(), lp.leftMargin + child.getMeasuredWidth(), lp.topMargin + child.getMeasuredHeight() + getPaddingTop());
+                }
             } catch (Exception e) {
                 FileLog.e(e);
                 if (BuildVars.DEBUG_VERSION) {
@@ -160,7 +249,12 @@ public class DrawerLayoutContainer extends FrameLayout {
 
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
 
-            final int contentWidthSpec = MeasureSpec.makeMeasureSpec(widthSize - lp.leftMargin - lp.rightMargin, MeasureSpec.EXACTLY);
+            final int contentWidthSpec;
+            if (inu_drawer != null && inu_drawer.isDrawerChild(child)) {
+                contentWidthSpec = MeasureSpec.makeMeasureSpec(lp.width > 0 ? lp.width : widthSize - lp.leftMargin - lp.rightMargin, MeasureSpec.EXACTLY);
+            } else {
+                contentWidthSpec = MeasureSpec.makeMeasureSpec(widthSize - lp.leftMargin - lp.rightMargin, MeasureSpec.EXACTLY);
+            }
             final int contentHeightSpec;
             if (lp.height > 0) {
                 contentHeightSpec = MeasureSpec.makeMeasureSpec(lp.height, MeasureSpec.EXACTLY);
@@ -176,6 +270,14 @@ public class DrawerLayoutContainer extends FrameLayout {
             }
             child.measure(contentWidthSpec, contentHeightSpec);
         }
+    }
+
+    @Override
+    protected boolean drawChild(@NonNull Canvas canvas, View child, long drawingTime) {
+        if (inu_drawer != null) {
+            return inu_drawer.drawChild(canvas, child, drawingTime);
+        }
+        return super.drawChild(canvas, child, drawingTime);
     }
 
     @Override

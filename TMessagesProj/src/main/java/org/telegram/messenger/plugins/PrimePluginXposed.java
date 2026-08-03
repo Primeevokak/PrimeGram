@@ -1,11 +1,16 @@
 package org.telegram.messenger.plugins;
 
+import org.mvel2.MVEL;
 import org.telegram.messenger.FileLog;
 
+import java.io.Serializable;
 import java.lang.reflect.Member;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -125,6 +130,33 @@ public final class PrimePluginXposed {
     /** Calls the original method with the arguments as they now stand. */
     public static Object invokeOriginal(Member member, Object thisObject, Object[] args) throws Throwable {
         return XposedBridge.invokeOriginalMethod(member, thisObject, args);
+    }
+
+    private static final ConcurrentHashMap<String, Serializable> mvelCache = new ConcurrentHashMap<>();
+
+    /**
+     * Evaluates a {@code HookFilter.Condition(...)} expression exactly the way exteraGram itself
+     * does: MVEL, with {@code param}/{@code result}/{@code object} bound as variables and the
+     * hooked instance bound as the expression's context ({@code this}). A plugin's condition
+     * string means the same thing here as it does there, because it is the same engine.
+     */
+    public static boolean evalCondition(String expression, XC_MethodHook.MethodHookParam param,
+                                         boolean isBefore, Object object) {
+        if (expression == null || param == null) {
+            return false;
+        }
+        try {
+            Serializable compiled = mvelCache.computeIfAbsent(expression, MVEL::compileExpression);
+            Map<String, Object> vars = new HashMap<>(4);
+            vars.put("param", param);
+            vars.put("result", isBefore ? null : param.getResult());
+            vars.put("object", object);
+            Boolean result = (Boolean) MVEL.executeExpression(compiled, param.thisObject, vars, Boolean.TYPE);
+            return result != null && result;
+        } catch (Throwable t) {
+            FileLog.e("PrimePluginXposed.evalCondition: " + expression, new Exception(t));
+            return false;
+        }
     }
 
     private static final class Forwarder extends XC_MethodHook {

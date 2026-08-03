@@ -251,8 +251,8 @@ public class ContactsActivity extends BaseFragment implements FactorAnimator.Tar
         getContactsController().checkInviteText();
         getContactsController().reloadContactsStatusesMaybe(false);
 
-        additionNavigationBarHeight = hasMainTabs ? dp(DialogsActivity.MAIN_TABS_HEIGHT_WITH_MARGINS) : 0;
-        additionFloatingButtonOffset = hasMainTabs ? dp(DialogsActivity.MAIN_TABS_HEIGHT + DialogsActivity.MAIN_TABS_MARGIN) : 0;
+        additionNavigationBarHeight = hasMainTabs ? dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeightWithMargins()) : 0;
+        additionFloatingButtonOffset = hasMainTabs ? dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeight() + org.telegram.messenger.MainTabsHelper.getMainTabsMargin()) : 0;
 
         return true;
     }
@@ -1696,8 +1696,8 @@ public class ContactsActivity extends BaseFragment implements FactorAnimator.Tar
         final int additionalList = dp(48);
         final int additionalSearch = dp(DialogsActivity.SEARCH_FIELD_HEIGHT);
 
-        final int mainTabBottom = fragmentView.getMeasuredHeight() - navigationBarHeight - dp(DialogsActivity.MAIN_TABS_MARGIN);
-        final int mainTabTop = mainTabBottom - dp(DialogsActivity.MAIN_TABS_HEIGHT);
+        final int mainTabBottom = fragmentView.getMeasuredHeight() - navigationBarHeight - dp(org.telegram.messenger.MainTabsHelper.getMainTabsMargin());
+        final int mainTabTop = mainTabBottom - dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeight());
 
         iBlur3PositionActionBar.set(0, -additionalList, fragmentView.getMeasuredWidth(), actionBar.getMeasuredHeight() + additionalList + additionalSearch );
         iBlur3PositionMainTabs.set(0, mainTabTop, fragmentView.getMeasuredWidth(), mainTabBottom);

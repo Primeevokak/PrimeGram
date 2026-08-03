@@ -2,6 +2,7 @@ package org.telegram.messenger.plugins;
 
 import android.content.Context;
 import android.text.TextUtils;
+import android.view.View;
 
 import com.chaquo.python.PyObject;
 
@@ -307,6 +308,14 @@ public final class PrimePluginsController {
         if (plugin == null) {
             return;
         }
+        if (enabled) {
+            // Cleared before setEnabled, not after: PrimePlugin.setEnabled refuses to turn on a
+            // plugin that still has an error on it, and that error is whatever the *last* attempt
+            // left behind. Without this, asking to retry a failed plugin silently did nothing -
+            // the flag went in, isEnabled() stayed false because the stale error was still there,
+            // and loadIntoPython below ran without the UI ever reflecting that anything happened.
+            plugin.setError(null);
+        }
         PrimePluginStore.setEnabled(plugin.id(), enabled);
         plugin.setEnabled(enabled);
         notifyChanged();
@@ -317,6 +326,93 @@ public final class PrimePluginsController {
                 unloadFromPython(plugin.id());
             }
         });
+    }
+
+    /**
+     * Disables exactly {@code pluginId} and whatever is joined to it by an import - not every
+     * installed plugin, exteraGram's own Safe Mode's answer to the same problem. A plugin that
+     * crashed mid-call is still linked into every other plugin's process, and a library plugin that
+     * threw could just as easily be dragged down by, or drag down, whoever imported from it - so the
+     * whole connected component gets disabled, on the reasoning that a link to something broken is
+     * itself a reason not to trust the other side of it, not because the other side did anything
+     * wrong itself.
+     *
+     * <p>Called from wherever a plugin's own code was caught misbehaving - most often from Python,
+     * from inside the very call that failed - so this does nothing that could re-enter Python
+     * synchronously: unloading happens on the engine queue, same as {@link #setEnabled}.
+     */
+    public void disableAfterCrash(String pluginId, String reason) {
+        final PrimePlugin culprit = findById(pluginId);
+        if (culprit == null) {
+            return;
+        }
+        final java.util.LinkedHashSet<String> chain = dependencyChain(pluginId);
+        chain.add(pluginId);
+        for (String id : chain) {
+            final PrimePlugin plugin = findById(id);
+            if (plugin == null) {
+                continue;
+            }
+            PrimePluginStore.setEnabled(id, false);
+            plugin.setError(new PluginCrashException(id.equals(pluginId)
+                    ? reason : "отключён вместе с «" + culprit.name() + "» - они связаны через импорт"));
+            PrimePythonEngine.getInstance().queue().postRunnable(() -> unloadFromPython(id));
+        }
+        notifyChanged();
+        showCrashDialog(culprit, chain.size() > 1);
+    }
+
+    /** Every plugin id reachable from {@code pluginId} by an import in either direction - not just
+     *  what it imports, but who imports it too, since either side of that link can pull the other
+     *  down. */
+    private java.util.LinkedHashSet<String> dependencyChain(String pluginId) {
+        final java.util.LinkedHashSet<String> visited = new java.util.LinkedHashSet<>();
+        final java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>();
+        queue.add(pluginId);
+        visited.add(pluginId);
+        while (!queue.isEmpty()) {
+            final String current = queue.poll();
+            for (String neighbor : neighbors(current)) {
+                if (visited.add(neighbor)) {
+                    queue.add(neighbor);
+                }
+            }
+        }
+        visited.remove(pluginId);
+        return visited;
+    }
+
+    private java.util.Set<String> neighbors(String pluginId) {
+        final java.util.LinkedHashSet<String> result = new java.util.LinkedHashSet<>(PrimePluginStore.getDependencies(pluginId));
+        final List<PrimePlugin> snapshot = getPlugins();
+        for (int i = 0; i < snapshot.size(); i++) {
+            final String otherId = snapshot.get(i).id();
+            if (PrimePluginStore.getDependencies(otherId).contains(pluginId)) {
+                result.add(otherId);
+            }
+        }
+        return result;
+    }
+
+    private void showCrashDialog(PrimePlugin culprit, boolean tookOthersWithIt) {
+        final org.telegram.ui.LaunchActivity activity = org.telegram.ui.LaunchActivity.instance;
+        if (activity == null) {
+            return;
+        }
+        AndroidUtilities.runOnUIThread(() -> new org.telegram.ui.ActionBar.AlertDialog.Builder(activity)
+                .setTitle("Плагин отключён")
+                .setMessage("«" + culprit.name() + "» вызвал сбой и был отключён."
+                        + (tookOthersWithIt ? " Вместе с ним отключены связанные с ним плагины." : ""))
+                .setPositiveButton("Понятно", null)
+                .show());
+    }
+
+    /** Records that a plugin (as opposed to us) is why a call failed - shown on its settings row the
+     *  same way any other load failure is. */
+    public static final class PluginCrashException extends RuntimeException {
+        public PluginCrashException(String message) {
+            super(message);
+        }
     }
 
     private void startEnabled() {
@@ -431,6 +527,54 @@ public final class PrimePluginsController {
     }
 
     /**
+     * The screen a {@code create_sub_fragment} row opens, as JSON: {@code {"title", "rows"}}.
+     * {@code parentPath} is the screen the row itself lives on - {@code ""} for the plugin's own
+     * screen, or whatever an earlier call here returned as a child path - because the same row
+     * index means a different row on every screen.
+     */
+    public void requestSubSettings(String pluginId, String parentPath, int index,
+                                    org.telegram.messenger.Utilities.Callback<String> callback) {
+        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
+            String json = "{\"title\":\"\",\"rows\":[]}";
+            try {
+                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
+                if (loader != null) {
+                    json = loader.callAttr("build_sub_settings", pluginId, parentPath, index).toString();
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+            final String result = json;
+            AndroidUtilities.runOnUIThread(() -> callback.run(result));
+        });
+    }
+
+    /**
+     * The live {@link View} for one {@code "custom"} row - the one piece of a settings screen that
+     * cannot ride along in {@link #requestSettings}'s JSON, because JSON cannot hold a Java object.
+     * Fetched separately, once the row is actually about to be drawn. {@code path} is the screen
+     * the row lives on, same as in {@link #requestSubSettings}.
+     */
+    public void requestCustomView(String pluginId, String path, int index, org.telegram.messenger.Utilities.Callback<View> callback) {
+        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
+            View view = null;
+            try {
+                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
+                if (loader != null) {
+                    final PyObject result = loader.callAttr("build_custom_view", pluginId, path, index);
+                    if (result != null && result.toJava(Object.class) != null) {
+                        view = result.toJava(View.class);
+                    }
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+            final View result = view;
+            AndroidUtilities.runOnUIThread(() -> callback.run(result));
+        });
+    }
+
+    /**
      * What the downloader has fetched, as a JSON object of name to version.
      *
      * <p>Worth showing because these arrive without the user asking: a plugin declares what it
@@ -470,12 +614,12 @@ public final class PrimePluginsController {
     }
 
     /** Tells the plugin a row moved. The value is already stored - this is only its chance to react. */
-    public void notifySettingChanged(String pluginId, int index, String valueJson) {
+    public void notifySettingChanged(String pluginId, String path, int index, String valueJson) {
         PrimePythonEngine.getInstance().queue().postRunnable(() -> {
             try {
                 final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
                 if (loader != null) {
-                    loader.callAttr("on_setting_changed", pluginId, index, valueJson);
+                    loader.callAttr("on_setting_changed", pluginId, path, index, valueJson);
                 }
             } catch (Throwable e) {
                 FileLog.e(e);
@@ -483,12 +627,12 @@ public final class PrimePluginsController {
         });
     }
 
-    public void notifySettingClicked(String pluginId, int index) {
+    public void notifySettingClicked(String pluginId, String path, int index) {
         PrimePythonEngine.getInstance().queue().postRunnable(() -> {
             try {
                 final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
                 if (loader != null) {
-                    loader.callAttr("on_setting_clicked", pluginId, index);
+                    loader.callAttr("on_setting_clicked", pluginId, path, index);
                 }
             } catch (Throwable e) {
                 FileLog.e(e);

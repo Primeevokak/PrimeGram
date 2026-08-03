@@ -1608,6 +1608,9 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                 ((LaunchActivity) getParentActivity()).switchToAccount(currentAccount, true, obj -> {
                     Bundle args = new Bundle();
                     args.putBoolean("afterSignup", afterSignup);
+                    if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                        return org.telegram.messenger.DrawerHelper.createMainFragment(args);
+                    }
                     MainTabsActivity mainTabsActivity = new MainTabsActivity();
                     mainTabsActivity.prepareDialogsActivity(args);
                     return mainTabsActivity;
@@ -1623,9 +1626,16 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                 } else {
                     Bundle args = new Bundle();
                     args.putBoolean("afterSignup", afterSignup);
-                    MainTabsActivity mainTabsActivity = new MainTabsActivity();
-                    mainTabsActivity.prepareDialogsActivity(args);
-                    presentFragment(mainTabsActivity, true);
+                    if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                        if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                            org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+                        }
+                        presentFragment(org.telegram.messenger.DrawerHelper.createMainFragment(args), true);
+                    } else {
+                        MainTabsActivity mainTabsActivity = new MainTabsActivity();
+                        mainTabsActivity.prepareDialogsActivity(args);
+                        presentFragment(mainTabsActivity, true);
+                    }
                 }
 
                 NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.mainUserInfoChanged);

@@ -16,6 +16,10 @@ public class SearchTabsAndFiltersLayout extends FrameLayout implements Theme.Col
     private final Path clipPath = new Path();
     private BlurredBackgroundDrawable blurredBackgroundDrawable;
 
+    /** Set by {@link org.telegram.messenger.NonIslandHelper#applyGlobalSearchTabs} when the classic
+     *  flat look is on - ported from inugram's {@code inu_blurHelper}. */
+    public org.telegram.messenger.BlurBehindHelper inu_blurHelper;
+
     public SearchTabsAndFiltersLayout(@NonNull Context context) {
         super(context);
     }
@@ -30,6 +34,11 @@ public class SearchTabsAndFiltersLayout extends FrameLayout implements Theme.Col
 
     @Override
     protected void dispatchDraw(@NonNull Canvas canvas) {
+        if (inu_blurHelper != null) {
+            inu_blurHelper.draw(canvas);
+            super.dispatchDraw(canvas);
+            return;
+        }
         canvas.save();
         canvas.clipPath(clipPath);
         super.dispatchDraw(canvas);

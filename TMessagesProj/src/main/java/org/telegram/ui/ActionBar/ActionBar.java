@@ -93,6 +93,9 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
     private BlurredBackgroundDrawable glassDrawable;
     private Drawable glassDrawableBack;
     private Drawable glassDrawableMenu;
+    /** Set by whoever creates this bar, from {@link org.telegram.messenger.NonIslandHelper#chatElements()}
+     *  - the classic flat look draws no glass at all here, ported from inugram's {@code inu_nonIsland}. */
+    public boolean inu_nonIsland;
     private INavigationLayout.BackButtonState backButtonState = INavigationLayout.BackButtonState.BACK;
     public ImageView backButtonImageView;
     private BackupImageView avatarSearchImageView;
@@ -218,33 +221,35 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
         glassMode = true;
         glassModeIsForum = isForum;
 
+        final int glassRadius = inu_nonIsland ? 0 : 23;
+        final int glassPadding = inu_nonIsland ? 0 : 6;
+
         glassDrawable = factory.create(this)
             .setColorProvider(colorProvider)
-            .setPadding(dp(6));
-        if (isForum) {
+            .setPadding(dp(glassPadding));
+        if (isForum && !inu_nonIsland) {
             glassDrawable.setRadius(dp(18.33f), dp(23), dp(23), dp(18.33f));
         } else {
-            glassDrawable.setRadius(dp(23));
+            glassDrawable.setRadius(dp(glassRadius));
         }
-
 
         glassDrawableBack = factory.create(this)
             .setColorProvider(colorProvider)
-            .setRadius(dp(23))
-            .setPadding(dp(6));
+            .setRadius(dp(glassRadius))
+            .setPadding(dp(glassPadding));
 
         glassDrawableMenu = factory.create(this)
             .setColorProvider(colorProvider)
-            .setRadius(dp(23))
-            .setPadding(dp(6));
+            .setRadius(dp(glassRadius))
+            .setPadding(dp(glassPadding));
 
         if (menu != null) {
-            menu.setTranslationX(-dp(10));
-            menu.setGlassMode(true);
+            menu.setTranslationX(inu_nonIsland ? 0 : -dp(10));
+            menu.setGlassMode(!inu_nonIsland);
         }
         if (actionMode != null) {
-            actionMode.setTranslationX(-dp(10));
-            actionMode.setGlassMode(true);
+            actionMode.setTranslationX(inu_nonIsland ? 0 : -dp(10));
+            actionMode.setGlassMode(!inu_nonIsland);
         }
         if (backButtonImageView != null) {
             backButtonImageView.setTranslationX(dp(2));
@@ -759,8 +764,8 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
                 }
             }
         };
-        actionMode.setTranslationX(glassMode ? -dp(10) : 0);
-        actionMode.setGlassMode(glassMode);
+        actionMode.setTranslationX(glassMode && !inu_nonIsland ? -dp(10) : 0);
+        actionMode.setGlassMode(glassMode && !inu_nonIsland);
         actionMode.isActionMode = true;
         actionMode.setClickable(true);
         if (!glassMode) {
@@ -1197,14 +1202,14 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
         alphaUpdate.addUpdateListener(anm -> {
             searchFieldVisibleAlpha = (float) anm.getAnimatedValue();
 
-            if (glassDrawable != null && glassModeIsForum) {
+            if (glassDrawable != null && glassModeIsForum && !inu_nonIsland) {
                 final float r1 = dp(23);
                 final float r2 = lerp(dp(18.33f), dp(23), searchFieldVisibleAlpha);
                 glassDrawable.setRadius(r2, r1, r1, r2);
                 invalidate();
             }
 
-            if (glassMode && menu != null) {
+            if (glassMode && menu != null && !inu_nonIsland) {
                 menu.setTranslationX(-lerp((float) dp(10), dp(5), searchFieldVisibleAlpha));
             }
             if (backgroundUpdateListener != null) {
@@ -2240,14 +2245,18 @@ public class ActionBar extends FrameLayout implements FactorAnimator.Target, The
                 right = rightDefault;
             }
 
-            glassDrawable.setBounds(left, t, right, b);
+            if (inu_nonIsland) {
+                glassDrawable.setBounds(0, 0, getWidth(), getHeight());
+            } else {
+                glassDrawable.setBounds(left, t, right, b);
+            }
             glassDrawable.draw(canvas);
         }
-        if (glassDrawableBack != null && hasBackButton) {
+        if (glassDrawableBack != null && hasBackButton && !inu_nonIsland) {
             glassDrawableBack.setBounds(0, t, s + p * 2, b);
             glassDrawableBack.draw(canvas);
         }
-        if (glassDrawableMenu != null && menuWidth > 0 && !glassOnlyBack) {
+        if (glassDrawableMenu != null && menuWidth > 0 && !glassOnlyBack && !inu_nonIsland) {
             glassDrawableMenu.setBounds(getWidth() - Math.max(s, menuWidth) - p * 2, t, getWidth(), b);
             glassDrawableMenu.setAlpha(hasForcedMenuWidth ? 255 : (int) (255 * animatorHasMenuItems.getFloatValue()));
             glassDrawableMenu.draw(canvas);

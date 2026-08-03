@@ -197,7 +197,7 @@ public abstract class ViewPagerActivity extends BaseFragment {
     @Override
     public void clearViews() {
         if (viewPager != null) {
-            initialFragmentPosition = viewPager.getCurrentPosition();
+            initialFragmentPosition = org.telegram.messenger.MainTabsHelper.isHidden() ? 0 : viewPager.getCurrentPosition();
         }
         for (int a = 0, N = fragmentsArr.size(); a < N; a++) {
             final FragmentState state = fragmentsArr.valueAt(a);

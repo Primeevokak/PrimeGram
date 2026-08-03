@@ -7,6 +7,16 @@
 -keep class org.webrtc.audio.* { *; }
 -keep class org.webrtc.voiceengine.* { *; }
 -keep class org.telegram.messenger.* { *; }
+# PrimeGram: everything Python reaches into via Chaquopy reflection. R8 cannot see a call made
+# through java.lang.reflect the way Chaquopy makes it, so a class or member with no ordinary
+# Java caller looks unused and gets stripped or renamed - which is invisible until a plugin
+# calls it and gets a raw AttributeError with no clue that the real cause is the release build,
+# not the plugin. The two packages below are exactly what plugins touch: our own engine, and the
+# Telegram classes the SDK deliberately hands them (Bulletin, AlertDialog, and the rest of
+# org.telegram.ui.* that ui/*.py and client_utils.py import by name).
+-keep class org.telegram.messenger.plugins.** { *; }
+-keep class org.telegram.ui.** { *; }
+-keep class org.telegram.tgnet.** { *; }
 -keep class org.telegram.messenger.camera.* { *; }
 -keep class org.telegram.messenger.secretmedia.* { *; }
 -keep class org.telegram.messenger.support.* { *; }
@@ -103,6 +113,10 @@
 # Don't warn about checkerframework and Kotlin annotations
 -dontwarn org.checkerframework.**
 -dontwarn javax.annotation.**
+
+# MVEL's JSR-223 scripting-engine integration is optional and unused here - we only ever call
+# MVEL.compileExpression/executeExpression directly - and javax.script does not exist on Android.
+-dontwarn javax.script.**
 
 -keep class io.nano.tex.** {*;}
 

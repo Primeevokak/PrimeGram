@@ -103,6 +103,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HIDE_ARCHIVE_FOLDER = 69;
     private static final int ID_HIDE_ALL_CHATS = 70;
     private static final int ID_AVATAR_CORNERS = 71;
+    private static final int ID_ICON_PACKS = 139;
+    private static final int ID_NON_ISLAND_UI = 140;
+    private static final int ID_NAVIGATION_DRAWER = 141;
+    private static final int ID_MAIN_TABS_COMPACT = 142;
+    private static final int ID_MAIN_TABS_HIDE = 143;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -650,6 +655,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else {
             word = "плагинов";
         }
+        // The active count only means something once the interpreter has actually run every
+        // plugin at least once - before that it is just "0", which would read as every plugin
+        // being broken rather than as "hasn't started yet".
+        final int active = org.telegram.messenger.plugins.PrimePluginHooks.activeCount();
+        if (active > 0 && active < count) {
+            return count + " " + word + " · " + active + " активно";
+        }
         return count + " " + word;
     }
 
@@ -738,6 +750,19 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         final String pinned = org.telegram.messenger.TgWsProxyService.forcedDomain();
         return "порт " + org.telegram.messenger.TgWsProxyService.configuredPort()
                 + " · " + (pinned.isEmpty() ? "домен авто" : pinned);
+    }
+
+    private CharSequence iconPackSummary() {
+        final String activeId = org.telegram.messenger.PrimeIconPacks.getActivePackId();
+        if (activeId == null) {
+            return "родные иконки";
+        }
+        for (org.telegram.messenger.PrimeIconPacks.Pack pack : org.telegram.messenger.PrimeIconPacks.listPacks()) {
+            if (pack.id.equals(activeId)) {
+                return pack.name;
+            }
+        }
+        return "родные иконки";
     }
 
     private UItem section(int section, IconBackgroundColors colors, int icon, CharSequence title, CharSequence subtitle) {
@@ -1037,13 +1062,25 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Пузыри без хвостика", org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL));
             row(tweak(ID_FORCE_SNOW, IconBackgroundColors.CYAN, R.drawable.msg_colors,
                     "Снег круглый год", org.telegram.messenger.PrimeTweaks.FORCE_SNOW));
+            row(button(ID_ICON_PACKS, IconBackgroundColors.RED, R.drawable.msg_photos,
+                    "Наборы иконок", iconPackSummary()));
+            row(check(ID_NON_ISLAND_UI, IconBackgroundColors.GRAY, R.drawable.msg_colors,
+                    "Классический плоский вид", org.telegram.messenger.NonIslandHelper.isEnabled()));
+            row(check(ID_NAVIGATION_DRAWER, IconBackgroundColors.GRAY, R.drawable.menu_sidebar_left,
+                    "Боковое меню вместо вкладок снизу", org.telegram.messenger.DrawerHelper.isEnabled()));
+            if (!org.telegram.messenger.DrawerHelper.isEnabled()) {
+                row(check(ID_MAIN_TABS_COMPACT, IconBackgroundColors.GRAY, R.drawable.msg_list,
+                        "Компактные вкладки снизу", org.telegram.messenger.MainTabsHelper.isCompact()));
+                row(check(ID_MAIN_TABS_HIDE, IconBackgroundColors.GRAY, R.drawable.msg_archive_hide,
+                        "Скрыть вкладки снизу", org.telegram.messenger.MainTabsHelper.isHidden()));
+            }
             endCard(items);
             if (avatarCornersCell() != null) {
                 items.add(UItem.asCustom(ID_AVATAR_CORNERS, avatarCornersCell()));
             }
             items.add(info(1, "Оформление",
                     "Форма аватарок меняется сразу и везде.",
-                    "Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате.\n\nЗаголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами.\n\nСкругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере показаны сразу четыре размера."));
+                    "Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате.\n\nЗаголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами.\n\nСкругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере показаны сразу четыре размера.\n\n«Классический плоский вид» откатывает недавний «island»-редизайн (скруглённые плавающие панели, стеклянные эффекты) обратно к плоскому виду прежних версий Telegram — панель ввода, вкладки, шапки чатов и списка чатов. Открытые экраны обновляются при следующем открытии."));
         }
 
         if (section == SECTION_UI_REACTIONS) {
@@ -1622,6 +1659,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             presentFragment(new PrimePluginsActivity());
         } else if (item.id == ID_TGWS_SETTINGS) {
             presentFragment(new PrimeTgWsActivity());
+        } else if (item.id == ID_ICON_PACKS) {
+            presentFragment(new PrimeIconPacksActivity());
         } else if (item.id == ID_TOOLBAR_BUTTONS) {
             showToolbarButtonsSheet();
         } else if (item.id == ID_GUIDE) {
@@ -1652,6 +1691,51 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 LaunchActivity.instance.updateSidebarVisibility();
             }
             listView.adapter.update(true);
+        } else if (item.id == ID_NON_ISLAND_UI) {
+            org.telegram.messenger.NonIslandHelper.setEnabled(!org.telegram.messenger.NonIslandHelper.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_NAVIGATION_DRAWER) {
+            org.telegram.messenger.DrawerHelper.setEnabled(!org.telegram.messenger.DrawerHelper.isEnabled());
+            // Whichever way this switches, the PrimeGram side panel is the only way back to
+            // settings/profile from the chat list (the classic drawer's own hamburger covers it
+            // too, but the panel is what people are used to reaching for) - so every navigation
+            // mode switch turns it back on rather than risk leaving someone stranded with it off.
+            MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_sidebar_enabled", true).apply();
+            if (LaunchActivity.instance != null) {
+                LaunchActivity.instance.updateSidebarVisibility();
+            }
+            listView.adapter.update(true);
+            if (getParentActivity() != null) {
+                new AlertDialog.Builder(getParentActivity())
+                    .setTitle("Требуется перезапуск")
+                    .setMessage("Смена типа навигации применится после перезапуска приложения.")
+                    .setPositiveButton("Понятно", null)
+                    .show();
+            }
+        } else if (item.id == ID_MAIN_TABS_COMPACT) {
+            org.telegram.messenger.MainTabsHelper.setCompact(!org.telegram.messenger.MainTabsHelper.isCompact());
+            listView.adapter.update(true);
+            if (getParentActivity() != null) {
+                new AlertDialog.Builder(getParentActivity())
+                    .setTitle("Требуется перезапуск")
+                    .setMessage("Компактные вкладки применятся после перезапуска приложения.")
+                    .setPositiveButton("Понятно", null)
+                    .show();
+            }
+        } else if (item.id == ID_MAIN_TABS_HIDE) {
+            org.telegram.messenger.MainTabsHelper.setHidden(!org.telegram.messenger.MainTabsHelper.isHidden());
+            MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_sidebar_enabled", true).apply();
+            if (LaunchActivity.instance != null) {
+                LaunchActivity.instance.updateSidebarVisibility();
+            }
+            listView.adapter.update(true);
+            if (getParentActivity() != null) {
+                new AlertDialog.Builder(getParentActivity())
+                    .setTitle("Требуется перезапуск")
+                    .setMessage("Скрытие вкладок применится после перезапуска приложения.")
+                    .setPositiveButton("Понятно", null)
+                    .show();
+            }
         } else if (item.id == ID_SIDEBAR_ZONE) {
             showSidebarZoneSheet();
         } else if (item.id == ID_EMERGENCY_PROXY) {

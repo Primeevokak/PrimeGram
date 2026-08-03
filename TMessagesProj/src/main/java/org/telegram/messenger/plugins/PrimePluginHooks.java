@@ -39,6 +39,48 @@ public final class PrimePluginHooks {
         intentHooks = value;
     }
 
+    public static void setMenuItems(String json) {
+        PrimePluginMenuItems.setItems(json);
+    }
+
+    /** START/STOP/PAUSE/RESUME, for a plugin's {@code on_app_event}. Fire-and-forget, same as a
+     *  menu click - nothing in the app is waiting on a plugin's reaction to its own lifecycle. */
+    public static void onAppEvent(String eventName) {
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return;
+        }
+        engine.queue().postRunnable(() -> {
+            try {
+                final PyObject loader = engine.module("_prime_loader");
+                if (loader != null) {
+                    loader.callAttr("dispatch_app_event", eventName);
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+        });
+    }
+
+    /** Tells the plugin its menu item was picked. Fire-and-forget, same as any other click - there
+     *  is no answer for the app to wait on. */
+    public static void onMenuItemClick(String itemId, java.util.Map<String, Object> context) {
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return;
+        }
+        engine.queue().postRunnable(() -> {
+            try {
+                final PyObject loader = engine.module("_prime_loader");
+                if (loader != null) {
+                    loader.callAttr("dispatch_menu_click", itemId, context);
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+        });
+    }
+
     /** Requests and updates share a flag: a plugin interested in one is usually interested in both. */
     private static volatile boolean requestHooks;
 
@@ -48,6 +90,21 @@ public final class PrimePluginHooks {
 
     public static boolean hasRequestHooks() {
         return requestHooks;
+    }
+
+    /** How many plugins are actually running right now - not how many are installed, which
+     *  {@link PrimePluginsController#count()} answers without needing the interpreter at all, but
+     *  how many made it through {@code load_plugin} and are still up. Pushed from Python, because
+     *  only Python knows when a plugin has failed or been unloaded; read synchronously, because a
+     *  settings row cannot wait on a round trip through the plugin queue to draw itself. */
+    private static volatile int activeCount;
+
+    public static void setActiveCount(int value) {
+        activeCount = value;
+    }
+
+    public static int activeCount() {
+        return activeCount;
     }
 
     /**

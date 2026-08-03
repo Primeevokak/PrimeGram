@@ -71,6 +71,7 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
     private int colorSelectedText;
     private int colorDefault;
     private boolean usePremiumCounter;
+    public float inu_radiusOverride = -1;
 
     private TabAnimation tabAnimation;
     private TLRPC.TL_attachMenuBot tabAnimationBot;
@@ -156,7 +157,7 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
             paintCounterBackground.setColor(Theme.multAlpha(colorSelected, 0.09f * alpha));
             tmpRectF.set(0, 0, viewWidth, getHeight());
-            final float r = Math.min(tmpRectF.width(), tmpRectF.height()) / 2f;
+            final float r = inu_radiusOverride >= 0 ? inu_radiusOverride : Math.min(tmpRectF.width(), tmpRectF.height()) / 2f;
             final float s = lerp(0.6f, 1, selectedFactor) * MathUtils.clamp(attachScale, 0, 1);
             canvas.save();
             canvas.scale(s, s, tmpRectF.centerX(), tmpRectF.centerY());
@@ -450,6 +451,7 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
         tab.colorSelected = Theme.getColor(Theme.key_glass_tabSelected, resourcesProvider);
         tab.colorSelectedText = Theme.getColor(Theme.key_glass_tabSelectedText, resourcesProvider);
         tab.updateColors();
+        if (org.telegram.messenger.NonIslandHelper.chatElements()) tab.inu_radiusOverride = dp(16);
         return tab;
     }
 
@@ -467,6 +469,7 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
         tab.colorSelected = Theme.getColor(Theme.key_glass_tabSelected, resourcesProvider);
         tab.colorSelectedText = Theme.getColor(Theme.key_glass_tabSelectedText, resourcesProvider);
         tab.updateColors();
+        if (org.telegram.messenger.NonIslandHelper.chatElements()) tab.inu_radiusOverride = dp(16);
         return tab;
     }
 
@@ -514,6 +517,9 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
     @Override
     public float measureTextWidth() {
+        if (textView.getVisibility() != VISIBLE) {
+            return 0;
+        }
         return defaultTextPaint.measureText(textView.getText().toString());
     }
 
@@ -521,6 +527,9 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
     @Override
     public float measureTextWidth(float textSizeDp) {
+        if (textView.getVisibility() != VISIBLE) {
+            return 0;
+        }
         if (scaledTextPaint == null) {
             scaledTextPaint = new TextPaint(defaultTextPaint);
         }
@@ -673,5 +682,33 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
     public void onPreBind() {
 
+    }
+
+    /** Icon-only compact mode for the main tab bar: hides the label, re-centers the icon. */
+    public void setMainTabsCompact(boolean compact) {
+        if (textView.getVisibility() == (compact ? GONE : VISIBLE)) {
+            return;
+        }
+
+        textView.setVisibility(compact ? GONE : VISIBLE);
+
+        if (compact) {
+            setContentDescription(textView.getText());
+        } else {
+            setContentDescription(null);
+        }
+
+        if (backupImageView != null) {
+            backupImageView.setLayoutParams(compact ?
+                LayoutHelper.createFrame(22, 22, Gravity.CENTER) :
+                LayoutHelper.createFrame(22, 22, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 5, 0, 0));
+        } else {
+            imageView.setLayoutParams(compact ?
+                LayoutHelper.createFrame(24, 24, Gravity.CENTER) :
+                LayoutHelper.createFrame(24, 24, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 4, 0, 0));
+        }
+
+        requestLayout();
+        invalidate();
     }
 }

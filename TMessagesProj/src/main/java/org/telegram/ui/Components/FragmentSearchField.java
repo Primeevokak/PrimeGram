@@ -50,6 +50,11 @@ import me.vkryl.android.animator.FactorAnimator;
 
 @SuppressLint("ViewConstructor")
 public class FragmentSearchField extends FrameLayout implements FactorAnimator.Target, Theme.Colorable {
+
+    /** Set by {@link org.telegram.messenger.NonIslandHelper#applyGlobalSearchBar} when the classic
+     *  flat look is on - ported from inugram's {@code inu_blurHelper}. */
+    public org.telegram.messenger.BlurBehindHelper inu_blurHelper;
+
     private static final int ANIMATOR_ID_CLOSE_BUTTON_VISIBLE = 0;
     private static final int ANIMATOR_ID_SEARCH_ICON_VISIBLE = 1;
     private static final int ANIMATOR_ID_SEARCH_FILTERS_WIDTH = 2;
@@ -183,7 +188,8 @@ public class FragmentSearchField extends FrameLayout implements FactorAnimator.T
     @Override
     protected void dispatchDraw(@NonNull Canvas canvas) {
         canvas.save();
-        if (bg != null) {
+        if (inu_blurHelper != null) inu_blurHelper.draw(canvas);
+        if (inu_blurHelper == null && bg != null) {
             bg.setBounds(
                 getPaddingLeft(),
                 getPaddingTop(),
@@ -205,8 +211,10 @@ public class FragmentSearchField extends FrameLayout implements FactorAnimator.T
     }
 
     public void setupBlurredBackground(BlurredBackgroundDrawable drawable) {
-        drawable.setRadius(dp(20));
-        drawable.setPadding(dp(4));
+        if (drawable != null) {
+            drawable.setRadius(dp(20));
+            drawable.setPadding(dp(4));
+        }
         blurredBackgroundDrawable = drawable;
     }
 

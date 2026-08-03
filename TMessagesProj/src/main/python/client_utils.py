@@ -181,7 +181,8 @@ def _parse(text, parse_mode):
         java_entity = entity.to_tlrpc_object() if hasattr(entity, "to_tlrpc_object") else entity
         if java_entity is not None:
             entities.add(java_entity)
-    return parsed.get("text", text), (entities if entities.size() else None)
+    result_text = parsed.get("message", parsed.get("caption", text))
+    return result_text, (entities if entities.size() else None)
 
 
 def send_text(peer, text, *, account=None, parse_mode=None, **kwargs):

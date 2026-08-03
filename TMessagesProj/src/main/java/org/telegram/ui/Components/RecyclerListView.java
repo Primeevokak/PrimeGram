@@ -1231,18 +1231,15 @@ public class RecyclerListView extends RecyclerView implements IBlur3Capture {
                 if (currentChildView instanceof ViewGroup) {
                     float x = event.getX() - currentChildView.getLeft();
                     float y = event.getY() - currentChildView.getTop();
-                    ViewGroup viewGroup = (ViewGroup) currentChildView;
-                    final int count = viewGroup.getChildCount();
-                    for (int i = count - 1; i >= 0; i--) {
-                        final View child = viewGroup.getChildAt(i);
-                        if (x >= child.getLeft() && x <= child.getRight() && y >= child.getTop() && y <= child.getBottom()) {
-                            if (child.isClickable()) {
-                                // todo: recursion search ???
-
-                                currentChildView = null;
-                                break;
-                            }
-                        }
+                    // PrimeGram: a clickable descendant is not always a direct child - a plugin's
+                    // custom settings row, say, can nest a button three or four layouts deep. The
+                    // single-level check here used to miss those, so a tap the plugin's own View
+                    // would have handled fine was instead swallowed as a row selection. Searching
+                    // the whole subtree under the touch point costs nothing extra on ACTION_DOWN of
+                    // an idle list, and only changes behavior for exactly the touches that used to
+                    // be misrouted.
+                    if (findClickableDescendantAt((ViewGroup) currentChildView, x, y)) {
+                        currentChildView = null;
                     }
                 }
                 currentChildPosition = -1;
@@ -1376,6 +1373,28 @@ public class RecyclerListView extends RecyclerView implements IBlur3Capture {
 
     protected boolean allowSelectChildAtPosition(View child) {
         return true;
+    }
+
+    /** Whether some view under {@code (x, y)} in {@code group} - at any depth, not only its direct
+     *  children - is itself clickable. {@code x}/{@code y} are in {@code group}'s own coordinates. */
+    private static boolean findClickableDescendantAt(ViewGroup group, float x, float y) {
+        final int count = group.getChildCount();
+        for (int i = count - 1; i >= 0; i--) {
+            final View child = group.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE) {
+                continue;
+            }
+            if (x >= child.getLeft() && x <= child.getRight() && y >= child.getTop() && y <= child.getBottom()) {
+                if (child.isClickable() || child.isLongClickable()) {
+                    return true;
+                }
+                if (child instanceof ViewGroup && findClickableDescendantAt(
+                        (ViewGroup) child, x - child.getLeft() + child.getScrollX(), y - child.getTop() + child.getScrollY())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void removeSelection(View pressedChild, MotionEvent event) {
@@ -1701,6 +1720,8 @@ public class RecyclerListView extends RecyclerView implements IBlur3Capture {
             selectorDrawable = Theme.createRadSelectorDrawable(color, selectorRadius, 0);
         } else if (selectorType == 9) {
             selectorDrawable = null;
+        } else if (selectorType == 42) {
+            selectorDrawable = Theme.createRadSelectorDrawable(color, selectorRadius, selectorRadius);
         } else if (topBottomSelectorRadius > 0) {
             selectorDrawable = Theme.createRadSelectorDrawable(color, topBottomSelectorRadius, topBottomSelectorRadius);
         } else if (selectorRadius > 0 && selectorType != Theme.RIPPLE_MASK_CIRCLE_20DP) {
@@ -2391,10 +2412,15 @@ public class RecyclerListView extends RecyclerView implements IBlur3Capture {
         selectorView = sel;
         if (selectorType == 8) {
             Theme.setMaskDrawableRad(selectorDrawable, selectorRadius, 0);
+        } else if (selectorType == 42) {
+            Theme.setMaskDrawableRad(selectorDrawable, selectorRadius, selectorRadius);
         } else if (topBottomSelectorRadius > 0 && getAdapter() != null) {
             Theme.setMaskDrawableRad(selectorDrawable, position == 0 ? topBottomSelectorRadius : 0, position == getAdapter().getItemCount() - 2 ? topBottomSelectorRadius : 0);
         }
         selectorRect.set(sel.getLeft(), sel.getTop(), sel.getRight(), sel.getBottom() - bottomPadding);
+        if (selectorType == 42) {
+            org.telegram.messenger.NonIslandHelper.adjustMd3TabSelectorRect(selectorRect);
+        }
 //        selectorRect.offset((int) sel.getTranslationX(), (int) sel.getTranslationY());
 
         final boolean enabled = sel.isEnabled();

@@ -3,5 +3,8 @@
     <external-path name="media" path="."/>
     <files-path name="logs" path="/logs/"/>
     <files-path name="cache" path="/cache/"/>
+    <!-- PrimeGram: PrimePluginsController.pluginsDir() keeps .plugin files here; sharing one goes
+         through this same FileProvider, and an uncovered path makes getUriForFile throw. -->
+    <files-path name="plugins" path="/plugins/"/>
     <root-path name="external_files" path="/storage/" />
 </paths>

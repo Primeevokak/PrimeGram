@@ -257,6 +257,16 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         checkContactsTabBadge();
         checkUnreadCount(true);
 
+        Bulletin.Delegate mainTabsDelegate = new Bulletin.Delegate() {
+            @Override
+            public int getBottomOffset(int tag) {
+                if (org.telegram.messenger.MainTabsHelper.isHidden()) return navigationBarHeight;
+                return navigationBarHeight + dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeight() + org.telegram.messenger.MainTabsHelper.getMainTabsMargin());
+            }
+        };
+        Bulletin.addDelegate(this, mainTabsDelegate);
+        Bulletin.addDelegate(contentView, mainTabsDelegate);
+
         showAccountChangeHint();
     }
 
@@ -288,10 +298,13 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         super.createView(context);
         tabletLayout = false;
 
+        final boolean mainTabsCompact = org.telegram.messenger.MainTabsHelper.isCompact();
+        final int mainTabsMargin = org.telegram.messenger.MainTabsHelper.getMainTabsMargin();
+
         tabsView = new MainTabsLayout(context, resourceProvider);
         tabsView.setClipChildren(false);
-        tabsView.setPadding(dp(DialogsActivity.MAIN_TABS_MARGIN + 4), dp(DialogsActivity.MAIN_TABS_MARGIN + 4), dp(DialogsActivity.MAIN_TABS_MARGIN + 4), dp(DialogsActivity.MAIN_TABS_MARGIN + 4));
-        tabsView.setMaxWidth(dp(328 + DialogsActivity.MAIN_TABS_MARGIN * 2));
+        tabsView.setPadding(dp(mainTabsMargin + 4), dp(mainTabsMargin + 4), dp(mainTabsMargin + 4), dp(mainTabsMargin + 4));
+        tabsView.setMaxWidth(dp(328 + mainTabsMargin * 2));
 
         tabs = new GlassTabView[6];
         tabs[INDEX_CHATS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.CHATS, R.string.MainTabsChats);
@@ -310,6 +323,10 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsView.addTabToIgnoreClick(tabs[INDEX_PROFILE]);
         tabsView.addTabToIgnoreClick(tabs[INDEX_CALLS]);
         tabsView.addTabToIgnoreClick(tabs[INDEX_FEED]);
+
+        for (GlassTabView tab : tabs) {
+            tab.setMainTabsCompact(mainTabsCompact);
+        }
 
         primeSchedulePreload(context);
 
@@ -355,8 +372,8 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         iBlur3FactoryGlass.setLiquidGlassEffectAllowed(LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS));
 
         tabsViewBackground = iBlur3FactoryGlass.create(tabsView, BlurredBackgroundProviderImpl.mainTabs(resourceProvider));
-        tabsViewBackground.setRadius(dp(DialogsActivity.MAIN_TABS_HEIGHT / 2f));
-        tabsViewBackground.setPadding(dp(DialogsActivity.MAIN_TABS_MARGIN - 0.334f));
+        tabsViewBackground.setRadius(dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeight() / 2f));
+        tabsViewBackground.setPadding(dp(mainTabsMargin - 0.334f));
         tabsView.setBackground(tabsViewBackground);
 
         BlurredBackgroundDrawableViewFactory iBlur3FactoryFade = new BlurredBackgroundDrawableViewFactory(iBlur3SourceColor);
@@ -371,7 +388,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
 
         tabsViewWrapper = new FrameLayout(context);
         tabsViewWrapper.setOnClickListener(v -> {});
-        tabsViewWrapper.addView(tabsView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, DialogsActivity.MAIN_TABS_HEIGHT_WITH_MARGINS, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
+        tabsViewWrapper.addView(tabsView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, org.telegram.messenger.MainTabsHelper.getMainTabsHeightWithMargins(), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
         tabsViewWrapper.setClipToPadding(false);
         contentView.addView(tabsViewWrapper, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM));
 

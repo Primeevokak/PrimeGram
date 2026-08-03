@@ -46,14 +46,35 @@ public final class PrimePluginInstallDialog {
         }
 
         final boolean compatible = manifest.isCompatibleWithApp(BuildVars.BUILD_VERSION_STRING);
+        // Read before anything is written, so what we show is a true comparison rather than a
+        // description of the state we are about to overwrite.
+        final org.telegram.messenger.plugins.PrimePlugin existing =
+                PrimePluginsController.getInstance().findById(manifest.id);
+
         final SpannableStringBuilder text = new SpannableStringBuilder();
+        if (existing != null) {
+            // An update, not a first install - said first, because it changes what every line
+            // after it means: "версия" below is not what you are about to get, it is what you
+            // are about to leave.
+            final String from = existing.manifest.version;
+            final String to = manifest.version;
+            final int order = org.telegram.messenger.plugins.PluginVersions.compare(
+                    from == null ? "" : from, to == null ? "" : to);
+            if (from != null && to != null && !from.equals(to)) {
+                text.append(order < 0 ? "Обновление: " : order > 0 ? "Более старая версия: " : "Переустановка: ")
+                        .append(from).append(" → ").append(to).append("\n\n");
+            } else {
+                text.append("Обновление до той же версии (").append(to != null ? to : "?").append(")\n\n");
+            }
+            text.append("Настройки и включённость сохранятся.\n\n");
+        }
         if (manifest.description != null && !manifest.description.isEmpty()) {
             text.append(manifest.description).append("\n\n");
         }
         if (manifest.author != null && !manifest.author.isEmpty()) {
             text.append("Автор: ").append(manifest.author).append("\n");
         }
-        if (manifest.version != null && !manifest.version.isEmpty()) {
+        if (existing == null && manifest.version != null && !manifest.version.isEmpty()) {
             text.append("Версия: ").append(manifest.version).append("\n");
         }
         if (manifest.requirements != null && !manifest.requirements.isEmpty()) {
@@ -72,7 +93,8 @@ public final class PrimePluginInstallDialog {
         builder.setTitle(manifest.name != null && !manifest.name.isEmpty() ? manifest.name : manifest.id);
         builder.setMessage(text);
         if (compatible) {
-            builder.setPositiveButton("Установить", (dialog, which) -> install(activity, file, manifest));
+            builder.setPositiveButton(existing != null ? "Обновить" : "Установить",
+                    (dialog, which) -> install(activity, file, manifest));
             builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         } else {
             builder.setPositiveButton(LocaleController.getString(R.string.OK), null);

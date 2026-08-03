@@ -1313,9 +1313,16 @@ public class TwoStepVerificationSetupActivity extends BaseFragment {
                 } else if (fromRegistration) {
                     final Bundle args = new Bundle();
                     args.putBoolean("afterSignup", true);
-                    MainTabsActivity mainTabsActivity = new MainTabsActivity();
-                    mainTabsActivity.prepareDialogsActivity(args);
-                    presentFragment(mainTabsActivity, true);
+                    if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                        if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                            org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+                        }
+                        presentFragment(org.telegram.messenger.DrawerHelper.createMainFragment(args), true);
+                    } else {
+                        MainTabsActivity mainTabsActivity = new MainTabsActivity();
+                        mainTabsActivity.prepareDialogsActivity(args);
+                        presentFragment(mainTabsActivity, true);
+                    }
                 } else {
                     TwoStepVerificationActivity fragment = new TwoStepVerificationActivity();
                     fragment.setCurrentPasswordParams(currentPassword, currentPasswordHash, currentSecretId, currentSecret);
@@ -2152,9 +2159,16 @@ public class TwoStepVerificationSetupActivity extends BaseFragment {
         if (otherwiseReloginDays >= 0 && parentLayout.getFragmentStack().size() == 1) {
             final Bundle args = new Bundle();
             args.putBoolean("afterSignup", true);
-            MainTabsActivity mainTabsActivity = new MainTabsActivity();
-            mainTabsActivity.prepareDialogsActivity(args);
-            presentFragment(mainTabsActivity, true);
+            if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                    org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+                }
+                presentFragment(org.telegram.messenger.DrawerHelper.createMainFragment(args), true);
+            } else {
+                MainTabsActivity mainTabsActivity = new MainTabsActivity();
+                mainTabsActivity.prepareDialogsActivity(args);
+                presentFragment(mainTabsActivity, true);
+            }
         } else {
             super.finishFragment();
         }

@@ -22,6 +22,7 @@ public final class PrimePluginStore {
     private static final String PREFS = "primegram_plugins";
     private static final String SETTINGS_PREFIX = "settings_";
     private static final String ENABLED_PREFIX = "enabled_";
+    private static final String DEPENDENCIES_PREFIX = "deps_";
 
     private PrimePluginStore() {
     }
@@ -90,7 +91,41 @@ public final class PrimePluginStore {
         prefs().edit()
                 .remove(SETTINGS_PREFIX + pluginId)
                 .remove(ENABLED_PREFIX + pluginId)
+                .remove(DEPENDENCIES_PREFIX + pluginId)
                 .apply();
+    }
+
+    /**
+     * The other plugins this one imported from, last time it loaded - {@code _prime_loader}
+     * discovers this itself, by looking at what ended up in the plugin's own module namespace after
+     * it ran, and reports it here so a crash can be attributed without Python: if plugin A crashes,
+     * anything importing from A or that A imports from is disabled alongside it, purely from what is
+     * already on disk.
+     */
+    public static java.util.List<String> getDependencies(String pluginId) {
+        final String json = prefs().getString(DEPENDENCIES_PREFIX + pluginId, null);
+        final java.util.List<String> result = new java.util.ArrayList<>();
+        if (json == null) {
+            return result;
+        }
+        try {
+            final org.json.JSONArray array = new org.json.JSONArray(json);
+            for (int i = 0; i < array.length(); i++) {
+                result.add(array.getString(i));
+            }
+        } catch (Throwable ignored) {
+        }
+        return result;
+    }
+
+    public static void setDependencies(String pluginId, java.util.List<String> dependencyIds) {
+        final org.json.JSONArray array = new org.json.JSONArray();
+        if (dependencyIds != null) {
+            for (String id : dependencyIds) {
+                array.put(id);
+            }
+        }
+        prefs().edit().putString(DEPENDENCIES_PREFIX + pluginId, array.toString()).apply();
     }
 
     /**

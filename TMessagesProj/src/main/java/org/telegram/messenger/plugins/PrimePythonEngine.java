@@ -77,6 +77,12 @@ public final class PrimePythonEngine {
             if (!Python.isStarted()) {
                 Python.start(new AndroidPlatform(context.getApplicationContext()));
             }
+            // Proves the interpreter itself is alive before anything is asked to run in it - if
+            // this fails, the problem is this build's Python packaging, not whichever plugin loads
+            // next, and the difference matters: one is ours to fix, the other is the plugin's.
+            final PyObject smoke = Python.getInstance().getModule("_prime_smoke");
+            final String result = smoke.callAttr("ping").toString();
+            FileLog.d("PrimePythonEngine: " + result);
             started = true;
             return true;
         } catch (Throwable e) {

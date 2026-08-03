@@ -2096,6 +2096,9 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
 
             @Override
             public void drawBlurRect(Canvas canvas, float y, Rect rectTmp, Paint blurScrimPaint, boolean top) {
+                if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+                    canvas.drawRect(rectTmp, blurScrimPaint);
+                }
             }
 
             @Override
@@ -2588,6 +2591,16 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
                 super.setTranslationY(translationY);
                 currentAttachLayout.onButtonsTranslationYUpdated();
             }
+
+            private final org.telegram.messenger.BlurBehindHelper inu_blurHelper = org.telegram.messenger.NonIslandHelper.chatElements()
+                ? org.telegram.messenger.BlurBehindHelper.create(this, sizeNotifierFrameLayout, Theme.key_dialogBackground, false, org.telegram.messenger.NonIslandHelper.ATTACH_TAB_SHADOW_DP, 0f)
+                : null;
+
+            @Override
+            protected void dispatchDraw(@NonNull Canvas canvas) {
+                if (inu_blurHelper != null) inu_blurHelper.draw(canvas);
+                super.dispatchDraw(canvas);
+            }
         };
         buttonsRecyclerView = new RecyclerListView(context) {
             private final BoolAnimator hasFadeLeft = new BoolAnimator(this, CubicBezierInterpolator.EASE_OUT_QUINT, 320L);
@@ -2616,6 +2629,9 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
 
             @Override
             public boolean drawChild(Canvas canvas, View child, long drawingTime) {
+                if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+                    return super.drawChild(canvas, child, drawingTime);
+                }
                 final float left = child.getX();
                 final float right = left + child.getWidth();
                 final boolean isFadedLeft = left < dp(10);
@@ -2733,6 +2749,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
         buttonsRecyclerView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         buttonsRecyclerViewWrapper.addView(buttonsRecyclerView, LayoutHelper.createFrameMatchParent());
         containerView.addView(buttonsRecyclerViewWrapper, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 70, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
+        org.telegram.messenger.NonIslandHelper.applyChatAttachTabBar(buttonsRecyclerViewWrapper, buttonsRecyclerView);
         buttonsRecyclerView.setOnItemClickListener((view, position) -> {
             BaseFragment lastFragment = baseFragment;
             if (lastFragment == null) {
@@ -4095,6 +4112,7 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
         passcodeView = new PasscodeView(context);
         containerView.addView(passcodeView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
+        actionBar.inu_nonIsland = org.telegram.messenger.NonIslandHelper.chatElements();
         actionBar.setupGlass(iBlur3FactoryLiquidGlass, BlurredBackgroundProviderImpl.attachMenuActionBar(resourcesProvider));
         animatorCurrentVisibleLayout.replace((long) LAYOUT_TYPE_PHOTO, false);
     }

@@ -359,6 +359,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private Long emojiStatusGiftId;
     private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[] emojiStatusDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[2];
     private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[] botVerificationDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[2];
+    // PrimeGram: a badge next to the name - rightDrawable3, alongside emoji-status/premium
+    // (rightDrawable) and verified (rightDrawable2), not instead of either.
+    private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[] primeBadgeDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[2];
     private final Drawable[] verifiedCheckDrawable = new Drawable[2];
     private final CrossfadeDrawable[] verifiedCrossfadeDrawable = new CrossfadeDrawable[2];
     private final CrossfadeDrawable[] premiumCrossfadeDrawable = new CrossfadeDrawable[2];
@@ -455,6 +458,10 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private TopView topView;
     private long userId;
     private long chatId;
+    // PrimeGram: plugin items on the overflow menu. Rebuilt every createActionBarMenu() call
+    // alongside everything else on it.
+    private final org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter primeMenuRouter =
+            new org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter();
     private long topicId;
     public boolean saved;
     private long dialogId;
@@ -1720,7 +1727,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 if (target == listView && sharedMediaLayoutAttached) {
                     RecyclerListView innerListView = sharedMediaLayout.getCurrentListView();
                     int top = sharedMediaLayout.getTop();
-                    if (top == 0) {
+                    if (top == -sharedMediaLayout.inu_dockOffset()) {
                         consumed[1] = dyUnconsumed;
                         innerListView.scrollBy(0, dyUnconsumed);
                     }
@@ -1757,7 +1764,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 int t = sharedMediaLayout.getTop();
                 if (dy < 0) {
                     boolean scrolledInner = false;
-                    if (t <= 0) {
+                    if (t <= -sharedMediaLayout.inu_dockOffset()) {
                         RecyclerListView innerListView = sharedMediaLayout.getCurrentListView();
                         if (innerListView != null) {
                             LinearLayoutManager linearLayoutManager = (LinearLayoutManager) innerListView.getLayoutManager();
@@ -2289,8 +2296,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
 
         setActionsMode();
 
-        additionNavigationBarHeight = hasMainTabs ? dp(DialogsActivity.MAIN_TABS_HEIGHT_WITH_MARGINS) : 0;
-        additionFloatingButtonOffset = hasMainTabs ? dp(DialogsActivity.MAIN_TABS_HEIGHT + DialogsActivity.MAIN_TABS_MARGIN) : 0;
+        additionNavigationBarHeight = hasMainTabs ? dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeightWithMargins()) : 0;
+        additionFloatingButtonOffset = hasMainTabs ? dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeight() + org.telegram.messenger.MainTabsHelper.getMainTabsMargin()) : 0;
 
         return true;
     }
@@ -2535,6 +2542,10 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             @Override
             public void onItemClick(final int id) {
                 if (getParentActivity() == null) {
+                    return;
+                }
+                if (primeMenuRouter.owns(id)) {
+                    primeMenuRouter.handle(id);
                     return;
                 }
                 if (id == -1) {
@@ -3458,6 +3469,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         botVerificationDrawable[i].attach();
                     }
                 }
+                for (int i = 0; i < primeBadgeDrawable.length; ++i) {
+                    if (primeBadgeDrawable[i] != null) {
+                        primeBadgeDrawable[i].attach();
+                    }
+                }
             }
 
             @Override
@@ -3472,6 +3488,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 for (int i = 0; i < botVerificationDrawable.length; ++i) {
                     if (botVerificationDrawable[i] != null) {
                         botVerificationDrawable[i].detach();
+                    }
+                }
+                for (int i = 0; i < primeBadgeDrawable.length; ++i) {
+                    if (primeBadgeDrawable[i] != null) {
+                        primeBadgeDrawable[i].detach();
                     }
                 }
             }
@@ -5530,7 +5551,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 nameTextView[a].setTextColor(getThemedColor(Theme.key_actionBarDefaultTitle));
             }
             nameTextView[a].setPadding(0, AndroidUtilities.dp(6), 0, AndroidUtilities.dp(a == 0 ? 12 : 4));
-            nameTextView[a].setTextSizePx(dp(17.5f));
+            nameTextView[a].setTextSizePx(dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 18 : 17.5f));
             nameTextView[a].setGravity(Gravity.LEFT);
             nameTextView[a].setTypeface(AndroidUtilities.bold());
             nameTextView[a].setLeftDrawableTopPadding(-AndroidUtilities.dp(1.3f));
@@ -5596,7 +5617,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
 
             onlineTextView[a].setEllipsizeByGradient(true);
             onlineTextView[a].setTextColor(applyPeerColor(getThemedColor(Theme.key_actionBarDefaultSubtitle), true, null));
-            onlineTextView[a].setTextSizePx(dp(13.5f));
+            onlineTextView[a].setTextSizePx(dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 14 : 13.5f));
             onlineTextView[a].setGravity(Gravity.LEFT);
             onlineTextView[a].setAlpha(a == 0 ? 0.0f : 1.0f);
             onlineTextView[a].setPivotX(dp(8));
@@ -5633,7 +5654,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             protected TextView createTextView() {
                 TextView textView = new TextView(context);
                 textView.setTextColor(getThemedColor(Theme.key_player_actionBarSubtitle));
-                textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, AndroidUtilities.dp(13.5f));
+                textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, AndroidUtilities.dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 14 : 13.5f));
                 textView.setSingleLine(true);
                 textView.setEllipsize(TextUtils.TruncateAt.END);
                 textView.setGravity(Gravity.LEFT);
@@ -5756,7 +5777,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 if (participantsMap != null && !usersEndReached && layoutManager.findLastVisibleItemPosition() > membersEndRow - 8) {
                     getChannelParticipants(false);
                 }
-                sharedMediaLayout.setPinnedToTop(sharedMediaLayout.getY() <= 0);
+                sharedMediaLayout.setPinnedToTop(sharedMediaLayout.getY() <= -sharedMediaLayout.inu_dockOffset());
                 updateBottomButtonY();
             }
         });
@@ -8028,7 +8049,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         boolean searchVisible = imageUpdater == null && actionBar.isSearchFieldVisible();
         if (sharedMediaRow != -1 && !searchVisible) {
             holder = (RecyclerListView.Holder) listView.findViewHolderForAdapterPosition(sharedMediaRow);
-            mediaHeaderVisible = holder != null && holder.itemView.getTop() <= 0;
+            mediaHeaderVisible = holder != null && holder.itemView.getTop() <= -sharedMediaLayout.inu_dockOffset();
         } else {
             mediaHeaderVisible = searchVisible;
         }
@@ -8263,8 +8284,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 continue;
             }
 
-            float nameX = lerp((prevAvatarTranslation - dp(109) + dp(48)), backwardInitialValues[12 + a * 2], backwardDiff);
-            float onlineX = lerp((prevAvatarTranslation - dp(109) + dp(48)), backwardInitialValues[12 + a * 2 + 1], backwardDiff);
+            float nameX = lerp((prevAvatarTranslation - dp(109) + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 54 : 48)), backwardInitialValues[12 + a * 2], backwardDiff);
+            float onlineX = lerp((prevAvatarTranslation - dp(109) + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 54 : 48)), backwardInitialValues[12 + a * 2 + 1], backwardDiff);
 
             nameTextView[a].setTranslationX(nameX);
             nameTextView[a].setTranslationY(nameY);
@@ -8624,9 +8645,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 float avY = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY();
 //                metaball.setVisibility(View.GONE);
 
-                nameTextView[0].setTranslationX((prevAvatarTranslation - dp(109) + dp(48)));
+                nameTextView[0].setTranslationX((prevAvatarTranslation - dp(109) + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 54 : 48)));
                 nameTextView[0].setTranslationY((float) Math.floor(avY) + AndroidUtilities.dp(1.3f));
-                onlineTextView[0].setTranslationX((prevAvatarTranslation - dp(109) + dp(48)));
+                onlineTextView[0].setTranslationX((prevAvatarTranslation - dp(109) + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 54 : 48)));
                 onlineTextView[0].setTranslationY((float) Math.floor(avY) + AndroidUtilities.dp(24));
                 nameTextView[0].setScaleX(1.0f);
                 nameTextView[0].setScaleY(1.0f);
@@ -8741,7 +8762,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 final float avatarBottom = (float) Math.floor(endNameY) + (avatarContainer.getHeight() * avatarContainer.getScaleY() + dpf2(8)) * (openAnimationInProgress ? avatarAnimationProgress : diff);
                 nameY = avatarBottom + dp(1.3f) + dp(7) * diff + titleAnimationsYDiff * (1f - avatarAnimationProgress);
                 onlineY = avatarBottom + dp(24) + (float) Math.floor(11 * AndroidUtilities.density) * diff;
-                final float minimizedX = openAnimationInProgress ? (prevAvatarTranslation - dp(109) + dp(48)) : -dpf2(42 + 4);
+                final float minimizedX = openAnimationInProgress ? (prevAvatarTranslation - dp(109) + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 54 : 48)) : -dpf2(42 + 4);
 
                 if (showStatusButton != null) {
                     showStatusButton.setAlpha((int) (0xFF * diff));
@@ -11164,6 +11185,25 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         return emojiStatusDrawable[a];
     }
 
+    /** The badge next to this name, or {@code null} to clear it - {@code user} may be null for a
+     *  chat/channel profile, in which case {@code chatId} is what's looked up instead. */
+    private Drawable getPrimeBadgeDrawable(int a, TLRPC.User user, long chatId) {
+        final org.telegram.messenger.PrimeBadges.Badge badge = user != null
+                ? org.telegram.messenger.PrimeBadges.getUserBadge(user.id)
+                : (chatId != 0 ? org.telegram.messenger.PrimeBadges.getChatBadge(chatId) : null);
+        if (badge == null) {
+            return null;
+        }
+        if (primeBadgeDrawable[a] == null) {
+            primeBadgeDrawable[a] = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable(nameTextView[a], AndroidUtilities.dp(24), AnimatedEmojiDrawable.CACHE_TYPE_EMOJI_STATUS);
+            if (fragmentViewAttached) {
+                primeBadgeDrawable[a].attach();
+            }
+        }
+        primeBadgeDrawable[a].set(badge.customEmojiId, true);
+        return primeBadgeDrawable[a];
+    }
+
     private float lastEmojiStatusProgress;
 
     private void updateEmojiStatusDrawableColor() {
@@ -11488,6 +11528,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         nameTextView[a].setRightDrawable(null);
                         nameTextViewRightDrawableContentDescription = null;
                     }
+                    nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, user, 0));
                 } else if (a == 1) {
                     if (user.scam || user.fake) {
                         nameTextView[a].setRightDrawable2(getScamDrawable(user.scam ? 0 : 1));
@@ -11507,6 +11548,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     } else {
                         nameTextView[a].setRightDrawable(null);
                     }
+                    nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, user, 0));
                 }
                 if (leftIcon == null && currentEncryptedChat == null && user.bot_verification_icon != 0) {
                     nameTextView[a].setLeftDrawableOutside(true);
@@ -12088,6 +12130,21 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         Context context = actionBar.getContext();
         otherItem.removeAllSubItems();
         animatingItem = null;
+
+        final java.util.Map<String, Object> primeMenuContext = new java.util.HashMap<>();
+        primeMenuContext.put("account", getCurrentAccount());
+        if (userId != 0) {
+            primeMenuContext.put("user_id", userId);
+        }
+        if (chatId != 0) {
+            primeMenuContext.put("chat_id", chatId);
+        }
+        final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> primeItems =
+                primeMenuRouter.load("profile_action_menu", primeMenuContext);
+        for (int i = 0; i < primeItems.size(); i++) {
+            final org.telegram.messenger.plugins.PrimePluginMenuItems.Item primeItem = primeItems.get(i);
+            otherItem.addSubItem(primeMenuRouter.idFor(i), primeItem.iconResId, primeItem.text);
+        }
 
         editItemVisible = false;
         callItemVisible = false;
@@ -15520,10 +15577,10 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             if (animated) {
                 LinearSmoothScrollerCustom linearSmoothScroller = new LinearSmoothScrollerCustom(getContext(), LinearSmoothScrollerCustom.POSITION_TOP, .6f);
                 linearSmoothScroller.setTargetPosition(sharedMediaRow);
-                linearSmoothScroller.setOffset(-listView.getPaddingTop());
+                linearSmoothScroller.setOffset(-listView.getPaddingTop() - sharedMediaLayout.inu_dockOffset());
                 layoutManager.startSmoothScroll(linearSmoothScroller);
             } else {
-                layoutManager.scrollToPositionWithOffset(sharedMediaRow, -listView.getPaddingTop());
+                layoutManager.scrollToPositionWithOffset(sharedMediaRow, -listView.getPaddingTop() - sharedMediaLayout.inu_dockOffset());
             }
         }
     }
@@ -16947,8 +17004,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         }
 
         final int additionalList = dp(48);
-        final int mainTabBottom = fragmentView.getMeasuredHeight() - navigationBarHeight - dp(DialogsActivity.MAIN_TABS_MARGIN);
-        final int mainTabTop = mainTabBottom - dp(DialogsActivity.MAIN_TABS_HEIGHT);
+        final int mainTabBottom = fragmentView.getMeasuredHeight() - navigationBarHeight - dp(org.telegram.messenger.MainTabsHelper.getMainTabsMargin());
+        final int mainTabTop = mainTabBottom - dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeight());
 
         iBlur3PositionActionBar.set(0, -additionalList, fragmentView.getMeasuredWidth(), actionBar.getMeasuredHeight() + additionalList);
         iBlur3PositionMainTabs.set(0, mainTabTop, fragmentView.getMeasuredWidth(), mainTabBottom);

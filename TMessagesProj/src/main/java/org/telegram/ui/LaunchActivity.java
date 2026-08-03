@@ -51,6 +51,7 @@ import android.text.TextUtils;
 import android.text.style.ClickableSpan;
 import android.util.Base64;
 import android.util.SparseIntArray;
+import android.util.TypedValue;
 import android.view.ActionMode;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
@@ -68,6 +69,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.window.BackEvent;
 import android.window.OnBackAnimationCallback;
@@ -270,6 +272,35 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private boolean finished;
     private String videoPath;
+
+    // PrimeGram: icon packs. Wrapping Resources is the one place that reaches nearly every icon
+    // load in the app - see PrimeResources for why - so this activity's getResources() is where
+    // it has to happen. Rebuilt only when the underlying AssetManager actually changes (a
+    // configuration change can swap it), not on every call - getResources() runs constantly.
+    private android.content.res.Resources primeResources;
+    private android.content.res.AssetManager primeAssetManager;
+
+    // PrimeGram: checks whether a plugin has stopped returning, every few seconds while the app is
+    // actually on screen - see PrimePluginWatchdog for why this has to run from outside the queue
+    // it is watching.
+    private static final long PRIME_WATCHDOG_INTERVAL_MS = 3000;
+    private final Runnable primeWatchdogTick = new Runnable() {
+        @Override
+        public void run() {
+            org.telegram.messenger.plugins.PrimePluginWatchdog.check();
+            AndroidUtilities.runOnUIThread(this, PRIME_WATCHDOG_INTERVAL_MS);
+        }
+    };
+
+    @Override
+    public android.content.res.Resources getResources() {
+        final android.content.res.Resources base = super.getResources();
+        if (primeAssetManager != base.getAssets() || primeResources == null) {
+            primeResources = new org.telegram.messenger.PrimeResources(base);
+            primeAssetManager = base.getAssets();
+        }
+        return primeResources;
+    }
     private String voicePath;
     private CharSequence sendingText;
     private ArrayList<SendMessagesHelper.SendingMediaInfo> photoPathsArray;
@@ -395,6 +426,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity.onCreate begin");
         isActive = true;
         activeInstanceCount++;
+        if (activeInstanceCount == 1) {
+            org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("start");
+        }
         if (BuildVars.DEBUG_VERSION) {
             StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder(StrictMode.getVmPolicy())
                 .detectLeakedClosableObjects()
@@ -611,7 +645,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     dragStartY = ev.getY();
                     isDraggingSidebar = false;
                     
-                    if (isSidebarOpen && dragStartX > AndroidUtilities.dp(72)) {
+                    if (isSidebarOpen && dragStartX > AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP)) {
                         setSidebarOpen(false, true);
                         return true;
                     }
@@ -625,7 +659,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                                 if (primeInSidebarZone() && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                     isDraggingSidebar = true;
                                     if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
-                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                    dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP);
                                     getParent().requestDisallowInterceptTouchEvent(true);
                                     return true;
                                 }
@@ -670,7 +704,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             if (primeInSidebarZone() && dx > AndroidUtilities.dp(10) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                                 isDraggingSidebar = true;
                                 if (primeSidebarView != null) primeSidebarView.setVisibility(View.VISIBLE);
-                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
+                                dragStartTranslationX = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP);
                                 getParent().requestDisallowInterceptTouchEvent(true);
                             }
                         } else {
@@ -689,8 +723,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     if (action == MotionEvent.ACTION_MOVE) {
                         float dx = x - dragStartX;
                         float newTranslation = dragStartTranslationX + dx;
-                        if (newTranslation < -AndroidUtilities.dp(72)) {
-                            newTranslation = -AndroidUtilities.dp(72);
+                        if (newTranslation < -AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP)) {
+                            newTranslation = -AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP);
                         } else if (newTranslation > 0) {
                             newTranslation = 0;
                         }
@@ -700,13 +734,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         updateSidebarScrim();
                         View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
                         if (abView != null) {
-                            abView.setTranslationX(newTranslation + AndroidUtilities.dp(72));
+                            abView.setTranslationX(newTranslation + AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP));
                         }
                         return true;
                     } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
                         isDraggingSidebar = false;
-                        float currentTranslation = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(72);
-                        if (currentTranslation > -AndroidUtilities.dp(36)) {
+                        float currentTranslation = primeSidebarView != null ? primeSidebarView.getTranslationX() : -AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP);
+                        if (currentTranslation > -AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP / 2)) {
                             setSidebarOpen(true, true);
                         } else {
                             setSidebarOpen(false, true);
@@ -716,7 +750,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 }
                 
                 if (isSidebarOpen) {
-                    if (action == MotionEvent.ACTION_UP && dragStartX > AndroidUtilities.dp(72)) {
+                    if (action == MotionEvent.ACTION_UP && dragStartX > AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP)) {
                         setSidebarOpen(false, true);
                         return true;
                     }
@@ -743,7 +777,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // Initialize PrimeGram Sidebar & Trigger
         createPrimeSidebar();
         if (primeSidebarView != null) {
-            frameLayout.addView(primeSidebarView, LayoutHelper.createFrame(72, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
+            frameLayout.addView(primeSidebarView, LayoutHelper.createFrame(PRIME_SIDEBAR_WIDTH_DP, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP));
             primeSidebarView.setVisibility(View.GONE);
         }
         
@@ -826,6 +860,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (actionBarLayout.getFragmentStack().isEmpty() && (layersActionBarLayout == null || layersActionBarLayout.getFragmentStack().isEmpty())) {
             if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
                 actionBarLayout.addFragmentToStack(getClientNotActivatedFragment());
+            } else if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                org.telegram.messenger.DrawerHelper.setupMainFragment(this, actionBarLayout, drawerLayoutContainer);
+            } else if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                actionBarLayout.addFragmentToStack(org.telegram.messenger.DrawerHelper.createMainFragment());
             } else {
                 MainTabsActivity mainTabsActivity = new MainTabsActivity();
                 actionBarLayout.addFragmentToStack(mainTabsActivity);
@@ -1061,6 +1099,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         }
                     }
                 };
+                if (Build.VERSION.SDK_INT >= 34) {
+                    onBackAnimationCallback = org.telegram.messenger.DrawerBackGesture.wrap(this, (OnBackAnimationCallback) onBackAnimationCallback);
+                }
             }
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -1430,10 +1471,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private boolean switchingAccount;
     public void switchToAccount(int account, boolean removeAll) {
-        switchToAccount(account, removeAll, obj -> new MainTabsActivity());
+        switchToAccount(account, removeAll, obj -> org.telegram.messenger.MainTabsHelper.isHidden()
+            ? org.telegram.messenger.DrawerHelper.createMainFragment()
+            : new MainTabsActivity());
     }
 
-    public void switchToAccount(int account, boolean removeAll, GenericProvider<Void, MainTabsActivity> dialogsActivityProvider) {
+    public void switchToAccount(int account, boolean removeAll, GenericProvider<Void, org.telegram.ui.ActionBar.BaseFragment> dialogsActivityProvider) {
         if (account == UserConfig.selectedAccount || !UserConfig.isValidAccount(account)) {
             return;
         }
@@ -1463,7 +1506,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         } else {
             actionBarLayout.removeFragmentFromStack(0);
         }
-        MainTabsActivity mainTabsActivity = dialogsActivityProvider.provide(null);
+        org.telegram.ui.ActionBar.BaseFragment mainTabsActivity = dialogsActivityProvider.provide(null);
         actionBarLayout.addFragmentToStack(mainTabsActivity, INavigationLayout.FORCE_ATTACH_VIEW_AS_FIRST);
         actionBarLayout.rebuildFragments(INavigationLayout.REBUILD_FLAG_REBUILD_LAST);
         if (AndroidUtilities.isTablet()) {
@@ -1477,6 +1520,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             showTosActivity(account, UserConfig.getInstance(account).unacceptedTermsOfService);
         }
         updateCurrentConnectionState(currentAccount);
+        org.telegram.messenger.DrawerHelper.notifyDataChanged();
 
         switchingAccount = false;
     }
@@ -3552,18 +3596,24 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     }
                 } else {
                     if (actionBarLayout.getFragmentStack().isEmpty()) {
-                        MainTabsActivity mainTabsActivity = new MainTabsActivity();
-                        DialogsActivity dialogsActivity = mainTabsActivity.prepareDialogsActivity(null);
-                        if (searchQuery != null) {
-                            dialogsActivity.setInitialSearchString(searchQuery);
+                        if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                            org.telegram.messenger.DrawerHelper.addMainFragmentToStack(actionBarLayout, searchQuery);
+                        } else {
+                            MainTabsActivity mainTabsActivity = new MainTabsActivity();
+                            DialogsActivity dialogsActivity = mainTabsActivity.prepareDialogsActivity(null);
+                            if (searchQuery != null) {
+                                dialogsActivity.setInitialSearchString(searchQuery);
+                            }
+                            actionBarLayout.addFragmentToStack(mainTabsActivity, INavigationLayout.FORCE_NOT_ATTACH_VIEW);
                         }
-                        actionBarLayout.addFragmentToStack(mainTabsActivity, INavigationLayout.FORCE_NOT_ATTACH_VIEW);
                     }
                 }
             } else {
                 if (actionBarLayout.getFragmentStack().isEmpty()) {
                     if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
                         actionBarLayout.addFragmentToStack(getClientNotActivatedFragment(), INavigationLayout.FORCE_NOT_ATTACH_VIEW);
+                    } else if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                        org.telegram.messenger.DrawerHelper.addMainFragmentToStack(actionBarLayout, searchQuery);
                     } else {
                         MainTabsActivity mainTabsActivity = new MainTabsActivity();
                         DialogsActivity dialogsActivity = mainTabsActivity.prepareDialogsActivity(null);
@@ -6938,6 +6988,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     protected void onPause() {
         super.onPause();
         isResumed = false;
+        org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("pause");
+        AndroidUtilities.cancelRunOnUIThread(primeWatchdogTick);
         pipActivityHandler.onPause();
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.stopAllHeavyOperations, 4096);
         ApplicationLoader.mainInterfacePaused = true;
@@ -7061,6 +7113,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         unregisterReceiver(batteryReceiver);
 
         if (activeInstanceCount == 0) {
+            org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("stop");
             onDestroyStaticResources();
         }
 
@@ -7168,6 +7221,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         super.onResume();
         updateSidebarVisibility();
         isResumed = true;
+        org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("resume");
+        AndroidUtilities.cancelRunOnUIThread(primeWatchdogTick);
+        AndroidUtilities.runOnUIThread(primeWatchdogTick, PRIME_WATCHDOG_INTERVAL_MS);
         // PrimeGram: sweep expired temporary subscriptions. Self-throttling and a no-op when
         // nothing is scheduled, so running it on every resume costs nothing.
         try {
@@ -9402,6 +9458,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     // ─── PrimeGram Sidebar Implementation ───
 
+    /**
+     * Widened from the original 72dp icon rail to a real drawer width so the panel can carry
+     * the profile header and text menu rows borrowed from the classic Telegram drawer, restyled
+     * for the current (non-flat) look.
+     */
+    private static final int PRIME_SIDEBAR_WIDTH_DP = 280;
     public View primeSidebarView;
     public View primeSidebarScrim;
     public View primeSidebarTrigger;
@@ -9423,6 +9485,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private Boolean sidebarEnabledCache;
 
     private boolean isSidebarEnabled() {
+        // The classic drawer (DrawerHelper) carries its own swipe-open gesture and its own menu -
+        // showing this panel on top of it was two side panels answering to overlapping swipes.
+        // When that mode is on, this panel steps aside entirely; DrawerHelper is the one panel.
+        if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+            return false;
+        }
         if (sidebarEnabledCache == null) {
             sidebarEnabledCache = MessagesController.getGlobalMainSettings()
                     .getBoolean("primegram_sidebar_enabled", true);
@@ -9458,7 +9526,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     public void updateSidebarVisibility() {
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
+        boolean sidebarEnabled = !org.telegram.messenger.DrawerHelper.isEnabled()
+                && preferences.getBoolean("primegram_sidebar_enabled", true);
         sidebarEnabledCache = sidebarEnabled;
 
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
@@ -9478,7 +9547,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             setSidebarOpen(isSidebarOpen, false);
         } else {
             if (primeSidebarView != null) {
-                primeSidebarView.setTranslationX(-AndroidUtilities.dp(72));
+                primeSidebarView.setTranslationX(-AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP));
             }
             updateSidebarScrim();
             View abView = actionBarLayout != null ? actionBarLayout.getView() : null;
@@ -9506,7 +9575,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         }
         float progress = 0f;
         if (primeSidebarView != null && primeSidebarView.getVisibility() == View.VISIBLE) {
-            progress = 1f + primeSidebarView.getTranslationX() / AndroidUtilities.dp(72);
+            progress = 1f + primeSidebarView.getTranslationX() / AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP);
             progress = Math.max(0f, Math.min(1f, progress));
         }
         primeSidebarScrim.setAlpha(progress);
@@ -9517,8 +9586,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (!isSidebarEnabled()) return;
         isSidebarOpen = open;
 
-        float targetSidebarTranslation = open ? 0 : -AndroidUtilities.dp(72);
-        float targetContentTranslation = 0; // open ? AndroidUtilities.dp(72) : 0;
+        float targetSidebarTranslation = open ? 0 : -AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP);
+        float targetContentTranslation = 0; // open ? AndroidUtilities.dp(PRIME_SIDEBAR_WIDTH_DP) : 0;
 
         if (animate) {
             if (primeSidebarView != null) {
@@ -9567,23 +9636,19 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         }
     }
 
+    /**
+     * PrimeGram's own edge-swipe panel, restructured to carry the same profile-header + text-menu
+     * layout the classic (pre-redesign) Telegram drawer used - that shape reads better than the
+     * old icon-only rail - but kept in the current glass/rounded visual language instead of the
+     * old drawer's flat look, and still driven by {@link PrimeSidebarZone}'s configurable
+     * activation area. The classic drawer restored for {@code DrawerHelper} (a separate, optional
+     * toggle for people who want the old interface wholesale) is untouched by this.
+     */
     private void createPrimeSidebar() {
         Context context = this;
-        
+
         LinearLayout sidebar = new LinearLayout(context);
         sidebar.setOrientation(LinearLayout.VERTICAL);
-        sidebar.setGravity(Gravity.CENTER_HORIZONTAL);
-
-        android.widget.ScrollView scrollView = new android.widget.ScrollView(context);
-        scrollView.setVerticalScrollBarEnabled(false);
-        scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        
-        sidebarAccountsContainer = new LinearLayout(context);
-        sidebarAccountsContainer.setOrientation(LinearLayout.VERTICAL);
-        sidebarAccountsContainer.setGravity(Gravity.CENTER_HORIZONTAL);
-        scrollView.addView(sidebarAccountsContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-        
-        sidebar.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1.0f, 0, 16, 0, 8));
 
         FrameLayout rootFrame = new FrameLayout(context) {
             @Override
@@ -9598,7 +9663,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // rounding; the outline is also what the elevation shadow is traced from.
         final int panelRadius = AndroidUtilities.dp(18);
         android.graphics.drawable.GradientDrawable panelBackground = new android.graphics.drawable.GradientDrawable();
-        panelBackground.setColor(Theme.getColor(Theme.key_chats_menuBackground));
+        // key_chats_menuBackground is a legacy classic-drawer key that not every theme (including
+        // several dark ones) carries a value for; it silently falls back to a compiled-in light
+        // blue instead of black. key_windowBackgroundWhite is the one every theme actually themes.
+        panelBackground.setColor(Theme.getColor(Theme.key_windowBackgroundWhite));
         panelBackground.setCornerRadii(new float[]{0, 0, panelRadius, panelRadius, panelRadius, panelRadius, 0, 0});
         rootFrame.setBackground(panelBackground);
         rootFrame.setElevation(AndroidUtilities.dp(6));
@@ -9615,87 +9683,232 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
         primeSidebarView = rootFrame;
 
-        View bottomDivider = new View(context);
-        bottomDivider.setBackgroundColor(Theme.multAlpha(Theme.getColor(Theme.key_divider), 0.65f));
-        sidebar.addView(bottomDivider, LayoutHelper.createLinear(28, 1, Gravity.CENTER_HORIZONTAL, 0, 0, 0, 8));
+        // Profile header, borrowed from the classic drawer's layout: big avatar, name, masked phone.
+        sidebar.addView(createSidebarProfileHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 20, 18, 20, 14));
 
-        LinearLayout bottomContainer = new LinearLayout(context);
-        bottomContainer.setOrientation(LinearLayout.VERTICAL);
-        bottomContainer.setGravity(Gravity.CENTER_HORIZONTAL);
-        sidebar.addView(bottomContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
-        
-        // 0. Browser Button
-        ImageView browserButton = createSidebarIcon(context, R.drawable.msg_language, "Браузер", v -> {
-            presentFragment(new org.telegram.ui.PrimeBrowserActivity(""));
+        View headerDivider = new View(context);
+        headerDivider.setBackgroundColor(Theme.multAlpha(Theme.getColor(Theme.key_divider), 0.5f));
+        sidebar.addView(headerDivider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, 0, 0, 0, 0, 4));
+
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(context);
+        scrollView.setVerticalScrollBarEnabled(false);
+        scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+
+        LinearLayout menuList = new LinearLayout(context);
+        menuList.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(menuList, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        sidebar.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1.0f));
+
+        // Rows carried over from the classic drawer's menu (minus Calls and New Group, which the
+        // author asked to drop here - this panel is a quick-access shelf, not a full nav menu).
+        menuList.addView(createSidebarMenuRow(context, R.drawable.msg_contacts, LocaleController.getString(R.string.Contacts), v -> {
+            presentFragment(new org.telegram.ui.ContactsActivity(new Bundle()));
+            setSidebarOpen(false, true);
+        }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+        menuList.addView(createSidebarMenuRow(context, R.drawable.msg_saved, LocaleController.getString(R.string.SavedMessages), v -> {
+            Bundle args = new Bundle();
+            args.putLong("user_id", UserConfig.getInstance(currentAccount).clientUserId);
+            presentFragment(new ChatActivity(args));
+            setSidebarOpen(false, true);
+        }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+        View proxyRow = createSidebarMenuRow(context, R.drawable.outline_shield_plain_24, LocaleController.getString(R.string.ProxySettings), v -> {
+            presentFragment(new ProxyListActivity());
             setSidebarOpen(false, true);
         });
-        bottomContainer.addView(browserButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
-        
-        // 1. Wallet Button
-        ImageView walletButton = createSidebarIcon(context, R.drawable.settings_wallet, "Кошелек", v -> {
+        sidebarProxyButton = (ImageView) proxyRow.getTag();
+        menuList.addView(proxyRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+        updateProxyButtonState(sidebarProxyButton);
+
+        menuList.addView(createSidebarMenuRow(context, R.drawable.msg_settings_old, LocaleController.getString(R.string.Settings), v -> {
+            presentFragment(new SettingsActivity(new Bundle()));
+            setSidebarOpen(false, true);
+        }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+        View midDivider = new View(context);
+        midDivider.setBackgroundColor(Theme.multAlpha(Theme.getColor(Theme.key_divider), 0.5f));
+        menuList.addView(midDivider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, 0, 18, 8, 18, 8));
+
+        // PrimeGram's own quick-access items, carried over from the old icon rail.
+        menuList.addView(createSidebarMenuRow(context, R.drawable.msg_language, "Браузер", v -> {
+            presentFragment(new org.telegram.ui.PrimeBrowserActivity(""));
+            setSidebarOpen(false, true);
+        }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+        menuList.addView(createSidebarMenuRow(context, R.drawable.settings_wallet, "Кошелёк", v -> {
             try {
                 org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://t.me/wallet");
             } catch (Exception e) {
                 FileLog.e(e);
             }
             setSidebarOpen(false, true);
-        });
-        bottomContainer.addView(walletButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
-        
-        // 2. Proxy Status Button
-        ImageView proxyButton = sidebarProxyButton = createProxyButton(context);
-        bottomContainer.addView(proxyButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
 
-        // 3. Ghost mode toggle. Always built, shown or hidden by updateGhostModeButton() —
-        // building it conditionally meant that turning the grey zone off left the button
-        // sitting in the sidebar until the whole activity was recreated.
-        ghostModeButton = createSidebarIcon(context, R.drawable.msg_ghost_24, "Режим призрака", v -> {
-            boolean on = !org.telegram.messenger.GreyZone.isGhostModeOn();
-            org.telegram.messenger.GreyZone.setGhostMode(on);
+        View ghostRow = createSidebarSwitchRow(context, R.drawable.msg_ghost_24, "Режим призрака", (checked) -> {
+            org.telegram.messenger.GreyZone.setGhostMode(checked);
             updateGhostModeButton();
             BulletinFactory.of(Bulletin.BulletinWindow.make(LaunchActivity.this), null)
-                    .createSimpleBulletin(on ? R.raw.ic_ban : R.raw.contact_check,
-                            on ? "Режим призрака включён" : "Режим призрака выключен").show();
+                    .createSimpleBulletin(checked ? R.raw.ic_ban : R.raw.contact_check,
+                            checked ? "Режим призрака включён" : "Режим призрака выключен").show();
         });
-        bottomContainer.addView(ghostModeButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 8));
+        ghostModeRow = ghostRow;
+        ghostModeSwitch = (org.telegram.ui.Components.Switch) ghostRow.getTag();
+        menuList.addView(ghostRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
         updateGhostModeButton();
-        
-        
-        // 4. Saved Messages Button
-        ImageView savedMessagesButton = createSidebarIcon(context, R.drawable.msg_saved, "Избранное", v -> {
-            Bundle args = new Bundle();
-            args.putLong("user_id", UserConfig.getInstance(currentAccount).clientUserId);
-            presentFragment(new ChatActivity(args));
-            setSidebarOpen(false, true);
-        });
-        bottomContainer.addView(savedMessagesButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
-        
-        // 5. Partner Button
-        ImageView partnerButton = createSidebarIcon(context, R.drawable.msg_channel, "Наш партнер", v -> {
+
+        menuList.addView(createSidebarMenuRow(context, R.drawable.msg_channel, "Наш партнёр", v -> {
             try {
                 org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, "https://t.me/govpn?start=2f6a4271-0e89-481c-b90f-ecfd0e1a888d");
             } catch (Exception e) {
                 FileLog.e(e);
             }
             setSidebarOpen(false, true);
-        });
-        bottomContainer.addView(partnerButton, LayoutHelper.createLinear(48, 48, 0, 8, 0, 12));
-        
+        }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+        View bottomDivider = new View(context);
+        bottomDivider.setBackgroundColor(Theme.multAlpha(Theme.getColor(Theme.key_divider), 0.65f));
+        sidebar.addView(bottomDivider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, 0, 0, 4, 0, 0));
+
+        android.widget.HorizontalScrollView accountsScroll = new android.widget.HorizontalScrollView(context);
+        accountsScroll.setHorizontalScrollBarEnabled(false);
+        accountsScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+
+        sidebarAccountsContainer = new LinearLayout(context);
+        sidebarAccountsContainer.setOrientation(LinearLayout.HORIZONTAL);
+        sidebarAccountsContainer.setGravity(Gravity.CENTER_VERTICAL);
+        accountsScroll.addView(sidebarAccountsContainer, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT));
+        sidebar.addView(accountsScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 64, 0, 8, 6, 8, 10));
+
         updateSidebarAccounts();
+    }
+
+    /** Avatar + name + (privacy-masked) phone, tapping opens the account's own profile. */
+    private View createSidebarProfileHeader(Context context) {
+        LinearLayout header = new LinearLayout(context);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(14), 0, Theme.getColor(Theme.key_listSelector)));
+        header.setOnClickListener(v -> {
+            Bundle args = new Bundle();
+            args.putLong("user_id", UserConfig.getInstance(currentAccount).clientUserId);
+            args.putBoolean("my_profile", true);
+            presentFragment(new org.telegram.ui.ProfileActivity(args, null));
+            setSidebarOpen(false, true);
+        });
+
+        BackupImageView avatarImageView = new BackupImageView(context);
+        avatarImageView.setRoundRadius(AndroidUtilities.dp(28));
+        TLRPC.User user = UserConfig.getInstance(currentAccount).getCurrentUser();
+        AvatarDrawable avatarDrawable = new AvatarDrawable();
+        avatarDrawable.setInfo(user);
+        avatarImageView.setForUserOrChat(user, avatarDrawable);
+        header.addView(avatarImageView, LayoutHelper.createLinear(56, 56, Gravity.CENTER_VERTICAL, 0, 0, 14, 0));
+
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+
+        TextView nameView = new TextView(context);
+        nameView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        nameView.setTypeface(AndroidUtilities.bold());
+        nameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        nameView.setSingleLine();
+        nameView.setEllipsize(TextUtils.TruncateAt.END);
+        nameView.setText(user != null ? UserObject.getUserName(user) : "");
+        texts.addView(nameView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 0, 2));
+
+        TextView phoneView = new TextView(context);
+        phoneView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+        phoneView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        phoneView.setSingleLine();
+        String formattedPhone = user != null && !TextUtils.isEmpty(user.phone) ? PhoneFormat.getInstance().format("+" + user.phone) : "";
+        phoneView.setText(org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(formattedPhone, true));
+        texts.addView(phoneView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+
+        header.addView(texts, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
+        return header;
+    }
+
+    /**
+     * A single icon+label drawer-style row. The icon is stashed in {@code row.setTag(...)} so
+     * callers that need to recolor it later (the proxy status row) don't need a second field for
+     * every row that might change.
+     */
+    private View createSidebarMenuRow(Context context, int iconRes, String text, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(AndroidUtilities.dp(20), 0, AndroidUtilities.dp(20), 0);
+        row.setBackground(Theme.createSimpleSelectorRoundRectDrawable(0, 0, Theme.getColor(Theme.key_listSelector)));
+        row.setOnClickListener(onClick);
+
+        ImageView icon = new ImageView(context);
+        icon.setImageResource(iconRes);
+        icon.setScaleType(ImageView.ScaleType.CENTER);
+        icon.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        row.addView(icon, LayoutHelper.createLinear(24, 24, Gravity.CENTER_VERTICAL, 0, 0, 18, 0));
+
+        TextView label = new TextView(context);
+        label.setText(text);
+        label.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        label.setSingleLine();
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(label, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 0, 0, 0, 0));
+
+        row.setTag(icon);
+        return row;
+    }
+
+    /** Same shape as {@link #createSidebarMenuRow}, but with a trailing Switch instead of a tap action. */
+    private View createSidebarSwitchRow(Context context, int iconRes, String text, java.util.function.Consumer<Boolean> onToggled) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(AndroidUtilities.dp(20), 0, AndroidUtilities.dp(16), 0);
+        row.setBackground(Theme.createSimpleSelectorRoundRectDrawable(0, 0, Theme.getColor(Theme.key_listSelector)));
+
+        ImageView icon = new ImageView(context);
+        icon.setImageResource(iconRes);
+        icon.setScaleType(ImageView.ScaleType.CENTER);
+        icon.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        row.addView(icon, LayoutHelper.createLinear(24, 24, Gravity.CENTER_VERTICAL, 0, 0, 18, 0));
+
+        TextView label = new TextView(context);
+        label.setText(text);
+        label.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        label.setSingleLine();
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(label, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 0, 0, 0, 0));
+
+        org.telegram.ui.Components.Switch switchView = new org.telegram.ui.Components.Switch(context);
+        switchView.setColors(Theme.key_switchTrack, Theme.key_switchTrackChecked, Theme.key_windowBackgroundWhite, Theme.key_windowBackgroundWhite);
+        switchView.setChecked(org.telegram.messenger.GreyZone.isGhostModeOn(), false);
+        row.addView(switchView, LayoutHelper.createLinear(37, 24));
+
+        row.setOnClickListener(v -> {
+            boolean newState = !switchView.isChecked();
+            switchView.setChecked(newState, true);
+            onToggled.accept(newState);
+        });
+
+        row.setTag(switchView);
+        return row;
     }
 
     private void updateSidebarAccounts() {
         if (sidebarAccountsContainer == null) return;
         sidebarAccountsContainer.removeAllViews();
-        
+
         Context context = this;
-        
+
         for (int i = 0; i < UserConfig.MAX_ACCOUNT_COUNT; i++) {
             if (UserConfig.getInstance(i).isClientActivated()) {
                 final int accountNum = i;
                 TLRPC.User user = UserConfig.getInstance(i).getCurrentUser();
                 if (user == null) continue;
-                
+
                 FrameLayout avatarFrame = new FrameLayout(context);
                 avatarFrame.setPadding(AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6), AndroidUtilities.dp(6));
 
@@ -9727,11 +9940,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 sidebarAccountsContainer.addView(avatarFrame, LayoutHelper.createLinear(52, 52, 0, 4, 0, 4));
             }
         }
-        
+
         ImageView addAccountButton = new ImageView(context);
         addAccountButton.setImageResource(R.drawable.msg_add);
         addAccountButton.setScaleType(ImageView.ScaleType.CENTER);
-        addAccountButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        addAccountButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
 
         addAccountButton.setOnClickListener(v -> {
             presentFragment(new LoginActivity());
@@ -9754,7 +9967,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         return gd;
     }
 
-    private ImageView ghostModeButton;
+    private View ghostModeRow;
+    private org.telegram.ui.Components.Switch ghostModeSwitch;
 
     /**
      * Refreshes the sidebar's grey-zone controls. Public so the grey zone screen can call it
@@ -9770,50 +9984,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     /** Makes it obvious at a glance whether ghost mode is currently hiding you. */
     private void updateGhostModeButton() {
-        if (ghostModeButton == null) {
+        if (ghostModeRow == null || ghostModeSwitch == null) {
             return;
         }
-        // The button only makes sense while the grey zone is accepted.
-        ghostModeButton.setVisibility(org.telegram.messenger.GreyZone.isAccepted() ? View.VISIBLE : View.GONE);
-        boolean on = org.telegram.messenger.GreyZone.isGhostModeOn();
-        ghostModeButton.setColorFilter(new android.graphics.PorterDuffColorFilter(
-                on ? Theme.getColor(Theme.key_featuredStickers_addButton) : Theme.getColor(Theme.key_chats_menuItemIcon),
-                android.graphics.PorterDuff.Mode.MULTIPLY));
-        ghostModeButton.setAlpha(on ? 1f : 0.6f);
-    }
-
-    private ImageView createSidebarIcon(Context context, int iconRes, String tooltip, View.OnClickListener onClick) {
-        ImageView imageView = new ImageView(context);
-        imageView.setImageResource(iconRes);
-        imageView.setScaleType(ImageView.ScaleType.CENTER);
-        imageView.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
-
-        // Was a pressed-state-only oval: it snapped in and out with no ripple, which is the main
-        // reason the panel felt cheaper than exteraGram's next to the rest of the app.
-        imageView.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(14), 0, Theme.getColor(Theme.key_listSelector)));
-        imageView.setOnClickListener(onClick);
-        
-        if (Build.VERSION.SDK_INT >= 26) {
-            imageView.setTooltipText(tooltip);
-        }
-        
-        return imageView;
-    }
-
-    private ImageView createProxyButton(Context context) {
-        ImageView proxyButton = new ImageView(context);
-        proxyButton.setScaleType(ImageView.ScaleType.CENTER);
-        
-        proxyButton.setOnClickListener(v -> {
-            presentFragment(new ProxyListActivity());
-        });
-
-        proxyButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(14), 0, Theme.getColor(Theme.key_listSelector)));
-
-
-        updateProxyButtonState(proxyButton);
-        
-        return proxyButton;
+        // The row only makes sense while the grey zone is accepted.
+        ghostModeRow.setVisibility(org.telegram.messenger.GreyZone.isAccepted() ? View.VISIBLE : View.GONE);
+        ghostModeSwitch.setChecked(org.telegram.messenger.GreyZone.isGhostModeOn(), ghostModeSwitch.isAttachedToWindow());
     }
 
     private void updateProxyButtonState(ImageView proxyButton) {
@@ -9823,7 +9999,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         boolean proxyEnabled = preferences.getBoolean("proxy_enabled", false);
         
         proxyButton.setImageResource(proxyEnabled ? R.drawable.outline_shield_check : R.drawable.outline_shield_plain_24);
-        int colorKey = proxyEnabled ? Theme.key_chats_actionBackground : Theme.key_chats_menuItemIcon;
+        int colorKey = proxyEnabled ? Theme.key_chats_actionBackground : Theme.key_windowBackgroundWhiteGrayIcon;
         proxyButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(colorKey), android.graphics.PorterDuff.Mode.MULTIPLY));
         
         if (Build.VERSION.SDK_INT >= 26) {
