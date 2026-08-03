@@ -519,7 +519,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private ChatAvatarContainer avatarContainer;
     private int undoViewIndex;
     private UndoView[] undoView = new UndoView[2];
-    private FilterTabsView filterTabsView;
+    public FilterTabsView filterTabsView;
     private boolean askingForPermissions;
     private int searchViewPagerIndex;
     @Nullable
@@ -742,7 +742,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private Bulletin topBulletin;
 
     private AnimationNotificationsLocker notificationsLocker = new AnimationNotificationsLocker();
-    private boolean searchIsShowed;
+    public boolean searchIsShowed;
     private boolean searchWasFullyShowed;
     public boolean whiteActionBar;
     private boolean searchFiltersWasShowed;
