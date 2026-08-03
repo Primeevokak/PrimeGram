@@ -372,9 +372,9 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
             }
             arrowView.setColorFilter(new PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN));
         }
-        nameTextView.setTextColor(Theme.getColor(Theme.key_chats_menuName));
+        nameTextView.setTextColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteBlackText) : Theme.getColor(Theme.key_chats_menuName));
         if (useImageBackground) {
-            phoneTextView.setTextColor(Theme.getColor(Theme.key_chats_menuPhone));
+            phoneTextView.setTextColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteGrayText) : Theme.getColor(Theme.key_chats_menuPhone));
             if (shadowView.getVisibility() != VISIBLE) shadowView.setVisibility(VISIBLE);
             if (backgroundDrawable instanceof ColorDrawable || backgroundDrawable instanceof GradientDrawable) {
                 backgroundDrawable.setBounds(0, 0, getMeasuredWidth(), getMeasuredHeight());
@@ -399,7 +399,7 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
         } else {
             int visibility = drawCatsShadow ? VISIBLE : INVISIBLE;
             if (shadowView.getVisibility() != visibility) shadowView.setVisibility(visibility);
-            phoneTextView.setTextColor(Theme.getColor(Theme.key_chats_menuPhoneCats));
+            phoneTextView.setTextColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteGrayText) : Theme.getColor(Theme.key_chats_menuPhoneCats));
             super.onDraw(canvas);
         }
 
@@ -479,7 +479,11 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
             ? Theme.key_chats_menuTopBackground
             : Theme.key_chats_menuTopBackgroundCats;
         if (force || currentTag == null || backgroundKey != currentTag) {
-            setBackgroundColor(Theme.getColor(backgroundKey));
+            // The classic drawer's blue header is a light-theme-only default: not every theme
+            // (including several installed dark ones) carries a dark value for this key, and
+            // getColor() silently falls back to that compiled-in light blue rather than to
+            // black. Pin it to the app's normal dark surface instead of trusting the theme key.
+            setBackgroundColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhite) : Theme.getColor(backgroundKey));
             setTag(backgroundKey);
         }
         return backgroundKey;

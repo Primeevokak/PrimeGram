@@ -16823,7 +16823,7 @@ public class ChatActivity extends BaseFragment implements
         return getScrollOffsetForMessage(getHeightForMessage(object, !TextUtils.isEmpty(highlightMessageQuote))) - scrollOffsetForQuote(object);
     }
     private int getScrollOffsetForMessage(int messageHeight) {
-        return (int) Math.max(-AndroidUtilities.dp(2), (chatListView.getMeasuredHeight() - blurredViewBottomOffset - chatListViewPaddingTop - windowInsetsStateHolder.getCurrentMaxBottomInset() - dp(44 + 9) - messageHeight) / 2);
+        return (int) Math.max(-AndroidUtilities.dp(2), (chatListView.getMeasuredHeight() - chatListViewPaddingTop - chatListView.getPaddingBottom() - messageHeight) / 2);
     }
 
     private int scrollOffsetForQuote(MessageObject object) {

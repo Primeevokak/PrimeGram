@@ -9483,6 +9483,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private Boolean sidebarEnabledCache;
 
     private boolean isSidebarEnabled() {
+        // The classic drawer (DrawerHelper) carries its own swipe-open gesture and its own menu -
+        // showing this panel on top of it was two side panels answering to overlapping swipes.
+        // When that mode is on, this panel steps aside entirely; DrawerHelper is the one panel.
+        if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+            return false;
+        }
         if (sidebarEnabledCache == null) {
             sidebarEnabledCache = MessagesController.getGlobalMainSettings()
                     .getBoolean("primegram_sidebar_enabled", true);
@@ -9518,7 +9524,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     public void updateSidebarVisibility() {
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-        boolean sidebarEnabled = preferences.getBoolean("primegram_sidebar_enabled", true);
+        boolean sidebarEnabled = !org.telegram.messenger.DrawerHelper.isEnabled()
+                && preferences.getBoolean("primegram_sidebar_enabled", true);
         sidebarEnabledCache = sidebarEnabled;
 
         BaseFragment currentFragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
@@ -9654,7 +9661,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // rounding; the outline is also what the elevation shadow is traced from.
         final int panelRadius = AndroidUtilities.dp(18);
         android.graphics.drawable.GradientDrawable panelBackground = new android.graphics.drawable.GradientDrawable();
-        panelBackground.setColor(Theme.getColor(Theme.key_chats_menuBackground));
+        // key_chats_menuBackground is a legacy classic-drawer key that not every theme (including
+        // several dark ones) carries a value for; it silently falls back to a compiled-in light
+        // blue instead of black. key_windowBackgroundWhite is the one every theme actually themes.
+        panelBackground.setColor(Theme.getColor(Theme.key_windowBackgroundWhite));
         panelBackground.setCornerRadii(new float[]{0, 0, panelRadius, panelRadius, panelRadius, panelRadius, 0, 0});
         rootFrame.setBackground(panelBackground);
         rootFrame.setElevation(AndroidUtilities.dp(6));
@@ -9791,13 +9801,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         AvatarDrawable avatarDrawable = new AvatarDrawable();
         avatarDrawable.setInfo(user);
         avatarImageView.setForUserOrChat(user, avatarDrawable);
-        header.addView(avatarImageView, LayoutHelper.createLinear(56, 56, 0, 0, 0, 14, 0));
+        header.addView(avatarImageView, LayoutHelper.createLinear(56, 56, Gravity.CENTER_VERTICAL, 0, 0, 14, 0));
 
         LinearLayout texts = new LinearLayout(context);
         texts.setOrientation(LinearLayout.VERTICAL);
 
         TextView nameView = new TextView(context);
-        nameView.setTextColor(Theme.getColor(Theme.key_chats_menuName));
+        nameView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
         nameView.setTypeface(AndroidUtilities.bold());
         nameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
         nameView.setSingleLine();
@@ -9806,7 +9816,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         texts.addView(nameView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 0, 2));
 
         TextView phoneView = new TextView(context);
-        phoneView.setTextColor(Theme.getColor(Theme.key_chats_menuPhone));
+        phoneView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
         phoneView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
         phoneView.setSingleLine();
         String formattedPhone = user != null && !TextUtils.isEmpty(user.phone) ? PhoneFormat.getInstance().format("+" + user.phone) : "";
@@ -9833,16 +9843,16 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ImageView icon = new ImageView(context);
         icon.setImageResource(iconRes);
         icon.setScaleType(ImageView.ScaleType.CENTER);
-        icon.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
-        row.addView(icon, LayoutHelper.createLinear(24, 24, 0, 0, 0, 18, 0));
+        icon.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        row.addView(icon, LayoutHelper.createLinear(24, 24, Gravity.CENTER_VERTICAL, 0, 0, 18, 0));
 
         TextView label = new TextView(context);
         label.setText(text);
-        label.setTextColor(Theme.getColor(Theme.key_chats_menuItemText));
+        label.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
         label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
         label.setSingleLine();
         label.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(label, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
+        row.addView(label, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 0, 0, 0, 0));
 
         row.setTag(icon);
         return row;
@@ -9859,19 +9869,19 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ImageView icon = new ImageView(context);
         icon.setImageResource(iconRes);
         icon.setScaleType(ImageView.ScaleType.CENTER);
-        icon.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
-        row.addView(icon, LayoutHelper.createLinear(24, 24, 0, 0, 0, 18, 0));
+        icon.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        row.addView(icon, LayoutHelper.createLinear(24, 24, Gravity.CENTER_VERTICAL, 0, 0, 18, 0));
 
         TextView label = new TextView(context);
         label.setText(text);
-        label.setTextColor(Theme.getColor(Theme.key_chats_menuItemText));
+        label.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
         label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
         label.setSingleLine();
         label.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(label, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
+        row.addView(label, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 0, 0, 0, 0));
 
         org.telegram.ui.Components.Switch switchView = new org.telegram.ui.Components.Switch(context);
-        switchView.setColors(Theme.key_switchTrack, Theme.key_switchTrackChecked, Theme.key_chats_menuBackground, Theme.key_chats_menuBackground);
+        switchView.setColors(Theme.key_switchTrack, Theme.key_switchTrackChecked, Theme.key_windowBackgroundWhite, Theme.key_windowBackgroundWhite);
         switchView.setChecked(org.telegram.messenger.GreyZone.isGhostModeOn(), false);
         row.addView(switchView, LayoutHelper.createLinear(37, 24));
 
@@ -9932,7 +9942,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ImageView addAccountButton = new ImageView(context);
         addAccountButton.setImageResource(R.drawable.msg_add);
         addAccountButton.setScaleType(ImageView.ScaleType.CENTER);
-        addAccountButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
+        addAccountButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
 
         addAccountButton.setOnClickListener(v -> {
             presentFragment(new LoginActivity());
@@ -9987,7 +9997,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         boolean proxyEnabled = preferences.getBoolean("proxy_enabled", false);
         
         proxyButton.setImageResource(proxyEnabled ? R.drawable.outline_shield_check : R.drawable.outline_shield_plain_24);
-        int colorKey = proxyEnabled ? Theme.key_chats_actionBackground : Theme.key_chats_menuItemIcon;
+        int colorKey = proxyEnabled ? Theme.key_chats_actionBackground : Theme.key_windowBackgroundWhiteGrayIcon;
         proxyButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(colorKey), android.graphics.PorterDuff.Mode.MULTIPLY));
         
         if (Build.VERSION.SDK_INT >= 26) {

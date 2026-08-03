@@ -1688,6 +1688,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         } else if (item.id == ID_NAVIGATION_DRAWER) {
             org.telegram.messenger.DrawerHelper.setEnabled(!org.telegram.messenger.DrawerHelper.isEnabled());
+            // Whichever way this switches, the PrimeGram side panel is the only way back to
+            // settings/profile from the chat list (the classic drawer's own hamburger covers it
+            // too, but the panel is what people are used to reaching for) - so every navigation
+            // mode switch turns it back on rather than risk leaving someone stranded with it off.
+            MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_sidebar_enabled", true).apply();
+            if (LaunchActivity.instance != null) {
+                LaunchActivity.instance.updateSidebarVisibility();
+            }
             listView.adapter.update(true);
             if (getParentActivity() != null) {
                 new AlertDialog.Builder(getParentActivity())

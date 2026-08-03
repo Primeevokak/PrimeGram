@@ -35,6 +35,10 @@ import java.util.Collections;
 public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
 
     public static final int ITEM_PROXY = 9;
+    public static final int ITEM_GHOST = 12;
+    public static final int ITEM_BROWSER = 20;
+    public static final int ITEM_WALLET = 21;
+    public static final int ITEM_PARTNER = 22;
 
     private Context mContext;
     private DrawerLayoutContainer mDrawerLayoutContainer;
@@ -44,6 +48,7 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
     public DrawerProfileCell profileCell;
     private SideMenultItemAnimator itemAnimator;
     public DrawerProxyCell.OnSwitchToggled onProxySwitchToggled;
+    public DrawerProxyCell.OnSwitchToggled onGhostSwitchToggled;
 
     public DrawerLayoutAdapter(Context context, SideMenultItemAnimator animator, DrawerLayoutContainer drawerLayoutContainer) {
         mContext = context;
@@ -128,6 +133,7 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
                 view = new DrawerAddCell(mContext);
                 break;
             case 7:
+            case 8:
                 view = new DrawerProxyCell(mContext);
                 break;
             case 1:
@@ -176,6 +182,19 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
                 drawerProxyCell.onSwitchToggled = onProxySwitchToggled;
                 break;
             }
+            case 8: {
+                DrawerProxyCell ghostCell = (DrawerProxyCell) holder.itemView;
+                int pos = position - 2;
+                if (accountsShown) {
+                    pos -= getAccountRowsCount();
+                }
+                Item item = items.get(pos);
+                ghostCell.bind(item.text, item.icon);
+                ghostCell.setSwitchVisible(true);
+                ghostCell.setChecked(org.telegram.messenger.GreyZone.isGhostModeOn());
+                ghostCell.onSwitchToggled = onGhostSwitchToggled;
+                break;
+            }
         }
     }
 
@@ -210,6 +229,9 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
         }
         if (items.get(i).id == ITEM_PROXY) {
             return 7;
+        }
+        if (items.get(i).id == ITEM_GHOST) {
+            return 8;
         }
         return 3;
     }
@@ -269,12 +291,19 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
         if (showDivider) {
             items.add(null); // divider
         }
-        items.add(new Item(2, LocaleController.getString(R.string.NewGroup), R.drawable.msg_groups));
+        // PrimeGram: New Group and Calls dropped here - this menu carries the same curated set
+        // as the PrimeGram side panel it replaces, not the stock Telegram drawer's full list.
         items.add(new Item(6, LocaleController.getString(R.string.Contacts), R.drawable.msg_contacts));
-        items.add(new Item(10, LocaleController.getString(R.string.Calls), R.drawable.msg_calls));
         items.add(new Item(11, LocaleController.getString(R.string.SavedMessages), R.drawable.msg_saved));
         items.add(new Item(ITEM_PROXY, LocaleController.getString(R.string.ProxySettings), R.drawable.outline_shield_check));
         items.add(new Item(8, LocaleController.getString(R.string.Settings), R.drawable.msg_settings_old));
+        items.add(null); // divider
+        items.add(new Item(ITEM_BROWSER, "Браузер", R.drawable.msg_language));
+        items.add(new Item(ITEM_WALLET, "Кошелёк", R.drawable.settings_wallet));
+        if (org.telegram.messenger.GreyZone.isAccepted()) {
+            items.add(new Item(ITEM_GHOST, "Режим призрака", R.drawable.msg_ghost_24));
+        }
+        items.add(new Item(ITEM_PARTNER, "Наш партнёр", R.drawable.msg_channel));
     }
 
     public boolean click(View view, int position) {

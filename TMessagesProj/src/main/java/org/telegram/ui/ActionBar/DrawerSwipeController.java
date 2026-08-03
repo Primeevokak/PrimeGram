@@ -257,12 +257,17 @@ public class DrawerSwipeController {
             host.setSystemGestureExclusionRects(Collections.emptyList());
             return;
         }
-        int bottom = Math.max(0, height - AndroidUtilities.navigationBarHeight);
+        // Matches the band LaunchActivity carved out for the PrimeGram panel's own activation
+        // zone, since opening now answers to the same zone.
+        int zoneTop = (int) (height * org.telegram.messenger.PrimeSidebarZone.top());
+        int zoneBottom = (int) (height * org.telegram.messenger.PrimeSidebarZone.bottom());
+        int band = Math.min(AndroidUtilities.dp(EXCLUSION_HEIGHT_DP), zoneBottom - zoneTop);
+        int bandTop = Math.max(0, zoneTop + (zoneBottom - zoneTop - band) / 2);
         exclusionRect.set(
             0,
-            Math.max(0, bottom - AndroidUtilities.dp(EXCLUSION_HEIGHT_DP)),
+            bandTop,
             AndroidUtilities.dp(EDGE_SAFE_ZONE_DP),
-            bottom
+            bandTop + band
         );
         host.setSystemGestureExclusionRects(exclusionRects);
     }
@@ -293,7 +298,13 @@ public class DrawerSwipeController {
         }
         if (allowOpenDrawer && canTrackGesture()) {
             if (ev != null && (ev.getAction() == MotionEvent.ACTION_DOWN || ev.getAction() == MotionEvent.ACTION_MOVE)
-                && !startedTracking && !maybeStartTracking) {
+                && !startedTracking && !maybeStartTracking
+                // Opening from closed answers to the same configurable activation area the
+                // PrimeGram panel used, so the two panels don't fight over swipe territory now
+                // that this drawer replaces it - see LaunchActivity.isSidebarEnabled(). Closing
+                // (drawerOpened) is unrestricted, same as it always was.
+                && (drawerOpened || org.telegram.messenger.PrimeSidebarZone.contains(
+                        ev.getX(), ev.getY(), host.getWidth(), host.getHeight()))) {
                 startedTrackingX = (int) ev.getX();
                 startedTrackingY = (int) ev.getY();
                 startedTrackingPointerId = ev.getPointerId(0);

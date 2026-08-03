@@ -21,7 +21,6 @@ import org.telegram.ui.ActionBar.DrawerLayoutContainer;
 import org.telegram.ui.ActionBar.INavigationLayout;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Adapters.DrawerLayoutAdapter;
-import org.telegram.ui.CallLogActivity;
 import org.telegram.ui.Cells.DrawerAddCell;
 import org.telegram.ui.Cells.DrawerUserCell;
 import org.telegram.ui.ChatActivity;
@@ -31,7 +30,6 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SideMenultItemAnimator;
 import org.telegram.ui.ContactsActivity;
 import org.telegram.ui.DialogsActivity;
-import org.telegram.ui.GroupCreateActivity;
 import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.LoginActivity;
 import org.telegram.ui.ProxyListActivity;
@@ -143,11 +141,18 @@ public final class DrawerHelper {
         itemAnimatorRef[0] = finalItemAnimator;
         sideMenu.setItemAnimator(finalItemAnimator);
         sideMenu.setClipToPadding(false);
-        sideMenu.setBackgroundColor(Theme.getColor(Theme.key_chats_menuBackground));
-        sideMenuContainer.setBackgroundColor(Theme.getColor(Theme.key_chats_menuBackground));
+        // Not every theme carries a dark value for this legacy key - pin it to the app's normal
+        // dark surface so the drawer doesn't stand out as a lighter blue-ish panel.
+        int menuBackground = Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhite) : Theme.getColor(Theme.key_chats_menuBackground);
+        sideMenu.setBackgroundColor(menuBackground);
+        sideMenuContainer.setBackgroundColor(menuBackground);
         sideMenu.setLayoutManager(new LinearLayoutManager(activity, LinearLayoutManager.VERTICAL, false));
         sideMenu.setAllowItemsInteractionDuringAnimation(false);
         DrawerLayoutAdapter drawerLayoutAdapter = new DrawerLayoutAdapter(activity, finalItemAnimator, drawerLayoutContainer);
+        drawerLayoutAdapter.onGhostSwitchToggled = checked -> {
+            org.telegram.messenger.GreyZone.setGhostMode(checked);
+            LaunchActivity.refreshGreyZoneUi();
+        };
         sideMenu.setAdapter(drawerLayoutAdapter);
         sideMenuContainer.addView(sideMenu, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         drawerLayoutContainer.setDrawerLayout(sideMenuContainer, sideMenu);
@@ -217,10 +222,7 @@ public final class DrawerHelper {
                     }
                     return;
                 }
-                if (id == 2) {
-                    activity.presentFragment(new GroupCreateActivity(new Bundle()));
-                    drawerLayoutContainer.closeDrawer(false);
-                } else if (id == 6) {
+                if (id == 6) {
                     Bundle args = new Bundle();
                     args.putBoolean("needFinishFragment", false);
                     activity.presentFragment(new ContactsActivity(args));
@@ -231,8 +233,22 @@ public final class DrawerHelper {
                 } else if (id == 8) {
                     activity.presentFragment(new SettingsActivity(new Bundle()));
                     drawerLayoutContainer.closeDrawer(false);
-                } else if (id == 10) {
-                    activity.presentFragment(new CallLogActivity());
+                } else if (id == DrawerLayoutAdapter.ITEM_BROWSER) {
+                    activity.presentFragment(new org.telegram.ui.PrimeBrowserActivity(""));
+                    drawerLayoutContainer.closeDrawer(false);
+                } else if (id == DrawerLayoutAdapter.ITEM_WALLET) {
+                    try {
+                        org.telegram.messenger.browser.Browser.openUrl(activity, "https://t.me/wallet");
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                    drawerLayoutContainer.closeDrawer(false);
+                } else if (id == DrawerLayoutAdapter.ITEM_PARTNER) {
+                    try {
+                        org.telegram.messenger.browser.Browser.openUrl(activity, "https://t.me/govpn?start=2f6a4271-0e89-481c-b90f-ecfd0e1a888d");
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
                     drawerLayoutContainer.closeDrawer(false);
                 } else if (id == 11) {
                     Bundle args = new Bundle();

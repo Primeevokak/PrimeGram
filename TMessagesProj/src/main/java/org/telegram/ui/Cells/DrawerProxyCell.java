@@ -48,7 +48,7 @@ public class DrawerProxyCell extends FrameLayout {
         textView.setGravity(Gravity.CENTER_VERTICAL | (isRTL() ? Gravity.RIGHT : Gravity.LEFT));
 
         checkBox = new Switch(context);
-        checkBox.setColors(Theme.key_switchTrack, Theme.key_switchTrackChecked, Theme.key_chats_menuBackground, Theme.key_chats_menuBackground);
+        checkBox.setColors(Theme.key_switchTrack, Theme.key_switchTrackChecked, Theme.key_windowBackgroundWhite, Theme.key_windowBackgroundWhite);
         checkBox.setClickable(false);
         checkBox.setFocusable(false);
 
@@ -70,7 +70,7 @@ public class DrawerProxyCell extends FrameLayout {
         super.onAttachedToWindow();
         textView.setTextColor(Theme.getColor(Theme.key_chats_menuItemText));
         imageView.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_chats_menuItemIcon), PorterDuff.Mode.SRC_IN));
-        checkBox.setColors(Theme.key_switchTrack, Theme.key_switchTrackChecked, Theme.key_chats_menuBackground, Theme.key_chats_menuBackground);
+        checkBox.setColors(Theme.key_switchTrack, Theme.key_switchTrackChecked, Theme.key_windowBackgroundWhite, Theme.key_windowBackgroundWhite);
     }
 
     private float switchDownX = -1f;
