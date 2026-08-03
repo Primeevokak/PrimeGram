@@ -447,6 +447,10 @@ public class SharedMediaLayout extends FrameLayout implements NotificationCenter
         return inu_flatTabBar() ? 44 : 48;
     }
 
+    public int inu_dockOffset() {
+        return 0;
+    }
+
     public void drawListForBlur(Canvas blurCanvas, ArrayList<SizeNotifierFrameLayout.IViewWithInvalidateCallback> views) {
         for (int i = 0; i < mediaPages.length; i++) {
             if (mediaPages[i] != null && mediaPages[i].getVisibility() == View.VISIBLE) {

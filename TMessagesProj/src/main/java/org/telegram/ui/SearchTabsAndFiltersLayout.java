@@ -34,6 +34,11 @@ public class SearchTabsAndFiltersLayout extends FrameLayout implements Theme.Col
 
     @Override
     protected void dispatchDraw(@NonNull Canvas canvas) {
+        if (inu_blurHelper != null) {
+            inu_blurHelper.draw(canvas);
+            super.dispatchDraw(canvas);
+            return;
+        }
         canvas.save();
         canvas.clipPath(clipPath);
         super.dispatchDraw(canvas);

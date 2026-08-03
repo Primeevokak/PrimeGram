@@ -221,7 +221,7 @@ public class ChatAttachAlertBotWebViewLayout extends ChatAttachAlert.AttachAlert
         swipeContainer = new WebViewSwipeContainer(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightMeasureSpec) - ActionBar.getCurrentActionBarHeight() - dp(84) + measureOffsetY, MeasureSpec.EXACTLY));
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightMeasureSpec) - ActionBar.getCurrentActionBarHeight() - dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 52 : 84) + measureOffsetY, MeasureSpec.EXACTLY));
             }
         };
         swipeContainer.addView(webViewContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
@@ -239,7 +239,7 @@ public class ChatAttachAlertBotWebViewLayout extends ChatAttachAlert.AttachAlert
         swipeContainer.setIsKeyboardVisible(obj -> parentAlert.sizeNotifierFrameLayout.getKeyboardHeight() >= dp(20));
 
         addView(swipeContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        addView(progressView = new WebProgressView(context, resourcesProvider), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM, 0, 0, 0, 84));
+        addView(progressView = new WebProgressView(context, resourcesProvider), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM, 0, 0, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 52 : 84));
 
         webViewContainer.setWebViewProgressListener(progress -> {
             progressView.setLoadProgressAnimated(progress);

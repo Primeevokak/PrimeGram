@@ -218,7 +218,7 @@ public class RichEditor extends BaseFragment implements NotificationCenter.Notif
                     animateEnterView.sendButtonContainer.setVisibility(View.VISIBLE);
 //                    topGradient.setVisibility(View.VISIBLE);
 //                    bottomGradient.setVisibility(View.VISIBLE);
-                    animateInputBackground.setRadius(dp(ChatInputViewsContainer.INPUT_BUBBLE_RADIUS));
+                    animateInputBackground.setRadius(dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : ChatInputViewsContainer.INPUT_BUBBLE_RADIUS));
                     animateInputBackground.setAlpha(0xFF);
                     animateInputView.drawInputBackground = true;
                     animateInputView.invalidate();
@@ -405,7 +405,7 @@ public class RichEditor extends BaseFragment implements NotificationCenter.Notif
                 if (animatingOpen && animateInputBackground != null) {
                     rect.set(0, 0, getWidth(), getHeight());
                     rect.inset(-dp(7), -dp(7));
-                    final float rad = lerp(dpf2(ChatInputViewsContainer.INPUT_BUBBLE_RADIUS), 0, animateOpenProgress);
+                    final float rad = lerp(dpf2(org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : ChatInputViewsContainer.INPUT_BUBBLE_RADIUS), 0, animateOpenProgress);
                     lerp(animateFromRect, rect, animateOpenProgress, rect);
 
                     tempRect.set(animateInputBackground.getBounds());
