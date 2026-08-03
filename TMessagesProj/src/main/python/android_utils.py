@@ -10,7 +10,7 @@ from java import dynamic_proxy, jclass
 from java.lang import Runnable
 from android.view import View
 
-from org.telegram.messenger import AndroidUtilities, FileLog
+from org.telegram.messenger import AndroidUtilities, FileLog, NonIslandHelper, DrawerHelper, MainTabsHelper
 
 _CLIPBOARD_TAG = "plugin"
 
@@ -74,6 +74,37 @@ def log(data):
 
 def copy_to_clipboard(text):
     AndroidUtilities.addToClipboard(str(text))
+
+
+# ---------------------------------------------------------------------------
+# interface mode
+#
+# PrimeGram ships more than one interface: the default modern look, an optional classic flat
+# style, and an optional classic side-menu drawer that replaces the bottom tab bar. Each changes
+# paddings, radii, and which views even exist. A plugin that only uses the official hook and menu
+# APIs never needs to care - those already adapt themselves. A plugin that pokes at Telegram's own
+# views directly (matching a view by index, hardcoding a pixel offset) does need to care, and
+# should check here first rather than assume one fixed layout.
+
+def is_classic_ui():
+    """True when the user turned on the classic flat interface (pre-redesign look)."""
+    return bool(NonIslandHelper.isEnabled())
+
+
+def is_navigation_drawer():
+    """True when the classic side-menu drawer replaces the bottom tab bar entirely."""
+    return bool(DrawerHelper.isEnabled())
+
+
+def is_bottom_tabs_hidden():
+    """True when there is no bottom tab bar at all - either hidden directly, or implied by an
+    active is_navigation_drawer()."""
+    return bool(MainTabsHelper.isHidden())
+
+
+def is_bottom_tabs_compact():
+    """True when the bottom tab bar is showing icons only, with no labels."""
+    return bool(MainTabsHelper.isCompact())
 
 
 class _Resources:

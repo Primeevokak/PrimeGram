@@ -39,6 +39,7 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
     public static final int ITEM_BROWSER = 20;
     public static final int ITEM_WALLET = 21;
     public static final int ITEM_PARTNER = 22;
+    private static final int PLUGIN_ITEM_ID_BASE = 100_000;
 
     private Context mContext;
     private DrawerLayoutContainer mDrawerLayoutContainer;
@@ -304,6 +305,22 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
             items.add(new Item(ITEM_GHOST, "Режим призрака", R.drawable.msg_ghost_24));
         }
         items.add(new Item(ITEM_PARTNER, "Наш партнёр", R.drawable.msg_channel));
+
+        // PrimeGram: plugins' own rows - inugram's extendDrawer(items) equivalent, but built on
+        // the same PrimePluginMenuItems machinery every other in-app menu already uses instead of
+        // a bespoke hook just for this one menu.
+        final java.util.Map<String, Object> pluginContext = new java.util.HashMap<>();
+        pluginContext.put("account", UserConfig.selectedAccount);
+        final java.util.List<org.telegram.messenger.plugins.PrimePluginMenuItems.Item> pluginItems =
+                org.telegram.messenger.plugins.PrimePluginMenuItems.forType("drawer_menu", pluginContext);
+        if (!pluginItems.isEmpty()) {
+            items.add(null); // divider
+            for (int i = 0; i < pluginItems.size(); i++) {
+                final org.telegram.messenger.plugins.PrimePluginMenuItems.Item pluginItem = pluginItems.get(i);
+                items.add(new Item(PLUGIN_ITEM_ID_BASE + i, pluginItem.text, pluginItem.iconResId)
+                        .onClick(v -> org.telegram.messenger.plugins.PrimePluginMenuItems.click(pluginItem, pluginContext)));
+            }
+        }
     }
 
     public boolean click(View view, int position) {

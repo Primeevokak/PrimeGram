@@ -75,6 +75,9 @@ class AppEvent(Enum):
 
 class MenuItemType(Enum):
     MESSAGE_CONTEXT_MENU = "message_context_menu"
+    # Only rendered when the user has PrimeGram's classic side-menu drawer turned on
+    # (android_utils.is_navigation_drawer() to check) - with the default modern interface there
+    # is no drawer for this to appear in, and the item is simply never shown, not an error.
     DRAWER_MENU = "drawer_menu"
     MAIN_MENU = "main_menu"
     CHAT_ACTION_MENU = "chat_action_menu"

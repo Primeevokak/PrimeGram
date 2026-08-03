@@ -20,7 +20,7 @@
   --muted:#8d8f9a;
   --amber:#ffab2e;
   --amber-soft:rgba(255,171,46,.14);
-  --radius:18px;
+  --radius:16px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -38,74 +38,67 @@ body::after{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:100;opacity:.035;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-#field{position:fixed;inset:0;z-index:0;pointer-events:none}
-.wrap{position:relative;z-index:1;max-width:1120px;margin:0 auto;padding:0 28px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 28px}
+svg.i{width:1em;height:1em;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.15em}
 
 /* ── шапка ───────────────────────────────────────────── */
-header{position:relative;z-index:3;padding:30px 0}
-.bar{display:flex;align-items:center;justify-content:flex-end;gap:20px}
-.nav{display:flex;gap:26px;font-size:15px}
-.nav a{color:var(--muted);text-decoration:none;transition:color .25s}
+header{padding:26px 0;border-bottom:1px solid transparent}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.logo{font-family:'Unbounded';font-weight:600;font-size:16px;letter-spacing:-.01em;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:9px}
+.logo .dot{width:8px;height:8px;border-radius:50%;background:var(--amber)}
+.nav{display:flex;align-items:center;gap:26px;font-size:15px}
+.nav a{color:var(--muted);text-decoration:none;transition:color .2s}
 .nav a:hover{color:var(--text)}
-@media(max-width:640px){.nav{display:none}}
+.stars{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13.5px;font-family:'JetBrains Mono';border:1px solid var(--line);border-radius:100px;padding:5px 12px}
+.stars svg{color:var(--amber)}
+@media(max-width:640px){.nav a:not(.stars){display:none}}
 
 /* ── первый экран ────────────────────────────────────── */
-.hero{padding:clamp(60px,11vw,130px) 0 clamp(70px,10vw,120px)}
-.badge{
-  display:inline-flex;align-items:center;gap:9px;padding:7px 15px;border-radius:100px;
-  border:1px solid var(--line);background:rgba(255,255,255,.02);
-  font-size:13px;color:var(--muted);margin-bottom:32px;
-}
-.badge b{color:var(--amber);font-weight:500}
+.hero{padding:clamp(50px,8vw,86px) 0 0;text-align:center}
+.eyebrow-line{font-family:'JetBrains Mono';font-size:13px;letter-spacing:.08em;color:var(--muted);margin-bottom:28px}
+.eyebrow-line b{color:var(--amber);font-weight:500}
 h1{
-  font-family:'Unbounded';font-weight:900;letter-spacing:-.045em;line-height:.94;
-  font-size:clamp(52px,10.5vw,124px);margin-bottom:26px;
+  font-family:'Unbounded';font-weight:900;letter-spacing:-.04em;line-height:1.04;
+  font-size:clamp(38px,6.6vw,76px);margin:0 auto 24px;max-width:760px;
+  text-wrap:balance;
 }
 h1 .glow{
   background:linear-gradient(96deg,var(--amber) 0%,#ffd79a 45%,var(--amber) 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
 }
-.lede{font-size:clamp(18px,2.3vw,23px);color:#b9bac2;max-width:620px;margin-bottom:44px}
-.cta{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.lede{font-size:clamp(17px,2vw,20px);color:#b9bac2;max-width:560px;margin:0 auto 38px}
+.cta{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:center}
 .btn{
-  display:inline-flex;align-items:center;gap:11px;padding:17px 30px;border-radius:14px;
+  display:inline-flex;align-items:center;gap:10px;padding:16px 28px;border-radius:14px;
   font-family:'Golos Text';font-weight:700;font-size:16px;text-decoration:none;
   transition:transform .28s cubic-bezier(.2,.8,.3,1),box-shadow .28s;
 }
-.btn-main{background:var(--amber);color:#140d00;box-shadow:0 12px 40px -12px rgba(255,171,46,.75)}
-.btn-main:hover{transform:translateY(-3px);box-shadow:0 20px 52px -12px rgba(255,171,46,.9)}
+.btn-main{background:var(--amber);color:#140d00;box-shadow:0 12px 40px -12px rgba(255,171,46,.7)}
+.btn-main:hover{transform:translateY(-2px);box-shadow:0 18px 46px -12px rgba(255,171,46,.85)}
 .btn-ghost{border:1px solid var(--line);color:var(--text);background:rgba(255,255,255,.02)}
-.btn-ghost:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.22)}
-.sub{font-size:13.5px;color:var(--muted);margin-top:16px}
+.btn-ghost:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.22)}
+.sub{font-size:13.5px;color:var(--muted);margin-top:18px}
 .sub a{color:var(--muted);text-decoration:underline;text-underline-offset:3px}
 .sub a:hover{color:var(--text)}
 
-/* ── карточки ────────────────────────────────────────── */
-section{padding:clamp(56px,8vw,104px) 0;position:relative}
+/* ── секции общее ────────────────────────────────────── */
+section{padding:clamp(56px,8vw,96px) 0;position:relative}
 .eyebrow{
-  font-family:'JetBrains Mono';font-size:12px;letter-spacing:.22em;text-transform:uppercase;
-  color:var(--amber);margin-bottom:18px;
+  font-family:'JetBrains Mono';font-size:12px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--amber);margin-bottom:16px;
 }
-h2{font-family:'Unbounded';font-weight:600;letter-spacing:-.03em;font-size:clamp(30px,4.6vw,48px);line-height:1.08;margin-bottom:18px}
-.section-lede{color:var(--muted);max-width:560px;margin-bottom:52px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(288px,1fr));gap:18px}
-.card{
-  position:relative;padding:34px 30px 32px;border-radius:var(--radius);overflow:hidden;
-  background:linear-gradient(168deg,var(--surface),var(--ink-2));
-  border:1px solid var(--line);
-  transition:transform .4s cubic-bezier(.2,.8,.3,1),border-color .4s;
+h2{font-family:'Unbounded';font-weight:600;letter-spacing:-.03em;font-size:clamp(28px,4.2vw,42px);line-height:1.1;margin-bottom:16px}
+.section-lede{color:var(--muted);max-width:560px;margin-bottom:44px}
+
+/* ── список возможностей (иконка+текст) ─────────────── */
+.feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:28px 32px;margin-top:8px}
+.feat{display:flex;gap:16px}
+.feat .ic{
+  flex:none;width:42px;height:42px;border-radius:12px;background:var(--amber-soft);color:var(--amber);
+  display:flex;align-items:center;justify-content:center;font-size:19px;
 }
-.card::before{
-  content:'';position:absolute;inset:0;opacity:0;transition:opacity .45s;
-  background:radial-gradient(520px circle at var(--mx,50%) var(--my,0%),var(--amber-soft),transparent 62%);
-}
-.card:hover{transform:translateY(-6px);border-color:rgba(255,171,46,.32)}
-.card:hover::before{opacity:1}
-.card .n{font-family:'JetBrains Mono';font-size:12px;color:var(--amber);opacity:.7;margin-bottom:18px;display:block}
-.card h3{font-family:'Unbounded';font-weight:600;font-size:20px;letter-spacing:-.02em;margin-bottom:11px;position:relative}
-.card p{color:var(--muted);font-size:15.5px;position:relative}
-.card.wide{grid-column:span 2}
-@media(max-width:760px){.card.wide{grid-column:span 1}}
+.feat h3{font-family:'Unbounded';font-weight:600;font-size:16.5px;letter-spacing:-.01em;margin-bottom:6px}
+.feat p{color:var(--muted);font-size:14.5px;line-height:1.55}
 
 /* ── блок для разработчиков ──────────────────────────── */
 .dev{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
@@ -124,53 +117,52 @@ ul.checks li{display:flex;gap:13px;align-items:flex-start;color:var(--muted);fon
 ul.checks li::before{content:'';flex:none;width:7px;height:7px;margin-top:9px;border-radius:50%;background:var(--amber)}
 
 /* ── низ ─────────────────────────────────────────────── */
-.final{text-align:center;padding:clamp(70px,10vw,120px) 0}
-.final h2{margin-bottom:26px}
-footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);font-size:14px}
+.final{text-align:center;padding:clamp(64px,9vw,110px) 0;background:linear-gradient(180deg,transparent,rgba(255,171,46,.05) 40%,transparent);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.final h2{margin-bottom:22px}
+footer{padding:38px 0 54px;color:var(--muted);font-size:14px}
 .fbar{display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:center}
 .fbar a{color:var(--muted);text-decoration:none;margin-right:22px}
 .fbar a:hover{color:var(--amber)}
 
 /* ── появление ───────────────────────────────────────── */
-.rise{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.2,.8,.3,1),transform .8s cubic-bezier(.2,.8,.3,1)}
+.rise{opacity:0;transform:translateY(20px);transition:opacity .7s cubic-bezier(.2,.8,.3,1),transform .7s cubic-bezier(.2,.8,.3,1)}
 .rise.in{opacity:1;transform:none}
 .hero .rise{transition-delay:var(--d,0ms)}
-@media(prefers-reduced-motion:reduce){
-  .rise{opacity:1;transform:none;transition:none}
-  #field{display:none}
-}
+@media(prefers-reduced-motion:reduce){.rise{opacity:1;transform:none;transition:none}}
 </style>
 </head>
 <body>
 
-<canvas id="field"></canvas>
-
 <header>
   <div class="wrap bar">
+    <a class="logo" href="#"><span class="dot"></span>PrimeGram</a>
     <nav class="nav">
       <a href="#features">Возможности</a>
-      <a href="#dev">Плагины</a>
-      <a href="plugins/">Документация</a>
-      <a href="https://github.com/Primeevokak/PrimeGram">GitHub</a>
+      <a href="plugins/">Плагины</a>
+      <a class="stars" href="https://github.com/Primeevokak/PrimeGram" target="_blank" rel="noopener">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        GitHub
+      </a>
     </nav>
   </div>
 </header>
 
 <div class="wrap hero">
-  <div class="badge rise" style="--d:0ms"><b>●</b> версия 12.9.0.4 · Android</div>
-  <h1 class="rise" style="--d:80ms">Telegram,<br>который <span class="glow">просто работает</span></h1>
-  <p class="lede rise" style="--d:170ms">
+  <p class="eyebrow-line rise" style="--d:0ms"><b>●</b> версия 12.9.0.4 · Android · GPLv2</p>
+  <h1 class="rise" style="--d:70ms">Telegram, который <span class="glow">просто работает</span></h1>
+  <p class="lede rise" style="--d:140ms">
     Тот же мессенджер, к которому вы привыкли — только соединение держится крепче,
     файлы уходят вчетверо больше, голосовые превращаются в текст прямо на телефоне,
     а всё остальное можно дописать самому.
   </p>
-  <div class="cta rise" style="--d:260ms">
+  <div class="cta rise" style="--d:210ms">
     <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest">
-      ↓ Скачать
+      <svg class="i" viewBox="0 0 24 24"><path d="M12 3v13m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
+      Скачать
     </a>
     <a class="btn btn-ghost" href="plugins/">Написать плагин</a>
   </div>
-  <p class="sub rise" style="--d:340ms">
+  <p class="sub rise" style="--d:280ms">
     На странице релиза выберите файл для своего телефона — в большинстве случаев это arm64-v8a.
   </p>
 </div>
@@ -178,33 +170,48 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);f
 <section id="features">
   <div class="wrap">
     <div class="eyebrow rise">Что внутри</div>
-    <h2 class="rise">Пять причин остаться</h2>
+    <h2 class="rise">Функционал внутри</h2>
     <p class="section-lede rise">Ничего не нужно настраивать — всё работает сразу после установки.</p>
-    <div class="grid">
-      <div class="card rise">
-        <span class="n">01</span>
-        <h3>Соединение само по себе</h3>
-        <p>Клиент подбирает маршрут до серверов сам и переключается, если выбранный перестал отвечать. Ставить и настраивать ничего не нужно.</p>
+    <div class="feats">
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5M9 13h6M9 17h6"/></svg></div>
+        <div><h3>Файлы до 8 ГБ</h3><p>Вместо двух, которые разрешает Telegram — одним сообщением, без архивов.</p></div>
       </div>
-      <div class="card rise">
-        <span class="n">02</span>
-        <h3>Файлы до 8 ГБ</h3>
-        <p>Вместо двух, которые разрешает Telegram. У друга с PrimeGram это выглядит как обычный файл — ему делать ничего не нужно.</p>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 2a5 5 0 015 5v3a5 5 0 01-10 0V7a5 5 0 015-5zM19 10v2a7 7 0 01-14 0v-2M12 19v3"/></svg></div>
+        <div><h3>Расшифровка голосовых</h3><p>Прямо на телефоне, без интернета и подписки. Текст набегает по мере распознавания.</p></div>
       </div>
-      <div class="card rise">
-        <span class="n">03</span>
-        <h3>Голосовые в текст</h3>
-        <p>Прямо на телефоне, без подписки и без интернета. Текст набегает по мере распознавания. Точность выбираете сами.</p>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></div>
+        <div><h3>Соединение само по себе</h3><p>Клиент подбирает маршрут до серверов и переключается, если выбранный перестал отвечать.</p></div>
       </div>
-      <div class="card rise">
-        <span class="n">04</span>
-        <h3>Лента каналов</h3>
-        <p>Все непрочитанные посты подписок одним списком. Больше не нужно скакать по десяткам чатов, чтобы ничего не пропустить.</p>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 15h4"/></svg></div>
+        <div><h3>Встроенный браузер</h3><p>С блокировщиком рекламы — ссылки открываются, не выходя из приложения.</p></div>
       </div>
-      <div class="card rise wide">
-        <span class="n">05</span>
-        <h3>И десятки мелочей, которых не хватало</h3>
-        <p>Встроенный браузер с блокировщиком рекламы. Поиск по числовому ID и номеру телефона. Временные подписки, которые отписывают сами. Настраиваемая боковая панель, свои переводчики, управление кэшем.</p>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+        <div><h3>Поиск по ID и номеру</h3><p>Числовой идентификатор или телефон — без дополнительных ботов.</p></div>
+      </div>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16M4 11h16M4 17h10"/><circle cx="19" cy="17" r="2"/></svg></div>
+        <div><h3>Лента каналов</h3><p>Непрочитанные посты всех подписок одним списком, без скачки по чатам.</p></div>
+      </div>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 8v4l3 3M20 12a8 8 0 11-8-8"/></svg></div>
+        <div><h3>Временные подписки</h3><p>Отписываются сами по истечении срока — не нужно вспоминать через месяц.</p></div>
+      </div>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5"/></svg></div>
+        <div><h3>Настраиваемая боковая панель</h3><p>Зона активации подстраивается под то, как вы держите телефон.</p></div>
+      </div>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h7"/></svg></div>
+        <div><h3>Свои переводчики</h3><p>Не только встроенный движок — можно подключить любой через плагин.</p></div>
+      </div>
+      <div class="feat rise">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.1-3.1a4 4 0 01-5.4 5.4L6 21H3v-3l10.4-10.4a4 4 0 015.4-5.4l-3 3z"/></svg></div>
+        <div><h3>Плагины на Python</h3><p>Один файл — и клиент делает то, что нужно. Совместимы с exteraGram: написанное под него обычно работает без правок.</p></div>
       </div>
     </div>
   </div>
@@ -216,8 +223,8 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--muted);f
       <div class="eyebrow rise">Для тех, кто пишет код</div>
       <h2 class="rise">Плагины</h2>
       <p class="section-lede rise" style="margin-bottom:0">
-        Один файл — и клиент делает то, что вам нужно. Совместимы с exteraGram:
-        написанное под него обычно работает без правок.
+        Полноценные плагины на Python: можно менять поведение клиента, а не только
+        реагировать на готовые события.
       </p>
       <ul class="checks">
         <li class="rise">Больше сорока библиотек уже внутри — от requests и pillow до pandas с matplotlib</li>
@@ -254,8 +261,11 @@ __name__ = "Hello World"</span>
     <p class="section-lede rise" style="margin:0 auto 40px">
       Приложение само проверяет обновления, так что скачивать вручную придётся ровно один раз.
     </p>
-    <div class="cta rise" style="justify-content:center">
-      <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest">↓ Скачать PrimeGram</a>
+    <div class="cta rise">
+      <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 3v13m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
+        Скачать PrimeGram
+      </a>
     </div>
   </div>
 </section>
@@ -272,81 +282,6 @@ __name__ = "Hello World"</span>
 </footer>
 
 <script>
-// ── поле частиц ───────────────────────────────────────────────────────────
-// Точки дрейфуют с разной скоростью, ближние ярче — параллакс без скролла.
-// Линии рисуются только рядом с курсором: связать всех со всеми означало бы
-// белый шум вместо фона.
-(function () {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
-  const canvas = document.getElementById('field');
-  const ctx = canvas.getContext('2d');
-  let w, h, dots = [], mouse = { x: -999, y: -999 };
-
-  function build() {
-    w = canvas.width = window.innerWidth * devicePixelRatio;
-    h = canvas.height = window.innerHeight * devicePixelRatio;
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-
-    const count = Math.min(96, Math.round(window.innerWidth / 14));
-    dots = Array.from({ length: count }, () => {
-      const depth = Math.random();
-      return {
-        x: Math.random() * w,
-        y: Math.random() * h,
-        vx: (Math.random() - .5) * (.06 + depth * .16) * devicePixelRatio,
-        vy: (Math.random() - .5) * (.06 + depth * .16) * devicePixelRatio,
-        r: (.6 + depth * 1.5) * devicePixelRatio,
-        a: .12 + depth * .38
-      };
-    });
-  }
-
-  function frame() {
-    ctx.clearRect(0, 0, w, h);
-    const near = 150 * devicePixelRatio;
-
-    for (const d of dots) {
-      d.x += d.vx; d.y += d.vy;
-      if (d.x < 0) d.x = w; else if (d.x > w) d.x = 0;
-      if (d.y < 0) d.y = h; else if (d.y > h) d.y = 0;
-
-      const dx = d.x - mouse.x, dy = d.y - mouse.y;
-      const dist = Math.hypot(dx, dy);
-      const lit = dist < near ? 1 - dist / near : 0;
-
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, d.r + lit * devicePixelRatio, 0, Math.PI * 2);
-      ctx.fillStyle = lit > 0
-        ? 'rgba(255,171,46,' + (d.a + lit * .55) + ')'
-        : 'rgba(198,203,220,' + d.a + ')';
-      ctx.fill();
-
-      if (lit > 0) {
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(mouse.x, mouse.y);
-        ctx.strokeStyle = 'rgba(255,171,46,' + lit * .16 + ')';
-        ctx.lineWidth = devicePixelRatio;
-        ctx.stroke();
-      }
-    }
-    requestAnimationFrame(frame);
-  }
-
-  addEventListener('resize', build);
-  addEventListener('pointermove', e => {
-    mouse.x = e.clientX * devicePixelRatio;
-    mouse.y = e.clientY * devicePixelRatio;
-  });
-  addEventListener('pointerleave', () => { mouse.x = mouse.y = -999; });
-
-  build();
-  frame();
-})();
-
-// ── появление при прокрутке ───────────────────────────────────────────────
 (function () {
   const items = document.querySelectorAll('.rise');
   document.querySelectorAll('.hero .rise').forEach(el => el.classList.add('in'));
@@ -354,24 +289,13 @@ __name__ = "Hello World"</span>
   const io = new IntersectionObserver((entries) => {
     entries.forEach((entry, i) => {
       if (!entry.isIntersecting) return;
-      // Небольшая лесенка внутри одного экрана: всё разом выглядит как перерисовка,
-      // а не как появление.
-      setTimeout(() => entry.target.classList.add('in'), i * 70);
+      setTimeout(() => entry.target.classList.add('in'), i * 60);
       io.unobserve(entry.target);
     });
   }, { threshold: .15, rootMargin: '0px 0px -60px' });
 
   items.forEach(el => { if (!el.classList.contains('in')) io.observe(el); });
 })();
-
-// ── подсветка карточки под курсором ───────────────────────────────────────
-document.querySelectorAll('.card').forEach(card => {
-  card.addEventListener('pointermove', e => {
-    const box = card.getBoundingClientRect();
-    card.style.setProperty('--mx', (e.clientX - box.left) + 'px');
-    card.style.setProperty('--my', (e.clientY - box.top) + 'px');
-  });
-});
 </script>
 </body>
 </html>
