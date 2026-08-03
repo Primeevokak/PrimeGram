@@ -862,6 +862,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 actionBarLayout.addFragmentToStack(getClientNotActivatedFragment());
             } else if (org.telegram.messenger.DrawerHelper.isEnabled()) {
                 org.telegram.messenger.DrawerHelper.setupMainFragment(this, actionBarLayout, drawerLayoutContainer);
+            } else if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                actionBarLayout.addFragmentToStack(org.telegram.messenger.DrawerHelper.createMainFragment());
             } else {
                 MainTabsActivity mainTabsActivity = new MainTabsActivity();
                 actionBarLayout.addFragmentToStack(mainTabsActivity);
@@ -1469,7 +1471,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private boolean switchingAccount;
     public void switchToAccount(int account, boolean removeAll) {
-        switchToAccount(account, removeAll, obj -> org.telegram.messenger.DrawerHelper.isEnabled()
+        switchToAccount(account, removeAll, obj -> org.telegram.messenger.MainTabsHelper.isHidden()
             ? org.telegram.messenger.DrawerHelper.createMainFragment()
             : new MainTabsActivity());
     }
@@ -3594,7 +3596,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     }
                 } else {
                     if (actionBarLayout.getFragmentStack().isEmpty()) {
-                        if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                        if (org.telegram.messenger.MainTabsHelper.isHidden()) {
                             org.telegram.messenger.DrawerHelper.addMainFragmentToStack(actionBarLayout, searchQuery);
                         } else {
                             MainTabsActivity mainTabsActivity = new MainTabsActivity();
@@ -3610,7 +3612,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 if (actionBarLayout.getFragmentStack().isEmpty()) {
                     if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
                         actionBarLayout.addFragmentToStack(getClientNotActivatedFragment(), INavigationLayout.FORCE_NOT_ATTACH_VIEW);
-                    } else if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                    } else if (org.telegram.messenger.MainTabsHelper.isHidden()) {
                         org.telegram.messenger.DrawerHelper.addMainFragmentToStack(actionBarLayout, searchQuery);
                     } else {
                         MainTabsActivity mainTabsActivity = new MainTabsActivity();

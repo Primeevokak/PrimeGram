@@ -517,6 +517,9 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
     @Override
     public float measureTextWidth() {
+        if (textView.getVisibility() != VISIBLE) {
+            return 0;
+        }
         return defaultTextPaint.measureText(textView.getText().toString());
     }
 
@@ -524,6 +527,9 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
     @Override
     public float measureTextWidth(float textSizeDp) {
+        if (textView.getVisibility() != VISIBLE) {
+            return 0;
+        }
         if (scaledTextPaint == null) {
             scaledTextPaint = new TextPaint(defaultTextPaint);
         }
@@ -676,5 +682,33 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
     public void onPreBind() {
 
+    }
+
+    /** Icon-only compact mode for the main tab bar: hides the label, re-centers the icon. */
+    public void setMainTabsCompact(boolean compact) {
+        if (textView.getVisibility() == (compact ? GONE : VISIBLE)) {
+            return;
+        }
+
+        textView.setVisibility(compact ? GONE : VISIBLE);
+
+        if (compact) {
+            setContentDescription(textView.getText());
+        } else {
+            setContentDescription(null);
+        }
+
+        if (backupImageView != null) {
+            backupImageView.setLayoutParams(compact ?
+                LayoutHelper.createFrame(22, 22, Gravity.CENTER) :
+                LayoutHelper.createFrame(22, 22, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 5, 0, 0));
+        } else {
+            imageView.setLayoutParams(compact ?
+                LayoutHelper.createFrame(24, 24, Gravity.CENTER) :
+                LayoutHelper.createFrame(24, 24, Gravity.CENTER_HORIZONTAL | Gravity.TOP, 0, 4, 0, 0));
+        }
+
+        requestLayout();
+        invalidate();
     }
 }

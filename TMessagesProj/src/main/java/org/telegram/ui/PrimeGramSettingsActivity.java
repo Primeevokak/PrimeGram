@@ -106,6 +106,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_ICON_PACKS = 139;
     private static final int ID_NON_ISLAND_UI = 140;
     private static final int ID_NAVIGATION_DRAWER = 141;
+    private static final int ID_MAIN_TABS_COMPACT = 142;
+    private static final int ID_MAIN_TABS_HIDE = 143;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -1066,6 +1068,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Классический плоский вид", org.telegram.messenger.NonIslandHelper.isEnabled()));
             row(check(ID_NAVIGATION_DRAWER, IconBackgroundColors.GRAY, R.drawable.menu_sidebar_left,
                     "Боковое меню вместо вкладок снизу", org.telegram.messenger.DrawerHelper.isEnabled()));
+            if (!org.telegram.messenger.DrawerHelper.isEnabled()) {
+                row(check(ID_MAIN_TABS_COMPACT, IconBackgroundColors.GRAY, R.drawable.msg_list,
+                        "Компактные вкладки снизу", org.telegram.messenger.MainTabsHelper.isCompact()));
+                row(check(ID_MAIN_TABS_HIDE, IconBackgroundColors.GRAY, R.drawable.msg_archive_hide,
+                        "Скрыть вкладки снизу", org.telegram.messenger.MainTabsHelper.isHidden()));
+            }
             endCard(items);
             if (avatarCornersCell() != null) {
                 items.add(UItem.asCustom(ID_AVATAR_CORNERS, avatarCornersCell()));
@@ -1701,6 +1709,30 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 new AlertDialog.Builder(getParentActivity())
                     .setTitle("Требуется перезапуск")
                     .setMessage("Смена типа навигации применится после перезапуска приложения.")
+                    .setPositiveButton("Понятно", null)
+                    .show();
+            }
+        } else if (item.id == ID_MAIN_TABS_COMPACT) {
+            org.telegram.messenger.MainTabsHelper.setCompact(!org.telegram.messenger.MainTabsHelper.isCompact());
+            listView.adapter.update(true);
+            if (getParentActivity() != null) {
+                new AlertDialog.Builder(getParentActivity())
+                    .setTitle("Требуется перезапуск")
+                    .setMessage("Компактные вкладки применятся после перезапуска приложения.")
+                    .setPositiveButton("Понятно", null)
+                    .show();
+            }
+        } else if (item.id == ID_MAIN_TABS_HIDE) {
+            org.telegram.messenger.MainTabsHelper.setHidden(!org.telegram.messenger.MainTabsHelper.isHidden());
+            MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_sidebar_enabled", true).apply();
+            if (LaunchActivity.instance != null) {
+                LaunchActivity.instance.updateSidebarVisibility();
+            }
+            listView.adapter.update(true);
+            if (getParentActivity() != null) {
+                new AlertDialog.Builder(getParentActivity())
+                    .setTitle("Требуется перезапуск")
+                    .setMessage("Скрытие вкладок применится после перезапуска приложения.")
                     .setPositiveButton("Понятно", null)
                     .show();
             }

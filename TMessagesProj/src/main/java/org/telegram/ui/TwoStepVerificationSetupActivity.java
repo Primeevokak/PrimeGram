@@ -1313,8 +1313,10 @@ public class TwoStepVerificationSetupActivity extends BaseFragment {
                 } else if (fromRegistration) {
                     final Bundle args = new Bundle();
                     args.putBoolean("afterSignup", true);
-                    if (org.telegram.messenger.DrawerHelper.isEnabled()) {
-                        org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+                    if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                        if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                            org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+                        }
                         presentFragment(org.telegram.messenger.DrawerHelper.createMainFragment(args), true);
                     } else {
                         MainTabsActivity mainTabsActivity = new MainTabsActivity();
@@ -2157,8 +2159,10 @@ public class TwoStepVerificationSetupActivity extends BaseFragment {
         if (otherwiseReloginDays >= 0 && parentLayout.getFragmentStack().size() == 1) {
             final Bundle args = new Bundle();
             args.putBoolean("afterSignup", true);
-            if (org.telegram.messenger.DrawerHelper.isEnabled()) {
-                org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+            if (org.telegram.messenger.MainTabsHelper.isHidden()) {
+                if (org.telegram.messenger.DrawerHelper.isEnabled()) {
+                    org.telegram.messenger.DrawerHelper.ensureSetup(getParentLayout());
+                }
                 presentFragment(org.telegram.messenger.DrawerHelper.createMainFragment(args), true);
             } else {
                 MainTabsActivity mainTabsActivity = new MainTabsActivity();

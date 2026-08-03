@@ -216,7 +216,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             hasMainTabs = arguments.getBoolean("hasMainTabs", false);
         }
 
-        additionNavigationBarHeight = hasMainTabs ? dp(DialogsActivity.MAIN_TABS_HEIGHT_WITH_MARGINS) : 0;
+        additionNavigationBarHeight = hasMainTabs ? dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeightWithMargins()) : 0;
         return super.onFragmentCreate();
     }
 
@@ -2118,8 +2118,8 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         }
 
         final int additionalList = dp(48);
-        final int mainTabBottom = fragmentView.getMeasuredHeight() - navigationBarHeight - dp(DialogsActivity.MAIN_TABS_MARGIN);
-        final int mainTabTop = mainTabBottom - dp(DialogsActivity.MAIN_TABS_HEIGHT);
+        final int mainTabBottom = fragmentView.getMeasuredHeight() - navigationBarHeight - dp(org.telegram.messenger.MainTabsHelper.getMainTabsMargin());
+        final int mainTabTop = mainTabBottom - dp(org.telegram.messenger.MainTabsHelper.getMainTabsHeight());
 
         iBlur3PositionActionBar.set(0, -additionalList, fragmentView.getMeasuredWidth(), actionBar.getMeasuredHeight() + additionalList);
         iBlur3PositionMainTabs.set(0, mainTabTop, fragmentView.getMeasuredWidth(), mainTabBottom);

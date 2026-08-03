@@ -1061,6 +1061,10 @@ public final class BulletinFactory {
 
     public Bulletin create(Bulletin.Layout layout, int duration) {
         if (fragment != null) {
+            FrameLayout mainTabsBulletinContainer = org.telegram.messenger.MainTabsHelper.resolveBulletinContainer(fragment);
+            if (mainTabsBulletinContainer != null) {
+                return Bulletin.make(mainTabsBulletinContainer, layout, duration);
+            }
             return Bulletin.make(fragment, layout, duration);
         } else {
             return Bulletin.make(containerLayout, layout, duration);
@@ -1141,6 +1145,10 @@ public final class BulletinFactory {
         }
 
         layout.textView.setText(text);
+        FrameLayout mainTabsBulletinContainer = org.telegram.messenger.MainTabsHelper.resolveBulletinContainer(fragment);
+        if (mainTabsBulletinContainer != null) {
+            return Bulletin.make(mainTabsBulletinContainer, layout, Bulletin.DURATION_SHORT);
+        }
         return Bulletin.make(fragment, layout, Bulletin.DURATION_SHORT);
     }
 
