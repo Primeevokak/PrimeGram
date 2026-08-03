@@ -96,6 +96,20 @@ class MenuItemData:
     priority: int = 0
 
 
+@dataclass
+class PillData:
+    """One chip in the pill stack above the chat list. ``icon`` is a drawable resource name, the
+    same lookup ``MenuItemData.icon`` uses - there is no default icon, a text-only pill is fine.
+    ``color`` is an ARGB hex string (``"#ff2196f3"``) for the chip's background, or ``None`` for
+    the theme's own neutral chip color."""
+    text: str
+    on_click: Optional[Callable[[], None]] = None
+    pill_id: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    priority: int = 0
+
+
 # ---------------------------------------------------------------------------
 # method hooking
 #
@@ -391,6 +405,7 @@ class _Registry:
         self.request_hooks = []      # (name, match_substring, priority, plugin)
         self.send_message_hooks = [] # (priority, plugin)
         self.menu_items = {}         # item_id -> (plugin, MenuItemData)
+        self.pills = {}              # pill_id -> (plugin, PillData)
         self.last_defined = []
 
     def remove_plugin(self, plugin_id):
@@ -398,8 +413,10 @@ class _Registry:
         self.request_hooks = [h for h in self.request_hooks if h[3].id != plugin_id]
         self.send_message_hooks = [h for h in self.send_message_hooks if h[1].id != plugin_id]
         self.menu_items = {k: v for k, v in self.menu_items.items() if v[0].id != plugin_id}
+        self.pills = {k: v for k, v in self.pills.items() if v[0].id != plugin_id}
         self.publish_send_hooks()
         self.publish_menu_items()
+        self.publish_pills()
 
     def publish_send_hooks(self):
         """Tells the app whether the send path has anyone on it, so it can skip us entirely."""
@@ -424,6 +441,21 @@ class _Registry:
                 "priority": data.priority,
             })
         PrimePluginHooks.setMenuItems(_json.dumps(rows))
+
+    def publish_pills(self):
+        """Same idea as menu items, for the pill stack above the chat list."""
+        import json as _json
+        rows = []
+        for pill_id, (plugin, data) in self.pills.items():
+            rows.append({
+                "id": pill_id,
+                "plugin_id": plugin.id,
+                "text": data.text,
+                "icon": data.icon,
+                "color": data.color,
+                "priority": data.priority,
+            })
+        PrimePluginHooks.setPills(_json.dumps(rows))
 
 
 registry = _Registry()
@@ -661,4 +693,33 @@ class BasePlugin:
         removed = registry.menu_items.pop(item_id, None) is not None
         if removed:
             registry.publish_menu_items()
+        return removed
+
+    def add_pill(self, pill_data):
+        pill_id = pill_data.pill_id or ("%s_%d" % (self.id, len(registry.pills)))
+        pill_data.pill_id = pill_id
+        registry.pills[pill_id] = (self, pill_data)
+        registry.publish_pills()
+        return pill_id
+
+    def update_pill(self, pill_id, text=None, icon=None, color=None):
+        """Changes an existing pill in place - for a value that ticks (a counter, a price, a
+        timer) without the flicker of removing and re-adding the chip on every update."""
+        entry = registry.pills.get(pill_id)
+        if entry is None:
+            return False
+        plugin, data = entry
+        if text is not None:
+            data.text = text
+        if icon is not None:
+            data.icon = icon
+        if color is not None:
+            data.color = color
+        registry.publish_pills()
+        return True
+
+    def remove_pill(self, pill_id):
+        removed = registry.pills.pop(pill_id, None) is not None
+        if removed:
+            registry.publish_pills()
         return removed

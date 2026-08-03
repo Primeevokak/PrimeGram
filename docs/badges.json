@@ -4,5 +4,11 @@
     "type": "user",
     "custom_emoji_id": 5956201444263597935,
     "text": "Создатель PrimeGram"
+  },
+  {
+    "id": 2970608418,
+    "type": "chat",
+    "custom_emoji_id": 5373346752671804066,
+    "text": "Официальный канал PrimeGram"
   }
 ]

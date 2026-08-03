@@ -5763,6 +5763,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         checkUi_forwardCommentFieldVisible();
         checkUi_searchFieldStyle();
 
+        if (!onlySelect) {
+            final org.telegram.ui.Components.PrimePillStackView pillStackView =
+                    new org.telegram.ui.Components.PrimePillStackView(getContext());
+            contentView.addView(pillStackView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.LEFT, 0, ActionBar.getCurrentActionBarHeight() / AndroidUtilities.density, 0, 0));
+        }
+
         ViewCompat.setOnApplyWindowInsetsListener(fragmentView, this::onApplyWindowInsets);
         return fragmentView;
     }

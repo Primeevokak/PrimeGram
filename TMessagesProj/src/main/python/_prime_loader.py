@@ -552,6 +552,22 @@ def dispatch_menu_click(item_id, context):
         log("plugin %s menu item %s failed:\n%s" % (plugin.id, item_id, traceback.format_exc()))
 
 
+def dispatch_pill_click(pill_id):
+    """A pill in the stack above the chat list was tapped. Never raises, same reasoning as
+    ``dispatch_menu_click``."""
+    entry = base_plugin.registry.pills.get(pill_id)
+    if entry is None:
+        return
+    plugin, data = entry
+    if not plugin.enabled or data.on_click is None:
+        return
+    try:
+        with _watchdog(plugin.id):
+            data.on_click()
+    except Exception:
+        log("plugin %s pill %s failed:\n%s" % (plugin.id, pill_id, traceback.format_exc()))
+
+
 def _request_name(obj):
     """Both shapes of the name a plugin might have registered.
 

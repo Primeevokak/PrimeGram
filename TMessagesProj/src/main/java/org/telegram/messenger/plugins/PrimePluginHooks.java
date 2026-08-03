@@ -43,6 +43,28 @@ public final class PrimePluginHooks {
         PrimePluginMenuItems.setItems(json);
     }
 
+    public static void setPills(String json) {
+        PrimePillStack.setPills(json);
+    }
+
+    /** Tells the plugin its pill was tapped. Fire-and-forget, same as a menu click. */
+    public static void onPillClick(String pillId) {
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return;
+        }
+        engine.queue().postRunnable(() -> {
+            try {
+                final PyObject loader = engine.module("_prime_loader");
+                if (loader != null) {
+                    loader.callAttr("dispatch_pill_click", pillId);
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+        });
+    }
+
     /** START/STOP/PAUSE/RESUME, for a plugin's {@code on_app_event}. Fire-and-forget, same as a
      *  menu click - nothing in the app is waiting on a plugin's reaction to its own lifecycle. */
     public static void onAppEvent(String eventName) {
