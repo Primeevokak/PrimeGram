@@ -372,9 +372,11 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
             }
             arrowView.setColorFilter(new PorterDuffColorFilter(iconColor, PorterDuff.Mode.SRC_IN));
         }
-        nameTextView.setTextColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteBlackText) : Theme.getColor(Theme.key_chats_menuName));
+        nameTextView.setTextColor(Theme.hasThemeKey(Theme.key_chats_menuName) ? Theme.getColor(Theme.key_chats_menuName)
+            : (Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteBlackText) : Theme.getColor(Theme.key_chats_menuName)));
         if (useImageBackground) {
-            phoneTextView.setTextColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteGrayText) : Theme.getColor(Theme.key_chats_menuPhone));
+            phoneTextView.setTextColor(Theme.hasThemeKey(Theme.key_chats_menuPhone) ? Theme.getColor(Theme.key_chats_menuPhone)
+                : (Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteGrayText) : Theme.getColor(Theme.key_chats_menuPhone)));
             if (shadowView.getVisibility() != VISIBLE) shadowView.setVisibility(VISIBLE);
             if (backgroundDrawable instanceof ColorDrawable || backgroundDrawable instanceof GradientDrawable) {
                 backgroundDrawable.setBounds(0, 0, getMeasuredWidth(), getMeasuredHeight());
@@ -399,7 +401,8 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
         } else {
             int visibility = drawCatsShadow ? VISIBLE : INVISIBLE;
             if (shadowView.getVisibility() != visibility) shadowView.setVisibility(visibility);
-            phoneTextView.setTextColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteGrayText) : Theme.getColor(Theme.key_chats_menuPhoneCats));
+            phoneTextView.setTextColor(Theme.hasThemeKey(Theme.key_chats_menuPhoneCats) ? Theme.getColor(Theme.key_chats_menuPhoneCats)
+                : (Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhiteGrayText) : Theme.getColor(Theme.key_chats_menuPhoneCats)));
             super.onDraw(canvas);
         }
 
@@ -479,11 +482,14 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
             ? Theme.key_chats_menuTopBackground
             : Theme.key_chats_menuTopBackgroundCats;
         if (force || currentTag == null || backgroundKey != currentTag) {
-            // The classic drawer's blue header is a light-theme-only default: not every theme
-            // (including several installed dark ones) carries a dark value for this key, and
-            // getColor() silently falls back to that compiled-in light blue rather than to
-            // black. Pin it to the app's normal dark surface instead of trusting the theme key.
-            setBackgroundColor(Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhite) : Theme.getColor(backgroundKey));
+            // Most themes - including the built-in dark ones - define their own value for this
+            // key, and that value is trusted as-is. Only a theme that never defined it at all
+            // falls through to getDefaultColor(), which is a compiled-in light-blue constant with
+            // no dark variant - that's the one case worth overriding, not "dark theme in general".
+            int color = Theme.hasThemeKey(backgroundKey)
+                ? Theme.getColor(backgroundKey)
+                : (Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhite) : Theme.getColor(backgroundKey));
+            setBackgroundColor(color);
             setTag(backgroundKey);
         }
         return backgroundKey;

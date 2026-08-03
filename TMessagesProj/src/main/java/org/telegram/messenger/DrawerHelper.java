@@ -141,9 +141,11 @@ public final class DrawerHelper {
         itemAnimatorRef[0] = finalItemAnimator;
         sideMenu.setItemAnimator(finalItemAnimator);
         sideMenu.setClipToPadding(false);
-        // Not every theme carries a dark value for this legacy key - pin it to the app's normal
-        // dark surface so the drawer doesn't stand out as a lighter blue-ish panel.
-        int menuBackground = Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhite) : Theme.getColor(Theme.key_chats_menuBackground);
+        // Trust the theme's own value when it has one - most do, built-in dark themes included.
+        // Only a theme that never defined this legacy key at all falls back to a compiled-in
+        // light-blue constant, which is the one case actually worth overriding.
+        int menuBackground = Theme.hasThemeKey(Theme.key_chats_menuBackground) ? Theme.getColor(Theme.key_chats_menuBackground)
+            : (Theme.isCurrentThemeDark() ? Theme.getColor(Theme.key_windowBackgroundWhite) : Theme.getColor(Theme.key_chats_menuBackground));
         sideMenu.setBackgroundColor(menuBackground);
         sideMenuContainer.setBackgroundColor(menuBackground);
         sideMenu.setLayoutManager(new LinearLayoutManager(activity, LinearLayoutManager.VERTICAL, false));

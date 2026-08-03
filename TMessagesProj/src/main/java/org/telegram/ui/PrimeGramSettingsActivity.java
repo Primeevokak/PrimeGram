@@ -1695,7 +1695,16 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             org.telegram.messenger.NonIslandHelper.setEnabled(!org.telegram.messenger.NonIslandHelper.isEnabled());
             listView.adapter.update(true);
         } else if (item.id == ID_NAVIGATION_DRAWER) {
-            org.telegram.messenger.DrawerHelper.setEnabled(!org.telegram.messenger.DrawerHelper.isEnabled());
+            boolean enablingDrawer = !org.telegram.messenger.DrawerHelper.isEnabled();
+            org.telegram.messenger.DrawerHelper.setEnabled(enablingDrawer);
+            if (!enablingDrawer) {
+                // Turning the drawer off is the user asking for the standard bottom-tabs view
+                // back. "Скрыть вкладки снизу" is a separate flag that doesn't get cleared just
+                // because the drawer (which OR's into the same isHidden() check) is gone - left
+                // alone, it would keep the tab bar hidden with no drawer to reach it through
+                // either, which is exactly the stuck state this is meant to prevent.
+                org.telegram.messenger.MainTabsHelper.setHidden(false);
+            }
             // Whichever way this switches, the PrimeGram side panel is the only way back to
             // settings/profile from the chat list (the classic drawer's own hamburger covers it
             // too, but the panel is what people are used to reaching for) - so every navigation
@@ -1706,10 +1715,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
             listView.adapter.update(true);
             if (getParentActivity() != null) {
+                // Half-switched navigation mode (hamburger drawn but no drawer wired, or vice
+                // versa) leaves the user with no way back into settings until the process
+                // actually restarts - "later" is not a safe default here.
                 new AlertDialog.Builder(getParentActivity())
                     .setTitle("Требуется перезапуск")
                     .setMessage("Смена типа навигации применится после перезапуска приложения.")
-                    .setPositiveButton("Понятно", null)
+                    .setPositiveButton("Перезапустить сейчас", (dialog, which) -> restartApp())
+                    .setNegativeButton("Позже", null)
                     .show();
             }
         } else if (item.id == ID_MAIN_TABS_COMPACT) {
@@ -1719,7 +1732,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 new AlertDialog.Builder(getParentActivity())
                     .setTitle("Требуется перезапуск")
                     .setMessage("Компактные вкладки применятся после перезапуска приложения.")
-                    .setPositiveButton("Понятно", null)
+                    .setPositiveButton("Перезапустить сейчас", (dialog, which) -> restartApp())
+                    .setNegativeButton("Позже", null)
                     .show();
             }
         } else if (item.id == ID_MAIN_TABS_HIDE) {
@@ -1733,7 +1747,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 new AlertDialog.Builder(getParentActivity())
                     .setTitle("Требуется перезапуск")
                     .setMessage("Скрытие вкладок применится после перезапуска приложения.")
-                    .setPositiveButton("Понятно", null)
+                    .setPositiveButton("Перезапустить сейчас", (dialog, which) -> restartApp())
+                    .setNegativeButton("Позже", null)
                     .show();
             }
         } else if (item.id == ID_SIDEBAR_ZONE) {

@@ -12197,7 +12197,7 @@ public class ChatActivity extends BaseFragment implements
         if (isInsideContainer && parentChatActivity == null) {
             paddingBottom = AndroidUtilities.navigationBarHeight;
         } else {
-            paddingBottom = blurredViewBottomOffset + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 3 : 9 + 7)
+            paddingBottom = blurredViewBottomOffset + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 1 : 9 + 7)
                 + inputIslandHeightCurrent
                 + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
                 + windowInsetsStateHolder.getAnimatedMaxBottomInset();
