@@ -665,6 +665,10 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             items.add(UItem.asCustomShadow(topView, 200 - 12));
         }
 
+        items.add(SettingCell.Factory.of(51, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_channel, "О приложении PrimeGram", "Канал разработчика, обновления и поддержка"));
+        items.add(SettingCell.Factory.of(52, 0xFFB659FF, 0xFF617CFF, R.drawable.settings_premium, "Настройки PrimeGram", "Боковая панель, лимиты Premium и прочее"));
+        items.add(UItem.asShadow(null));
+
         accountNumbers.clear();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             if (UserConfig.getInstance(a).isClientActivated() && currentAccount != a) {
@@ -740,8 +744,6 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         items.add(SettingCell.Factory.of(9, IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom, R.drawable.settings_power, getString(R.string.SettingsPowerSaving), getString(R.string.SettingsPowerSavingInfo)));
         items.add(SettingCell.Factory.of(10, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_language, getString(R.string.SettingsLanguage), LocaleController.getCurrentLanguageName()));
         items.add(SettingCell.Factory.of(50, IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom, R.drawable.msg_contacts, LocaleController.getString("Contacts", R.string.Contacts), null));
-        items.add(SettingCell.Factory.of(51, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_channel, "О приложении PrimeGram", "Канал разработчика, обновления и поддержка"));
-        items.add(SettingCell.Factory.of(52, 0xFFB659FF, 0xFF617CFF, R.drawable.settings_premium, "Настройки PrimeGram", "Боковая панель, лимиты Premium и прочее"));
 
         items.add(UItem.asShadow(null));
 
