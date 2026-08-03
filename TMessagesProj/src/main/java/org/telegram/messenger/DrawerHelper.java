@@ -235,6 +235,9 @@ public final class DrawerHelper {
                 } else if (id == 8) {
                     activity.presentFragment(new SettingsActivity(new Bundle()));
                     drawerLayoutContainer.closeDrawer(false);
+                } else if (id == DrawerLayoutAdapter.ITEM_PLUGINS) {
+                    activity.presentFragment(new org.telegram.ui.PrimePluginsActivity());
+                    drawerLayoutContainer.closeDrawer(false);
                 } else if (id == DrawerLayoutAdapter.ITEM_BROWSER) {
                     activity.presentFragment(new org.telegram.ui.PrimeBrowserActivity(""));
                     drawerLayoutContainer.closeDrawer(false);

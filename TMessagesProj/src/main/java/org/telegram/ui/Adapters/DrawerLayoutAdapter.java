@@ -39,6 +39,7 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
     public static final int ITEM_BROWSER = 20;
     public static final int ITEM_WALLET = 21;
     public static final int ITEM_PARTNER = 22;
+    public static final int ITEM_PLUGINS = 23;
     private static final int PLUGIN_ITEM_ID_BASE = 100_000;
 
     private Context mContext;
@@ -298,6 +299,7 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
         items.add(new Item(11, LocaleController.getString(R.string.SavedMessages), R.drawable.msg_saved));
         items.add(new Item(ITEM_PROXY, LocaleController.getString(R.string.ProxySettings), R.drawable.outline_shield_check));
         items.add(new Item(8, LocaleController.getString(R.string.Settings), R.drawable.msg_settings_old));
+        items.add(new Item(ITEM_PLUGINS, "Плагины", R.drawable.msg_settings));
         items.add(null); // divider
         items.add(new Item(ITEM_BROWSER, "Браузер", R.drawable.msg_language));
         items.add(new Item(ITEM_WALLET, "Кошелёк", R.drawable.settings_wallet));
