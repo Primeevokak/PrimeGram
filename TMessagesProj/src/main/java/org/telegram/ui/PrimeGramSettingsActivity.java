@@ -108,6 +108,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_NAVIGATION_DRAWER = 141;
     private static final int ID_MAIN_TABS_COMPACT = 142;
     private static final int ID_MAIN_TABS_HIDE = 143;
+    private static final int ID_VPN_GUARD = 144;
+    private static final int ID_VPN_GUARD_WHITELIST = 145;
+    private static final int ID_WHATS_NEW = 146;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -535,6 +538,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 R.drawable.msg_info, "Гайд по PrimeGram",
                 org.telegram.messenger.PrimeGuide.wasShown()
                         ? "Пройти ещё раз" : "Показать, что здесь настраивается"));
+        items.add(SettingsActivity.SettingCell.Factory.of(ID_WHATS_NEW,
+                IconBackgroundColors.GREEN.top, IconBackgroundColors.GREEN.bottom,
+                R.drawable.msg_notifications, "Что нового в этой версии",
+                org.telegram.messenger.PrimeWhatsNew.currentVersion()));
         items.add(UItem.asShadow(null));
     }
 
@@ -1151,6 +1158,17 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     batteryOptOk ? "Разрешено" : "Не разрешено"));
             endCard(items);
             items.add(UItem.asShadow("На некоторых прошивках (MIUI, OneUI и т.п.) система агрессивно закрывает фоновые процессы, из-за чего прокси отключается и уведомления приходят с задержкой. Разрешение \"Без ограничений\" для батареи устраняет эту проблему."));
+
+            final boolean vpnGuardOn = org.telegram.messenger.PrimeVpnGuard.isEnabled();
+            row(check(ID_VPN_GUARD, IconBackgroundColors.CYAN, R.drawable.msg_secret,
+                    "Отключать прокси при включённом VPN", vpnGuardOn));
+            if (vpnGuardOn) {
+                final int count = org.telegram.messenger.PrimeVpnGuard.getWhitelist().size();
+                row(button(ID_VPN_GUARD_WHITELIST, IconBackgroundColors.CYAN, R.drawable.msg_contacts,
+                        "Не трогать для...", count == 0 ? "не выбрано" : count + " прилож."));
+            }
+            endCard(items);
+            items.add(UItem.asShadow("Прокси выключается сам, пока активен системный VPN, и включается обратно, когда VPN пропадает — держать оба сразу обычно бессмысленно. В списке исключений можно отметить VPN-приложения, при которых прокси трогать не нужно; Android по соображениям приватности не всегда сообщает, какое именно VPN-приложение сейчас активно — если он не сказал, решает общий переключатель выше."));
         }
 
         if (section == SECTION_PRIVACY) {
@@ -1655,6 +1673,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_DNS_ENABLED) {
             org.telegram.messenger.browser.PrimeDns.setEnabled(!org.telegram.messenger.browser.PrimeDns.isEnabled());
             listView.adapter.update(true);
+        } else if (item.id == ID_WHATS_NEW) {
+            org.telegram.ui.Components.PrimeWhatsNewSheet.show(this);
         } else if (item.id == ID_PLUGINS) {
             presentFragment(new PrimePluginsActivity());
         } else if (item.id == ID_TGWS_SETTINGS) {
@@ -1782,6 +1802,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
             }
             listView.adapter.update(true);
+        } else if (item.id == ID_VPN_GUARD) {
+            final boolean enabled = !org.telegram.messenger.PrimeVpnGuard.isEnabled();
+            org.telegram.messenger.PrimeVpnGuard.setEnabled(enabled);
+            listView.adapter.update(true);
+        } else if (item.id == ID_VPN_GUARD_WHITELIST) {
+            showVpnWhitelistPicker();
         } else if (item.id == ID_AUTO_UPDATES) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             boolean enabled = preferences.getBoolean("primegram_auto_updates", true);
@@ -2716,6 +2742,39 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showVpnWhitelistPicker() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final java.util.List<android.content.pm.ApplicationInfo> apps =
+                org.telegram.messenger.PrimeVpnGuard.listInstalledVpnApps(getParentActivity());
+        if (apps.isEmpty()) {
+            android.widget.Toast.makeText(getContext(), "На устройстве не нашлось VPN-приложений", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final android.content.pm.PackageManager pm = getParentActivity().getPackageManager();
+        final LinearLayout content = new LinearLayout(getParentActivity());
+        content.setOrientation(LinearLayout.VERTICAL);
+        for (android.content.pm.ApplicationInfo app : apps) {
+            final String packageName = app.packageName;
+            org.telegram.ui.Cells.CheckBoxCell cell = new org.telegram.ui.Cells.CheckBoxCell(getParentActivity(), 1, getResourceProvider());
+            cell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
+            cell.setText(app.loadLabel(pm), "", org.telegram.messenger.PrimeVpnGuard.isWhitelisted(packageName), false);
+            cell.setPadding(LocaleController.isRTL ? AndroidUtilities.dp(16) : AndroidUtilities.dp(8), 0, LocaleController.isRTL ? AndroidUtilities.dp(8) : AndroidUtilities.dp(16), 0);
+            cell.setOnClickListener(v -> {
+                org.telegram.ui.Cells.CheckBoxCell c = (org.telegram.ui.Cells.CheckBoxCell) v;
+                org.telegram.messenger.PrimeVpnGuard.toggleWhitelist(packageName);
+                c.setChecked(org.telegram.messenger.PrimeVpnGuard.isWhitelisted(packageName), true);
+            });
+            content.addView(cell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Не выключать прокси при этих VPN");
+        builder.setView(content);
+        builder.setPositiveButton(LocaleController.getString(R.string.Done), (dialog, which) -> listView.adapter.update(true));
         showDialog(builder.create());
     }
 

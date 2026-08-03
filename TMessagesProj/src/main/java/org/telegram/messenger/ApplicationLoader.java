@@ -387,6 +387,8 @@ public class ApplicationLoader extends Application {
         // a chance to crash again. See CrashSafeToggle's javadoc.
         org.telegram.ui.Components.AnimatedFileNative.armHwAccelForThisSession();
 
+        PrimeVpnGuard.start(applicationContext);
+
         VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
         PrimeStartupTrace.mark("VpnSDK.setup done");
         VpnSDK.setLogListener(new kotlin.jvm.functions.Function1<String, kotlin.Unit>() {

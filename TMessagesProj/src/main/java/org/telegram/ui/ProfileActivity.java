@@ -11204,6 +11204,30 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         return primeBadgeDrawable[a];
     }
 
+    /** Wires a tap on the badge to explain what it means - {@code null} for both {@code user} and
+     *  {@code chatId} clears the previous listener the same way {@link #getPrimeBadgeDrawable} clears
+     *  the drawable, so a row that just lost its badge does not keep reacting to taps in its old spot. */
+    private void setupPrimeBadgeClick(SimpleTextView textView, TLRPC.User user, long chatId) {
+        final org.telegram.messenger.PrimeBadges.Badge badge = user != null
+                ? org.telegram.messenger.PrimeBadges.getUserBadge(user.id)
+                : (chatId != 0 ? org.telegram.messenger.PrimeBadges.getChatBadge(chatId) : null);
+        if (badge == null) {
+            textView.setRightDrawable3OnClick(null);
+            return;
+        }
+        textView.setRightDrawable3OnClick(v -> showPrimeBadgeInfo(badge));
+    }
+
+    private void showPrimeBadgeInfo(org.telegram.messenger.PrimeBadges.Badge badge) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setMessage(!TextUtils.isEmpty(badge.text) ? badge.text : "Особый статус");
+        builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
+        showDialog(builder.create());
+    }
+
     private float lastEmojiStatusProgress;
 
     private void updateEmojiStatusDrawableColor() {
@@ -11441,6 +11465,13 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 isOnline[0] = false;
                 newString2 = LocaleController.formatUserStatus(currentAccount, user, isOnline, shortStatus ? new boolean[1] : null);
                 hiddenStatusButton = user != null && !isOnline[0] && !getUserConfig().isPremium() && user.status != null && (user.status instanceof TLRPC.TL_userStatusRecently || user.status instanceof TLRPC.TL_userStatusLastMonth || user.status instanceof TLRPC.TL_userStatusLastWeek) && user.status.by_me;
+                if (!isOnline[0] && user.status != null && user.status.by_me) {
+                    final org.telegram.messenger.PrimeActivityPeek.Sighting sighting =
+                            org.telegram.messenger.PrimeActivityPeek.find(currentAccount, user.id);
+                    if (sighting != null) {
+                        newString2 = org.telegram.messenger.PrimeActivityPeek.describe(sighting, getMessagesController());
+                    }
+                }
                 if (onlineTextView[1] != null && !mediaHeaderVisible) {
                     int key = isOnline[0] && peerColor == null ? Theme.key_profile_status : Theme.key_actionBarDefaultSubtitle;
                     onlineTextView[1].setTag(key);
@@ -11529,6 +11560,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         nameTextViewRightDrawableContentDescription = null;
                     }
                     nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, user, 0));
+                    setupPrimeBadgeClick(nameTextView[a], user, 0);
                 } else if (a == 1) {
                     if (user.scam || user.fake) {
                         nameTextView[a].setRightDrawable2(getScamDrawable(user.scam ? 0 : 1));
@@ -11549,6 +11581,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         nameTextView[a].setRightDrawable(null);
                     }
                     nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, user, 0));
+                    setupPrimeBadgeClick(nameTextView[a], user, 0);
                 }
                 if (leftIcon == null && currentEncryptedChat == null && user.bot_verification_icon != 0) {
                     nameTextView[a].setLeftDrawableOutside(true);
@@ -11853,6 +11886,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                             });
                         }
                     }
+                    nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, null, chatId));
+                    setupPrimeBadgeClick(nameTextView[a], null, chatId);
                 } else if (!copyFromChatActivity) {
                     if (chat.scam || chat.fake) {
                         nameTextView[a].setRightDrawable2(getScamDrawable(chat.scam ? 0 : 1));
@@ -11869,6 +11904,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     } else {
                         nameTextView[a].setRightDrawable(null);
                     }
+                    nameTextView[a].setRightDrawable3(getPrimeBadgeDrawable(a, null, chatId));
+                    setupPrimeBadgeClick(nameTextView[a], null, chatId);
                 }
                 if (chat.bot_verification_icon != 0) {
                     nameTextView[a].setLeftDrawableOutside(true);

@@ -103,6 +103,8 @@ public class SimpleTextView extends View implements Drawable.Callback {
     private int textHeight;
     public int rightDrawableX;
     public int rightDrawableY;
+    public int rightDrawable3X;
+    public int rightDrawable3Y;
     private boolean wasLayout;
 
     private boolean leftDrawableOutside, rightDrawableOutside;
@@ -133,7 +135,8 @@ public class SimpleTextView extends View implements Drawable.Callback {
     private boolean canHideRightDrawable;
     private boolean rightDrawableHidden;
     private OnClickListener rightDrawableOnClickListener;
-    private boolean maybeClick;
+    private OnClickListener rightDrawable3OnClickListener;
+    private boolean maybeClick, maybeClick3;
     private float touchDownX, touchDownY;
 
     private AnimatedEmojiSpan.EmojiGroupedSpans emojiStack;
@@ -991,6 +994,8 @@ public class SimpleTextView extends View implements Drawable.Callback {
                 y = getPaddingTop() + (textHeight - dh) / 2 + rightDrawableTopPadding;
             }
             rightDrawable3.setBounds(x, y, x + dw, y + dh);
+            rightDrawable3X = x + (dw >> 1);
+            rightDrawable3Y = y + (dh >> 1);
             rightDrawable3.draw(canvas);
             totalWidth += drawablePadding + dw;
         }
@@ -1056,6 +1061,8 @@ public class SimpleTextView extends View implements Drawable.Callback {
                     y = getPaddingTop() + (textHeight - dh) / 2 + rightDrawableTopPadding;
                 }
                 rightDrawable3.setBounds(x, y, x + dw, y + dh);
+                rightDrawable3X = x + (dw >> 1);
+                rightDrawable3Y = y + (dh >> 1);
                 rightDrawable3.draw(canvas);
             }
         }
@@ -1175,6 +1182,8 @@ public class SimpleTextView extends View implements Drawable.Callback {
                     y = getPaddingTop() + (textHeight - dh) / 2 + rightDrawableTopPadding;
                 }
                 rightDrawable3.setBounds(x, y, x + dw, y + dh);
+                rightDrawable3X = x + (dw >> 1);
+                rightDrawable3Y = y + (dh >> 1);
                 rightDrawable3.draw(canvas);
                 totalWidth += drawablePadding + dw;
             }
@@ -1275,6 +1284,8 @@ public class SimpleTextView extends View implements Drawable.Callback {
                 y = getPaddingTop() + (textHeight - dh) / 2 + rightDrawableTopPadding;
             }
             rightDrawable3.setBounds(x, y, x + dw, y + dh);
+            rightDrawable3X = x + (dw >> 1);
+            rightDrawable3Y = y + (dh >> 1);
             rightDrawable3.draw(canvas);
         }
     }
@@ -1457,6 +1468,10 @@ public class SimpleTextView extends View implements Drawable.Callback {
         rightDrawableOnClickListener = onClickListener;
     }
 
+    public void setRightDrawable3OnClick(OnClickListener onClickListener) {
+        rightDrawable3OnClickListener = onClickListener;
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (rightDrawableOnClickListener != null && rightDrawable != null) {
@@ -1488,7 +1503,27 @@ public class SimpleTextView extends View implements Drawable.Callback {
                 getParent().requestDisallowInterceptTouchEvent(false);
             }
         }
-        return super.onTouchEvent(event) || maybeClick;
+        if (rightDrawable3OnClickListener != null && rightDrawable3 != null) {
+            AndroidUtilities.rectTmp.set(rightDrawable3X - dp(16), rightDrawable3Y - dp(16), rightDrawable3X + dp(16), rightDrawable3Y + dp(16));
+            if (event.getAction() == MotionEvent.ACTION_DOWN && AndroidUtilities.rectTmp.contains((int) event.getX(), (int) event.getY())) {
+                maybeClick3 = true;
+                touchDownX = event.getX();
+                touchDownY = event.getY();
+                getParent().requestDisallowInterceptTouchEvent(true);
+            } else if (event.getAction() == MotionEvent.ACTION_MOVE && maybeClick3) {
+                if (Math.abs(event.getX() - touchDownX) >= AndroidUtilities.touchSlop || Math.abs(event.getY() - touchDownY) >= AndroidUtilities.touchSlop) {
+                    maybeClick3 = false;
+                    getParent().requestDisallowInterceptTouchEvent(false);
+                }
+            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                if (maybeClick3 && event.getAction() == MotionEvent.ACTION_UP) {
+                    rightDrawable3OnClickListener.onClick(this);
+                }
+                maybeClick3 = false;
+                getParent().requestDisallowInterceptTouchEvent(false);
+            }
+        }
+        return super.onTouchEvent(event) || maybeClick || maybeClick3;
     }
 
     public static interface PressableDrawable {

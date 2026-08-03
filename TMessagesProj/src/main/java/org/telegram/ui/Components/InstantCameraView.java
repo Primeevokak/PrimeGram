@@ -61,6 +61,7 @@ import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.LinearLayout;
 
 import androidx.annotation.Nullable;
@@ -136,6 +137,8 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
     private Paint paint;
     private RectF rect;
     private final FlashViews.ImageViewInvertable switchCameraButton;
+    private TextView wideCameraButton;
+    private boolean preferWideBackCamera;
     private final FlashViews.ImageViewInvertable flashButton;
     private final FlashViews flashViews;
     private RLottieDrawable flashOnDrawable, flashOffDrawable;
@@ -381,6 +384,21 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
             });
             valueAnimator.start();
         });
+
+        wideCameraButton = new TextView(context);
+        wideCameraButton.setGravity(Gravity.CENTER);
+        wideCameraButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
+        wideCameraButton.setTypeface(AndroidUtilities.bold());
+        wideCameraButton.setTextColor(0xffffffff);
+        wideCameraButton.setVisibility(GONE);
+        buttonsLayout.addView(wideCameraButton, LayoutHelper.createLinear(44, 44));
+        wideCameraButton.setOnClickListener(v -> {
+            if (!cameraReady || !isCameraSessionInitiated() || cameraThread == null || bothCameras || isFrontface) {
+                return;
+            }
+            toggleWideCamera();
+        });
+        updateWideCameraButton();
 
         flashButton = new FlashViews.ImageViewInvertable(context);
         flashButton.setScaleType(ImageView.ScaleType.CENTER);
@@ -799,12 +817,13 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
                 }
                 if (camera2SessionCurrent == null) return;
             } else {
-                camera2SessionCurrent = camera2Sessions[isFrontface ? 0 : 1] = Camera2Session.create(isFrontface, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize);
+                camera2SessionCurrent = camera2Sessions[isFrontface ? 0 : 1] = Camera2Session.create(isFrontface, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, !isFrontface && preferWideBackCamera);
                 if (camera2SessionCurrent == null) return;
                 camera2SessionCurrent.setRecordingVideo(true);
                 previewSize[0] = new Size(camera2SessionCurrent.getPreviewWidth(), camera2SessionCurrent.getPreviewHeight());
             }
         }
+        updateWideCameraButton();
         textureView = new TextureView(getContext());
         textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
@@ -1152,7 +1171,7 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
                     camera2SessionCurrent = null;
                     camera2Sessions[isFrontface ? 1 : 0] = null;
                 }
-                camera2SessionCurrent = camera2Sessions[isFrontface ? 0 : 1] = Camera2Session.create(isFrontface, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize);
+                camera2SessionCurrent = camera2Sessions[isFrontface ? 0 : 1] = Camera2Session.create(isFrontface, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, !isFrontface && preferWideBackCamera);
                 if (camera2SessionCurrent == null) return;
                 camera2SessionCurrent.setRecordingVideo(true);
                 previewSize[0] = new Size(camera2SessionCurrent.getPreviewWidth(), camera2SessionCurrent.getPreviewHeight());
@@ -1168,6 +1187,41 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
         initCamera();
         cameraReady = false;
         cameraThread.reinitForNewCamera();
+        updateWideCameraButton();
+    }
+
+    /** Rebuilds the current back-camera session against the widest (or, toggled back, the
+     *  default) lens - a no-op while facing front or in the dual front+back preview, where
+     *  each slot's camera is fixed for the session. */
+    private void toggleWideCamera() {
+        preferWideBackCamera = !preferWideBackCamera;
+        if (useCamera2) {
+            if (camera2SessionCurrent != null) {
+                camera2SessionCurrent.destroy(false);
+                camera2SessionCurrent = null;
+                camera2Sessions[isFrontface ? 0 : 1] = null;
+            }
+            camera2SessionCurrent = camera2Sessions[isFrontface ? 0 : 1] = Camera2Session.create(isFrontface, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, preferWideBackCamera);
+            if (camera2SessionCurrent == null) {
+                preferWideBackCamera = !preferWideBackCamera;
+                return;
+            }
+            camera2SessionCurrent.setRecordingVideo(true);
+            previewSize[0] = new Size(camera2SessionCurrent.getPreviewWidth(), camera2SessionCurrent.getPreviewHeight());
+            cameraThread.setCurrentSession(camera2SessionCurrent);
+            cameraReady = false;
+            cameraThread.reinitForNewCamera();
+        }
+        updateWideCameraButton();
+    }
+
+    private void updateWideCameraButton() {
+        if (wideCameraButton == null) {
+            return;
+        }
+        final boolean canShow = useCamera2 && !bothCameras && !isFrontface && Camera2Session.hasSecondaryBackCamera();
+        wideCameraButton.setVisibility(canShow ? VISIBLE : GONE);
+        wideCameraButton.setText(preferWideBackCamera ? "1x" : "0.5x");
     }
 
     // Old Camera1 API

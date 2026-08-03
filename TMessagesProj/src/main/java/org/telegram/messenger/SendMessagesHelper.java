@@ -4482,6 +4482,10 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                             type = 0;
                         }
                         newMsg.message = message;
+                        if (sendMessageParams.primeDisplayMessage != null) {
+                            newMsg.message = sendMessageParams.primeDisplayMessage;
+                            newMsg.entities.clear();
+                        }
                     }
                 } else if (poll != null) {
                     if (encryptedChat != null) {
@@ -12076,6 +12080,8 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         public long ephemeralReceiverBotId;
         public TL_iv.RichMessage richMessage;
         public ArrayList<TLRPC.InputUser> richMessageInputUsers;
+        /** PrimeGram: text sent to the server is {@link #message}; the sender's own bubble shows this instead. */
+        public String primeDisplayMessage;
 
         public static SendMessageParams ofRichMessage(TL_iv.RichMessage richMessage, long peer, MessageObject replyToMsg, MessageObject replyToTopMsg, TLRPC.ReplyMarkup replyMarkup, HashMap<String, String> params, boolean notify, int scheduleDate, int scheduleRepeatPeriod) {
             SendMessageParams p = of(null, null, null, null, null, null, null, null, null, null, peer, null, replyToMsg, replyToTopMsg, null, true, null, null, replyMarkup, params, notify, scheduleDate, scheduleRepeatPeriod, 0, null, null, false);

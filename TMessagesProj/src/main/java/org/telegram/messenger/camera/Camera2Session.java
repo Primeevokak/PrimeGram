@@ -81,8 +81,21 @@ public class Camera2Session {
     private long lastTime;
 
     public static Camera2Session create(boolean front, int viewWidth, int viewHeight) {
+        return create(front, viewWidth, viewHeight, false);
+    }
+
+    /**
+     * PrimeGram: {@code preferWide} restricts the search to whichever back camera has the
+     * shortest minimum focal length - the ultra-wide sensor on phones that have one. Ignored for
+     * the front camera and for phones with only one back sensor, so asking for wide on a phone
+     * without one is silently the same as not asking - there is nothing to fall back to that
+     * would actually be wider, unlike a numeric zoom which can always go closer.
+     */
+    public static Camera2Session create(boolean front, int viewWidth, int viewHeight, boolean preferWide) {
         final Context context = ApplicationLoader.applicationContext;
         final CameraManager cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+
+        final String restrictToId = !front && preferWide ? findWidestBackCameraId(cameraManager) : null;
 
         float bestAspectRatio = 0;
         Size bestSize = null;
@@ -91,6 +104,9 @@ public class Camera2Session {
             String[] cameraIds = cameraManager.getCameraIdList();
             for (int i = 0; i < cameraIds.length; ++i) {
                 final String id = cameraIds[i];
+                if (restrictToId != null && !restrictToId.equals(id)) {
+                    continue;
+                }
                 CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(id);
                 if (characteristics == null) continue;
                 if (characteristics.get(CameraCharacteristics.LENS_FACING) != (front ? CameraCharacteristics.LENS_FACING_FRONT : CameraCharacteristics.LENS_FACING_BACK)) {
@@ -123,6 +139,46 @@ public class Camera2Session {
             return null;
         }
         return new Camera2Session(context, front, cameraId, bestSize);
+    }
+
+    /** The back camera id with the shortest minimum focal length, or {@code null} if there's
+     *  only one back camera - a single-lens phone has nothing narrower to compare it against. */
+    private static String findWidestBackCameraId(CameraManager cameraManager) {
+        String widestId = null;
+        float widestFocalLength = Float.MAX_VALUE;
+        int backCameraCount = 0;
+        try {
+            for (String id : cameraManager.getCameraIdList()) {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(id);
+                if (characteristics == null || characteristics.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) {
+                    continue;
+                }
+                backCameraCount++;
+                float[] focalLengths = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+                if (focalLengths == null || focalLengths.length == 0) {
+                    continue;
+                }
+                float minFocalLength = focalLengths[0];
+                for (float f : focalLengths) {
+                    minFocalLength = Math.min(minFocalLength, f);
+                }
+                if (minFocalLength < widestFocalLength) {
+                    widestFocalLength = minFocalLength;
+                    widestId = id;
+                }
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
+            return null;
+        }
+        return backCameraCount >= 2 ? widestId : null;
+    }
+
+    /** Whether switching to a wide lens would do anything on this device. */
+    public static boolean hasSecondaryBackCamera() {
+        final Context context = ApplicationLoader.applicationContext;
+        final CameraManager cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+        return cameraManager != null && findWidestBackCameraId(cameraManager) != null;
     }
 
     private Camera2Session(Context context, boolean isFront, String cameraId, Size size) {
@@ -468,6 +524,35 @@ public class Camera2Session {
         }
     }
 
+    /**
+     * PrimeGram: the highest frame rate the sensor actually reports supporting, capped at 60 -
+     * not every device that accepts {@code (30, 60)} as a request genuinely captures at 60; some
+     * only ever had {@code (30, 30)} or similar in {@code CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES}
+     * and would have silently dropped an unlisted range. Picking from the list the hardware itself
+     * published is the only way to actually get 60 where it's real, without breaking the request
+     * on sensors where it isn't. {@code null} means "leave it to the camera's own default" - safer
+     * than guessing when the characteristic itself is missing.
+     */
+    private Range<Integer> bestFpsRangeUpTo60() {
+        if (cameraCharacteristics == null) {
+            return null;
+        }
+        final Range<Integer>[] ranges = cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+        if (ranges == null) {
+            return null;
+        }
+        Range<Integer> best = null;
+        for (Range<Integer> range : ranges) {
+            if (range.getUpper() > 60) {
+                continue;
+            }
+            if (best == null || range.getUpper() > best.getUpper()) {
+                best = range;
+            }
+        }
+        return best;
+    }
+
     private void updateCaptureRequest() {
         if (cameraDevice == null || surface == null || captureSession == null) return;
         try {
@@ -490,7 +575,10 @@ public class Camera2Session {
             captureRequestBuilder.set(CaptureRequest.FLASH_MODE, flashing ? (recordingVideo ? CaptureRequest.FLASH_MODE_TORCH : CaptureRequest.FLASH_MODE_SINGLE) : CaptureRequest.FLASH_MODE_OFF);
 
             if (recordingVideo) {
-                captureRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>(30, 60));
+                final Range<Integer> fpsRange = bestFpsRangeUpTo60();
+                if (fpsRange != null) {
+                    captureRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange);
+                }
                 captureRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_VIDEO_RECORD);
             }
 

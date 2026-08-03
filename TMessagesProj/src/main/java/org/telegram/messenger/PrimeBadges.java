@@ -27,10 +27,9 @@ import java.util.Map;
  * shows - matching exactly what {@code AnimatedEmojiDrawable.findDocument(account, id)} already
  * knows how to draw, since that is the same mechanism Telegram Premium's own name badges use.
  *
- * <p>This is the data layer only. Drawing the badge next to a name in the profile header, the chat
- * title, or a message sender's name is a separate change per screen - the same shape of work menu
- * items were, since each of those places already has its own way of adding a small icon next to
- * text - and is not done here yet.
+ * <p>This is the data layer; drawing lives per screen. {@code ProfileActivity} wires both user and
+ * chat/channel badges into the name row's {@code rightDrawable3} slot, with a tap showing the
+ * badge's {@code text} - a message sender's name elsewhere is not done yet.
  */
 public final class PrimeBadges {
 

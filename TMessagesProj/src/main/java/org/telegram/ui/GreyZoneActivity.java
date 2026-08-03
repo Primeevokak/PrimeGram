@@ -29,6 +29,7 @@ public class GreyZoneActivity extends UniversalFragment {
     private static final int ID_GHOST_ONLINE = 22;
     private static final int ID_SAVE_DELETED = 30;
     private static final int ID_OPEN_DELETED = 31;
+    private static final int ID_ACTIVITY_PEEK = 40;
 
     @Override
     protected CharSequence getTitle() {
@@ -70,6 +71,10 @@ public class GreyZoneActivity extends UniversalFragment {
         }
         items.add(UItem.asShadow("Копия сохраняется локально, до лимита записей — старые вытесняются новыми. Свои удалённые сообщения не сохраняются."));
 
+        items.add(UItem.asHeader("Активность"));
+        items.add(check(ID_ACTIVITY_PEEK, "Видеть активность в общих группах", GreyZone.ACTIVITY_PEEK));
+        items.add(UItem.asShadow("Если собеседник скрыл от вас «был(а) в сети», но сейчас печатает или отправляет что-то в группе, где вы оба состоите, — это будет видно в его профиле вместо скрытого статуса."));
+
         items.add(UItem.asShadow(""));
         items.add(UItem.asButton(ID_REVOKE, "Отключить всё и скрыть раздел"));
     }
@@ -102,6 +107,8 @@ public class GreyZoneActivity extends UniversalFragment {
             toggle(GreyZone.SAVE_DELETED);
         } else if (item.id == ID_OPEN_DELETED) {
             presentFragment(new DeletedMessagesActivity());
+        } else if (item.id == ID_ACTIVITY_PEEK) {
+            toggle(GreyZone.ACTIVITY_PEEK);
         }
     }
 

@@ -5123,6 +5123,21 @@ public class ChatActivityEnterView extends FrameLayout implements
                 }
             });
         }
+        if (!isStories && dialog_id != 0) {
+            final boolean translateOn = org.telegram.messenger.PrimeSendTranslate.isEnabled(dialog_id);
+            if (translateOn) {
+                options.add(R.drawable.msg_translate, "Язык перевода: " + org.telegram.messenger.PrimeSendTranslate.getLanguageName(org.telegram.messenger.PrimeSendTranslate.getLanguage(dialog_id)), () -> {
+                    showSendTranslateLanguagePicker(false);
+                });
+                options.add(R.drawable.msg_translate, "Выключить перевод перед отправкой", () -> {
+                    org.telegram.messenger.PrimeSendTranslate.setEnabled(dialog_id, false);
+                });
+            } else {
+                options.add(R.drawable.msg_translate, "Перевести перед отправкой", () -> {
+                    showSendTranslateLanguagePicker(true);
+                });
+            }
+        }
         options.setupSelectors();
         if (sendWhenOnlineButton != null) {
             TLRPC.User user = parentFragment == null ? null : parentFragment.getCurrentUser();
@@ -5823,7 +5838,7 @@ public class ChatActivityEnterView extends FrameLayout implements
         messageEditText.setMaxLines(6);
         messageEditText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
         messageEditText.setGravity(Gravity.BOTTOM);
-        messageEditText.setPadding(0, dp(inu_FIELD_PADDING_TOP), 0, dp(inu_FIELD_PADDING_BOTTOM));
+        messageEditText.setPadding(0, dp(inu_fieldPaddingTop()), 0, dp(inu_fieldPaddingBottom()));
         messageEditText.setBackgroundDrawable(null);
         messageEditText.setTextColor(getThemedColor(Theme.key_chat_messagePanelText));
         messageEditText.setLinkTextColor(getThemedColor(Theme.key_chat_messageLinkOut));
@@ -6483,6 +6498,16 @@ public class ChatActivityEnterView extends FrameLayout implements
     public static int inu_FIELD_PADDING_TOP = 9;
     public static int inu_FIELD_PADDING_BOTTOM = 10;
     public static float inu_ICON_PADDING = 7.5f;
+
+    /** Classic flat UI: the text field carries the same padding as the island bubble, which reads
+     *  as visibly too tall in a plain rectangular bar with no bubble to fill. */
+    private static int inu_fieldPaddingTop() {
+        return inu_FIELD_PADDING_TOP - (org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 1);
+    }
+
+    private static int inu_fieldPaddingBottom() {
+        return inu_FIELD_PADDING_BOTTOM - (org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 2);
+    }
 
     private boolean resizeForTopViewLastShow;
     private void resizeForTopView(boolean show) {
@@ -7304,6 +7329,8 @@ public class ChatActivityEnterView extends FrameLayout implements
 
     private boolean primeTranslatingBeforeSend;
 
+    private String primePendingOriginalText;
+
     private void primeTranslateBeforeSend(boolean notify, int scheduleDate, int scheduleRepeatPeriod, long payStars, boolean allowConfirm) {
         final String original = messageEditText.getText().toString();
         final String lang = org.telegram.messenger.PrimeSendTranslate.getLanguage(dialog_id);
@@ -7317,6 +7344,7 @@ public class ChatActivityEnterView extends FrameLayout implements
             if (response instanceof TLRPC.TL_messages_translateResult) {
                 final TLRPC.TL_messages_translateResult result = (TLRPC.TL_messages_translateResult) response;
                 if (!result.result.isEmpty() && !TextUtils.isEmpty(result.result.get(0).text) && messageEditText != null) {
+                    primePendingOriginalText = original;
                     messageEditText.setText(result.result.get(0).text);
                     messageEditText.setSelection(messageEditText.length());
                 }
@@ -7912,6 +7940,10 @@ public class ChatActivityEnterView extends FrameLayout implements
                     replyToTopMsg = replyingTopMessage;
                 }
                 SendMessagesHelper.SendMessageParams params = SendMessagesHelper.SendMessageParams.of(message[0].toString(), dialog_id, replyingMessageObject, replyToTopMsg, messageWebPage, messageWebPageSearch, entities, null, null, notify, scheduleDate, scheduleRepeatPeriod, sendAnimationData, updateStickersOrder);
+                if (primePendingOriginalText != null) {
+                    params.primeDisplayMessage = primePendingOriginalText;
+                    primePendingOriginalText = null;
+                }
                 params.quick_reply_shortcut = parentFragment != null ? parentFragment.quickReplyShortcut : null;
                 params.quick_reply_shortcut_id = parentFragment != null ? parentFragment.getQuickReplyId() : 0;
                 params.effect_id = effectId;
@@ -8819,7 +8851,7 @@ public class ChatActivityEnterView extends FrameLayout implements
         slowModeButton.setVisibility(visible ? VISIBLE : GONE);
         int padding = visible ? dp(slowModeButton.isPremiumMode ? 26 : 16) : 0;
         if (messageEditText != null && messageEditText.getPaddingRight() != padding) {
-            messageEditText.setPadding(0, dp(inu_FIELD_PADDING_TOP), padding, dp(inu_FIELD_PADDING_BOTTOM));
+            messageEditText.setPadding(0, dp(inu_fieldPaddingTop()), padding, dp(inu_fieldPaddingBottom()));
         }
     }
 

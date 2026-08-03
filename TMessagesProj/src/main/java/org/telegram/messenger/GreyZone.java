@@ -26,6 +26,8 @@ public class GreyZone {
     public static final String GHOST_DONT_ONLINE = "grey_ghost_dont_online";
     /** Keep a local copy of messages other people delete. */
     public static final String SAVE_DELETED = "grey_save_deleted";
+    /** Show that someone who hides their online status is typing in a group shared with us. */
+    public static final String ACTIVITY_PEEK = "grey_activity_peek";
 
     private static final String KEY_ACCEPTED = "grey_zone_accepted";
 
@@ -47,7 +49,8 @@ public class GreyZone {
                     .putBoolean(GHOST_DONT_READ, false)
                     .putBoolean(GHOST_DONT_TYPING, false)
                     .putBoolean(GHOST_DONT_ONLINE, false)
-                    .putBoolean(SAVE_DELETED, false);
+                    .putBoolean(SAVE_DELETED, false)
+                    .putBoolean(ACTIVITY_PEEK, false);
         }
         editor.apply();
     }
