@@ -7226,7 +7226,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         builder.setTitle("PrimeGram");
         builder.setMessage("Спасибо, что пользуетесь PrimeGram! Подписывайтесь на наш канал, чтобы не пропустить свежие обновления, и поддержите разработку проекта, если он вам нравится! ❤️");
         builder.setPositiveButton("Наш канал", (dialog, which) -> {
-            org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/prime_gram");
+            org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "https://t.me/o00000000i");
         });
         builder.setNegativeButton("Поддержать", (dialog, which) -> {
             org.telegram.messenger.browser.Browser.openUrl(getParentActivity(), "http://t.me/send?start=IVqCWWqPk6AA");
