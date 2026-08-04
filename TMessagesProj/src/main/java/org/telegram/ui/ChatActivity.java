@@ -35523,26 +35523,40 @@ public class ChatActivity extends BaseFragment implements
                 : org.telegram.messenger.GreyZone.getDialogTypingMode(dialog_id);
         CharSequence[] items = {"По умолчанию", "Всегда", "Никогда"};
         int[] modes = {org.telegram.messenger.GreyZone.MODE_DEFAULT, org.telegram.messenger.GreyZone.MODE_ALWAYS, org.telegram.messenger.GreyZone.MODE_NEVER};
-        int checkedIndex = 0;
+
+        LinearLayout layout = new LinearLayout(getContext());
+        layout.setOrientation(LinearLayout.VERTICAL);
+        org.telegram.ui.Cells.RadioColorCell[] cells = new org.telegram.ui.Cells.RadioColorCell[modes.length];
+        AlertDialog[] dialogHolder = new AlertDialog[1];
         for (int i = 0; i < modes.length; i++) {
-            if (modes[i] == current) {
-                checkedIndex = i;
-                break;
-            }
+            final int index = i;
+            org.telegram.ui.Cells.RadioColorCell cell = new org.telegram.ui.Cells.RadioColorCell(getContext(), getResourceProvider());
+            cell.setTextAndValue(items[i], modes[i] == current);
+            cell.setOnClickListener(v -> {
+                int mode = modes[index];
+                if (forReading) {
+                    org.telegram.messenger.GreyZone.setDialogReadingMode(dialog_id, mode);
+                } else {
+                    org.telegram.messenger.GreyZone.setDialogTypingMode(dialog_id, mode);
+                }
+                for (org.telegram.ui.Cells.RadioColorCell other : cells) {
+                    other.setChecked(other == cells[index], true);
+                }
+                if (dialogHolder[0] != null) {
+                    dialogHolder[0].dismiss();
+                }
+            });
+            cells[i] = cell;
+            layout.addView(cell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
         }
-        new AlertDialog.Builder(getContext(), getResourceProvider())
-                .setTitle(forReading ? "Прочтение сообщений" : "Индикатор «печатает»")
-                .setSingleChoiceItems(items, checkedIndex, (di, which) -> {
-                    int mode = modes[which];
-                    if (forReading) {
-                        org.telegram.messenger.GreyZone.setDialogReadingMode(dialog_id, mode);
-                    } else {
-                        org.telegram.messenger.GreyZone.setDialogTypingMode(dialog_id, mode);
-                    }
-                    di.dismiss();
-                })
-                .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
-                .show();
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(getContext(), getResourceProvider());
+        builder.setTitle(forReading ? "Прочтение сообщений" : "Индикатор «печатает»");
+        builder.setView(layout);
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        AlertDialog dialog = builder.create();
+        dialogHolder[0] = dialog;
+        showDialog(dialog);
     }
 
     public void clearSelectionMode() {
