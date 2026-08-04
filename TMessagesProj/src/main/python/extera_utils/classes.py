@@ -39,7 +39,8 @@ def _overridable_names(cls):
     name - the pair goes into ``java_to_python``, which the dispatcher consults so a call arriving
     for the Java name still finds the differently-named Python method.
     """
-    skip = {"__init__", "extends", "bind", "java_class", "from_java", "new_java_instance", "new_instance"}
+    skip = {"__init__", "extends", "bind", "java_class", "from_java", "new_java_instance", "new_instance",
+            "on_pre_init", "on_post_init"}
     java_names = set()
     java_to_python = {}
     for klass in cls.__mro__:
@@ -363,7 +364,9 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
             peer = self._python_class.__new__(self._python_class)
             peer._prime_java = instance
             try:
+                peer.on_pre_init(*call_args)
                 self._python_class.__init__(peer, *call_args)
+                peer.on_post_init(*call_args)
             except Exception:
                 self._report_crash(signature)
             setattr(instance, _PEER_FIELD, peer)
@@ -414,6 +417,15 @@ class Base:
     __jinterfaces__ = ()
 
     def __init__(self, *args, **kwargs):
+        pass
+
+    def on_pre_init(self, *args):
+        """Called on the peer right before ``__init__`` runs, with the Java constructor's own
+        arguments - ``self.java`` is already valid at this point, ``__init__`` has not run yet."""
+        pass
+
+    def on_post_init(self, *args):
+        """Called right after ``__init__`` returns, same arguments as ``on_pre_init``."""
         pass
 
     @property
@@ -565,18 +577,6 @@ def jmethod(name=None, return_type=None, arg_types=None):
     return decorator
 
 
-class JHelper:
-    Overload = staticmethod(joverload)
-    Method = staticmethod(jmethod)
-    Constructor = staticmethod(_unsupported("@jconstructor"))
-    PreConstructor = staticmethod(jpreconstructor)
-    ClassBuilder = staticmethod(_unsupported("@jclassbuilder"))
-
-
-jconstructor = JHelper.Constructor
-jclassbuilder = JHelper.ClassBuilder
-
-
 def jMVELmethod(return_type=None, arguments=None, code=""):
     """A new method on the generated class, with no Python call in its body at all - just ``code``,
     MVEL, run by the same engine ``HookFilter.Condition`` uses. ``arguments`` is a list of
@@ -640,6 +640,26 @@ def joverride(java_method_name=None):
         fn.__joverride_target__ = java_method_name or fn.__name__
         return fn
     return decorator
+
+
+class JHelper:
+    """The ``@JHelper.X`` namespace exteraGram documents next to the bare ``jX`` decorators -
+    both spellings reach the same function, since plugins in the wild use either."""
+    Overload = staticmethod(joverload)
+    Method = staticmethod(jmethod)
+    Constructor = staticmethod(_unsupported("@jconstructor"))
+    PreConstructor = staticmethod(jpreconstructor)
+    ClassBuilder = staticmethod(_unsupported("@jclassbuilder"))
+    MVELMethod = staticmethod(jMVELmethod)
+    MVELOverride = staticmethod(jMVELoverride)
+    Override = staticmethod(joverride)
+    Field = staticmethod(jfield)
+    GetMethod = staticmethod(jgetmethod)
+    SetMethod = staticmethod(jsetmethod)
+
+
+jconstructor = JHelper.Constructor
+jclassbuilder = JHelper.ClassBuilder
 
 
 def class_proxy(clazz, **kwargs):

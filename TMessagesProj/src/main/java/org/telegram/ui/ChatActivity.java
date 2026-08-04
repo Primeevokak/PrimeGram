@@ -1697,6 +1697,7 @@ public class ChatActivity extends BaseFragment implements
     private final static int charge_fee = 72;
 
     private final static int chat_menu_topic_create = 73;
+    private final static int prime_ghost_exceptions = 74;
 
     private final static int id_chat_compose_panel = 1000;
 
@@ -4115,6 +4116,8 @@ public class ChatActivity extends BaseFragment implements
                     dumpCanvas();
                 } else if (id == 889) {
                     sendDebugRichMessage();
+                } else if (id == prime_ghost_exceptions) {
+                    showGhostExceptionsDialog();
                 }
             }
         });
@@ -4600,6 +4603,10 @@ public class ChatActivity extends BaseFragment implements
 
         if (BuildConfig.DEBUG_PRIVATE_VERSION && headerItem != null) {
             headerItem.addSubItem(888, R.drawable.menu_download_round, "Dump Canvas");
+        }
+
+        if (headerItem != null && org.telegram.messenger.GreyZone.isAccepted() && chatMode == 0 && dialog_id != 0) {
+            headerItem.addSubItem(prime_ghost_exceptions, R.drawable.msg_warning, "Исключения призрака");
         }
 
         actionModeViews.clear();
@@ -35483,6 +35490,59 @@ public class ChatActivity extends BaseFragment implements
         if (button != null) {
             button.setTextColor(getThemedColor(Theme.key_text_RedBold));
         }
+    }
+
+    /**
+     * PrimeGram grey zone: per-dialog override of the global ghost-mode read/typing toggles,
+     * ported from exteraGram's re_extera. "По умолчанию" follows the global switch, "Всегда"
+     * behaves as if ghost mode were off just for this dialog, "Никогда" as if it were on.
+     */
+    private void showGhostExceptionsDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        CharSequence[] items = {"Прочтение сообщений", "Индикатор «печатает»"};
+        new AlertDialog.Builder(getContext(), getResourceProvider())
+                .setTitle("Исключения призрака для этого чата")
+                .setItems(items, (di, which) -> {
+                    if (which == 0) {
+                        showGhostModePicker(true);
+                    } else {
+                        showGhostModePicker(false);
+                    }
+                })
+                .show();
+    }
+
+    private void showGhostModePicker(boolean forReading) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        int current = forReading
+                ? org.telegram.messenger.GreyZone.getDialogReadingMode(dialog_id)
+                : org.telegram.messenger.GreyZone.getDialogTypingMode(dialog_id);
+        CharSequence[] items = {"По умолчанию", "Всегда", "Никогда"};
+        int[] modes = {org.telegram.messenger.GreyZone.MODE_DEFAULT, org.telegram.messenger.GreyZone.MODE_ALWAYS, org.telegram.messenger.GreyZone.MODE_NEVER};
+        int checkedIndex = 0;
+        for (int i = 0; i < modes.length; i++) {
+            if (modes[i] == current) {
+                checkedIndex = i;
+                break;
+            }
+        }
+        new AlertDialog.Builder(getContext(), getResourceProvider())
+                .setTitle(forReading ? "Прочтение сообщений" : "Индикатор «печатает»")
+                .setSingleChoiceItems(items, checkedIndex, (di, which) -> {
+                    int mode = modes[which];
+                    if (forReading) {
+                        org.telegram.messenger.GreyZone.setDialogReadingMode(dialog_id, mode);
+                    } else {
+                        org.telegram.messenger.GreyZone.setDialogTypingMode(dialog_id, mode);
+                    }
+                    di.dismiss();
+                })
+                .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
+                .show();
     }
 
     public void clearSelectionMode() {

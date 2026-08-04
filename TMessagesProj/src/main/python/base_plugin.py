@@ -122,7 +122,52 @@ class PillData:
 # worst of the possible outcomes, because the plugin looks installed and does nothing.
 
 
-def _make_callback(plugin, xposed_hook, before, after, before_filters, after_filters):
+def _infer_hook_account(param):
+    """Best-effort account number for the object a hooked call landed on - almost every
+    per-account Telegram singleton (MessagesController, ConnectionsManager, SendMessagesHelper,
+    ...) carries a ``currentAccount`` field by convention, so reading it off ``param.thisObject``
+    covers the overwhelming majority of hooks without the plugin having to say which account it's
+    for. Returns None for static methods or classes that don't follow the convention - the hook
+    still runs, just without an account automatically in scope."""
+    if param.thisObject is None:
+        return None
+    try:
+        import hook_utils
+        return int(hook_utils.get_private_field(param.thisObject, "currentAccount"))
+    except Exception:
+        return None
+
+
+def _account_scoped_hook(account_scope, fn):
+    """Wraps a before/after callable so that, while it runs, ``client_utils`` resolves the
+    "current account" to whichever account the intercepted call actually belongs to - a plugin's
+    hook body can call ``client_utils.get_messages_controller()`` with no account argument and get
+    the right one, the same way exteraGram's own hooks do internally.
+
+    ``account_scope`` also accepts an explicit account index (rather than ``True``/omitted): the
+    hook then only fires for that one account, and is silently skipped for every other one -
+    exteraGram's documented way to write a hook that only cares about a single account in a
+    multi-account session.
+    """
+    if fn is None:
+        return None
+
+    restrict_to = None if account_scope is None or account_scope is True else int(account_scope)
+
+    def wrapper(param):
+        import client_utils
+        account = _infer_hook_account(param)
+        if restrict_to is not None and account != restrict_to:
+            return None
+        if account is None:
+            return fn(param)
+        with client_utils.account_scope(account):
+            return fn(param)
+
+    return wrapper
+
+
+def _make_callback(plugin, xposed_hook, before, after, before_filters, after_filters, account_scope=None):
     """Turns everything a plugin might have passed into one Java-facing callback.
 
     exteraGram accepts three shapes for the same thing - a hook object, plain before/after
@@ -160,6 +205,10 @@ def _make_callback(plugin, xposed_hook, before, after, before_filters, after_fil
         before_filters = getattr(before_fn, "__hook_filters__", None)
     if after_filters is None and after_fn is not None:
         after_filters = getattr(after_fn, "__hook_filters__", None)
+
+    before_fn = _account_scoped_hook(account_scope, before_fn)
+    after_fn = _account_scoped_hook(account_scope, after_fn)
+    replacement = _account_scoped_hook(account_scope, replacement)
 
     def passes(filters, param, is_before):
         if not filters:
@@ -600,10 +649,10 @@ class BasePlugin:
         plugin_settings.set_all_settings(self.id, settings)
 
     def hook_method(self, method_or_constructor, xposed_hook=None, priority=None, *,
-                    before=None, after=None, before_filters=None, after_filters=None):
+                    before=None, after=None, before_filters=None, after_filters=None, account_scope=None):
         from org.telegram.messenger.plugins import PrimePluginXposed
         callback = _make_callback(self, xposed_hook, before, after,
-                                  before_filters, after_filters)
+                                  before_filters, after_filters, account_scope)
         if callback is None:
             return None
         unhook = PrimePluginXposed.hookMethod(method_or_constructor,
@@ -617,10 +666,10 @@ class BasePlugin:
         return unhook
 
     def hook_all_methods(self, hook_class, method_name, xposed_hook=None, priority=None, *,
-                         before=None, after=None, before_filters=None, after_filters=None):
+                         before=None, after=None, before_filters=None, after_filters=None, account_scope=None):
         from org.telegram.messenger.plugins import PrimePluginXposed
         callback = _make_callback(self, xposed_hook, before, after,
-                                  before_filters, after_filters)
+                                  before_filters, after_filters, account_scope)
         if callback is None:
             return None
         unhooks = PrimePluginXposed.hookAllMethods(
@@ -633,10 +682,10 @@ class BasePlugin:
         return result
 
     def hook_all_constructors(self, hook_class, xposed_hook=None, priority=None, *,
-                              before=None, after=None, before_filters=None, after_filters=None):
+                              before=None, after=None, before_filters=None, after_filters=None, account_scope=None):
         from org.telegram.messenger.plugins import PrimePluginXposed
         callback = _make_callback(self, xposed_hook, before, after,
-                                  before_filters, after_filters)
+                                  before_filters, after_filters, account_scope)
         if callback is None:
             return None
         unhooks = PrimePluginXposed.hookAllConstructors(

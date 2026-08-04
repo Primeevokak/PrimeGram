@@ -31,6 +31,10 @@ public class GreyZoneActivity extends UniversalFragment {
     private static final int ID_OPEN_DELETED = 31;
     private static final int ID_ACTIVITY_PEEK = 40;
     private static final int ID_LOCAL_PREMIUM = 50;
+    private static final int ID_GHOST_STORIES = 60;
+    private static final int ID_GHOST_IMMEDIATE_OFFLINE = 61;
+    private static final int ID_GHOST_SCHEDULE = 62;
+    private static final int ID_GHOST_SCHEDULE_RANGE = 63;
 
     @Override
     protected CharSequence getTitle() {
@@ -61,7 +65,22 @@ public class GreyZoneActivity extends UniversalFragment {
         items.add(check(ID_GHOST_READ, "Не отправлять прочтение", GreyZone.GHOST_DONT_READ));
         items.add(check(ID_GHOST_TYPING, "Не отправлять «печатает»", GreyZone.GHOST_DONT_TYPING));
         items.add(check(ID_GHOST_ONLINE, "Не показывать «в сети»", GreyZone.GHOST_DONT_ONLINE));
+        items.add(check(ID_GHOST_STORIES, "Смотреть истории незаметно", GreyZone.GHOST_NO_READ_STORIES));
         items.add(UItem.asShadow("Чаты по-прежнему помечаются прочитанными у вас — наружу уходит только меньше информации. «Не показывать в сети» не мешает уйти в оффлайн."));
+
+        UItem immediateOfflineItem = UItem.asCheck(ID_GHOST_IMMEDIATE_OFFLINE, "Активно возвращаться в оффлайн");
+        immediateOfflineItem.checked = GreyZone.immediateOfflineEnabled();
+        items.add(immediateOfflineItem);
+        items.add(UItem.asShadow("Отправка сообщения, реакции и другие действия сами по себе выдают «в сети», даже если это скрыто. Эта опция сразу отправляет статус «не в сети» вслед за таким действием, перекрывая сигнал серверу."));
+
+        UItem scheduleItem = UItem.asCheck(ID_GHOST_SCHEDULE, "Только по расписанию");
+        scheduleItem.checked = GreyZone.isScheduleEnabled();
+        items.add(scheduleItem);
+        if (GreyZone.isScheduleEnabled()) {
+            items.add(UItem.asButton(ID_GHOST_SCHEDULE_RANGE, "Период",
+                    formatMinutes(GreyZone.getScheduleStartMinute()) + " — " + formatMinutes(GreyZone.getScheduleEndMinute())));
+        }
+        items.add(UItem.asShadow("Режим призрака и «не показывать в сети» действуют только в указанное время суток. Вне этого окна всё работает как обычно."));
 
         items.add(UItem.asHeader("Удалённые сообщения"));
         items.add(check(ID_SAVE_DELETED, "Сохранять удалённые собеседниками", GreyZone.SAVE_DELETED));
@@ -116,7 +135,37 @@ public class GreyZoneActivity extends UniversalFragment {
             toggle(GreyZone.ACTIVITY_PEEK);
         } else if (item.id == ID_LOCAL_PREMIUM) {
             toggle(GreyZone.LOCAL_PREMIUM);
+        } else if (item.id == ID_GHOST_STORIES) {
+            toggle(GreyZone.GHOST_NO_READ_STORIES);
+        } else if (item.id == ID_GHOST_IMMEDIATE_OFFLINE) {
+            GreyZone.setEnabled(GreyZone.GHOST_IMMEDIATE_OFFLINE, !GreyZone.immediateOfflineEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_GHOST_SCHEDULE) {
+            GreyZone.setScheduleEnabled(!GreyZone.isScheduleEnabled());
+            listView.adapter.update(true);
+            LaunchActivity.refreshGreyZoneUi();
+        } else if (item.id == ID_GHOST_SCHEDULE_RANGE) {
+            showScheduleRangeDialog();
         }
+    }
+
+    private String formatMinutes(int minutesSinceMidnight) {
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", minutesSinceMidnight / 60, minutesSinceMidnight % 60);
+    }
+
+    private void showScheduleRangeDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        int startMinute = GreyZone.getScheduleStartMinute();
+        new android.app.TimePickerDialog(getParentActivity(), (view, startHour, startMin) -> {
+            int newStart = startHour * 60 + startMin;
+            int endMinute = GreyZone.getScheduleEndMinute();
+            new android.app.TimePickerDialog(getParentActivity(), (view2, endHour, endMin) -> {
+                GreyZone.setSchedule(newStart, endHour * 60 + endMin);
+                listView.adapter.update(true);
+            }, endMinute / 60, endMinute % 60, true).show();
+        }, startMinute / 60, startMinute % 60, true).show();
     }
 
     private void toggle(String key) {

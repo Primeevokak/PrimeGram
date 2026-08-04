@@ -10646,8 +10646,9 @@ public class MessagesController extends BaseController implements NotificationCe
                 if (ApplicationLoader.mainInterfacePausedStageQueueTime != 0 && Math.abs(ApplicationLoader.mainInterfacePausedStageQueueTime - System.currentTimeMillis()) > 1000
                         // PrimeGram grey zone: never announce ourselves as online. The
                         // "offline" branch below is left alone, so the account still goes
-                        // offline properly instead of getting stuck as online.
-                        && !GreyZone.isEnabled(GreyZone.GHOST_DONT_ONLINE)) {
+                        // offline properly instead of getting stuck as online. Respects the
+                        // optional schedule window.
+                        && !GreyZone.shouldGhostOnline()) {
                     if (statusSettingState != 1 && (lastStatusUpdateTime == 0 || Math.abs(System.currentTimeMillis() - lastStatusUpdateTime) >= 55000 || offlineSent)) {
                         statusSettingState = 1;
 
@@ -11508,8 +11509,9 @@ public class MessagesController extends BaseController implements NotificationCe
         if (action < 0 || action >= sendingTypings.length || dialogId == 0) {
             return false;
         }
-        // PrimeGram grey zone: suppress the "typing…" / "choosing sticker" indicator.
-        if (GreyZone.isEnabled(GreyZone.GHOST_DONT_TYPING)) {
+        // PrimeGram grey zone: suppress the "typing…" / "choosing sticker" indicator,
+        // unless this dialog has a per-dialog exception set to always type.
+        if (GreyZone.shouldGhostTyping(dialogId)) {
             return false;
         }
         final long selfId = UserConfig.getInstance(UserConfig.selectedAccount).getClientUserId();
@@ -14640,10 +14642,12 @@ public class MessagesController extends BaseController implements NotificationCe
 
     private void completeReadTask(ReadTask task) {
         // PrimeGram grey zone: don't tell the other side the message was read. The chat is
-        // still marked read locally — only the outgoing receipt is dropped.
-        if (GreyZone.isEnabled(GreyZone.GHOST_DONT_READ)) {
+        // still marked read locally — only the outgoing receipt is dropped, unless this
+        // dialog has a per-dialog exception set to always read.
+        if (GreyZone.shouldGhostRead(task.dialogId)) {
             return;
         }
+        GreyZone.triggerImmediateOfflineIfNeeded(currentAccount);
         if (task.replyId != 0 && task.monoForumPeerId == 0) {
             TLRPC.TL_messages_readDiscussion req = new TLRPC.TL_messages_readDiscussion();
             req.msg_id = (int) task.replyId;

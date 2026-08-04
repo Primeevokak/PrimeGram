@@ -7851,6 +7851,11 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
             return;
         }
 
+        // PrimeGram grey zone: sending a message signals "online" to the server regardless
+        // of the ghost-online toggle. If the immediate-offline option is on, correct it right
+        // after this request goes out - ported from exteraGram's re_extera ghost mode.
+        GreyZone.triggerImmediateOfflineIfNeeded(currentAccount);
+
         newMsgObj.reqId = getConnectionsManager().sendRequest(req, (response, error) -> {
             if (error != null && (req instanceof TLRPC.TL_messages_sendMedia || req instanceof TLRPC.TL_ephemeral_sendMessage || req instanceof TLRPC.TL_messages_editMessage || req instanceof TLRPC.TL_messages_addPollAnswer) && FileRefController.isFileRefError(error.text)) {
                 if (FileRefController.isFileRefErrorCover(error.text)) {

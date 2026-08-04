@@ -8,7 +8,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -174,22 +176,22 @@ public class PrimePluginCardCell extends LinearLayout {
         actions.setGravity(Gravity.RIGHT);
         addView(actions, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-        copyErrorButton = addAction(context, actions, R.drawable.msg_copy, "Скопировать ошибку целиком", v -> {
+        copyErrorButton = addAction(context, actions, R.drawable.msg_copy, "Скопировать ошибку целиком", true, v -> {
             if (listener != null) {
                 listener.onCopyError();
             }
         });
-        shareButton = addAction(context, actions, R.drawable.msg_share, "Поделиться файлом плагина", v -> {
+        shareButton = addAction(context, actions, R.drawable.msg_share, "Поделиться файлом плагина", false, v -> {
             if (listener != null) {
                 listener.onShare();
             }
         });
-        settingsButton = addAction(context, actions, R.drawable.msg_edit, "Настройки", v -> {
+        settingsButton = addAction(context, actions, R.drawable.msg_edit, "Настройки", false, v -> {
             if (listener != null) {
                 listener.onOpenSettings();
             }
         });
-        deleteButton = addAction(context, actions, R.drawable.msg_delete, "Удалить", v -> {
+        deleteButton = addAction(context, actions, R.drawable.msg_delete, "Удалить", true, v -> {
             if (listener != null) {
                 listener.onDelete();
             }
@@ -198,16 +200,42 @@ public class PrimePluginCardCell extends LinearLayout {
         applyColors();
     }
 
-    private ImageView addAction(Context context, LinearLayout row, int icon, String description, OnClickListener onClick) {
+    private ImageView addAction(Context context, LinearLayout row, int icon, String description, boolean destructive, OnClickListener onClick) {
         final ImageView button = new ImageView(context);
         button.setScaleType(ImageView.ScaleType.CENTER);
         button.setImageResource(icon);
         button.setContentDescription(description);
-        button.setBackground(Theme.createSelectorDrawable(
-                Theme.getColor(Theme.key_listSelector, resourcesProvider), Theme.RIPPLE_MASK_CIRCLE_20DP));
+        applyActionButtonBackground(button, destructive);
         button.setOnClickListener(onClick);
+        applyPressBounce(button);
         row.addView(button, LayoutHelper.createLinear(40, 40));
         return button;
+    }
+
+    private void applyActionButtonBackground(ImageView button, boolean destructive) {
+        final int fill = destructive
+                ? Theme.multAlpha(0xFFE05654, 0.12f)
+                : Theme.getColor(Theme.key_listSelector, resourcesProvider);
+        button.setBackground(Theme.createSelectorDrawable(fill, Theme.RIPPLE_MASK_CIRCLE_20DP));
+    }
+
+    /** exteraGram's own plugin card does this on every icon button: a small bounce-down on
+     *  press and a springy overshoot back on release - the same tactile confirmation a real
+     *  button press gives, which a flat ripple alone does not. */
+    private static void applyPressBounce(View view) {
+        view.setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    v.animate().scaleX(0.85f).scaleY(0.85f).setDuration(80).setInterpolator(null).start();
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(350)
+                            .setInterpolator(new OvershootInterpolator(1.5f)).start();
+                    break;
+            }
+            return false;
+        });
     }
 
     private void applyColors() {
@@ -219,6 +247,10 @@ public class PrimePluginCardCell extends LinearLayout {
         settingsButton.setColorFilter(iconTint);
         deleteButton.setColorFilter(0xFFE05654);
         copyErrorButton.setColorFilter(0xFFE05654);
+        applyActionButtonBackground(shareButton, false);
+        applyActionButtonBackground(settingsButton, false);
+        applyActionButtonBackground(deleteButton, true);
+        applyActionButtonBackground(copyErrorButton, true);
     }
 
     public void setListener(Listener listener) {

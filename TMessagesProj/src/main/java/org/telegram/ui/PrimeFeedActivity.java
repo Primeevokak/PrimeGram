@@ -59,6 +59,22 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
 
     private java.util.HashSet<Long> requestedDialogs = new java.util.HashSet<>();
 
+    /** PrimeGram: pagination - how many unread posts per channel we ask for. Bumped when the
+     *  user scrolls near the bottom and some channel still has more unread than this cap. */
+    private int primePerDialogLimit = 50;
+    private static final int PRIME_PAGE_STEP = 50;
+    private static final int PRIME_PAGE_MAX = 500;
+    private boolean primeMoreAvailable = false;
+
+    /** PrimeGram: scroll position to restore after the next successful load. Static so it
+     *  survives the fragment being recreated when the tab host evicts an off-screen tab -
+     *  mirrors exteraGram keeping SavedScrollPosition on the singleton FeedController rather
+     *  than on the fragment itself. */
+    private static long primeSavedScrollDialogId;
+    private static int primeSavedScrollMessageId;
+    private static int primeSavedScrollOffset;
+    private static boolean primeHasSavedScroll;
+
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
@@ -69,6 +85,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
 
     @Override
     public void onFragmentDestroy() {
+        primeSaveScrollPosition();
         super.onFragmentDestroy();
         org.telegram.messenger.NotificationCenter.getInstance(currentAccount).removeObserver(this, org.telegram.messenger.NotificationCenter.messagesDidLoad);
         org.telegram.messenger.NotificationCenter.getInstance(currentAccount).removeObserver(this, org.telegram.messenger.NotificationCenter.dialogsNeedReload);
@@ -144,6 +161,12 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 // where the list came to rest, and a fling that flies past a post was never a
                 // person reading it anyway.
                 primeScheduleReadCheck();
+                if (primeMoreAvailable && !isLoading && layoutManager != null) {
+                    int last = layoutManager.findLastVisibleItemPosition();
+                    if (last != RecyclerView.NO_POSITION && last >= feedItems.size() - 5) {
+                        primeLoadMore();
+                    }
+                }
             }
 
             @Override
@@ -236,6 +259,43 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         }
     }
 
+    @Override
+    public void onPause() {
+        super.onPause();
+        primeSaveScrollPosition();
+    }
+
+    /** PrimeGram: remember where the user was reading so re-opening the feed tab doesn't dump
+     *  them back at the top - ported from exteraGram's FeedController.SavedScrollPosition. */
+    private void primeSaveScrollPosition() {
+        if (layoutManager == null || feedItems.isEmpty()) {
+            return;
+        }
+        int first = layoutManager.findFirstVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION || first < 0 || first >= feedItems.size()) {
+            return;
+        }
+        View view = layoutManager.findViewByPosition(first);
+        MessageObject msg = feedItems.get(first);
+        primeSavedScrollDialogId = msg.getDialogId();
+        primeSavedScrollMessageId = msg.getId();
+        primeSavedScrollOffset = view != null ? view.getTop() : 0;
+        primeHasSavedScroll = true;
+    }
+
+    private void primeRestoreScrollIfNeeded() {
+        if (!primeHasSavedScroll || layoutManager == null || feedItems.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < feedItems.size(); i++) {
+            MessageObject msg = feedItems.get(i);
+            if (msg.getDialogId() == primeSavedScrollDialogId && msg.getId() == primeSavedScrollMessageId) {
+                layoutManager.scrollToPositionWithOffset(i, primeSavedScrollOffset);
+                break;
+            }
+        }
+    }
+
     public void loadFeed() {
         if (isLoading) return;
         isLoading = true;
@@ -299,7 +359,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                         }
                     }
                     org.telegram.SQLite.SQLiteCursor cursor = database.queryFinalized(
-                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages_v2 WHERE uid = %d AND (mid > %d OR mid IN (%s)) ORDER BY mid DESC LIMIT 50", d.id, d.read_inbox_max_id, trackedIds));
+                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages_v2 WHERE uid = %d AND (mid > %d OR mid IN (%s)) ORDER BY mid DESC LIMIT %d", d.id, d.read_inbox_max_id, trackedIds, primePerDialogLimit));
 
                     while (cursor.next()) {
                         org.telegram.tgnet.NativeByteBuffer data = cursor.byteBufferValue(0);
@@ -343,21 +403,30 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                     isLoading = false;
                     if (adapter != null) adapter.notifyDataSetChanged();
                     updateEmptyView();
-                    
+
+                    boolean moreAvailable = false;
                     for (TLRPC.Dialog d : unreadDialogs) {
                         int found = 0;
                         for (MessageObject m : feedItems) {
                             if (m.getDialogId() == d.id) found++;
                         }
-                        if (found < Math.min(d.unread_count, 50) && !requestedDialogs.contains(d.id)) {
-                            requestedDialogs.add(d.id);
-                            MessagesController.getInstance(currentAccount).loadMessages(
-                                d.id, 0, false, Math.min(d.unread_count, 50), 0, 0, false, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, true, 0, false
-                            );
+                        if (found < Math.min(d.unread_count, primePerDialogLimit)) {
+                            moreAvailable = true;
+                            if (!requestedDialogs.contains(d.id)) {
+                                requestedDialogs.add(d.id);
+                                MessagesController.getInstance(currentAccount).loadMessages(
+                                    d.id, 0, false, Math.min(d.unread_count, primePerDialogLimit), 0, 0, false, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, true, 0, false
+                                );
+                            }
+                        }
+                        if (d.unread_count > primePerDialogLimit) {
+                            moreAvailable = true;
                         }
                     }
+                    primeMoreAvailable = moreAvailable;
 
                     AndroidUtilities.runOnUIThread(this::checkVisibleItems, 200);
+                    primeRestoreScrollIfNeeded();
                 });
 
             } catch (Exception e) {
@@ -368,6 +437,17 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 });
             }
         });
+    }
+
+    /** PrimeGram: pagination - bump the per-channel cap and reload when scrolled near the
+     *  bottom and some channel still has more unread posts than we've loaded. */
+    private void primeLoadMore() {
+        if (isLoading || primePerDialogLimit >= PRIME_PAGE_MAX) {
+            return;
+        }
+        primePerDialogLimit = Math.min(PRIME_PAGE_MAX, primePerDialogLimit + PRIME_PAGE_STEP);
+        requestedDialogs.clear();
+        loadFeed();
     }
 
     /** Coalesces the read check to one run per half-second of scrolling. */
@@ -418,6 +498,80 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         }
     }
 
+    /**
+     * PrimeGram: real reaction toggle on tap, ported from ChatActivity.selectReaction's core
+     * logic (MessageObject already tracks the local reaction state; only the popup/star/emoji
+     * picker UI around it is chat-specific and skipped here).
+     */
+    private void primeToggleReaction(MessageObject msg, TLRPC.ReactionCount reactionCount) {
+        if (msg == null || getParentActivity() == null) {
+            return;
+        }
+        org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction visibleReaction =
+                org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction.fromTL(reactionCount.reaction);
+        boolean added = msg.selectReaction(visibleReaction, false, false);
+        java.util.ArrayList<org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction> visibleReactions = new java.util.ArrayList<>(msg.getChoosenReactions());
+        org.telegram.messenger.SendMessagesHelper.getInstance(currentAccount).sendReaction(msg, visibleReactions, added ? visibleReaction : null, false, true, this, () -> {
+            int index = feedItems.indexOf(msg);
+            if (index >= 0 && adapter != null) {
+                adapter.notifyItemChanged(index);
+            }
+        });
+        int index = feedItems.indexOf(msg);
+        if (index >= 0 && adapter != null) {
+            adapter.notifyItemChanged(index);
+        }
+    }
+
+    /**
+     * PrimeGram: open the actual discussion thread for a channel post instead of just the
+     * source channel, mirroring what a real comment tap does in a normal chat - minus the
+     * inline-preview-loading dance ChatActivity does, which only makes sense while already
+     * scrolling that channel's own history.
+     */
+    private void primeOpenComments(MessageObject msg) {
+        if (msg == null || getParentActivity() == null) {
+            return;
+        }
+        TLRPC.MessageReplies replies = msg.messageOwner != null ? msg.messageOwner.replies : null;
+        if (replies == null || replies.channel_id == 0) {
+            openChatAt(msg.getDialogId(), msg.getId());
+            return;
+        }
+        TLRPC.TL_messages_getDiscussionMessage req = new TLRPC.TL_messages_getDiscussionMessage();
+        req.peer = MessagesController.getInstance(currentAccount).getInputPeer(msg.getDialogId());
+        req.msg_id = msg.getId();
+        org.telegram.tgnet.ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (response instanceof TLRPC.TL_messages_discussionMessage) {
+                TLRPC.TL_messages_discussionMessage discussion = (TLRPC.TL_messages_discussionMessage) response;
+                MessagesController.getInstance(currentAccount).putUsers(discussion.users, false);
+                MessagesController.getInstance(currentAccount).putChats(discussion.chats, false);
+                if (!discussion.messages.isEmpty()) {
+                    TLRPC.Message threadMessage = discussion.messages.get(0);
+                    openChatAt(-threadMessage.peer_id.channel_id, threadMessage.id);
+                    return;
+                }
+            }
+            openChatAt(-replies.channel_id, 0);
+        }));
+    }
+
+    private void openChatAt(long dialogId, int messageId) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        Bundle args = new Bundle();
+        if (dialogId < 0) {
+            args.putLong("chat_id", -dialogId);
+        } else {
+            args.putLong("user_id", dialogId);
+        }
+        if (messageId != 0) {
+            args.putInt("message_id", messageId);
+        }
+        presentFragment(new ChatActivity(args));
+    }
+
     private void updateEmptyView() {
         if (emptyView == null) return;
         emptyView.setVisibility(feedItems.isEmpty() ? View.VISIBLE : View.GONE);
@@ -444,6 +598,20 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                     } else if (!longPress && url instanceof android.text.style.URLSpan) {
                          org.telegram.messenger.browser.Browser.openUrl(context, ((android.text.style.URLSpan)url).getURL());
                     }
+                }
+
+                @Override
+                public void didPressReaction(org.telegram.ui.Cells.ChatMessageCell cell, TLRPC.ReactionCount reaction, boolean longpress, float x, float y) {
+                    if (longpress || reaction == null || reaction.reaction == null) {
+                        openChat(cell.getMessageObject());
+                        return;
+                    }
+                    primeToggleReaction(cell.getMessageObject(), reaction);
+                }
+
+                @Override
+                public void didPressCommentButton(org.telegram.ui.Cells.ChatMessageCell cell) {
+                    primeOpenComments(cell.getMessageObject());
                 }
 
                 @Override

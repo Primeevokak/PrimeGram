@@ -2,6 +2,12 @@ package org.telegram.messenger;
 
 import android.content.SharedPreferences;
 
+import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.RequestDelegate;
+import org.telegram.tgnet.tl.TL_account;
+
+import java.util.Calendar;
+
 /**
  * PrimeGram "grey zone": opt-in features that override protections chosen by the *other*
  * side of a conversation (screenshot blocking, forward/save restrictions) or that hide the
@@ -32,8 +38,27 @@ public class GreyZone {
      *  moved here because it is exactly this feature's shape: something that makes the app behave
      *  as if a restriction (Telegram's own, this time, not a chat partner's) doesn't apply. */
     public static final String LOCAL_PREMIUM = "grey_local_premium";
+    /** Don't mark stories as viewed / read. */
+    public static final String GHOST_NO_READ_STORIES = "grey_ghost_no_read_stories";
+    /** After any action that would let the server infer we're online anyway (sending a
+     *  message, an "always read"/"always type" per-dialog exception, etc.), immediately
+     *  fire a follow-up offline status to correct it - ported from exteraGram's re_extera
+     *  ghost mode, which does this at the connection layer for every online-inferring request. */
+    public static final String GHOST_IMMEDIATE_OFFLINE = "grey_ghost_immediate_offline";
 
     private static final String KEY_LOCAL_PREMIUM_MIGRATED = "grey_local_premium_migrated";
+
+    private static final String KEY_SCHEDULE_ENABLED = "grey_schedule_enabled";
+    private static final String KEY_SCHEDULE_START_MIN = "grey_schedule_start_min";
+    private static final String KEY_SCHEDULE_END_MIN = "grey_schedule_end_min";
+
+    private static final String DLG_READ_PREFIX = "grey_dlg_read_";
+    private static final String DLG_TYPING_PREFIX = "grey_dlg_typing_";
+
+    /** Per-dialog override: falls back to the global toggle. */
+    public static final int MODE_DEFAULT = 0;
+    public static final int MODE_ALWAYS = 1;
+    public static final int MODE_NEVER = -1;
 
     private static final String KEY_ACCEPTED = "grey_zone_accepted";
     private static final String KEY_DEBUG_VISIBLE = "grey_zone_debug_visible";
@@ -58,7 +83,10 @@ public class GreyZone {
                     .putBoolean(GHOST_DONT_ONLINE, false)
                     .putBoolean(SAVE_DELETED, false)
                     .putBoolean(ACTIVITY_PEEK, false)
-                    .putBoolean(LOCAL_PREMIUM, false);
+                    .putBoolean(LOCAL_PREMIUM, false)
+                    .putBoolean(GHOST_NO_READ_STORIES, false)
+                    .putBoolean(GHOST_IMMEDIATE_OFFLINE, false)
+                    .putBoolean(KEY_SCHEDULE_ENABLED, false);
         }
         editor.apply();
     }
@@ -169,5 +197,140 @@ public class GreyZone {
 
     public static void setDebugVisible(boolean visible) {
         prefs().edit().putBoolean(KEY_DEBUG_VISIBLE, visible).apply();
+    }
+
+    // ---- Per-dialog reading/typing exceptions (ported from exteraGram's re_extera) ----
+    // Each dialog can override the global ghost toggle: MODE_DEFAULT follows the global
+    // switch, MODE_ALWAYS behaves as if ghost mode were off for that one dialog, MODE_NEVER
+    // behaves as if it were on regardless of the global switch.
+
+    public static int getDialogReadingMode(long dialogId) {
+        return prefs().getInt(DLG_READ_PREFIX + dialogId, MODE_DEFAULT);
+    }
+
+    public static void setDialogReadingMode(long dialogId, int mode) {
+        if (mode == MODE_DEFAULT) {
+            prefs().edit().remove(DLG_READ_PREFIX + dialogId).apply();
+        } else {
+            prefs().edit().putInt(DLG_READ_PREFIX + dialogId, mode).apply();
+        }
+    }
+
+    public static int getDialogTypingMode(long dialogId) {
+        return prefs().getInt(DLG_TYPING_PREFIX + dialogId, MODE_DEFAULT);
+    }
+
+    public static void setDialogTypingMode(long dialogId, int mode) {
+        if (mode == MODE_DEFAULT) {
+            prefs().edit().remove(DLG_TYPING_PREFIX + dialogId).apply();
+        } else {
+            prefs().edit().putInt(DLG_TYPING_PREFIX + dialogId, mode).apply();
+        }
+    }
+
+    /** True if the read receipt for this dialog should be suppressed right now. */
+    public static boolean shouldGhostRead(long dialogId) {
+        if (!isAccepted()) {
+            return false;
+        }
+        int mode = getDialogReadingMode(dialogId);
+        if (mode == MODE_ALWAYS) {
+            return false;
+        }
+        if (mode == MODE_NEVER) {
+            return true;
+        }
+        return isEnabled(GHOST_DONT_READ) && isScheduleActiveNow();
+    }
+
+    /** True if the "typing…" indicator for this dialog should be suppressed right now. */
+    public static boolean shouldGhostTyping(long dialogId) {
+        if (!isAccepted()) {
+            return false;
+        }
+        int mode = getDialogTypingMode(dialogId);
+        if (mode == MODE_ALWAYS) {
+            return false;
+        }
+        if (mode == MODE_NEVER) {
+            return true;
+        }
+        return isEnabled(GHOST_DONT_TYPING) && isScheduleActiveNow();
+    }
+
+    /** True if story views should not be reported right now. */
+    public static boolean shouldGhostStories() {
+        return isEnabled(GHOST_NO_READ_STORIES) && isScheduleActiveNow();
+    }
+
+    /** True if the "don't report online" toggle should apply right now. */
+    public static boolean shouldGhostOnline() {
+        return isEnabled(GHOST_DONT_ONLINE) && isScheduleActiveNow();
+    }
+
+    // ---- Schedule: restrict ghost mode to a time-of-day window ----
+
+    public static boolean isScheduleEnabled() {
+        return prefs().getBoolean(KEY_SCHEDULE_ENABLED, false);
+    }
+
+    public static void setScheduleEnabled(boolean enabled) {
+        prefs().edit().putBoolean(KEY_SCHEDULE_ENABLED, enabled).apply();
+    }
+
+    /** Minutes since midnight, [0, 1439]. */
+    public static int getScheduleStartMinute() {
+        return prefs().getInt(KEY_SCHEDULE_START_MIN, 0);
+    }
+
+    /** Minutes since midnight, [0, 1439]. */
+    public static int getScheduleEndMinute() {
+        return prefs().getInt(KEY_SCHEDULE_END_MIN, 1439);
+    }
+
+    public static void setSchedule(int startMinute, int endMinute) {
+        prefs().edit()
+                .putInt(KEY_SCHEDULE_START_MIN, startMinute)
+                .putInt(KEY_SCHEDULE_END_MIN, endMinute)
+                .apply();
+    }
+
+    /** True if ghost behavior should be active right now given the schedule setting. Handles
+     *  windows that wrap past midnight (e.g. 22:00-07:00). Always true when no schedule is set. */
+    public static boolean isScheduleActiveNow() {
+        if (!isScheduleEnabled()) {
+            return true;
+        }
+        Calendar cal = Calendar.getInstance();
+        int nowMinute = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE);
+        int start = getScheduleStartMinute();
+        int end = getScheduleEndMinute();
+        if (start <= end) {
+            return nowMinute >= start && nowMinute <= end;
+        } else {
+            return nowMinute >= start || nowMinute <= end;
+        }
+    }
+
+    // ---- Immediate offline: after an action that leaks "online" anyway, correct it ----
+
+    public static boolean immediateOfflineEnabled() {
+        return isEnabled(GHOST_IMMEDIATE_OFFLINE);
+    }
+
+    /**
+     * Fires a follow-up {@code account.updateStatus(offline=true)} to counter the server's
+     * online-inference from a request we just sent (e.g. a message send, or a per-dialog
+     * "always read/type" exception). No-op unless both the ghost-online toggle and this
+     * specific option are on, and the schedule (if any) is currently active.
+     */
+    public static void triggerImmediateOfflineIfNeeded(int account) {
+        if (!shouldGhostOnline() || !immediateOfflineEnabled()) {
+            return;
+        }
+        TL_account.updateStatus req = new TL_account.updateStatus();
+        req.offline = true;
+        ConnectionsManager.getInstance(account).sendRequest(req, (RequestDelegate) (response, error) -> {
+        });
     }
 }
