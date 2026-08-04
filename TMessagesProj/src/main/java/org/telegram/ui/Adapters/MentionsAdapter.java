@@ -137,6 +137,15 @@ public class MentionsAdapter extends RecyclerListView.SelectionAdapter implement
     private int channelLastReqId;
     private int channelReqId;
     private boolean isSearchingMentions;
+
+    // PrimeGram: @mention search widened to people outside the current chat - the same idea as
+    // Telegram's own global user search, applied to the mention box instead of just the top
+    // search bar. On by default: the only cost when nobody has the person in a shared dialog is
+    // one extra debounced request that finds nothing.
+    private int primeMentionSearchGeneration;
+    private int primeMentionSearchReqId;
+    private ArrayList<TLObject> primeMentionGlobalResults = new ArrayList<>();
+    private Runnable primeMentionSearchRunnable;
     private TLRPC.User user;
     public TLRPC.Chat chat;
 
@@ -970,6 +979,24 @@ public class MentionsAdapter extends RecyclerListView.SelectionAdapter implement
             AndroidUtilities.cancelRunOnUIThread(checkAgainRunnable);
             checkAgainRunnable = null;
         }
+        primeMentionSearchGeneration++;
+        primeMentionGlobalResults.clear();
+        if (primeMentionSearchRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(primeMentionSearchRunnable);
+            primeMentionSearchRunnable = null;
+        }
+        if (primeMentionSearchReqId != 0) {
+            ConnectionsManager.getInstance(currentAccount).cancelRequest(primeMentionSearchReqId, true);
+            primeMentionSearchReqId = 0;
+        }
+        if (usernameOnly && forSearch && !TextUtils.isEmpty(text)) {
+            final String query = (text.startsWith("@") ? text.substring(1) : text).trim();
+            if (!query.isEmpty()) {
+                final int generation = primeMentionSearchGeneration;
+                primeMentionSearchRunnable = () -> primeStartGlobalMentionSearch(query, generation);
+                AndroidUtilities.runOnUIThread(primeMentionSearchRunnable, 250);
+            }
+        }
         if (TextUtils.isEmpty(text) || text.length() > MessagesController.getInstance(currentAccount).getMaxMessageLength()) {
             searchForContextBot(null, null);
             delegate.needChangePanelVisibility(false);
@@ -1665,9 +1692,82 @@ public class MentionsAdapter extends RecyclerListView.SelectionAdapter implement
         }
         searchResultBotContext = null;
         stickers = null;
+        if (!primeMentionGlobalResults.isEmpty()) {
+            primeMergeGlobalMentionResults();
+        }
         if (notify) {
             notifyDataSetChanged();
             delegate.needChangePanelVisibility(!searchResultUsernames.isEmpty());
+        }
+    }
+
+    /** Fires the wider search 250ms after the last keystroke - the same debounce the plugin this
+     *  replaced used, chosen so a fast typist doesn't queue a request per character. */
+    private void primeStartGlobalMentionSearch(String query, int generation) {
+        primeMentionSearchRunnable = null;
+        final TLRPC.TL_contacts_search req = new TLRPC.TL_contacts_search();
+        req.q = query;
+        req.limit = 20;
+        primeMentionSearchReqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            primeMentionSearchReqId = 0;
+            if (generation != primeMentionSearchGeneration || error != null || !(response instanceof TLRPC.TL_contacts_found)) {
+                return;
+            }
+            final TLRPC.TL_contacts_found res = (TLRPC.TL_contacts_found) response;
+            MessagesController.getInstance(currentAccount).putUsers(res.users, false);
+            final LongSparseArray<TLRPC.User> byId = new LongSparseArray<>();
+            for (TLRPC.User u : res.users) {
+                byId.put(u.id, u);
+            }
+            final ArrayList<TLObject> ordered = new ArrayList<>();
+            final java.util.HashSet<Long> seen = new java.util.HashSet<>();
+            for (int pass = 0; pass < 2; pass++) {
+                final ArrayList<TLRPC.Peer> peers = pass == 0 ? res.my_results : res.results;
+                for (TLRPC.Peer peer : peers) {
+                    final long userId = peer.user_id;
+                    if (userId == 0 || !seen.add(userId)) {
+                        continue;
+                    }
+                    final TLRPC.User u = byId.get(userId);
+                    if (u == null || u.deleted) {
+                        continue;
+                    }
+                    ordered.add(u);
+                }
+            }
+            primeMentionGlobalResults = ordered;
+            if (!ordered.isEmpty() && searchResultUsernames != null) {
+                primeMergeGlobalMentionResults();
+                notifyDataSetChanged();
+                if (delegate != null) {
+                    delegate.needChangePanelVisibility(true);
+                }
+            }
+        }));
+    }
+
+    /** Adds the global-search users into whatever the adapter's own (dialog-local) search just
+     *  produced, skipping anyone already present so a contact doesn't show up twice. */
+    private void primeMergeGlobalMentionResults() {
+        if (primeMentionGlobalResults.isEmpty()) {
+            return;
+        }
+        if (searchResultUsernames == null) {
+            searchResultUsernames = new ArrayList<>();
+        }
+        if (searchResultUsernamesMap == null) {
+            searchResultUsernamesMap = new LongSparseArray<>();
+        }
+        for (TLObject obj : primeMentionGlobalResults) {
+            if (!(obj instanceof TLRPC.User)) {
+                continue;
+            }
+            final long userId = ((TLRPC.User) obj).id;
+            if (searchResultUsernamesMap.indexOfKey(userId) >= 0) {
+                continue;
+            }
+            searchResultUsernames.add(obj);
+            searchResultUsernamesMap.put(userId, obj);
         }
     }
 

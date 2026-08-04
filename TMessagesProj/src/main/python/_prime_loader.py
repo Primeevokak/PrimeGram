@@ -8,6 +8,7 @@ into the app.
 """
 
 import json
+import os
 import re
 import sys
 import traceback
@@ -26,6 +27,35 @@ _prime_pip.ensure_on_path()
 # Same reasoning, for exteraGram's own Java classes: registered once, before the first plugin gets
 # a chance to ask for one.
 _prime_java_compat.install()
+
+
+def _harden_path_exists():
+    """genericpath.exists() only catches (OSError, ValueError) around os.stat(); a caller that
+    hands it something that isn't path-shaped at all (a stray Java class placeholder, most often)
+    gets a raw TypeError instead of the False the function exists to provide. That escaped once
+    already - through inspect.stack(), called from a plugin's own logging, nowhere near any path
+    a plugin actually meant to check - and took the whole plugin down with it for an error that
+    had nothing to do with a missing file. Wrapping only exists()/isfile()/isdir()/islink(), not
+    os.stat() itself: those four are the ones with an existing "can't tell, so say no" contract,
+    they're just missing TypeError from the set of reasons "can't tell" happens.
+    """
+    for name in ("exists", "isfile", "isdir", "islink"):
+        original = getattr(os.path, name, None)
+        if original is None:
+            continue
+
+        def wrap(fn):
+            def wrapped(path, *a, **kw):
+                try:
+                    return fn(path, *a, **kw)
+                except TypeError:
+                    return False
+            return wrapped
+
+        setattr(os.path, name, wrap(original))
+
+
+_harden_path_exists()
 
 #: Loaded plugin instances by id.
 _loaded = {}

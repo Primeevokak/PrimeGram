@@ -39,6 +39,8 @@ class _PlaceholderMeta(type):
     """
 
     def __getattr__(cls, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
         return _Placeholder
 
 
@@ -55,6 +57,8 @@ class _Placeholder(metaclass=_PlaceholderMeta):
         pass
 
     def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
         return _Placeholder
 
     def __repr__(self):
@@ -71,6 +75,14 @@ class _CompatLoader(Loader):
         cache = {}
 
         def resolve(name):
+            # Dunders are the import system's own introspection protocol, not a class a plugin
+            # asked for - answering them the same way as everything else is what handed
+            # inspect.stack() a class object where it expected __file__ to be a path string (or
+            # None), which is not a "Java class we don't have" situation at all, just a module
+            # object that never claimed to have one. AttributeError here is what a module missing
+            # an optional dunder is supposed to raise; giving up that distinction is the bug.
+            if name.startswith("__") and name.endswith("__"):
+                raise AttributeError(name)
             # A distinct placeholder per requested name, not one shared class: two different
             # exteraGram classes are unrelated types in their app, and collapsing them into one
             # would make isinstance(x, A) and isinstance(x, B) agree with each other for no
@@ -85,6 +97,7 @@ class _CompatLoader(Loader):
         # A real exteraGram module has a fixed set of names; we cannot know it in advance, so
         # anything asked for is answered rather than guessing which few to define.
         module.__getattr__ = resolve
+        module.__file__ = None  # a module with no backing file, same as any Java-only module
         module.__path__ = []  # makes it a package, so a further dotted import can go past it
         return module
 
