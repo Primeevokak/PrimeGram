@@ -11222,10 +11222,12 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         if (getParentActivity() == null) {
             return;
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setMessage(!TextUtils.isEmpty(badge.text) ? badge.text : "Особый статус");
-        builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
-        showDialog(builder.create());
+        showDialog(new org.telegram.ui.Components.PrimeBadgeInfoSheet(
+                getParentActivity(),
+                badge.customEmojiId,
+                "Значок",
+                !TextUtils.isEmpty(badge.text) ? badge.text : "Особый статус",
+                getResourceProvider()));
     }
 
     private float lastEmojiStatusProgress;
