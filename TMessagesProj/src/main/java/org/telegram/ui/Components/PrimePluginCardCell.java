@@ -62,6 +62,10 @@ public class PrimePluginCardCell extends LinearLayout {
         void onShare();
 
         void onDelete();
+
+        /** Only called when the plugin has an error - copies the full traceback, not just the
+         *  one-line message the card shows. */
+        void onCopyError();
     }
 
     private final Theme.ResourcesProvider resourcesProvider;
@@ -81,6 +85,7 @@ public class PrimePluginCardCell extends LinearLayout {
     private final ImageView shareButton;
     private final ImageView settingsButton;
     private final ImageView deleteButton;
+    private final ImageView copyErrorButton;
 
     public PrimePluginCardCell(@NonNull Context context, Theme.ResourcesProvider resourcesProvider) {
         super(context);
@@ -169,6 +174,11 @@ public class PrimePluginCardCell extends LinearLayout {
         actions.setGravity(Gravity.RIGHT);
         addView(actions, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
+        copyErrorButton = addAction(context, actions, R.drawable.msg_copy, "Скопировать ошибку целиком", v -> {
+            if (listener != null) {
+                listener.onCopyError();
+            }
+        });
         shareButton = addAction(context, actions, R.drawable.msg_share, "Поделиться файлом плагина", v -> {
             if (listener != null) {
                 listener.onShare();
@@ -208,6 +218,7 @@ public class PrimePluginCardCell extends LinearLayout {
         shareButton.setColorFilter(iconTint);
         settingsButton.setColorFilter(iconTint);
         deleteButton.setColorFilter(0xFFE05654);
+        copyErrorButton.setColorFilter(0xFFE05654);
     }
 
     public void setListener(Listener listener) {
@@ -231,6 +242,7 @@ public class PrimePluginCardCell extends LinearLayout {
         // Errored plugins keep the gear too - it is where the full error, a copy button and a
         // retry live now, not just a switch that quietly does nothing.
         descriptionView.setTextIsSelectable(hasError);
+        copyErrorButton.setVisibility(hasError ? VISIBLE : GONE);
 
         final int color = letterColor(plugin.id());
         final GradientDrawable background = new GradientDrawable();

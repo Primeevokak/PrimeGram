@@ -151,9 +151,32 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
             public void onDelete() {
                 confirmDelete(plugin);
             }
+
+            @Override
+            public void onCopyError() {
+                copyFullError(plugin);
+            }
         });
         cell.set(plugin, subtitle(plugin), description(plugin), plugin.hasError());
         return UItem.asCustom(id, bound);
+    }
+
+    /** The card only ever shows {@code error.getMessage()} - a line, not the traceback a bug
+     *  report actually needs. This is the whole thing, on the clipboard, so there is something to
+     *  paste when reporting a plugin crash instead of retyping a one-line summary. */
+    private void copyFullError(PrimePlugin plugin) {
+        final Throwable error = plugin.error();
+        final String text;
+        if (error == null) {
+            text = "Плагин '" + plugin.id() + "' не удалось загрузить (подробностей нет).";
+        } else {
+            final java.io.StringWriter writer = new java.io.StringWriter();
+            writer.write("Плагин: " + plugin.id() + "\n\n");
+            error.printStackTrace(new java.io.PrintWriter(writer));
+            text = writer.toString();
+        }
+        AndroidUtilities.addToClipboard(text);
+        BulletinFactory.of(this).createCopyBulletin("Ошибка скопирована целиком").show();
     }
 
     /** A toggle on a failed plugin means "try again" - there is nothing else it could mean. */

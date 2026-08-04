@@ -19,6 +19,15 @@
     <uses-feature android:name="android.hardware.camera2" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.proximity" android:required="false" />
 
+    <!-- PrimeGram: package-visibility on Android 11+ hides installed apps from queryIntentServices
+         unless the matching intent is declared here - without this, PrimeVpnGuard's "VPN apps to
+         leave alone" picker sees nothing to list, no matter what's actually installed. -->
+    <queries>
+        <intent>
+            <action android:name="android.net.VpnService" />
+        </intent>
+    </queries>
+
     <uses-permission android:name="android.permission.READ_CLIPBOARD"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.INTERNET" />
