@@ -293,23 +293,32 @@ public class PrimePluginCardCell extends LinearLayout {
         });
     }
 
-    /** Draws a plugin's icon sticker once it has one; empty (and so transparent) until then. */
-    private static final class StickerIconView extends View {
+    /** Draws a plugin's icon sticker once it has one; empty (and so transparent) until then.
+     *  Public - the plugin install sheet reuses this exact view for the same icon, at a larger
+     *  size, so what a plugin's icon looks like before and after installing is the same drawing
+     *  code rather than two things that can drift apart. */
+    public static final class StickerIconView extends View {
 
         private final ImageReceiver imageReceiver = new ImageReceiver(this);
+        private final int sizeDp;
 
-        StickerIconView(Context context) {
+        public StickerIconView(Context context) {
+            this(context, 44);
+        }
+
+        public StickerIconView(Context context, int sizeDp) {
             super(context);
+            this.sizeDp = sizeDp;
             imageReceiver.setAspectFit(true);
             imageReceiver.setRoundRadius(AndroidUtilities.dp(12));
         }
 
-        void setSticker(TLRPC.Document sticker) {
+        public void setSticker(TLRPC.Document sticker) {
             if (sticker == null) {
                 imageReceiver.setImageBitmap((android.graphics.drawable.Drawable) null);
                 return;
             }
-            final String filter = AndroidUtilities.dp(44) + "_" + AndroidUtilities.dp(44);
+            final String filter = AndroidUtilities.dp(sizeDp) + "_" + AndroidUtilities.dp(sizeDp);
             final TLRPC.PhotoSize thumb = FileLoader.getClosestPhotoSizeWithSize(sticker.thumbs, 90);
             final SvgHelper.SvgDrawable svgThumb = DocumentObject.getSvgThumb(sticker, Theme.key_windowBackgroundGray, 1.0f);
             if (MessageObject.canAutoplayAnimatedSticker(sticker)) {

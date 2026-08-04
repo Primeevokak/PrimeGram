@@ -669,6 +669,13 @@ public class ChatActivity extends BaseFragment implements
     public static final int MODE_EDIT_BUSINESS_LINK = 6;
     public static final int MODE_SEARCH = 7;
     public static final int MODE_SUGGESTIONS = 8;
+    /** PrimeGram: the "Лента" tab - an aggregated, unread-only, multi-channel message list, hosted
+     *  in a real ChatActivity so posts get the same reactions/comments/avatars every other message
+     *  cell has, instead of the simplified read-only cards the tab used before. No dialog_id: like
+     *  {@link #MODE_SEARCH}, every message in the list carries its own real peer identity, and the
+     *  fragment itself has none. Source of the message list is {@link org.telegram.messenger.PrimeFeedController}
+     *  (not a server search), so per-message content stays "only what's unread", same as before. */
+    public static final int MODE_FEED = 9;
 
     public static final int SEARCH_THIS_CHAT = 0;
     public static final int SEARCH_MY_MESSAGES = 1;
@@ -2877,6 +2884,9 @@ public class ChatActivity extends BaseFragment implements
             if (searchType == 0 || searchingHashtag == null) {
                 return false;
             }
+        } else if (chatMode == MODE_FEED) {
+            // No dialog_id, no server search - dialog_id stays 0 and every message in the list
+            // carries its own real peer identity, exactly like MODE_SEARCH.
         } else {
             return false;
         }
@@ -3284,6 +3294,8 @@ public class ChatActivity extends BaseFragment implements
             waitingForLoad.add(lastLoadIndex);
             if (chatMode == MODE_SEARCH) {
                 HashtagSearchController.getInstance(currentAccount).searchHashtag(searchingHashtag, classGuid, searchType, lastLoadIndex++);
+            } else if (chatMode == MODE_FEED) {
+                org.telegram.messenger.PrimeFeedController.getInstance(currentAccount).loadInitial(classGuid, lastLoadIndex++);
             } else if (startLoadFromDate != 0) {
                 getMessagesController().loadMessages(dialog_id, mergeDialogId, false, 30, 0, startLoadFromDate, true, 0, classGuid, 4, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
             } else if (startLoadFromMessageId != 0 && (!isThreadChat() || startLoadFromMessageId == highlightMessageId || isTopic)) {
@@ -19654,7 +19666,9 @@ public class ChatActivity extends BaseFragment implements
         if (avatarContainer == null) {
             return;
         }
-        if (chatMode == MODE_SUGGESTIONS && currentChat != null) {
+        if (chatMode == MODE_FEED) {
+            avatarContainer.setTitle("Лента");
+        } else if (chatMode == MODE_SUGGESTIONS && currentChat != null) {
             if (isSubscriberSuggestions) {
                 avatarContainer.setTitle(ForumUtilities.getMonoForumTitle(currentAccount, currentChat), currentChat.scam, currentChat.fake, currentChat.verified, false, null, animated);
             } else if (ChatObject.isMonoForum(currentChat)) {
@@ -28186,6 +28200,12 @@ public class ChatActivity extends BaseFragment implements
             }
             bottomViewsVisibilityController.setViewVisible(MESSAGE_SEARCH_CONTAINER, true, false);
             invalidateChatListViewTopPadding();
+        } else if (chatMode == MODE_FEED) {
+            // A feed post is never composed to - no input bar, no search bar, nothing at the
+            // bottom at all.
+            bottomViewsVisibilityController.setViewVisible(MESSAGE_SEARCH_CONTAINER, false, false);
+            chatActivityEnterView.setVisibility(View.INVISIBLE);
+            bottomChannelButtonsLayout.setVisibility(View.INVISIBLE);
         } else {
             bottomViewsVisibilityController.setViewVisible(MESSAGE_SEARCH_CONTAINER, false, true);
             chatActivityEnterView.setVisibility(View.VISIBLE);
@@ -38374,7 +38394,7 @@ public class ChatActivity extends BaseFragment implements
                 if (view instanceof ChatMessageCell) {
                     final ChatMessageCell messageCell = (ChatMessageCell) view;
                     MessageObject.GroupedMessages groupedMessages = getValidGroupedMessage(message);
-                    messageCell.isChat = currentChat != null || UserObject.isUserSelf(currentUser) || UserObject.isReplyUser(currentUser) || (chatMode == MODE_SEARCH);
+                    messageCell.isChat = currentChat != null || UserObject.isUserSelf(currentUser) || UserObject.isReplyUser(currentUser) || (chatMode == MODE_SEARCH) || (chatMode == MODE_FEED);
                     messageCell.setSponsoredMessageVisible(true, false);
                     messageCell.isBotForum = UserObject.isBotForum(currentUser);
                     messageCell.isReportChat = isReport();
@@ -38490,7 +38510,7 @@ public class ChatActivity extends BaseFragment implements
                                 } else {
                                     pinnedBottom = nextMessage.getSenderId() == message.getSenderId();
                                 }
-                            } else if (chatMode == MODE_SEARCH) {
+                            } else if (chatMode == MODE_SEARCH || chatMode == MODE_FEED) {
                                 pinnedBottom = MessageObject.getPeerId(message.messageOwner.peer_id) == MessageObject.getPeerId(nextMessage.messageOwner.peer_id);
                             }
                             if (DialogObject.getPeerDialogId(nextMessage.messageOwner.guestchat_via_from) != DialogObject.getPeerDialogId(message.messageOwner.guestchat_via_from)) {
@@ -38553,7 +38573,7 @@ public class ChatActivity extends BaseFragment implements
                                 } else {
                                     pinnedTop = prevMessage.getSenderId() == message.getSenderId();
                                 }
-                            } else if (chatMode == MODE_SEARCH) {
+                            } else if (chatMode == MODE_SEARCH || chatMode == MODE_FEED) {
                                 pinnedTop = MessageObject.getPeerId(message.messageOwner.peer_id) == MessageObject.getPeerId(prevMessage.messageOwner.peer_id);
                             }
                             if (DialogObject.getPeerDialogId(prevMessage.messageOwner.guestchat_via_from) != DialogObject.getPeerDialogId(message.messageOwner.guestchat_via_from)) {

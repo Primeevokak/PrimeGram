@@ -29,6 +29,28 @@ _prime_pip.ensure_on_path()
 _prime_java_compat.install()
 
 
+def _ensure_plugins_dir_on_path():
+    """Some plugins (zwylib among them) write a small support package of their own straight into
+    the plugins directory at import time - e.g. ``<plugins_dir>/zwylib_companion/__init__.py`` -
+    and then ``import`` it, expecting the plugins directory itself to be a normal import root the
+    way it is on exteraGram. Without this, that import fails with ModuleNotFoundError even though
+    the file exists on disk one line after being written, and the retry-by-fetching-a-library path
+    below then tries to ``pip install`` the plugin's own generated package name - which is not a
+    published package and 404s on PyPI every time. Adding the directory here means a plugin's own
+    generated subpackages resolve as plain imports and never reach that fallback at all.
+    """
+    try:
+        import file_utils
+        plugins_dir = file_utils.get_plugins_dir()
+    except Exception:
+        return
+    if plugins_dir and plugins_dir not in sys.path:
+        sys.path.insert(0, plugins_dir)
+
+
+_ensure_plugins_dir_on_path()
+
+
 def _harden_path_exists():
     """genericpath.exists() only catches (OSError, ValueError) around os.stat(); a caller that
     hands it something that isn't path-shaped at all (a stray Java class placeholder, most often)

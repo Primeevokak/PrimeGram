@@ -161,14 +161,27 @@ public final class PrimePluginInstallDialog {
             root.setClipToPadding(false);
             frame.addView(root, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-            final ImageView icon = new ImageView(context);
-            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            icon.setImageResource(R.drawable.msg_settings);
-            icon.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_featuredStickers_buttonText), PorterDuff.Mode.SRC_IN));
-            icon.setBackground(Theme.createCircleDrawable(AndroidUtilities.dp(78), getThemedColor(Theme.key_featuredStickers_addButton)));
+            final FrameLayout iconFrame = new FrameLayout(context);
+            root.addView(iconFrame, LayoutHelper.createLinear(78, 78, Gravity.CENTER_HORIZONTAL, 0, 28, 0, 0));
+
+            final ImageView fallbackIcon = new ImageView(context);
+            fallbackIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            fallbackIcon.setImageResource(R.drawable.msg_settings);
+            fallbackIcon.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_featuredStickers_buttonText), PorterDuff.Mode.SRC_IN));
+            fallbackIcon.setBackground(Theme.createCircleDrawable(AndroidUtilities.dp(78), getThemedColor(Theme.key_featuredStickers_addButton)));
             final int iconPad = AndroidUtilities.dp(20);
-            icon.setPadding(iconPad, iconPad, iconPad, iconPad);
-            root.addView(icon, LayoutHelper.createLinear(78, 78, Gravity.CENTER_HORIZONTAL, 0, 28, 0, 0));
+            fallbackIcon.setPadding(iconPad, iconPad, iconPad, iconPad);
+            iconFrame.addView(fallbackIcon, LayoutHelper.createFrame(78, 78));
+
+            // Same sticker a plugin's card shows once installed - resolved the same way, so the
+            // icon does not appear to only exist after the fact.
+            final org.telegram.ui.Components.PrimePluginCardCell.StickerIconView stickerIcon =
+                    new org.telegram.ui.Components.PrimePluginCardCell.StickerIconView(context, 78);
+            iconFrame.addView(stickerIcon, LayoutHelper.createFrame(78, 78));
+            org.telegram.messenger.plugins.PrimePluginIcons.resolve(manifest, sticker -> {
+                stickerIcon.setSticker(sticker);
+                fallbackIcon.setVisibility(sticker != null ? View.GONE : View.VISIBLE);
+            });
 
             final TextView title = new TextView(context);
             title.setGravity(Gravity.CENTER);
