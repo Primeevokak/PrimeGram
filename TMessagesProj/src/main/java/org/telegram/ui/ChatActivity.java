@@ -8976,7 +8976,7 @@ public class ChatActivity extends BaseFragment implements
 			savedMessagesSearchHint.setText(LocaleController.getString(R.string.SavedTagSearchTooltipHint));
 			contentView.addView(savedMessagesSearchHint, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 120, Gravity.TOP | Gravity.FILL_HORIZONTAL, 16, -8, 16, 0));
 
-            if (getUserConfig().isPremium()) {
+            if (getUserConfig().hasSavedTags()) {
                 savedMessagesTagHint = new HintView2(context, HintView2.DIRECTION_BOTTOM)
                         .setMultilineText(true)
                         .setTextAlign(Layout.Alignment.ALIGN_CENTER)
@@ -8990,8 +8990,10 @@ public class ChatActivity extends BaseFragment implements
             }
         }
 
-        if (getDialogId() != getUserConfig().getClientUserId() && chatMode == 0) {
-            // PrimeGram: the same chip row as Saved Messages, driven by client-only tags.
+        if ((getDialogId() != getUserConfig().getClientUserId() || !getUserConfig().hasRealPremium()) && chatMode == 0) {
+            // PrimeGram: the same chip row as Saved Messages, driven by client-only tags - also
+            // used *in* Saved Messages itself when the account has no real Premium, since
+            // Telegram's server-side reaction tags below this block require one.
             actionBarSearchTags = new SearchTagsList(context, ChatActivity.this, currentAccount, 0, themeDelegate) {
                 @Override
                 protected boolean setLocalFilter(String tagName) {
@@ -9028,7 +9030,7 @@ public class ChatActivity extends BaseFragment implements
             contentView.addView(actionBarSearchTags, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, 38, Gravity.FILL_HORIZONTAL | Gravity.TOP, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : -dp(3), 0, 0));
         }
 
-        if (getDialogId() == getUserConfig().getClientUserId()) {
+        if (getDialogId() == getUserConfig().getClientUserId() && getUserConfig().hasRealPremium()) {
             actionBarSearchTags = new SearchTagsList(context, ChatActivity.this, currentAccount, getSavedDialogId(), themeDelegate) {
                 @Override
                 protected boolean setFilter(ReactionsLayoutInBubble.VisibleReaction reaction) {
@@ -9443,9 +9445,39 @@ public class ChatActivity extends BaseFragment implements
     private String primeTagFilter;
     private final ArrayList<MessageObject> primeTagResults = new ArrayList<>();
 
+    /**
+     * PrimeGram: mirrors a Saved Messages tag into {@link org.telegram.messenger.MessageTagsStore}
+     * when the account has no real Premium - Telegram's server only persists reaction-based tags
+     * for a genuinely subscribed account, so a non-Premium account that reacts "as a tag" sees the
+     * chip disappear the moment the server's own state comes back and overwrites the optimistic
+     * local one. Keeping a client-only copy is what makes the tag survive that round trip; it is
+     * never sent anywhere, exactly like the client-only tags a regular chat already gets.
+     */
+    private void primeStoreLocalTagIfNeeded(MessageObject messageObject, ReactionsLayoutInBubble.VisibleReaction visibleReaction, boolean remove) {
+        if (visibleReaction == null || messageObject == null || getDialogId() != getUserConfig().getClientUserId() || getUserConfig().hasRealPremium()) {
+            return;
+        }
+        final String tagKey = visibleReaction.emojicon != null ? visibleReaction.emojicon : ("id" + visibleReaction.documentId);
+        if (remove) {
+            org.telegram.messenger.MessageTagsStore.removeTag(tagKey, dialog_id, messageObject.getId());
+        } else {
+            if (visibleReaction.emojicon != null) {
+                org.telegram.messenger.MessageTagsStore.setEmoji(tagKey, tagKey);
+            }
+            org.telegram.messenger.MessageTagsStore.addTag(tagKey, dialog_id, messageObject.getId(),
+                    messageObject.messageText != null ? messageObject.messageText.toString() : "");
+        }
+        updateLocalTagChips();
+    }
+
     /** Rebuilds the chip row from this chat's local tags. Called when search opens. */
     private void updateLocalTagChips() {
-        if (actionBarSearchTags == null || getDialogId() == getUserConfig().getClientUserId()) {
+        if (actionBarSearchTags == null) {
+            return;
+        }
+        if (getDialogId() == getUserConfig().getClientUserId() && getUserConfig().hasRealPremium()) {
+            // Real Premium gets Telegram's own server-side Saved Messages tags instead - this
+            // row is the client-only fallback for when there is nothing to fall back from.
             return;
         }
         try {
@@ -10504,7 +10536,7 @@ public class ChatActivity extends BaseFragment implements
         actionMode.setItemVisibility(copy, !isPeerNoForwards() && selectedMessagesCanCopyIds[0].size() + selectedMessagesCanCopyIds[1].size() != 0 ? View.VISIBLE : View.GONE);
         actionMode.setItemVisibility(star, selectedMessagesCanStarIds[0].size() + selectedMessagesCanStarIds[1].size() != 0 ? View.VISIBLE : View.GONE);
         actionMode.setItemVisibility(delete, cantDeleteMessagesCount == 0 ? View.VISIBLE : View.GONE);
-        actionMode.setItemVisibility(tag_message, getUserConfig().isPremium() ? View.VISIBLE : View.GONE);
+        actionMode.setItemVisibility(tag_message, getUserConfig().hasSavedTags() ? View.VISIBLE : View.GONE);
         actionMode.setItemVisibility(share, View.GONE);
     }
 
@@ -10523,7 +10555,7 @@ public class ChatActivity extends BaseFragment implements
 
     private ReactionsContainerLayout tagSelector;
     private void showTagSelector() {
-        if (getDialogId() != getUserConfig().getClientUserId() || !getUserConfig().isPremium()) return;
+        if (getDialogId() != getUserConfig().getClientUserId() || !getUserConfig().hasSavedTags()) return;
         if (tagSelector != null) return;
         tagSelector = new ReactionsContainerLayout(ReactionsContainerLayout.TYPE_TAGS, this, getContext(), currentAccount, themeDelegate) {
 
@@ -10576,7 +10608,7 @@ public class ChatActivity extends BaseFragment implements
             @Override
             public void onReactionClicked(View view, ReactionsLayoutInBubble.VisibleReaction visibleReaction, boolean longpress, boolean addToRecent) {
                 if (tagSelector == null) return;
-                if (getDialogId() == getUserConfig().getClientUserId() && !getUserConfig().isPremium()) {
+                if (getDialogId() == getUserConfig().getClientUserId() && !getUserConfig().hasSavedTags()) {
                     new PremiumFeatureBottomSheet(ChatActivity.this, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true).show();
                     clearSelectionMode(false);
                     return;
@@ -10602,6 +10634,7 @@ public class ChatActivity extends BaseFragment implements
                             if (!remove) {
                                 messagesCount++;
                             }
+                            primeStoreLocalTagIfNeeded(messageObject, visibleReaction, remove);
                         }
                         if (messageObject != null && messageObject.messageOwner != null) {
                             if (chatAdapter.isFiltered) {
@@ -19499,7 +19532,7 @@ public class ChatActivity extends BaseFragment implements
                 }
 
                 if (tagItem != null) {
-                    tagItem.setVisibility(getUserConfig().isPremium() && (
+                    tagItem.setVisibility(getUserConfig().hasSavedTags() && (
                         (editItem != null && editItem.getVisibility() == View.VISIBLE ? 1 : 0) +
                         (forwardItem != null && forwardItem.getVisibility() == View.VISIBLE ? 1 : 0) +
                         (saveItem != null && saveItem.getVisibility() == View.VISIBLE ? 1 : 0) +
@@ -32825,7 +32858,7 @@ public class ChatActivity extends BaseFragment implements
                 final boolean tags = getUserConfig().getClientUserId() == getDialogId();
                 reactionsLayout = new ReactionsContainerLayout(tags ? ReactionsContainerLayout.TYPE_TAGS : ReactionsContainerLayout.TYPE_DEFAULT, ChatActivity.this, contentView.getContext(), currentAccount, getResourceProvider());
                 if (tags) {
-                    reactionsLayout.setHint(getUserConfig().isPremium() ? LocaleController.getString(R.string.SavedTagReactionsHint2) : AndroidUtilities.replaceSingleTag(LocaleController.getString(R.string.SavedTagReactionsPremiumHint), Theme.key_windowBackgroundWhiteBlueText2, 0, () -> {
+                    reactionsLayout.setHint(getUserConfig().hasSavedTags() ? LocaleController.getString(R.string.SavedTagReactionsHint2) : AndroidUtilities.replaceSingleTag(LocaleController.getString(R.string.SavedTagReactionsPremiumHint), Theme.key_windowBackgroundWhiteBlueText2, 0, () -> {
                         closeMenu(false);
                         PremiumFeatureBottomSheet sheet = new PremiumFeatureBottomSheet(ChatActivity.this, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true);
                         sheet.setDimBehind(false);
@@ -33580,7 +33613,7 @@ public class ChatActivity extends BaseFragment implements
             return;
         }
 
-        if (getDialogId() == getUserConfig().getClientUserId() && !getUserConfig().isPremium() && primaryMessage.messageOwner != null && (primaryMessage.messageOwner.reactions == null || (primaryMessage.messageOwner.reactions.reactions_as_tags || primaryMessage.messageOwner.reactions.results.isEmpty()))) {
+        if (getDialogId() == getUserConfig().getClientUserId() && !getUserConfig().hasSavedTags() && primaryMessage.messageOwner != null && (primaryMessage.messageOwner.reactions == null || (primaryMessage.messageOwner.reactions.reactions_as_tags || primaryMessage.messageOwner.reactions.results.isEmpty()))) {
             new PremiumFeatureBottomSheet(ChatActivity.this, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true).show();
             return;
         }
@@ -33593,6 +33626,7 @@ public class ChatActivity extends BaseFragment implements
         ReactionsEffectOverlay.removeCurrent(false);
         final int currentChosenReactions = primaryMessage.getChoosenReactions().size();
         final boolean added = primaryMessage.selectReaction(visibleReaction, bigEmoji, fromDoubleTap);
+        primeStoreLocalTagIfNeeded(primaryMessage, visibleReaction, !added);
         int messageIdForCell = primaryMessage.getId();
         if (groupedMessagesMap.get(primaryMessage.getGroupId()) != null) {
             int flags = primaryMessage.shouldDrawReactionsInLayout() ? MessageObject.POSITION_FLAG_BOTTOM | MessageObject.POSITION_FLAG_LEFT : MessageObject.POSITION_FLAG_BOTTOM | MessageObject.POSITION_FLAG_RIGHT;
@@ -39604,7 +39638,7 @@ public class ChatActivity extends BaseFragment implements
     }
 
 	private boolean isSupportedTags() {
-		return getUserConfig().getClientUserId() == getDialogId() && !getMessagesController().getSavedMessagesController().unsupported && getUserConfig().isPremium();
+		return getUserConfig().getClientUserId() == getDialogId() && !getMessagesController().getSavedMessagesController().unsupported && getUserConfig().hasSavedTags();
 	}
 
     private ChatMessageCellDelegate chatMessageCellDelegate;
@@ -45896,7 +45930,7 @@ public class ChatActivity extends BaseFragment implements
             return;
         }
         if (messageObject == null) return;
-        if (getUserConfig().getClientUserId() == getDialogId() && messageObject.areTags() && !getUserConfig().isPremium()) {
+        if (getUserConfig().getClientUserId() == getDialogId() && messageObject.areTags() && !getUserConfig().hasSavedTags()) {
             if (longpress) return;
             new PremiumFeatureBottomSheet(ChatActivity.this, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true).show();
             return;
