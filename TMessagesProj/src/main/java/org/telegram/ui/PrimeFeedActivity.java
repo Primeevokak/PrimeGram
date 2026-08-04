@@ -254,15 +254,26 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                     continue; // Skip archived
                 }
 
-                if (d.unread_count > 0 && DialogObject.isChatDialog(d.id)) {
-                    TLRPC.Chat chat = mc.getChat(-d.id);
-                    // Broadcast == true means it's a channel, megagroup == true means it's a supergroup
-                    if (chat != null && chat.broadcast && !chat.megagroup) {
-                        if (excludeMuted && mc.isDialogMuted(d.id, 0)) {
-                            continue; // Skip muted
-                        }
-                        unreadDialogs.add(d);
+                // PrimeGram: not just "still unread" - also anything shown recently enough that it
+                // should stay in the feed a while longer even though it just got marked read. A
+                // dialog whose last unread post was read a second ago must not silently drop out
+                // here, or its posts vanish from the feed the moment reading them is what triggers
+                // the reload.
+                final boolean stillTracked = !org.telegram.messenger.PrimeFeedReadState.stillVisibleIds(d.id).isEmpty();
+                if (d.unread_count <= 0 && !stillTracked) {
+                    continue;
+                }
+                if (!DialogObject.isChatDialog(d.id)) {
+                    continue;
+                }
+
+                TLRPC.Chat chat = mc.getChat(-d.id);
+                // Broadcast == true means it's a channel, megagroup == true means it's a supergroup
+                if (chat != null && chat.broadcast && !chat.megagroup) {
+                    if (excludeMuted && mc.isDialogMuted(d.id, 0)) {
+                        continue; // Skip muted
                     }
+                    unreadDialogs.add(d);
                 }
             }
         }
@@ -273,10 +284,23 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                 ArrayList<MessageObject> msgs = new ArrayList<>();
 
                 for (TLRPC.Dialog d : unreadDialogs) {
-                    int limit = Math.min(d.unread_count, 50);
+                    // PrimeGram: "still unread" OR "shown recently enough to stay a while longer" -
+                    // the OR is what keeps a post from disappearing out of the query the instant
+                    // scrolling past it marks it read. An empty tracked list needs a placeholder
+                    // that matches nothing ("-1"), since "IN ()" is invalid SQL.
+                    final List<Integer> tracked = org.telegram.messenger.PrimeFeedReadState.stillVisibleIds(d.id);
+                    final StringBuilder trackedIds = new StringBuilder();
+                    if (tracked.isEmpty()) {
+                        trackedIds.append("-1");
+                    } else {
+                        for (int i = 0; i < tracked.size(); i++) {
+                            if (i > 0) trackedIds.append(",");
+                            trackedIds.append(tracked.get(i));
+                        }
+                    }
                     org.telegram.SQLite.SQLiteCursor cursor = database.queryFinalized(
-                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages_v2 WHERE uid = %d AND mid > %d ORDER BY mid DESC LIMIT 50", d.id, d.read_inbox_max_id));
-                    
+                            String.format(java.util.Locale.US, "SELECT data, mid, date FROM messages_v2 WHERE uid = %d AND (mid > %d OR mid IN (%s)) ORDER BY mid DESC LIMIT 50", d.id, d.read_inbox_max_id, trackedIds));
+
                     while (cursor.next()) {
                         org.telegram.tgnet.NativeByteBuffer data = cursor.byteBufferValue(0);
                         if (data != null) {
@@ -286,15 +310,16 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
                             message.id = cursor.intValue(1);
                             message.date = cursor.intValue(2);
                             message.dialog_id = d.id;
-                            message.unread = true;
+                            message.unread = message.id > d.read_inbox_max_id;
                             message.out = false;
                             message.post = false;
                             message.from_id = new TLRPC.TL_peerChannel();
                             message.from_id.channel_id = -d.id;
-                            
+
                             MessageObject obj = new MessageObject(currentAccount, message, true, false);
                             obj.forceAvatar = true;
                             msgs.add(obj);
+                            org.telegram.messenger.PrimeFeedReadState.markSeen(d.id, message.id);
                         }
                     }
                     cursor.dispose();

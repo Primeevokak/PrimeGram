@@ -70,6 +70,16 @@ def _short_error(exc):
     lines = traceback.format_exception_only(type(exc), exc)
     return lines[-1].strip() if lines else repr(exc)
 
+
+# plugin_id -> full traceback text for its most recent load failure. The short message returned
+# by load_plugin() is what a user can act on without wading through a stack trace; this is what a
+# bug report actually needs, kept on the side so the UI can offer both instead of only one.
+_load_tracebacks = {}
+
+
+def get_load_traceback(plugin_id):
+    return _load_tracebacks.get(plugin_id, "")
+
 # Roots no real PyPI distribution is published under, because pip's package name and its import
 # name are the same thing for every pure-Python package we could install anyway. A plugin that
 # fails to import one of these has reached for a Java package that this build does not have -
@@ -99,6 +109,7 @@ def load_plugin(plugin_id, path):
     """Runs a plugin file and starts its plugin. Returns None on success, a message on failure."""
     if plugin_id in _loaded:
         unload_plugin(plugin_id)
+    _load_tracebacks.pop(plugin_id, None)
     try:
         with open(path, "r", encoding="utf-8") as handle:
             source = handle.read()
@@ -147,17 +158,20 @@ def load_plugin(plugin_id, path):
             except Exception as second:
                 sys.modules.pop(module_name, None)
                 del registry.last_defined[before:]
+                _load_tracebacks[plugin_id] = traceback.format_exc()
                 log("plugin %s still failed after fetching %s:\n%s"
                     % (plugin_id, missing, traceback.format_exc()))
                 return _short_error(second)
         else:
             sys.modules.pop(module_name, None)
             del registry.last_defined[before:]
+            _load_tracebacks[plugin_id] = traceback.format_exc()
             log("plugin %s wants a missing module:\n%s" % (plugin_id, traceback.format_exc()))
             return reason or ("плагину нужна библиотека «%s», которой нет в этой сборке" % (missing or "?"))
     except Exception as e:
         sys.modules.pop(module_name, None)
         del registry.last_defined[before:]
+        _load_tracebacks[plugin_id] = traceback.format_exc()
         log("plugin %s failed to execute:\n%s" % (plugin_id, traceback.format_exc()))
         return _short_error(e)
 
@@ -194,6 +208,7 @@ def load_plugin(plugin_id, path):
         _publish_request_hooks()
         _publish_dependencies(plugin_id, module)
     except Exception as e:
+        _load_tracebacks[plugin_id] = traceback.format_exc()
         log("plugin %s failed to load:\n%s" % (plugin_id, traceback.format_exc()))
         unload_plugin(plugin_id)
         return _short_error(e)

@@ -169,6 +169,13 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
         final String text;
         if (error == null) {
             text = "Плагин '" + plugin.id() + "' не удалось загрузить (подробностей нет).";
+        } else if (error instanceof org.telegram.messenger.plugins.PrimePluginsController.PluginLoadException
+                && !android.text.TextUtils.isEmpty(((org.telegram.messenger.plugins.PrimePluginsController.PluginLoadException) error).fullTraceback)) {
+            // The real Python traceback - what actually happened inside the plugin, not just the
+            // one-line summary the card shows. Falls through to the Java stack trace below only
+            // when the failure never reached a Python frame at all (unreadable file, and so on).
+            text = "Плагин: " + plugin.id() + "\n\n"
+                    + ((org.telegram.messenger.plugins.PrimePluginsController.PluginLoadException) error).fullTraceback;
         } else {
             final java.io.StringWriter writer = new java.io.StringWriter();
             writer.write("Плагин: " + plugin.id() + "\n\n");

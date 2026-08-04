@@ -435,9 +435,6 @@ public class ApplicationLoader extends Application {
             throw new RuntimeException("can't load native libraries " +  Build.CPU_ABI + " lookup folder " + NativeLoader.getAbiFolder());
         }
 
-        // Reads MessagesController.getGlobalMainSettings(), which constructs MessagesController -
-        // and that calls into the native tgnet library, so this cannot run before native_setJava.
-        PrimeVpnGuard.start(applicationContext);
         GreyZone.migrateLocalPremiumIfNeeded();
         new ForegroundDetector(this) {
             @Override
@@ -454,6 +451,11 @@ public class ApplicationLoader extends Application {
         }
 
         applicationHandler = new Handler(applicationContext.getMainLooper());
+
+        // registerNetworkCallback is a real binder call into system_server - fine any time after
+        // cold start, but doing it inline in onCreate was one more synchronous hop on the path
+        // users felt as a startup freeze. Off the critical path, same as the push service below.
+        applicationHandler.postDelayed(() -> PrimeVpnGuard.start(applicationContext), 1500);
 
         AndroidUtilities.runOnUIThread(ApplicationLoader::startPushService);
 

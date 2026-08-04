@@ -472,7 +472,13 @@ public final class PrimePluginsController {
             if (TextUtils.isEmpty(error)) {
                 plugin.setError(null);
             } else {
-                plugin.setError(new PluginLoadException(error));
+                String fullTraceback = null;
+                try {
+                    final PyObject traceback = loader.callAttr("get_load_traceback", plugin.id());
+                    fullTraceback = traceback == null ? null : traceback.toString();
+                } catch (Throwable ignore) {
+                }
+                plugin.setError(new PluginLoadException(error, fullTraceback));
             }
         } catch (Throwable e) {
             FileLog.e(e);
@@ -642,8 +648,17 @@ public final class PrimePluginsController {
 
     /** A plugin's own failure, as opposed to ours - its message is the Python traceback's last line. */
     public static final class PluginLoadException extends RuntimeException {
+        /** The Python-side traceback, if the Python loader captured one - null for the load
+         *  failures that never reach a Python stack frame (unreadable file, missing library). */
+        public final String fullTraceback;
+
         public PluginLoadException(String message) {
+            this(message, null);
+        }
+
+        public PluginLoadException(String message, String fullTraceback) {
             super(message);
+            this.fullTraceback = fullTraceback;
         }
     }
 
