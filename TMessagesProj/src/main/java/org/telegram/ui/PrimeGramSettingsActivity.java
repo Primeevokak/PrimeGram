@@ -523,8 +523,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 "Инструменты", "Теги, ссылки, расшифровка, браузер"));
         items.add(section(SECTION_MEDIA, IconBackgroundColors.CYAN, R.drawable.settings_sounds,
                 "Медиа и музыка", "Качество, кэш, камера, перевод"));
-        items.add(section(SECTION_PREMIUM, IconBackgroundColors.PURPLE, R.drawable.settings_premium,
-                "Локальный Premium", "Лимиты на этом устройстве"));
+        if (org.telegram.messenger.GreyZone.isAccepted()) {
+            items.add(section(SECTION_PREMIUM, IconBackgroundColors.PURPLE, R.drawable.settings_premium,
+                    "Локальный Premium", "Лимиты на этом устройстве"));
+        }
         items.add(section(SECTION_ADVANCED, IconBackgroundColors.BLUE_DEEP, R.drawable.settings_power,
                 "Дополнительно", "Обновления, эксперименты, диагностика"));
         items.add(SettingsActivity.SettingCell.Factory.of(ID_PLUGINS,
@@ -1181,10 +1183,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             endCard(items);
             items.add(UItem.asShadow("Меняет только то, что показано на вашем экране — удобно для скриншотов. Номер на сервере и у собеседников не меняется."));
 
-            row(button(ID_GREY_ZONE, IconBackgroundColors.GRAY, R.drawable.msg_warning, "Серая зона",
-                    org.telegram.messenger.GreyZone.isAccepted() ? "Включена" : "Требует подтверждения"));
-            endCard(items);
-            items.add(UItem.asShadow("Функции, снимающие ограничения собеседника, и режим призрака. Разработчик их не одобряет — используются на ваш страх и риск."));
+            if (org.telegram.messenger.GreyZone.isDebugVisible()) {
+                row(button(ID_GREY_ZONE, IconBackgroundColors.GRAY, R.drawable.msg_warning, "Серая зона",
+                        org.telegram.messenger.GreyZone.isAccepted() ? "Включена" : "Требует подтверждения"));
+                endCard(items);
+                items.add(UItem.asShadow("Функции, снимающие ограничения собеседника, и режим призрака. Разработчик их не одобряет — используются на ваш страх и риск."));
+            }
         }
 
         if (section == SECTION_TOOLS) {

@@ -36,6 +36,7 @@ public class GreyZone {
     private static final String KEY_LOCAL_PREMIUM_MIGRATED = "grey_local_premium_migrated";
 
     private static final String KEY_ACCEPTED = "grey_zone_accepted";
+    private static final String KEY_DEBUG_VISIBLE = "grey_zone_debug_visible";
 
     private static SharedPreferences prefs() {
         return MessagesController.getGlobalMainSettings();
@@ -148,7 +149,25 @@ public class GreyZone {
         final SharedPreferences.Editor editor = p.edit().putBoolean(KEY_LOCAL_PREMIUM_MIGRATED, true);
         if (existingUser) {
             editor.putBoolean(KEY_ACCEPTED, true).putBoolean(LOCAL_PREMIUM, true);
+            // The Grey Zone entry point itself just became hidden by default too. Someone who
+            // already had it open and configured should not lose their way back into it - only a
+            // fresh install gets the new "find it in the debug menu first" behavior.
+            if (p.getBoolean(KEY_ACCEPTED, false)) {
+                editor.putBoolean(KEY_DEBUG_VISIBLE, true);
+            }
         }
         editor.apply();
+    }
+
+    /** Whether the Grey Zone entry point shows in settings at all - hidden by default so the
+     *  screen isn't sitting in plain view of anyone glancing at the app; reachable through the
+     *  debug menu (SettingsActivity, long-press the version number) as a deliberate extra step,
+     *  not a discoverability accident. */
+    public static boolean isDebugVisible() {
+        return prefs().getBoolean(KEY_DEBUG_VISIBLE, false);
+    }
+
+    public static void setDebugVisible(boolean visible) {
+        prefs().edit().putBoolean(KEY_DEBUG_VISIBLE, visible).apply();
     }
 }

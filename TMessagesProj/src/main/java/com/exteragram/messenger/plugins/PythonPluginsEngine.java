@@ -1,0 +1,121 @@
+package com.exteragram.messenger.plugins;
+
+import org.telegram.messenger.FileLog;
+import org.telegram.messenger.Utilities;
+import org.telegram.messenger.plugins.PrimePluginStore;
+import org.telegram.messenger.plugins.PrimePluginsController;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * PrimeGram: compatibility shim for {@code com.exteragram.messenger.plugins.PythonPluginsEngine}.
+ * The real class's source was not recoverable (not present in the decompile PrimeGram's stub
+ * work is based on); this implements the {@link PluginsController.PluginsEngine} contract its
+ * call sites require, backed by {@link PrimePluginStore} wherever the operation is settings, and
+ * as a safe no-op wherever it is exteraGram-backend-specific (external-app opening, sharing).
+ */
+public final class PythonPluginsEngine implements PluginsController.PluginsEngine {
+
+    public static final PythonPluginsEngine INSTANCE = new PythonPluginsEngine();
+
+    public PythonPluginsEngine() {
+    }
+
+    public String getSDK_VERSION() {
+        return "1.4.5.0";
+    }
+
+    @Override
+    public boolean isPlugin(File file, Object messageObject) {
+        return file != null && file.getName().endsWith(PrimePluginsController.EXTENSION);
+    }
+
+    @Override
+    public boolean isEngineAvailable() {
+        return true;
+    }
+
+    @Override
+    public void init(Runnable callback) {
+        if (callback != null) callback.run();
+    }
+
+    @Override
+    public void checkDevServer() {
+    }
+
+    @Override
+    public void shutdown(Runnable callback) {
+        if (callback != null) callback.run();
+    }
+
+    @Override
+    public void setPluginEnabled(String pluginId, boolean enabled, Utilities.Callback<String> callback) {
+        PrimePluginStore.setEnabled(pluginId, enabled);
+        if (callback != null) callback.run(null);
+    }
+
+    @Override
+    public void deletePlugin(String pluginId, Utilities.Callback<String> callback) {
+        PrimePluginStore.forget(pluginId);
+        if (callback != null) callback.run(null);
+    }
+
+    @Override
+    public String getPluginPath(String id) {
+        return new File(PrimePluginsController.pluginsDir(), id + PrimePluginsController.EXTENSION).getAbsolutePath();
+    }
+
+    @Override
+    public boolean canOpenInExternalApp() {
+        return false;
+    }
+
+    @Override
+    public void openInExternalApp(String id) {
+        FileLog.d("PythonPluginsEngine.openInExternalApp (compat, no-op): " + id);
+    }
+
+    @Override
+    public void sharePlugin(String id) {
+    }
+
+    @Override
+    public List<Object> loadPluginSettings(String id) {
+        return new ArrayList<>();
+    }
+
+    @Override
+    public Object getPluginSetting(String pluginId, String key, Object defaultValue) {
+        if (defaultValue instanceof Boolean) {
+            return PrimePluginStore.getBoolean(pluginId, key, (Boolean) defaultValue);
+        }
+        if (defaultValue instanceof Integer) {
+            return PrimePluginStore.getInt(pluginId, key, (Integer) defaultValue);
+        }
+        return PrimePluginStore.getString(pluginId, key, defaultValue == null ? null : defaultValue.toString());
+    }
+
+    @Override
+    public void setPluginSetting(String pluginId, String key, Object value) {
+        PrimePluginStore.put(pluginId, key, value);
+    }
+
+    @Override
+    public void clearPluginSettings(String pluginId) {
+        PrimePluginStore.forget(pluginId);
+    }
+
+    @Override
+    public Map<String, ?> getAllPluginSettings(String pluginId) {
+        return new HashMap<>();
+    }
+
+    @Override
+    public void executeOnAppEvent(String eventType) {
+    }
+}
