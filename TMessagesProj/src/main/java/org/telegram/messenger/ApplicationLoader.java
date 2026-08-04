@@ -387,8 +387,6 @@ public class ApplicationLoader extends Application {
         // a chance to crash again. See CrashSafeToggle's javadoc.
         org.telegram.ui.Components.AnimatedFileNative.armHwAccelForThisSession();
 
-        PrimeVpnGuard.start(applicationContext);
-
         VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
         PrimeStartupTrace.mark("VpnSDK.setup done");
         VpnSDK.setLogListener(new kotlin.jvm.functions.Function1<String, kotlin.Unit>() {
@@ -436,6 +434,11 @@ public class ApplicationLoader extends Application {
         } catch (UnsatisfiedLinkError error) {
             throw new RuntimeException("can't load native libraries " +  Build.CPU_ABI + " lookup folder " + NativeLoader.getAbiFolder());
         }
+
+        // Reads MessagesController.getGlobalMainSettings(), which constructs MessagesController -
+        // and that calls into the native tgnet library, so this cannot run before native_setJava.
+        PrimeVpnGuard.start(applicationContext);
+        GreyZone.migrateLocalPremiumIfNeeded();
         new ForegroundDetector(this) {
             @Override
             public void onActivityStarted(Activity activity) {

@@ -1445,7 +1445,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_PREMIUM) {
-            items.add(UItem.asShadow("На этом устройстве полностью эмулируется подписка Telegram Premium: разблокированы Saved Messages теги, кастомные обои, расшифровка голосовых сообщений, перевод чатов и каналов, бесконечные реакции, эмодзи-статусы, значок в профиле и отсутствие рекламы. Ниже вы можете настроить локальные лимиты."));
+            items.add(UItem.asShadow((org.telegram.messenger.GreyZone.localPremiumEnabled()
+                    ? "Сейчас включено: расширение функционала на этом устройстве — бесконечные реакции, эмодзи-статусы, значок в профиле и увеличенные лимиты ниже. "
+                    : "Сейчас выключено — сервер по-прежнему не считает вас Premium-пользователем. ")
+                    + "Включается в «Серой зоне»."));
 
             items.add(UItem.asHeader("Лимиты чатов и папок"));
             row(button(ID_LIMIT_FOLDERS, IconBackgroundColors.BLUE, R.drawable.msg_limit_folder,

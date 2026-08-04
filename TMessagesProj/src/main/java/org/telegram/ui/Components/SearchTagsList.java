@@ -310,7 +310,7 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
                 return;
             }
             // Local tags are ours, not a Telegram Premium feature — no paywall for them.
-            if (!localMode && !UserConfig.getInstance(currentAccount).isPremium()) {
+            if (!localMode && !UserConfig.getInstance(currentAccount).hasSavedTags()) {
                 new PremiumFeatureBottomSheet(fragment, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true).show();
                 return;
             }
@@ -347,9 +347,9 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
             }
         });
         listView.setOnItemLongClickListener((view, position) -> {
-            if (position < 0 || position >= items.size() || localMode || !UserConfig.getInstance(currentAccount).isPremium())
+            if (position < 0 || position >= items.size() || localMode || !UserConfig.getInstance(currentAccount).hasSavedTags())
                 return false;
-            if (!UserConfig.getInstance(currentAccount).isPremium()) {
+            if (!UserConfig.getInstance(currentAccount).hasSavedTags()) {
                 new PremiumFeatureBottomSheet(fragment, PremiumPreviewFragment.PREMIUM_FEATURE_SAVED_TAGS, true).show();
                 return true;
             }
@@ -711,7 +711,7 @@ public class SearchTagsList extends FrameLayout implements NotificationCenter.No
             adapter.notifyDataSetChanged();
         }
 
-        if (shownPremiumLayout = !UserConfig.getInstance(currentAccount).isPremium()) {
+        if (shownPremiumLayout = !UserConfig.getInstance(currentAccount).hasSavedTags()) {
             createPremiumLayout();
             if (!notify) {
                 premiumLayout.setVisibility(View.VISIBLE);

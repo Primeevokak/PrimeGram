@@ -30,6 +30,7 @@ public class GreyZoneActivity extends UniversalFragment {
     private static final int ID_SAVE_DELETED = 30;
     private static final int ID_OPEN_DELETED = 31;
     private static final int ID_ACTIVITY_PEEK = 40;
+    private static final int ID_LOCAL_PREMIUM = 50;
 
     @Override
     protected CharSequence getTitle() {
@@ -75,6 +76,10 @@ public class GreyZoneActivity extends UniversalFragment {
         items.add(check(ID_ACTIVITY_PEEK, "Видеть активность в общих группах", GreyZone.ACTIVITY_PEEK));
         items.add(UItem.asShadow("Если собеседник скрыл от вас «был(а) в сети», но сейчас печатает или отправляет что-то в группе, где вы оба состоите, — это будет видно в его профиле вместо скрытого статуса."));
 
+        items.add(UItem.asHeader("Подписка"));
+        items.add(check(ID_LOCAL_PREMIUM, "Локальный Premium", GreyZone.LOCAL_PREMIUM));
+        items.add(UItem.asShadow("Расширение функционала на этом устройстве: бесконечные реакции, эмодзи-статусы, значок в профиле и увеличенные лимиты. Сервер по-прежнему не считает вас Premium-пользователем. Настройка лимитов — в «Дополнительно → Локальный Premium»."));
+
         items.add(UItem.asShadow(""));
         items.add(UItem.asButton(ID_REVOKE, "Отключить всё и скрыть раздел"));
     }
@@ -109,6 +114,8 @@ public class GreyZoneActivity extends UniversalFragment {
             presentFragment(new DeletedMessagesActivity());
         } else if (item.id == ID_ACTIVITY_PEEK) {
             toggle(GreyZone.ACTIVITY_PEEK);
+        } else if (item.id == ID_LOCAL_PREMIUM) {
+            toggle(GreyZone.LOCAL_PREMIUM);
         }
     }
 

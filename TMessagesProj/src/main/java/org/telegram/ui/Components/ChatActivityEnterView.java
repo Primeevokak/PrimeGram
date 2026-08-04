@@ -7340,7 +7340,12 @@ public class ChatActivityEnterView extends FrameLayout implements
         texts.add(t);
         primeTranslatingBeforeSend = true;
         org.telegram.messenger.PrimeTranslator.translate(texts, lang, (response, error) -> {
-            primeTranslatingBeforeSend = false;
+            // primeTranslatingBeforeSend stays true through the recursive sendMessageInternal call
+            // right below - clearing it before that call let the intercept at the top of
+            // sendMessageInternal see "translate is on, text is non-empty" and re-enter itself on
+            // its own recursive call, translating the just-translated text again, forever: every
+            // response overwrote the field with a further-mangled version, which is what looked
+            // like the box "restoring itself" and refusing to be cleared.
             if (response instanceof TLRPC.TL_messages_translateResult) {
                 final TLRPC.TL_messages_translateResult result = (TLRPC.TL_messages_translateResult) response;
                 if (!result.result.isEmpty() && !TextUtils.isEmpty(result.result.get(0).text) && messageEditText != null) {
@@ -7350,6 +7355,7 @@ public class ChatActivityEnterView extends FrameLayout implements
                 }
             }
             sendMessageInternal(notify, scheduleDate, scheduleRepeatPeriod, payStars, allowConfirm);
+            primeTranslatingBeforeSend = false;
         });
     }
 

@@ -28,6 +28,12 @@ public class GreyZone {
     public static final String SAVE_DELETED = "grey_save_deleted";
     /** Show that someone who hides their online status is typing in a group shared with us. */
     public static final String ACTIVITY_PEEK = "grey_activity_peek";
+    /** Emulate Telegram Premium locally for this account - was an unconditional `return true`,
+     *  moved here because it is exactly this feature's shape: something that makes the app behave
+     *  as if a restriction (Telegram's own, this time, not a chat partner's) doesn't apply. */
+    public static final String LOCAL_PREMIUM = "grey_local_premium";
+
+    private static final String KEY_LOCAL_PREMIUM_MIGRATED = "grey_local_premium_migrated";
 
     private static final String KEY_ACCEPTED = "grey_zone_accepted";
 
@@ -50,7 +56,8 @@ public class GreyZone {
                     .putBoolean(GHOST_DONT_TYPING, false)
                     .putBoolean(GHOST_DONT_ONLINE, false)
                     .putBoolean(SAVE_DELETED, false)
-                    .putBoolean(ACTIVITY_PEEK, false);
+                    .putBoolean(ACTIVITY_PEEK, false)
+                    .putBoolean(LOCAL_PREMIUM, false);
         }
         editor.apply();
     }
@@ -117,5 +124,31 @@ public class GreyZone {
      */
     public static boolean hideOwnOnline() {
         return isEnabled(GHOST_DONT_ONLINE);
+    }
+
+    public static boolean localPremiumEnabled() {
+        return isEnabled(LOCAL_PREMIUM);
+    }
+
+    /**
+     * One-time migration for the version that moved local Premium behind this toggle - it used to
+     * be an unconditional {@code return true}, so someone who already had the app installed never
+     * asked for it to turn off. Whoever is already running the app when this first executes keeps
+     * exactly the behavior they had a moment ago; only an install that starts fresh from here on
+     * gets the new off-by-default, ask-first behavior. Safe to call on every startup - the marker
+     * makes every call after the first a no-op, including for someone who deliberately turns the
+     * toggle back off afterward.
+     */
+    public static void migrateLocalPremiumIfNeeded() {
+        final SharedPreferences p = prefs();
+        if (p.getBoolean(KEY_LOCAL_PREMIUM_MIGRATED, false)) {
+            return;
+        }
+        final boolean existingUser = p.getInt("primegram_app_launch_count", 0) > 1;
+        final SharedPreferences.Editor editor = p.edit().putBoolean(KEY_LOCAL_PREMIUM_MIGRATED, true);
+        if (existingUser) {
+            editor.putBoolean(KEY_ACCEPTED, true).putBoolean(LOCAL_PREMIUM, true);
+        }
+        editor.apply();
     }
 }

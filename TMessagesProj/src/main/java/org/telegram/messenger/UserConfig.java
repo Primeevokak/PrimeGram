@@ -607,11 +607,20 @@ public class UserConfig extends BaseController {
     }
 
     public boolean isPremium() {
-        return true;
+        return GreyZone.localPremiumEnabled();
     }
 
     public boolean hasRealPremium() {
         return currentUser != null && currentUser.premium;
+    }
+
+    /**
+     * PrimeGram: Saved Messages tags stay unlocked regardless of the local Premium toggle - they
+     * cost the server nothing extra to show, unlike the limits and cosmetics local Premium
+     * otherwise emulates, so there is no reason to tie them to a switch someone might leave off.
+     */
+    public boolean hasSavedTags() {
+        return true;
     }
 
     public Long getEmojiStatus() {
