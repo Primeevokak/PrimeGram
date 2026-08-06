@@ -607,7 +607,7 @@ public class UserConfig extends BaseController {
     }
 
     public boolean isPremium() {
-        return GreyZone.localPremiumEnabled();
+        return hasRealPremium() || GreyZone.localPremiumEnabled();
     }
 
     public boolean hasRealPremium() {

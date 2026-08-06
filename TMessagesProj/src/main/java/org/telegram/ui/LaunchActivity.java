@@ -9952,7 +9952,31 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         addAccountButton.setColorFilter(new android.graphics.PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), android.graphics.PorterDuff.Mode.MULTIPLY));
 
         addAccountButton.setOnClickListener(v -> {
-            presentFragment(new LoginActivity());
+            // Bug fix: LoginActivity()'s no-arg constructor leaves currentAccount pointing at
+            // whatever was already selected and never sets newAccount=true, so it silently
+            // re-authenticated INTO the currently open account's slot instead of a free one -
+            // the old account wasn't "logged out", its slot was overwritten by the new login.
+            int freeAccounts = 0;
+            Integer availableAccount = null;
+            for (int a = UserConfig.MAX_ACCOUNT_COUNT - 1; a >= 0; a--) {
+                if (!UserConfig.getInstance(a).isClientActivated()) {
+                    freeAccounts++;
+                    if (availableAccount == null) {
+                        availableAccount = a;
+                    }
+                }
+            }
+            if (!UserConfig.hasPremiumOnAccounts()) {
+                freeAccounts -= (UserConfig.MAX_ACCOUNT_COUNT - UserConfig.MAX_ACCOUNT_DEFAULT_COUNT);
+            }
+            if (freeAccounts > 0 && availableAccount != null) {
+                presentFragment(new LoginActivity(availableAccount));
+            } else if (!UserConfig.hasPremiumOnAccounts()) {
+                BaseFragment lastFragment = getLastFragment();
+                if (lastFragment != null) {
+                    new LimitReachedBottomSheet(lastFragment, this, LimitReachedBottomSheet.TYPE_ACCOUNTS, currentAccount, null).show();
+                }
+            }
         });
 
         FrameLayout addFrame = new FrameLayout(context);

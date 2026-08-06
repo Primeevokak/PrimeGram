@@ -6,7 +6,10 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MessageObject;
+import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.PrimeFeedController;
 import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.ActionBar;
@@ -25,15 +28,71 @@ import org.telegram.ui.Components.LayoutHelper;
  * ours is only the data: {@link PrimeFeedController} supplies just the unread set, never a real
  * search, and this class is what turns "left the tab" into "mark what was shown as read".
  *
- * <p>Not yet carried over from the previous, simpler implementation: continuous scroll-based
- * pagination (a channel with more unread than the controller's per-load cap only shows the
- * newest of them until the tab is reopened) and precise scroll-position restore across tab
- * switches. Both are real gaps, not silently dropped - see {@link PrimeFeedController}.
+ * <p>Scroll position is remembered across tab switches by (dialogId, messageId) rather than a
+ * pixel offset, in a static field so it survives the fragment itself being recreated when the
+ * tab host evicts an off-screen tab - see {@link ChatActivity#primeGetFirstVisibleFeedPost()}
+ * and {@link ChatActivity#primeScrollToFeedPost}.
  */
-public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.TabFragmentDelegate {
+public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.TabFragmentDelegate, NotificationCenter.NotificationCenterDelegate {
 
     private ChatActivityContainer chatContainer;
     private boolean embeddedChatCreated;
+
+    private static long primeSavedScrollDialogId;
+    private static int primeSavedScrollMessageId;
+    private static boolean primeHasSavedScroll;
+
+    /** Set once the initial load's scroll position has been settled (restored or defaulted to
+     *  top), reset each time the fragment is (re)created. Without this, every later
+     *  {@code messagesDidLoad} - including the ones {@link PrimeFeedController#loadMore} fires as
+     *  the user scrolls up through older pages - re-ran the same restore, snapping the list back
+     *  to wherever it was when the tab was last left and fighting the user's own scroll input. */
+    private boolean scrollSettledThisSession;
+
+    @Override
+    public boolean onFragmentCreate() {
+        getNotificationCenter().addObserver(this, NotificationCenter.messagesDidLoad);
+        scrollSettledThisSession = false;
+        return super.onFragmentCreate();
+    }
+
+    @Override
+    public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.messagesDidLoad && !scrollSettledThisSession && chatContainer != null && chatContainer.chatActivity != null
+                && (Integer) args[10] == chatContainer.chatActivity.getClassGuid()) {
+            scrollSettledThisSession = true;
+            // Posted, not called directly: ChatActivity's own handler for this same notification
+            // has to run first and actually populate its message list before there is anything
+            // here to scroll to.
+            AndroidUtilities.runOnUIThread(this::primeRestoreScrollIfNeeded);
+        }
+    }
+
+    private void primeRestoreScrollIfNeeded() {
+        if (chatContainer == null || chatContainer.chatActivity == null) {
+            return;
+        }
+        // The feed only ever holds unread posts - a saved (dialogId, messageId) can easily no
+        // longer be in the freshly loaded set (it, or everything ahead of it, got read elsewhere
+        // meanwhile). Falling through to the top instead of leaving the default "opened at the
+        // newest post" position covers both that case and the plain first-ever-open case below.
+        if (!primeHasSavedScroll || !chatContainer.chatActivity.primeScrollToFeedPost(primeSavedScrollDialogId, primeSavedScrollMessageId)) {
+            chatContainer.chatActivity.primeScrollToFeedTop();
+        }
+    }
+
+    private void primeSaveScrollPosition() {
+        if (chatContainer == null || chatContainer.chatActivity == null) {
+            return;
+        }
+        final MessageObject first = chatContainer.chatActivity.primeGetFirstVisibleFeedPost();
+        if (first == null) {
+            return;
+        }
+        primeSavedScrollDialogId = first.getDialogId();
+        primeSavedScrollMessageId = first.getId();
+        primeHasSavedScroll = true;
+    }
 
     @Override
     public View createView(Context context) {
@@ -113,6 +172,7 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
     @Override
     public void onPause() {
         super.onPause();
+        primeSaveScrollPosition();
         if (chatContainer != null) {
             chatContainer.onPause();
         }
@@ -123,6 +183,8 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
 
     @Override
     public void onFragmentDestroy() {
+        primeSaveScrollPosition();
+        getNotificationCenter().removeObserver(this, NotificationCenter.messagesDidLoad);
         if (embeddedChatCreated && chatContainer != null) {
             chatContainer.chatActivity.onFragmentDestroy();
         }

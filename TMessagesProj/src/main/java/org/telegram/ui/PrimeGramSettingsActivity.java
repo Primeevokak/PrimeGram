@@ -2556,7 +2556,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         });
     }
 
-    private static final String[] TRANSLATE_PROVIDER_NAMES = {"Telegram", "Google", "Yandex"};
+    private static final String[] TRANSLATE_PROVIDER_NAMES = {"Telegram", "Google", "Yandex", "Multiplay"};
 
     /** 0 means no ceiling; the rest are the shorter side in pixels. */
     private static final int[] VIDEO_QUALITY_VALUES = {0, 1080, 720, 480, 360};

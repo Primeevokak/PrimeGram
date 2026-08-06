@@ -4819,6 +4819,9 @@ public class ChatActivityEnterView extends FrameLayout implements
                 }
                 if (!isStories && dialog_id != 0) {
                     final boolean translateOn = org.telegram.messenger.PrimeSendTranslate.isEnabled(dialog_id);
+                    if (translateOn) {
+                        org.telegram.messenger.PrimeTranslator.prewarm();
+                    }
                     final ActionBarMenuSubItem translateBeforeSendButton = new ActionBarMenuSubItem(getContext(), false, true, resourcesProvider);
                     translateBeforeSendButton.setTextAndIcon(
                             (translateOn ? "Перевод перед отправкой: " : "Перевести перед отправкой") +
@@ -6710,6 +6713,12 @@ public class ChatActivityEnterView extends FrameLayout implements
 
     public void setDialogId(long id, int account) {
         dialog_id = id;
+        if (id != 0 && org.telegram.messenger.PrimeSendTranslate.isEnabled(id)) {
+            // Opening a chat where this was already turned on last session is exactly the case
+            // that used to slip past prewarm() entirely - nothing else ran before the user could
+            // already be typing, so the first send still paid the cold-connection cost.
+            org.telegram.messenger.PrimeTranslator.prewarm();
+        }
         if (currentAccount != account) {
             notificationsLocker.unlock();
             NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.recordStarted);
@@ -7322,6 +7331,7 @@ public class ChatActivityEnterView extends FrameLayout implements
             org.telegram.messenger.PrimeSendTranslate.setLanguage(dialog_id, codes[which]);
             if (alsoEnable) {
                 org.telegram.messenger.PrimeSendTranslate.setEnabled(dialog_id, true);
+                org.telegram.messenger.PrimeTranslator.prewarm();
             }
         });
         builder.show();
@@ -7346,13 +7356,22 @@ public class ChatActivityEnterView extends FrameLayout implements
             // its own recursive call, translating the just-translated text again, forever: every
             // response overwrote the field with a further-mangled version, which is what looked
             // like the box "restoring itself" and refusing to be cleared.
+            boolean translated = false;
             if (response instanceof TLRPC.TL_messages_translateResult) {
                 final TLRPC.TL_messages_translateResult result = (TLRPC.TL_messages_translateResult) response;
                 if (!result.result.isEmpty() && !TextUtils.isEmpty(result.result.get(0).text) && messageEditText != null) {
                     primePendingOriginalText = original;
                     messageEditText.setText(result.result.get(0).text);
                     messageEditText.setSelection(messageEditText.length());
+                    translated = true;
                 }
+            }
+            if (!translated && parentFragment != null) {
+                // The user turned this on expecting every send through this chat to go out
+                // translated - sending the original silently, with no sign anything went wrong,
+                // would look like the feature just stopped working for no reason.
+                BulletinFactory.of(parentFragment).createErrorBulletin(
+                        "Не удалось перевести сообщение, отправлено как есть").show();
             }
             sendMessageInternal(notify, scheduleDate, scheduleRepeatPeriod, payStars, allowConfirm);
             primeTranslatingBeforeSend = false;

@@ -67,6 +67,24 @@ class _Placeholder(metaclass=_PlaceholderMeta):
     def __bool__(self):
         return False
 
+    def __iter__(self):
+        # A method that isinstance-checks against this class is not the only shape a plugin
+        # reaches for one of these: reflection calls like Class.getDeclaredMethods() or
+        # getInterfaces() are expected to return a (possibly empty) array, and __getattr__ above
+        # answers those exactly the same way as everything else - another _Placeholder, standing
+        # in for the return value. Without this, the very first "for m in clazz.getDeclaredMethods()"
+        # a plugin writes crashes with "'_Placeholder' object is not iterable" instead of the empty
+        # result a real reflection call would give for a class with nothing of interest on it -
+        # which is what let a single missing class (zwylib's PythonPluginsEngine, exteraGram-only)
+        # take the whole plugin down over a hook it was prepared to skip if not found.
+        return iter(())
+
+    def __len__(self):
+        return 0
+
+    def __contains__(self, item):
+        return False
+
 
 class _CompatLoader(Loader):
 

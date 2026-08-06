@@ -11471,7 +11471,14 @@ public class ChatActivity extends BaseFragment implements
         if (translateItem == null) {
             return;
         }
-        translateItem.setVisibility(getMessagesController().getTranslateController().isTranslateDialogHidden(getDialogId()) && getMessagesController().getTranslateController().isDialogTranslatable(getDialogId()) ? View.VISIBLE : View.GONE);
+        // PrimeGram: the stock condition only showed this once auto-detection had already flagged
+        // the dialog as translatable AND the auto-banner had been dismissed - a chat that never
+        // triggered detection (too short, low-confidence, or the banner never got dismissed) had
+        // no manual way in at all. The action itself (toggleTranslatingDialog) works for any
+        // dialog the feature covers, so gate visibility on that same isFeatureAvailable(dialogId)
+        // check instead, making the menu entry a reliable manual fallback in every private chat
+        // and group, not just the ones auto-detection already caught.
+        translateItem.setVisibility(getMessagesController().getTranslateController().isFeatureAvailable(getDialogId()) && !DialogObject.isEncryptedDialog(getDialogId()) ? View.VISIBLE : View.GONE);
     }
 
     private Animator infoTopViewAnimator;
@@ -14053,6 +14060,18 @@ public class ChatActivity extends BaseFragment implements
                     loading = true;
                     waitingForLoad.add(lastLoadIndex);
                     HashtagSearchController.getInstance(currentAccount).searchHashtag(searchingHashtag, classGuid, searchType, lastLoadIndex++);
+                }
+            }
+
+            return;
+        }
+
+        if (chatMode == MODE_FEED) {
+            if (totalItemCount - firstVisibleItemFinal - visibleItemCountFinal <= checkLoadCount && !loading) {
+                if (!endReached[0]) {
+                    loading = true;
+                    waitingForLoad.add(lastLoadIndex);
+                    org.telegram.messenger.PrimeFeedController.getInstance(currentAccount).loadMore(classGuid, lastLoadIndex++);
                 }
             }
 
@@ -17035,6 +17054,55 @@ public class ChatActivity extends BaseFragment implements
     public static final boolean SCROLL_DEBUG_DELAY = false;
     private boolean pinnedProgressIsShowing;
     Runnable updatePinnedProgressRunnable;
+
+    /** PrimeGram: the topmost fully-attached post currently on screen in {@link #MODE_FEED} -
+     *  the counterpart {@link #primeScrollToFeedPost} restores. Null before anything has laid
+     *  out, or outside MODE_FEED. */
+    public MessageObject primeGetFirstVisibleFeedPost() {
+        if (chatMode != MODE_FEED || chatAdapter == null || chatLayoutManager == null) {
+            return null;
+        }
+        int first = chatLayoutManager.findFirstVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION) {
+            return null;
+        }
+        int index = first - chatAdapter.messagesStartRow;
+        if (index < 0 || index >= messages.size()) {
+            return null;
+        }
+        return messages.get(index);
+    }
+
+    /** PrimeGram: scroll to a specific post in {@link #MODE_FEED} by (dialogId, messageId).
+     *  {@link #scrollToMessageId} looks a message up by id alone, keyed in {@code messagesDict} -
+     *  which collides across channels in a multi-dialog feed, since message ids are only unique
+     *  per channel. This walks the actual per-message peer identity instead. Returns false when
+     *  the post isn't in the currently loaded set (it was, and no longer is, unread by the time
+     *  the feed tab was reopened) - the caller falls back to {@link #primeScrollToFeedTop()}. */
+    public boolean primeScrollToFeedPost(long dialogId, int messageId) {
+        if (chatMode != MODE_FEED || chatAdapter == null || chatLayoutManager == null) {
+            return false;
+        }
+        for (int i = 0; i < messages.size(); i++) {
+            MessageObject obj = messages.get(i);
+            if (obj.getId() == messageId && obj.getDialogId() == dialogId) {
+                chatLayoutManager.scrollToPositionWithOffset(chatAdapter.messagesStartRow + i, 0);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** PrimeGram: scroll to the oldest post currently loaded in {@link #MODE_FEED} - the feed only
+     *  ever holds a bounded, already-unread set (unlike a normal chat's unbounded history), so the
+     *  natural way to open it is at the start of that set, not anchored to the newest post at the
+     *  bottom the way an ordinary chat opens. */
+    public void primeScrollToFeedTop() {
+        if (chatMode != MODE_FEED || chatAdapter == null || chatLayoutManager == null || messages.isEmpty()) {
+            return;
+        }
+        chatLayoutManager.scrollToPositionWithOffset(chatAdapter.messagesStartRow + messages.size() - 1, 0);
+    }
 
     public void scrollToMessageId(int id, int fromMessageId, boolean select, int loadIndex, boolean forceScroll, int forcePinnedMessageId) {
         scrollToMessageId(id, fromMessageId, select, loadIndex, forceScroll, forcePinnedMessageId, null, null);
@@ -22742,6 +22810,14 @@ public class ChatActivity extends BaseFragment implements
             }, 350);
         } else if (id == NotificationCenter.chatInfoDidLoad) {
             TLRPC.ChatFull chatFull = (TLRPC.ChatFull) args[0];
+            if (chatMode == MODE_FEED) {
+                // Every post here is from a different channel, so there's no single currentChat
+                // this notification could match below - but any channel's ChatFull arriving is
+                // exactly what the per-post comment-button lookup in the adapter is waiting on.
+                if (chatAdapter != null) {
+                    chatAdapter.notifyDataSetChanged(true);
+                }
+            }
             if (currentChat != null && chatFull.id == currentChat.id) {
                 checkGroupEmojiPackHint();
                 if (chatFull instanceof TLRPC.TL_channelFull) {
@@ -28202,10 +28278,13 @@ public class ChatActivity extends BaseFragment implements
             invalidateChatListViewTopPadding();
         } else if (chatMode == MODE_FEED) {
             // A feed post is never composed to - no input bar, no search bar, nothing at the
-            // bottom at all.
+            // bottom at all. This branch matches before the isInsideContainer/forceNoBottom
+            // GONE-setting block further down ever gets a chance to run for MODE_FEED, which is
+            // why it has to set GONE itself here - INVISIBLE still reserves the layout space,
+            // which is what used to show up as an empty translucent strip at the bottom.
             bottomViewsVisibilityController.setViewVisible(MESSAGE_SEARCH_CONTAINER, false, false);
-            chatActivityEnterView.setVisibility(View.INVISIBLE);
-            bottomChannelButtonsLayout.setVisibility(View.INVISIBLE);
+            chatActivityEnterView.setVisibility(View.GONE);
+            bottomChannelButtonsLayout.setVisibility(View.GONE);
         } else {
             bottomViewsVisibilityController.setViewVisible(MESSAGE_SEARCH_CONTAINER, false, true);
             chatActivityEnterView.setVisibility(View.VISIBLE);
@@ -38406,9 +38485,20 @@ public class ChatActivity extends BaseFragment implements
                     messageCell.isMonoForum = ChatObject.isMonoForum(currentChat);
                     messageCell.isForumGeneral = ChatObject.isForum(currentChat) && isTopic && getTopicId() == 1;
                     messageCell.isThreadChat = (threadMessageId != 0 || messageCell.isForum && isTopic) && !messageCell.isMonoForum;
-                    messageCell.hasDiscussion = chatMode != MODE_SCHEDULED && ChatObject.isChannel(currentChat) && currentChat.has_link && !currentChat.megagroup;
+                    if (chatMode == MODE_FEED) {
+                        // currentChat/chatInfo are whatever the embedded ChatActivity happens to
+                        // hold for a single dialog - meaningless here, since every post in the feed
+                        // comes from a different channel. Look the comment-button eligibility up
+                        // per post, from that post's own channel and its own ChatFull, instead.
+                        final TLRPC.Chat postChat = getMessagesController().getChat(-message.getDialogId());
+                        final TLRPC.ChatFull postChatFull = getMessagesController().getChatFull(-message.getDialogId());
+                        messageCell.hasDiscussion = ChatObject.isChannel(postChat) && postChat.has_link && !postChat.megagroup;
+                        messageCell.linkedChatId = postChatFull != null ? postChatFull.linked_chat_id : 0;
+                    } else {
+                        messageCell.hasDiscussion = chatMode != MODE_SCHEDULED && ChatObject.isChannel(currentChat) && currentChat.has_link && !currentChat.megagroup;
+                        messageCell.linkedChatId = chatMode != MODE_SCHEDULED && chatInfo != null ? chatInfo.linked_chat_id : 0;
+                    }
                     messageCell.isPinned = chatMode == 0 && (pinnedMessageObjects.containsKey(message.getId()) || groupedMessages != null && !groupedMessages.messages.isEmpty() && pinnedMessageObjects.containsKey(groupedMessages.messages.get(0).getId()));
-                    messageCell.linkedChatId = chatMode != MODE_SCHEDULED && chatInfo != null ? chatInfo.linked_chat_id : 0;
                     if (chatMode == MODE_SEARCH && searchType == SEARCH_MY_MESSAGES) {
                         messageCell.isRepliesChat = UserObject.isReplyUser(message.getDialogId());
                     } else {
@@ -42714,7 +42804,11 @@ public class ChatActivity extends BaseFragment implements
                 maxReadId = -1;
                 linkedChatId = 0;
             }
-            openDiscussionMessageChat(currentChat.id, message, message.getId(), linkedChatId, maxReadId, 0, null);
+            // currentChat is the single dialog this ChatActivity was opened on - in MODE_FEED
+            // that's null (every post here comes from a different channel), and even outside the
+            // feed the post's own origin channel is what messages.getDiscussionMessage actually
+            // needs, so deriving it from the message itself is correct in both cases.
+            openDiscussionMessageChat(-message.getDialogId(), message, message.getId(), linkedChatId, maxReadId, 0, null);
         }
 
         @Override

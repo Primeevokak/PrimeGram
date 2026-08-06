@@ -33,10 +33,53 @@ public class PrimeTranslator {
     public static final int PROVIDER_TELEGRAM = 0;
     public static final int PROVIDER_GOOGLE = 1;
     public static final int PROVIDER_YANDEX = 2;
+    /** Splits a batch across both keyless providers by index parity and runs the whole batch
+     *  concurrently instead of one request at a time - see {@link #translate}. */
+    public static final int PROVIDER_MULTIPLAY = 3;
+
+    /** Bounded so a large batch (translating an entire loaded chat history at once) can't open
+     *  dozens of sockets at the same two hosts simultaneously - 4 in flight is enough to get the
+     *  parallelism win without looking like a burst to either provider. */
+    private static final java.util.concurrent.ExecutorService pool =
+            java.util.concurrent.Executors.newFixedThreadPool(4);
 
     /** Whether translation should bypass Telegram entirely. */
     public static boolean isExternal() {
         return PrimeTweaks.translateProvider() != PROVIDER_TELEGRAM;
+    }
+
+    private static volatile boolean warmed;
+
+    /**
+     * The very first {@link #translate} call after the process starts pays for a DNS lookup and a
+     * fresh TLS handshake to the provider host - that one-time cost is what makes the first
+     * translated send visibly slower than every one after it, which just reuses the pooled
+     * connection {@link HttpURLConnection} keeps open. Call this as soon as the feature is turned
+     * on for a chat (rather than waiting for the first real send) so that cost is already paid by
+     * the time the user actually sends something.
+     */
+    public static void prewarm() {
+        if (warmed || !isExternal()) {
+            return;
+        }
+        warmed = true;
+        final int provider = PrimeTweaks.translateProvider();
+        pool.submit(() -> {
+            try {
+                if (provider == PROVIDER_YANDEX || provider == PROVIDER_MULTIPLAY) {
+                    yandex("hi", "en");
+                }
+            } catch (Throwable ignore) {
+            }
+        });
+        if (provider != PROVIDER_YANDEX) {
+            pool.submit(() -> {
+                try {
+                    google("hi", "en");
+                } catch (Throwable ignore) {
+                }
+            });
+        }
     }
 
     /**
@@ -63,25 +106,48 @@ public class PrimeTranslator {
         final String target = toLang == null || toLang.isEmpty() ? "en" : toLang;
 
         final int provider = PrimeTweaks.translateProvider();
-        Utilities.globalQueue.postRunnable(() -> {
-            final ArrayList<TLRPC.TL_textWithEntities> results = new ArrayList<>(sources.size());
-            try {
-                for (String source : sources) {
+        final int count = sources.size();
+        // Each text used to go out one at a time on a single background thread - translating an
+        // entire loaded chat history serially meant N sequential round trips. Firing them onto the
+        // pool instead means they're actually in flight together; PROVIDER_MULTIPLAY additionally
+        // splits the batch by index parity across both keyless providers, so neither host sees the
+        // full batch and a lull in one doesn't stall texts that could have gone to the other.
+        final TLRPC.TL_textWithEntities[] resultsArr = new TLRPC.TL_textWithEntities[count];
+        final java.util.concurrent.atomic.AtomicInteger remaining = new java.util.concurrent.atomic.AtomicInteger(count);
+        final java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        for (int i = 0; i < count; i++) {
+            final int index = i;
+            pool.submit(() -> {
+                try {
+                    final String source = sources.get(index);
                     final TLRPC.TL_textWithEntities out = new TLRPC.TL_textWithEntities();
                     out.entities = new ArrayList<>();
-                    out.text = source.isEmpty() ? ""
-                            : provider == PROVIDER_YANDEX ? yandex(source, target) : google(source, target);
-                    results.add(out);
+                    if (source.isEmpty()) {
+                        out.text = "";
+                    } else {
+                        final int useProvider = provider == PROVIDER_MULTIPLAY
+                                ? (index % 2 == 0 ? PROVIDER_GOOGLE : PROVIDER_YANDEX)
+                                : provider;
+                        out.text = useProvider == PROVIDER_YANDEX ? yandex(source, target) : google(source, target);
+                    }
+                    resultsArr[index] = out;
+                } catch (Throwable t) {
+                    FileLog.e(t);
+                    failed.set(true);
                 }
-            } catch (Throwable t) {
-                FileLog.e(t);
-                AndroidUtilities.runOnUIThread(() -> callback.run(null, error(500, "PRIME_TRANSLATE_FAILED")));
-                return;
-            }
-            final TLRPC.TL_messages_translateResult result = new TLRPC.TL_messages_translateResult();
-            result.result.addAll(results);
-            AndroidUtilities.runOnUIThread(() -> callback.run(result, null));
-        });
+                if (remaining.decrementAndGet() == 0) {
+                    if (failed.get()) {
+                        AndroidUtilities.runOnUIThread(() -> callback.run(null, error(500, "PRIME_TRANSLATE_FAILED")));
+                    } else {
+                        final TLRPC.TL_messages_translateResult result = new TLRPC.TL_messages_translateResult();
+                        for (TLRPC.TL_textWithEntities out : resultsArr) {
+                            result.result.add(out);
+                        }
+                        AndroidUtilities.runOnUIThread(() -> callback.run(result, null));
+                    }
+                }
+            });
+        }
     }
 
     private static TLRPC.TL_error error(int code, String text) {
