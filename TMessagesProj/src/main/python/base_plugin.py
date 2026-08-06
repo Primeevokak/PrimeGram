@@ -452,14 +452,28 @@ class _Registry:
     def __init__(self):
         self.plugins = {}
         self.request_hooks = []      # (name, match_substring, priority, plugin)
+        self.hooks_by_plugin = {}    # plugin.id -> [entries from request_hooks belonging to it]
         self.send_message_hooks = [] # (priority, plugin)
         self.menu_items = {}         # item_id -> (plugin, MenuItemData)
         self.pills = {}              # pill_id -> (plugin, PillData)
         self.last_defined = []
 
+    def rebuild_hooks_by_plugin(self):
+        """``_interested`` in _prime_loader.py used to scan the whole (global, every-plugin)
+        request_hooks list on every single request/update to pick out one plugin's own entries -
+        an O(plugin count x total hooks) walk repeated on the hottest paths in the app (every
+        network request, every incoming update). Rebuilding this index costs one O(total hooks)
+        pass, but only runs here - at hook registration/removal time, which is rare (plugin
+        load/unload) - turning every dispatch's lookup into an O(1) dict access instead."""
+        index = {}
+        for h in self.request_hooks:
+            index.setdefault(h[3].id, []).append(h)
+        self.hooks_by_plugin = index
+
     def remove_plugin(self, plugin_id):
         self.plugins.pop(plugin_id, None)
         self.request_hooks = [h for h in self.request_hooks if h[3].id != plugin_id]
+        self.rebuild_hooks_by_plugin()
         self.send_message_hooks = [h for h in self.send_message_hooks if h[1].id != plugin_id]
         self.menu_items = {k: v for k, v in self.menu_items.items() if v[0].id != plugin_id}
         self.pills = {k: v for k, v in self.pills.items() if v[0].id != plugin_id}
@@ -588,6 +602,7 @@ class BasePlugin:
     def add_hook(self, name, match_substring=False, priority=0):
         registry.request_hooks.append((name, bool(match_substring), int(priority), self))
         _sorted(registry.request_hooks, 2)
+        registry.rebuild_hooks_by_plugin()
         return name
 
     def add_on_send_message_hook(self, priority=0):
@@ -599,6 +614,7 @@ class BasePlugin:
         registry.request_hooks = [
             h for h in registry.request_hooks if not (h[0] == name and h[3] is self)
         ]
+        registry.rebuild_hooks_by_plugin()
 
     def add_file_hook(self, file_info):
         """Claims a file extension: tapping such a file anywhere in the app runs the plugin."""

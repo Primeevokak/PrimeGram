@@ -330,89 +330,13 @@ public final class PrimePluginsController {
 
     /**
      * Disables exactly {@code pluginId} and whatever is joined to it by an import - not every
-     * installed plugin, exteraGram's own Safe Mode's answer to the same problem. A plugin that
-     * crashed mid-call is still linked into every other plugin's process, and a library plugin that
-     * threw could just as easily be dragged down by, or drag down, whoever imported from it - so the
-     * whole connected component gets disabled, on the reasoning that a link to something broken is
-     * itself a reason not to trust the other side of it, not because the other side did anything
-     * wrong itself.
-     *
-     * <p>Called from wherever a plugin's own code was caught misbehaving - most often from Python,
-     * from inside the very call that failed - so this does nothing that could re-enter Python
-     * synchronously: unloading happens on the engine queue, same as {@link #setEnabled}.
+     * installed plugin. See {@link PrimePluginCrashHandler} for the actual dependency-graph walk
+     * and dialog; this stays here only because it is called by name from Python
+     * ({@code _prime_loader.disable_crashed_plugin}), which needs the same {@code
+     * PrimePluginsController.getInstance().disableAfterCrash(...)} shape it always has.
      */
     public void disableAfterCrash(String pluginId, String reason) {
-        final PrimePlugin culprit = findById(pluginId);
-        if (culprit == null) {
-            return;
-        }
-        final java.util.LinkedHashSet<String> chain = dependencyChain(pluginId);
-        chain.add(pluginId);
-        for (String id : chain) {
-            final PrimePlugin plugin = findById(id);
-            if (plugin == null) {
-                continue;
-            }
-            PrimePluginStore.setEnabled(id, false);
-            plugin.setError(new PluginCrashException(id.equals(pluginId)
-                    ? reason : "отключён вместе с «" + culprit.name() + "» - они связаны через импорт"));
-            PrimePythonEngine.getInstance().queue().postRunnable(() -> unloadFromPython(id));
-        }
-        notifyChanged();
-        showCrashDialog(culprit, chain.size() > 1);
-    }
-
-    /** Every plugin id reachable from {@code pluginId} by an import in either direction - not just
-     *  what it imports, but who imports it too, since either side of that link can pull the other
-     *  down. */
-    private java.util.LinkedHashSet<String> dependencyChain(String pluginId) {
-        final java.util.LinkedHashSet<String> visited = new java.util.LinkedHashSet<>();
-        final java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>();
-        queue.add(pluginId);
-        visited.add(pluginId);
-        while (!queue.isEmpty()) {
-            final String current = queue.poll();
-            for (String neighbor : neighbors(current)) {
-                if (visited.add(neighbor)) {
-                    queue.add(neighbor);
-                }
-            }
-        }
-        visited.remove(pluginId);
-        return visited;
-    }
-
-    private java.util.Set<String> neighbors(String pluginId) {
-        final java.util.LinkedHashSet<String> result = new java.util.LinkedHashSet<>(PrimePluginStore.getDependencies(pluginId));
-        final List<PrimePlugin> snapshot = getPlugins();
-        for (int i = 0; i < snapshot.size(); i++) {
-            final String otherId = snapshot.get(i).id();
-            if (PrimePluginStore.getDependencies(otherId).contains(pluginId)) {
-                result.add(otherId);
-            }
-        }
-        return result;
-    }
-
-    private void showCrashDialog(PrimePlugin culprit, boolean tookOthersWithIt) {
-        final org.telegram.ui.LaunchActivity activity = org.telegram.ui.LaunchActivity.instance;
-        if (activity == null) {
-            return;
-        }
-        AndroidUtilities.runOnUIThread(() -> new org.telegram.ui.ActionBar.AlertDialog.Builder(activity)
-                .setTitle("Плагин отключён")
-                .setMessage("«" + culprit.name() + "» вызвал сбой и был отключён."
-                        + (tookOthersWithIt ? " Вместе с ним отключены связанные с ним плагины." : ""))
-                .setPositiveButton("Понятно", null)
-                .show());
-    }
-
-    /** Records that a plugin (as opposed to us) is why a call failed - shown on its settings row the
-     *  same way any other load failure is. */
-    public static final class PluginCrashException extends RuntimeException {
-        public PluginCrashException(String message) {
-            super(message);
-        }
+        PrimePluginCrashHandler.getInstance().disableAfterCrash(pluginId, reason);
     }
 
     private void startEnabled() {
@@ -487,8 +411,9 @@ public final class PrimePluginsController {
         notifyChanged();
     }
 
-    /** Must be called on the engine queue. */
-    private void unloadFromPython(String pluginId) {
+    /** Must be called on the engine queue. Package-private: {@link PrimePluginCrashHandler} also
+     *  needs this to unload the connected component of a crashed plugin. */
+    void unloadFromPython(String pluginId) {
         final PrimePythonEngine engine = PrimePythonEngine.getInstance();
         if (!engine.isStarted()) {
             return;
@@ -517,19 +442,7 @@ public final class PrimePluginsController {
      * storage in Java.
      */
     public void requestSettings(String pluginId, org.telegram.messenger.Utilities.Callback<String> callback) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            String json = "[]";
-            try {
-                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
-                if (loader != null) {
-                    json = loader.callAttr("build_settings", pluginId).toString();
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
-            final String result = json;
-            AndroidUtilities.runOnUIThread(() -> callback.run(result));
-        });
+        PrimePluginSettingsBridge.getInstance().requestSettings(pluginId, callback);
     }
 
     /**
@@ -540,19 +453,7 @@ public final class PrimePluginsController {
      */
     public void requestSubSettings(String pluginId, String parentPath, int index,
                                     org.telegram.messenger.Utilities.Callback<String> callback) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            String json = "{\"title\":\"\",\"rows\":[]}";
-            try {
-                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
-                if (loader != null) {
-                    json = loader.callAttr("build_sub_settings", pluginId, parentPath, index).toString();
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
-            final String result = json;
-            AndroidUtilities.runOnUIThread(() -> callback.run(result));
-        });
+        PrimePluginSettingsBridge.getInstance().requestSubSettings(pluginId, parentPath, index, callback);
     }
 
     /**
@@ -562,22 +463,7 @@ public final class PrimePluginsController {
      * the row lives on, same as in {@link #requestSubSettings}.
      */
     public void requestCustomView(String pluginId, String path, int index, org.telegram.messenger.Utilities.Callback<View> callback) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            View view = null;
-            try {
-                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
-                if (loader != null) {
-                    final PyObject result = loader.callAttr("build_custom_view", pluginId, path, index);
-                    if (result != null && result.toJava(Object.class) != null) {
-                        view = result.toJava(View.class);
-                    }
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
-            final View result = view;
-            AndroidUtilities.runOnUIThread(() -> callback.run(result));
-        });
+        PrimePluginSettingsBridge.getInstance().requestCustomView(pluginId, path, index, callback);
     }
 
     /**
@@ -587,63 +473,21 @@ public final class PrimePluginsController {
      * needs and it appears. Somewhere has to answer "what did this app download onto my phone".
      */
     public void requestLibraries(org.telegram.messenger.Utilities.Callback<String> callback) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            String json = "{}";
-            try {
-                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
-                if (loader != null) {
-                    json = loader.callAttr("installed_libraries").toString();
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
-            final String result = json;
-            AndroidUtilities.runOnUIThread(() -> callback.run(result));
-        });
+        PrimePluginSettingsBridge.getInstance().requestLibraries(callback);
     }
 
     /** Deletes them all. Anything still needed is fetched again the next time a plugin loads. */
     public void clearLibraries(Runnable done) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            try {
-                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
-                if (loader != null) {
-                    loader.callAttr("clear_libraries");
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
-            if (done != null) {
-                AndroidUtilities.runOnUIThread(done);
-            }
-        });
+        PrimePluginSettingsBridge.getInstance().clearLibraries(done);
     }
 
     /** Tells the plugin a row moved. The value is already stored - this is only its chance to react. */
     public void notifySettingChanged(String pluginId, String path, int index, String valueJson) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            try {
-                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
-                if (loader != null) {
-                    loader.callAttr("on_setting_changed", pluginId, path, index, valueJson);
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
-        });
+        PrimePluginSettingsBridge.getInstance().notifySettingChanged(pluginId, path, index, valueJson);
     }
 
     public void notifySettingClicked(String pluginId, String path, int index) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            try {
-                final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
-                if (loader != null) {
-                    loader.callAttr("on_setting_clicked", pluginId, path, index);
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
-        });
+        PrimePluginSettingsBridge.getInstance().notifySettingClicked(pluginId, path, index);
     }
 
     /** A plugin's own failure, as opposed to ours - its message is the Python traceback's last line. */
@@ -664,7 +508,9 @@ public final class PrimePluginsController {
 
     // endregion
 
-    private void notifyChanged() {
+    /** Package-private: {@link PrimePluginCrashHandler} also fires this after disabling a
+     *  crashed plugin's connected component. */
+    void notifyChanged() {
         AndroidUtilities.runOnUIThread(() ->
                 NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.pluginsDidUpdate));
     }

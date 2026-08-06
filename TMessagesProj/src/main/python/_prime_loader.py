@@ -659,7 +659,11 @@ def _interested(plugin, method_name, names):
     """
     if getattr(type(plugin), method_name) is getattr(base_plugin.BasePlugin, method_name):
         return False
-    registered = [h for h in registry.request_hooks if h[3] is plugin]
+    # This used to scan the entire (every-plugin) request_hooks list here, on every single
+    # request/update, for every loaded plugin - O(plugin count x total hooks) on the hottest
+    # paths in the app. registry.hooks_by_plugin is kept up to date by add_hook/remove_hook, so
+    # this is now an O(1) dict lookup - see _Registry.rebuild_hooks_by_plugin.
+    registered = registry.hooks_by_plugin.get(plugin.id, [])
     if not registered:
         return True
     for name, substring, _priority, _plugin in registered:
