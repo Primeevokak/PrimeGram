@@ -131,8 +131,30 @@ public final class PluginsController {
 
     // region instance API
 
+    /**
+     * PrimeGram: this used to unconditionally return an empty map - fine for a plugin that only
+     * ever iterates its own settings, but wrong for the common "is my dependency installed"
+     * pattern (a plugin looking itself up here by id, e.g. {@code getPlugins().get("zwylib")}),
+     * which silently and permanently failed even when the dependency was genuinely installed and
+     * enabled - the exact symptom of a plugin nagging for a library that is already active. Real
+     * data now, built from {@link PrimePluginsController}'s own catalogue on every call - plugins
+     * are few and this is not a hot path, so there is nothing worth caching here.
+     */
     public ConcurrentHashMap<String, Plugin> getPlugins() {
-        return new ConcurrentHashMap<>();
+        final ConcurrentHashMap<String, Plugin> result = new ConcurrentHashMap<>();
+        for (org.telegram.messenger.plugins.PrimePlugin primePlugin : PrimePluginsController.getInstance().getPlugins()) {
+            final Plugin plugin = new Plugin(primePlugin.id(), primePlugin.name());
+            plugin.setVersion(primePlugin.manifest.version);
+            plugin.setDescription(primePlugin.manifest.description);
+            plugin.setAuthor(primePlugin.manifest.author);
+            plugin.setIcon(primePlugin.manifest.icon());
+            plugin.setRequirements(primePlugin.manifest.requirements);
+            plugin.setEnabled(primePlugin.isEnabled());
+            plugin.setError(primePlugin.error());
+            plugin.setNotResponding(primePlugin.isNotResponding());
+            result.put(primePlugin.id(), plugin);
+        }
+        return result;
     }
 
     public ConcurrentHashMap<String, List<Object>> getSettings() {
