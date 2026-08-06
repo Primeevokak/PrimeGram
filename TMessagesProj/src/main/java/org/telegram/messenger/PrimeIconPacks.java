@@ -18,7 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 /**
  * PrimeGram: user-installed icon packs - a folder of images, one per drawable resource name, that
@@ -37,8 +36,15 @@ import java.util.zip.ZipInputStream;
  */
 public final class PrimeIconPacks {
 
+    /** The extension exteraGram's own icon packs ship under - a plain zip with a {@code
+     *  metadata.json} describing the pack and mapping each drawable name to an arbitrarily-named
+     *  image inside it, rather than the image being named after the drawable directly. See
+     *  {@link #installFromZip} for where that mapping gets translated into our own layout. */
+    public static final String EXTENSION = ".icons";
+
     private static final String KEY_ACTIVE = "primegram_icon_pack_active";
     private static final String META_FILE = "pack.json";
+    private static final String SOURCE_META_FILE = "metadata.json";
 
     public static final class Pack {
         public final String id;
@@ -50,6 +56,24 @@ public final class PrimeIconPacks {
             this.id = id;
             this.name = name;
             this.dir = dir;
+            this.iconCount = iconCount;
+        }
+    }
+
+    /** What {@code metadata.json} says about a {@code .icons} pack, read without installing
+     *  anything - the counterpart to {@link org.telegram.messenger.plugins.PrimePluginsController#inspect},
+     *  for the same reason: a confirmation sheet should be able to name what it is about to
+     *  install before committing to it. */
+    public static final class SourceMetadata {
+        public final String packName;
+        public final String author;
+        public final String version;
+        public final int iconCount;
+
+        SourceMetadata(String packName, String author, String version, int iconCount) {
+            this.packName = packName;
+            this.author = author;
+            this.version = version;
             this.iconCount = iconCount;
         }
     }
@@ -125,9 +149,37 @@ public final class PrimeIconPacks {
     }
 
     /**
+     * Reads {@code metadata.json} from a {@code .icons} zip without installing anything, so a
+     * confirmation sheet can name what it is about to install. Returns {@code null} for a zip
+     * that has no {@code metadata.json} - our own plain format, which has nothing to preview
+     * beyond "N image files", left to the caller to phrase.
+     */
+    public static SourceMetadata inspect(File zip) throws Exception {
+        try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(zip)) {
+            final ZipEntry metaEntry = zf.getEntry(SOURCE_META_FILE);
+            if (metaEntry == null) {
+                return null;
+            }
+            final JSONObject json = new JSONObject(new String(readAll(zf.getInputStream(metaEntry)), "UTF-8"));
+            final JSONObject icons = json.optJSONObject("icons");
+            return new SourceMetadata(
+                    json.optString("packName", null),
+                    json.optString("author", null),
+                    json.optString("version", null),
+                    icons == null ? 0 : icons.length());
+        }
+    }
+
+    /**
      * Unpacks {@code zip} into a new pack directory. Every entry is checked against the target
      * directory before being written - a zip is untrusted input, and an entry named
      * {@code ../../../something} is a real attack, not a hypothetical one.
+     *
+     * <p>Two source layouts are understood. Our own plain one names each image after the drawable
+     * it replaces directly ({@code msg_delete.png}) and is copied across as-is. exteraGram's own
+     * {@code .icons} format names images arbitrarily and carries a {@code metadata.json} mapping
+     * each drawable name to one of them - those get written out under the drawable's own name
+     * instead, so {@link #getIcon} never needs to know which layout a given pack came from.
      */
     public static Pack installFromZip(File zip, String displayName) throws Exception {
         final String id = UUID.randomUUID().toString();
@@ -137,31 +189,73 @@ public final class PrimeIconPacks {
         }
         final String dirPath = dir.getCanonicalPath() + File.separator;
         int extracted = 0;
-        try (ZipInputStream zis = new ZipInputStream(new java.io.BufferedInputStream(new FileInputStream(zip)))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
+        String sourcePackName = null;
+        try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(zip)) {
+            // resourceName -> the exact entry name metadata.json says holds it, only populated
+            // when metadata.json exists at all - an empty map here still means "plain layout",
+            // not "no icons declared".
+            final java.util.HashMap<String, String> byResourceName = new java.util.HashMap<>();
+            boolean hasMetadata = false;
+            final ZipEntry metaEntry = zf.getEntry(SOURCE_META_FILE);
+            if (metaEntry != null) {
+                hasMetadata = true;
+                final JSONObject json = new JSONObject(new String(readAll(zf.getInputStream(metaEntry)), "UTF-8"));
+                sourcePackName = json.optString("packName", null);
+                final JSONObject icons = json.optJSONObject("icons");
+                if (icons != null) {
+                    final java.util.Iterator<String> keys = icons.keys();
+                    while (keys.hasNext()) {
+                        final String resourceName = keys.next();
+                        final String fileName = icons.optString(resourceName, null);
+                        if (resourceName != null && !resourceName.isEmpty() && fileName != null && !fileName.isEmpty()) {
+                            byResourceName.put(fileName, resourceName);
+                        }
+                    }
+                }
+            }
+
+            final java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
+            while (entries.hasMoreElements()) {
+                final ZipEntry entry = entries.nextElement();
                 if (entry.isDirectory()) {
                     continue;
                 }
-                String name = entry.getName();
-                final int slash = name.lastIndexOf('/');
+                String entryName = entry.getName();
+                final int slash = entryName.lastIndexOf('/');
                 if (slash >= 0) {
-                    name = name.substring(slash + 1);
+                    entryName = entryName.substring(slash + 1);
                 }
-                if (name.isEmpty() || name.equals(META_FILE)) {
+                if (entryName.isEmpty() || entryName.equals(META_FILE) || entryName.equals(SOURCE_META_FILE)) {
                     continue;
                 }
-                final File target = new File(dir, name);
+
+                final String targetName;
+                if (hasMetadata) {
+                    // Only what metadata.json actually mapped gets written out - an image in the
+                    // zip that no drawable name points to is not one of our icons, whatever it is.
+                    final String resourceName = byResourceName.get(entryName);
+                    if (resourceName == null) {
+                        continue;
+                    }
+                    final int dot = entryName.lastIndexOf('.');
+                    final String ext = dot >= 0 ? entryName.substring(dot) : ".png";
+                    targetName = resourceName + ext;
+                } else {
+                    targetName = entryName;
+                }
+
+                final File target = new File(dir, targetName);
                 if (!target.getCanonicalPath().startsWith(dirPath)) {
                     continue;
                 }
                 if (!isIconFile(target)) {
                     continue;
                 }
-                try (FileOutputStream out = new FileOutputStream(target)) {
+                try (InputStream in = zf.getInputStream(entry);
+                     FileOutputStream out = new FileOutputStream(target)) {
                     final byte[] buffer = new byte[8192];
                     int read;
-                    while ((read = zis.read(buffer)) != -1) {
+                    while ((read = in.read(buffer)) != -1) {
                         out.write(buffer, 0, read);
                     }
                 }
@@ -173,7 +267,9 @@ public final class PrimeIconPacks {
             throw new Exception("в архиве не нашлось ни одной иконки (.png/.svg/.webp)");
         }
         final JSONObject meta = new JSONObject();
-        meta.put("name", displayName == null || displayName.isEmpty() ? id : displayName);
+        final String resolvedName = sourcePackName != null && !sourcePackName.isEmpty() ? sourcePackName
+                : (displayName == null || displayName.isEmpty() ? id : displayName);
+        meta.put("name", resolvedName);
         try (FileOutputStream out = new FileOutputStream(new File(dir, META_FILE))) {
             out.write(meta.toString().getBytes("UTF-8"));
         }

@@ -1,9 +1,12 @@
 package com.exteragram.messenger.plugins;
 
+import com.chaquo.python.PyObject;
+
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.plugins.PrimePluginStore;
 import org.telegram.messenger.plugins.PrimePluginsController;
+import org.telegram.messenger.plugins.PrimePythonEngine;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -117,5 +120,31 @@ public final class PythonPluginsEngine implements PluginsController.PluginsEngin
 
     @Override
     public void executeOnAppEvent(String eventType) {
+    }
+
+    /**
+     * The one method the real exteraGram class exposes that a plugin actually needs to *hook*
+     * (as opposed to call) - zwylib's own cleanup relies on knowing the instant any plugin gets
+     * unloaded, and Xposed can only intercept a call that genuinely happens through this exact
+     * method, not one that merely exists. So unlike everything else in this class, which is
+     * either backed by {@link PrimePluginStore} or a safe no-op, this is now
+     * {@link PrimePluginsController}'s real, single unload path - it forwards into
+     * {@code _prime_loader.unload_plugin} itself, and {@code PrimePluginsController.unloadFromPython}
+     * calls this rather than duplicating the call, so every unload - whichever of our own code
+     * paths triggered it - is visible to a hook installed here.
+     */
+    public void unloadPlugin(String pluginId) {
+        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
+        if (!engine.isStarted()) {
+            return;
+        }
+        try {
+            final PyObject loader = engine.module("_prime_loader");
+            if (loader != null) {
+                loader.callAttr("unload_plugin", pluginId);
+            }
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
     }
 }

@@ -412,20 +412,16 @@ public final class PrimePluginsController {
     }
 
     /** Must be called on the engine queue. Package-private: {@link PrimePluginCrashHandler} also
-     *  needs this to unload the connected component of a crashed plugin. */
+     *  needs this to unload the connected component of a crashed plugin.
+     *
+     *  <p>Forwards to {@link com.exteragram.messenger.plugins.PythonPluginsEngine#unloadPlugin} -
+     *  that compat class, not this one, is the method a plugin written against exteraGram's own
+     *  API can actually attach an Xposed hook to by name, so it is the single real implementation
+     *  now; every caller of this method (user toggling a plugin off, deleting it, a crash taking
+     *  down its dependency chain) goes through it too, rather than a duplicate that a hook there
+     *  would never see. */
     void unloadFromPython(String pluginId) {
-        final PrimePythonEngine engine = PrimePythonEngine.getInstance();
-        if (!engine.isStarted()) {
-            return;
-        }
-        try {
-            final PyObject loader = engine.module("_prime_loader");
-            if (loader != null) {
-                loader.callAttr("unload_plugin", pluginId);
-            }
-        } catch (Throwable e) {
-            FileLog.e(e);
-        }
+        com.exteragram.messenger.plugins.PythonPluginsEngine.INSTANCE.unloadPlugin(pluginId);
     }
 
     // endregion

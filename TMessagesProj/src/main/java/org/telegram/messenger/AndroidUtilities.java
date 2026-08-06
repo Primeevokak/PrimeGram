@@ -4365,6 +4365,13 @@ public class AndroidUtilities {
                     && org.telegram.ui.PrimePluginInstallDialog.offer(activity, f, resourcesProvider)) {
                 return true;
             }
+            // PrimeGram: same reasoning as .plugin just above - a .icons file is exteraGram's own
+            // icon-pack format, and this app is the only reasonable reader of one.
+            if (!restrict && fileName != null
+                    && fileName.toLowerCase().endsWith(org.telegram.messenger.PrimeIconPacks.EXTENSION)
+                    && org.telegram.ui.PrimeIconPackInstallDialog.offer(activity, f, resourcesProvider)) {
+                return true;
+            }
             String realMimeType = null;
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);

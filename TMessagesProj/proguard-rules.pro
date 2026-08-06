@@ -15,6 +15,14 @@
 # Telegram classes the SDK deliberately hands them (Bulletin, AlertDialog, and the rest of
 # org.telegram.ui.* that ui/*.py and client_utils.py import by name).
 -keep class org.telegram.messenger.plugins.** { *; }
+# PrimeGram: the exteraGram-compatibility surface (compat/PrimePluginXposed shims a plugin written
+# for the real exteraGram reaches for by name, e.g. zwylib's `from com.exteragram.messenger.plugins
+# import PythonPluginsEngine`) - same reasoning as the block above, and the same failure mode: this
+# was added without a matching keep rule once, and every method on it not otherwise referenced from
+# Java got stripped or renamed in a release build, which is what actually made
+# PythonPluginsEngine.getClass().getDeclaredMethods() come back wrong - not the class being a
+# placeholder, the real class just wasn't the real class anymore by the time R8 was done with it.
+-keep class com.exteragram.** { *; }
 -keep class org.telegram.ui.** { *; }
 -keep class org.telegram.tgnet.** { *; }
 -keep class org.telegram.messenger.camera.* { *; }
