@@ -140,12 +140,19 @@ public final class PrimeIconPacks {
         return new Pack(dir.getName(), name, dir, count);
     }
 
+    /** Pure filename check, no disk access - safe to call on a target that has not been written
+     *  yet. {@link #isIconFile(File)} is for the case that genuinely needs "does this file exist
+     *  and have the right extension"; installation only ever needs the second half, and calling
+     *  the file-existence one on a not-yet-extracted target made {@code isFile()} return false
+     *  unconditionally, which meant a zip's icons were always rejected regardless of what was
+     *  actually inside it. */
+    private static boolean isIconFileName(String name) {
+        final String lower = name.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".png") || lower.endsWith(".svg") || lower.endsWith(".webp");
+    }
+
     private static boolean isIconFile(File f) {
-        if (!f.isFile()) {
-            return false;
-        }
-        final String name = f.getName().toLowerCase(java.util.Locale.ROOT);
-        return name.endsWith(".png") || name.endsWith(".svg") || name.endsWith(".webp");
+        return f.isFile() && isIconFileName(f.getName());
     }
 
     /**
@@ -248,7 +255,7 @@ public final class PrimeIconPacks {
                 if (!target.getCanonicalPath().startsWith(dirPath)) {
                     continue;
                 }
-                if (!isIconFile(target)) {
+                if (!isIconFileName(targetName)) {
                     continue;
                 }
                 try (InputStream in = zf.getInputStream(entry);

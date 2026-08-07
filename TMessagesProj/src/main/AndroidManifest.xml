@@ -28,6 +28,16 @@
         </intent>
     </queries>
 
+    <!-- PrimeGram: querying by intent action above only ever finds a VPN app that exports a real
+         android.net.VpnService component with that action declared - plenty of proprietary VPN
+         clients don't, and the picker saw nothing for them despite the app being installed and
+         running. QUERY_ALL_PACKAGES is the blunt fix: see every installed app and let the person
+         pick, VPN or not, rather than guess at another intent filter that will miss the next one
+         too. This is gated by Play Store policy for a store listing, which does not apply here -
+         PrimeGram is not distributed through Play. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <uses-permission android:name="android.permission.READ_CLIPBOARD"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -61,6 +71,13 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- PrimeGram: optional, granted only through Settings.ACTION_USAGE_ACCESS_SETTINGS - lets
+         the battery-diagnostics export read real foreground/background time for this app via
+         UsageStatsManager instead of guessing. Declaring it here is what makes that settings
+         screen list PrimeGram as a toggleable app at all; without it the permission can never be
+         granted regardless of what the user taps. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INSTALL_SHORTCUT" />
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
     <uses-permission android:name="com.android.launcher.permission.UNINSTALL_SHORTCUT"/>

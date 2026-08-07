@@ -28285,6 +28285,14 @@ public class ChatActivity extends BaseFragment implements
             bottomViewsVisibilityController.setViewVisible(MESSAGE_SEARCH_CONTAINER, false, false);
             chatActivityEnterView.setVisibility(View.GONE);
             bottomChannelButtonsLayout.setVisibility(View.GONE);
+            // Both of the above are children of chatInputBubbleContainer, which lives inside
+            // chatInputViewsContainer - the "island" wrapper that paints its own rounded bubble
+            // background (setInputIslandBubbleDrawable) independently of what's inside it. Hiding
+            // only the children left that background drawn empty: the wide rounded pill with
+            // nothing in it the feed screenshot showed. The container itself has to go too.
+            if (chatInputViewsContainer != null) {
+                chatInputViewsContainer.setVisibility(View.GONE);
+            }
         } else {
             bottomViewsVisibilityController.setViewVisible(MESSAGE_SEARCH_CONTAINER, false, true);
             chatActivityEnterView.setVisibility(View.VISIBLE);

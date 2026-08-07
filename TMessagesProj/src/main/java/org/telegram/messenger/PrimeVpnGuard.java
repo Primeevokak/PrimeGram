@@ -98,6 +98,43 @@ public final class PrimeVpnGuard {
         return result;
     }
 
+    /**
+     * Every installed app with a launcher entry, VPN or not - the fallback for when {@link
+     * #listInstalledVpnApps} comes back empty because a VPN client doesn't export a real {@code
+     * android.net.VpnService} component with that action declared (common among proprietary
+     * clients), even though it is genuinely installed and running one. Filtered to apps that show
+     * up in a launcher rather than every package on the system, which on a stock ROM includes
+     * hundreds of components nobody would recognize by name - a VPN app, like anything else a
+     * person picks by name, has an icon they tap to open it.
+     */
+    public static List<android.content.pm.ApplicationInfo> listAllInstalledApps(Context context) {
+        final List<android.content.pm.ApplicationInfo> result = new ArrayList<>();
+        final PackageManager pm = context.getPackageManager();
+        final Intent launcherProbe = new Intent(Intent.ACTION_MAIN);
+        launcherProbe.addCategory(Intent.CATEGORY_LAUNCHER);
+        final List<ResolveInfo> resolved;
+        try {
+            resolved = pm.queryIntentActivities(launcherProbe, PackageManager.GET_META_DATA);
+        } catch (Throwable t) {
+            return result;
+        }
+        final String ownPackage = ApplicationLoader.applicationContext.getPackageName();
+        final Set<String> seen = new HashSet<>();
+        for (ResolveInfo info : resolved) {
+            if (info.activityInfo == null || info.activityInfo.applicationInfo == null) {
+                continue;
+            }
+            final String pkg = info.activityInfo.packageName;
+            if (pkg == null || !seen.add(pkg) || pkg.equals(ownPackage)) {
+                continue;
+            }
+            result.add(info.activityInfo.applicationInfo);
+        }
+        java.util.Collections.sort(result, (a, b) ->
+                String.valueOf(a.loadLabel(pm)).compareToIgnoreCase(String.valueOf(b.loadLabel(pm))));
+        return result;
+    }
+
     public static synchronized void start(Context context) {
         if (registered || context == null || !isEnabled()) {
             return;

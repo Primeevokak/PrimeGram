@@ -111,6 +111,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_VPN_GUARD = 144;
     private static final int ID_VPN_GUARD_WHITELIST = 145;
     private static final int ID_WHATS_NEW = 146;
+    private static final int ID_VLESS_CUSTOM_KEY = 147;
+    private static final int ID_BATTERY_DIAG = 148;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -1144,6 +1146,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             boolean vlessRunning = VpnSDK.isProxyRunning();
             row(check(ID_EMERGENCY_PROXY, IconBackgroundColors.PURPLE, R.drawable.msg_secret,
                     "Включить VLESS-сервер", vlessRunning));
+            row(button(ID_VLESS_CUSTOM_KEY, IconBackgroundColors.PURPLE, R.drawable.msg_link2,
+                    "Серверы", org.telegram.messenger.PrimeVpnServerStore.getServers().size() + " добавлено"));
             endCard(items);
             items.add(UItem.asShadow(vlessKeyStatusText(vlessRunning) + " В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси для обхода блокировок. Сервер работает локально на 127.0.0.2:17808"));
 
@@ -1426,6 +1430,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Подробные логи", org.telegram.messenger.BuildVars.LOGS_ENABLED));
             row(button(ID_STARTUP_TRACE, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
                     "Трасса запуска", "диагностика"));
+            row(button(ID_BATTERY_DIAG, IconBackgroundColors.GREEN, R.drawable.msg2_battery,
+                    "Энергопотребление", "экспорт и отправка"));
             row(button(ID_PUSH_STATUS, IconBackgroundColors.ORANGE, R.drawable.msg_notifications,
                     "Состояние уведомлений", primePushSummary()));
             endCard(items);
@@ -1795,6 +1801,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     }
                 });
             }
+        } else if (item.id == ID_VLESS_CUSTOM_KEY) {
+            presentFragment(new PrimeVpnServersActivity());
         } else if (item.id == ID_TGWS_PROXY) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             // Follows the switch, not the service's current state: those disagree whenever the
@@ -1921,6 +1929,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             MainTabsActivity.refreshFeedTabVisibility();
         } else if (item.id == ID_STARTUP_TRACE) {
             showStartupTrace();
+        } else if (item.id == ID_BATTERY_DIAG) {
+            showBatteryDiagnostics();
         } else if (item.id == ID_PUSH_STATUS) {
             showPushStatus();
         } else if (item.id == ID_BOT_LOGIN) {
@@ -2000,6 +2010,66 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         showDialog(builder.create());
+    }
+
+    private void showBatteryDiagnostics() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final boolean hasUsageAccess = org.telegram.messenger.PrimeBatteryDiagnostics.hasUsageAccess(getParentActivity());
+        final String report = org.telegram.messenger.PrimeBatteryDiagnostics.dump(getParentActivity());
+
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Энергопотребление");
+        builder.setMessage(report);
+        builder.setPositiveButton("Отправить файлом", (dialog, which) -> exportAndShareBatteryDiagnostics(report));
+        builder.setNeutralButton("Скопировать", (dialog, which) -> {
+            AndroidUtilities.addToClipboard(report);
+            org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this).createCopyBulletin("Скопировано").show();
+        });
+        if (!hasUsageAccess) {
+            builder.setNegativeButton("Выдать доступ к использованию", (dialog, which) -> {
+                try {
+                    startActivityForResult(new android.content.Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS), 0);
+                } catch (Throwable t) {
+                    org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this).createErrorBulletin("Экран настроек недоступен на этом устройстве").show();
+                }
+            });
+        }
+        showDialog(builder.create());
+    }
+
+    /** Writes the report to a cache file and hands it to the system share sheet - PrimeGram is
+     *  itself a valid target there the same way it is for any other file shared into it from
+     *  outside, so "send to a chat" is just picking this app from that same sheet, not a separate
+     *  chat-picker screen to build and maintain. */
+    private void exportAndShareBatteryDiagnostics(String report) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        try {
+            final java.io.File dir = new java.io.File(getParentActivity().getCacheDir(), "battery_diag");
+            if (!dir.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+            }
+            final String fileName = "primegram_battery_"
+                    + new java.text.SimpleDateFormat("yyyy-MM-dd_HHmmss", java.util.Locale.US).format(new java.util.Date())
+                    + ".txt";
+            final java.io.File file = new java.io.File(dir, fileName);
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+                out.write(report.getBytes("UTF-8"));
+            }
+            final android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    getParentActivity(), org.telegram.messenger.ApplicationLoader.getApplicationId() + ".provider", file);
+            final android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            intent.setType("text/plain");
+            intent.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+            intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getParentActivity().startActivity(android.content.Intent.createChooser(intent, "Поделиться диагностикой"));
+        } catch (Throwable t) {
+            org.telegram.ui.Components.BulletinFactory.of(this).createErrorBulletin("Не удалось создать файл: " + t.getMessage()).show();
+        }
     }
 
     private interface TextInputCallback {
@@ -2756,31 +2826,80 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         if (getParentActivity() == null) {
             return;
         }
-        final java.util.List<android.content.pm.ApplicationInfo> apps =
+        // listInstalledVpnApps only finds an app that exports a real android.net.VpnService
+        // component with that action declared - plenty of proprietary VPN clients don't, and the
+        // picker used to come up "no VPN apps found" for someone who genuinely had one running.
+        // Falling back to every launchable app, searchable, means picking the right one no longer
+        // depends on that app's own manifest cooperating.
+        java.util.List<android.content.pm.ApplicationInfo> apps =
                 org.telegram.messenger.PrimeVpnGuard.listInstalledVpnApps(getParentActivity());
         if (apps.isEmpty()) {
-            android.widget.Toast.makeText(getContext(), "На устройстве не нашлось VPN-приложений", android.widget.Toast.LENGTH_SHORT).show();
+            apps = org.telegram.messenger.PrimeVpnGuard.listAllInstalledApps(getParentActivity());
+        }
+        if (apps.isEmpty()) {
+            android.widget.Toast.makeText(getContext(), "Не удалось получить список приложений", android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         final android.content.pm.PackageManager pm = getParentActivity().getPackageManager();
-        final LinearLayout content = new LinearLayout(getParentActivity());
-        content.setOrientation(LinearLayout.VERTICAL);
+
+        final LinearLayout root = new LinearLayout(getParentActivity());
+        root.setOrientation(LinearLayout.VERTICAL);
+
+        final org.telegram.ui.Components.EditTextBoldCursor search = new org.telegram.ui.Components.EditTextBoldCursor(getParentActivity());
+        search.setHint("Поиск приложения");
+        search.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        search.setTextColor(getThemedColor(Theme.key_dialogTextBlack));
+        search.setHintTextColor(getThemedColor(Theme.key_dialogTextHint));
+        search.setBackground(null);
+        search.setSingleLine(true);
+        search.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(8), AndroidUtilities.dp(16), AndroidUtilities.dp(8));
+        root.addView(search, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        final LinearLayout list = new LinearLayout(getParentActivity());
+        list.setOrientation(LinearLayout.VERTICAL);
+        final android.widget.ScrollView scroll = new android.widget.ScrollView(getParentActivity());
+        scroll.addView(list, LayoutHelper.createScroll(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP));
+        // Hundreds of apps on a stock ROM would otherwise make this dialog taller than the
+        // screen with no way to reach the buttons below it.
+        root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, AndroidUtilities.dp(360)));
+
+        final java.util.List<String> labels = new java.util.ArrayList<>();
         for (android.content.pm.ApplicationInfo app : apps) {
             final String packageName = app.packageName;
+            final String label = String.valueOf(app.loadLabel(pm));
+            labels.add(label.toLowerCase(java.util.Locale.ROOT));
             org.telegram.ui.Cells.CheckBoxCell cell = new org.telegram.ui.Cells.CheckBoxCell(getParentActivity(), 1, getResourceProvider());
             cell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
-            cell.setText(app.loadLabel(pm), "", org.telegram.messenger.PrimeVpnGuard.isWhitelisted(packageName), false);
+            cell.setText(label, "", org.telegram.messenger.PrimeVpnGuard.isWhitelisted(packageName), false);
             cell.setPadding(LocaleController.isRTL ? AndroidUtilities.dp(16) : AndroidUtilities.dp(8), 0, LocaleController.isRTL ? AndroidUtilities.dp(8) : AndroidUtilities.dp(16), 0);
             cell.setOnClickListener(v -> {
                 org.telegram.ui.Cells.CheckBoxCell c = (org.telegram.ui.Cells.CheckBoxCell) v;
                 org.telegram.messenger.PrimeVpnGuard.toggleWhitelist(packageName);
                 c.setChecked(org.telegram.messenger.PrimeVpnGuard.isWhitelisted(packageName), true);
             });
-            content.addView(cell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
+            list.addView(cell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
         }
+
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                final String query = s.toString().toLowerCase(java.util.Locale.ROOT).trim();
+                for (int i = 0; i < list.getChildCount(); i++) {
+                    list.getChildAt(i).setVisibility(
+                            query.isEmpty() || labels.get(i).contains(query) ? View.VISIBLE : View.GONE);
+                }
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {}
+        });
+
         AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Не выключать прокси при этих VPN");
-        builder.setView(content);
+        builder.setTitle("Не выключать прокси при этих приложениях");
+        builder.setView(root);
         builder.setPositiveButton(LocaleController.getString(R.string.Done), (dialog, which) -> listView.adapter.update(true));
         showDialog(builder.create());
     }
