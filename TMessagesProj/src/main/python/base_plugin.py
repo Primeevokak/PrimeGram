@@ -167,6 +167,20 @@ def _account_scoped_hook(account_scope, fn):
     return wrapper
 
 
+def _java_list_to_py(java_list):
+    """Copies a java.util.List into a plain Python list.
+
+    Chaquopy proxies for concrete collection classes like ArrayList (as opposed to ones accessed
+    through a statically-typed java.util.List reference) don't implement Python's iterator
+    protocol, so `list(java_list)` raises "'ArrayList' object is not iterable" even though the
+    object is a perfectly normal Java list. Walking it via size()/get(i) - plain Java method
+    calls - works regardless.
+    """
+    if java_list is None:
+        return []
+    return [java_list.get(i) for i in range(java_list.size())]
+
+
 def _make_callback(plugin, xposed_hook, before, after, before_filters, after_filters, account_scope=None):
     """Turns everything a plugin might have passed into one Java-facing callback.
 
@@ -690,7 +704,7 @@ class BasePlugin:
             return None
         unhooks = PrimePluginXposed.hookAllMethods(
             hook_class, method_name, 10 if priority is None else int(priority), callback)
-        result = list(unhooks or [])
+        result = _java_list_to_py(unhooks)
         for unhook in result:
             self._prime_hooks.append((unhook, callback))
         if not result:
@@ -706,7 +720,7 @@ class BasePlugin:
             return None
         unhooks = PrimePluginXposed.hookAllConstructors(
             hook_class, 10 if priority is None else int(priority), callback)
-        result = list(unhooks or [])
+        result = _java_list_to_py(unhooks)
         for unhook in result:
             self._prime_hooks.append((unhook, callback))
         return result

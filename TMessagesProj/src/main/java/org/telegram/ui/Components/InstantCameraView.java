@@ -470,8 +470,17 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
         }
 
         if (useCamera2) {
-            if (camera2Sessions[1] != null) {
-                camera2Sessions[1].setFlash(flashing && !isFrontface && recording);
+            if (bothCameras) {
+                // Both lenses are recording at once here regardless of which one is currently
+                // shown as the main view, so the back camera's torch (index 1, the only lens
+                // that ever has one) must stay tied to flashing+recording alone - gating it on
+                // isFrontface as below would flip it off every time the user swaps which camera
+                // is "main" mid-recording, even though the back camera never stopped filming.
+                if (camera2Sessions[1] != null) {
+                    camera2Sessions[1].setFlash(flashing && recording);
+                }
+            } else if (camera2SessionCurrent != null) {
+                camera2SessionCurrent.setFlash(flashing && !isFrontface && recording);
             }
         } else {
             if (cameraSession != null) {
@@ -3319,6 +3328,11 @@ public class InstantCameraView extends FrameLayout implements NotificationCenter
                     recordPlusTime = fromPause ? recordedTime : 0;
                     recordStartTime = System.currentTimeMillis();
                     recording = true;
+                    // Recording is always kicked off by a touch that landed on the send/record
+                    // button, never on this view - so this view's own ACTION_DOWN handler (the
+                    // only other place that sets this flag) never runs, and a second finger
+                    // touching the preview to pinch-zoom would otherwise be ignored forever.
+                    maybePinchToZoomTouchMode = true;
                     updateFlash();
                     invalidate();
                     NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.recordStarted, recordingGuid, false);
