@@ -533,7 +533,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 "Дополнительно", "Обновления, эксперименты, диагностика"));
         items.add(SettingsActivity.SettingCell.Factory.of(ID_PLUGINS,
                 IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom,
-                R.drawable.msg_settings, "Плагины", primePluginsSubtitle()));
+                R.drawable.msg_puzzle, "Плагины", primePluginsSubtitle()));
         items.add(section(SECTION_ABOUT, IconBackgroundColors.GRAY, R.drawable.settings_ask,
                 "Разрешения и поддержка", "Доступы приложения и связь с автором"));
         items.add(UItem.asShadow(null));

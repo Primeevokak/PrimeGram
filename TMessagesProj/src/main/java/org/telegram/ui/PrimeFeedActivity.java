@@ -166,6 +166,18 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         super.onResume();
         if (chatContainer != null) {
             chatContainer.onResume();
+            if (chatContainer.chatActivity != null) {
+                // The embedded ChatActivity is constructed directly inside ChatActivityContainer,
+                // never presentFragment()'d onto the real navigation stack - so nothing ever calls
+                // its onBecomeFullyVisible(), and isFullyVisible stays false forever. That flag
+                // gates several real actions inside ChatActivity, comment-opening among them:
+                // didPressCommentButton -> openDiscussionMessageChat eventually checks it and
+                // silently no-ops when false, which is why the comment button was clickable but
+                // never actually opened anything. Calling it here, tied to the tab's own
+                // onResume/onPause, keeps it true only while the feed is genuinely the visible tab
+                // - the same thing a real fragment push/pop would leave it as.
+                chatContainer.chatActivity.onBecomeFullyVisible();
+            }
         }
     }
 
@@ -174,6 +186,9 @@ public class PrimeFeedActivity extends BaseFragment implements MainTabsActivity.
         super.onPause();
         primeSaveScrollPosition();
         if (chatContainer != null) {
+            if (chatContainer.chatActivity != null) {
+                chatContainer.chatActivity.onBecomeFullyHidden();
+            }
             chatContainer.onPause();
         }
         // A real ChatActivity's own read-tracking is single-dialog and does nothing useful with

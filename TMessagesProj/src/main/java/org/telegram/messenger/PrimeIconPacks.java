@@ -308,24 +308,44 @@ public final class PrimeIconPacks {
     }
 
     /** {@code null} when there is no active pack, or the active pack has nothing for {@code
-     *  resourceName} - either way, the caller draws the app's own icon instead. */
+     *  resourceName} - either way, the caller draws the app's own icon instead.
+     *
+     *  <p>Unscaled - prefer {@link #getIcon(String, int, int)} wherever the size the icon is
+     *  meant to fill is known, which is everywhere {@link PrimeResources} calls this from. A
+     *  pack's own source image resolution has no reason to match this app's asset density grid -
+     *  a pack built for a phone with a different scale, or just exported at a round number like
+     *  512x512, decodes to a {@link BitmapDrawable} whose intrinsic size is whatever that is. Code
+     *  that draws through {@code Drawable.setBounds(0, 0, expectedSize, expectedSize)} (as most of
+     *  this codebase's manual-draw icon paths do) never resizes the bitmap itself to match those
+     *  bounds - the drawable just paints small, anchored at the bounds' origin, which reads as
+     *  "shrunk into the top-left corner" rather than "wrong size" at a glance. */
     public static Drawable getIcon(String resourceName) {
+        return getIcon(resourceName, -1, -1);
+    }
+
+    /** Same as {@link #getIcon(String)}, scaled to exactly {@code targetWidthPx}x{@code
+     *  targetHeightPx} - the pixel size {@code id}'s own (unreplaced) drawable would have reported,
+     *  so a pack icon behaves identically to the resource it stands in for regardless of whether
+     *  the caller relies on intrinsic size or sets explicit bounds. Either {@code <= 0} skips
+     *  scaling, same as the unscaled overload. */
+    public static Drawable getIcon(String resourceName, int targetWidthPx, int targetHeightPx) {
         final String activeId = getActivePackId();
         if (activeId == null || resourceName == null) {
             return null;
         }
-        final String cacheKey = activeId + "/" + resourceName;
+        final boolean scale = targetWidthPx > 0 && targetHeightPx > 0;
+        final String cacheKey = activeId + "/" + resourceName + (scale ? "/" + targetWidthPx + "x" + targetHeightPx : "");
         final Drawable cached = cache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
         final File dir = new File(packsDir(), activeId);
-        Drawable drawable = tryLoad(new File(dir, resourceName + ".png"));
+        Drawable drawable = tryLoad(new File(dir, resourceName + ".png"), targetWidthPx, targetHeightPx);
         if (drawable == null) {
-            drawable = tryLoad(new File(dir, resourceName + ".webp"));
+            drawable = tryLoad(new File(dir, resourceName + ".webp"), targetWidthPx, targetHeightPx);
         }
         if (drawable == null) {
-            drawable = tryLoadSvg(new File(dir, resourceName + ".svg"));
+            drawable = tryLoadSvg(new File(dir, resourceName + ".svg"), targetWidthPx, targetHeightPx);
         }
         if (drawable != null) {
             cache.put(cacheKey, drawable);
@@ -333,26 +353,34 @@ public final class PrimeIconPacks {
         return drawable;
     }
 
-    private static Drawable tryLoad(File file) {
+    private static Drawable tryLoad(File file, int targetWidthPx, int targetHeightPx) {
         if (!file.exists()) {
             return null;
         }
         try {
-            final Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
-            return bitmap == null ? null : new BitmapDrawable(ApplicationLoader.applicationContext.getResources(), bitmap);
+            Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+            if (bitmap == null) {
+                return null;
+            }
+            if (targetWidthPx > 0 && targetHeightPx > 0 && (bitmap.getWidth() != targetWidthPx || bitmap.getHeight() != targetHeightPx)) {
+                bitmap = Bitmap.createScaledBitmap(bitmap, targetWidthPx, targetHeightPx, true);
+            }
+            return new BitmapDrawable(ApplicationLoader.applicationContext.getResources(), bitmap);
         } catch (Throwable t) {
             FileLog.e(t);
             return null;
         }
     }
 
-    private static Drawable tryLoadSvg(File file) {
+    private static Drawable tryLoadSvg(File file, int targetWidthPx, int targetHeightPx) {
         if (!file.exists()) {
             return null;
         }
+        final int size = targetWidthPx > 0 ? targetWidthPx : 96;
+        final int sizeH = targetHeightPx > 0 ? targetHeightPx : 96;
         try (InputStream in = new FileInputStream(file)) {
             final SVG svg = SVG.getFromInputStream(in);
-            final Bitmap bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
+            final Bitmap bitmap = Bitmap.createBitmap(size, sizeH, Bitmap.Config.ARGB_8888);
             svg.renderToCanvas(new android.graphics.Canvas(bitmap));
             return new BitmapDrawable(ApplicationLoader.applicationContext.getResources(), bitmap);
         } catch (Throwable t) {
