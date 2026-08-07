@@ -39,6 +39,10 @@ jobs:
         run: |
           echo "Installing NDK version 27.2.12479018..."
           ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.2.12479018"
+          # build-tools give us zipalign/apksigner for the Chaquopy asset-stripping step below -
+          # pinned to the same version the app module builds against (buildToolsVersion in
+          # TMessagesProj_AppStandalone/build.gradle) so zipalign's format matches what AGP itself uses.
+          ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install "build-tools;35.0.0"
 
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
@@ -70,6 +74,63 @@ jobs:
             else
               mv "$file" "../../../../../../PrimeGram.apk"
             fi
+          done
+
+      - name: Strip foreign-architecture Python bundles from each split APK
+        # Chaquopy bundles the plugin SDK's compiled Python packages (pyyaml, zstandard, lz4,
+        # psutil - all with native extensions) as assets/chaquopy/{requirements,stdlib}-<abi>.imy.
+        # android.splits.abi only filters lib/<abi>/*.so - it has no idea assets/ exists, so every
+        # one of the four split APKs above ships all four architectures' Python bundles even though
+        # a device only ever loads the one matching its own ABI. Measured on v12.9.0.6: ~79 MB of
+        # dead weight per APK (out of a ~285 MB download), all four other-ABI requirements/stdlib
+        # .imy files never touched at runtime. Deleting them post-build is the surgical fix -
+        # restructuring Chaquopy into one Gradle product flavor per ABI would be the "clean" way to
+        # never build them in the first place, but that means duplicating the flavor dimension
+        # across both this module and the TMessagesProj library module for a byte-count problem.
+        #
+        # Deleting files from an already-signed v2/v3-signed APK invalidates its signature (the
+        # signing block covers the whole zip), so each apk has to be re-aligned and re-signed
+        # afterwards - same keystore/credentials Gradle itself used to sign it the first time.
+        run: |
+          BUILD_TOOLS="${ANDROID_SDK_ROOT}/build-tools/35.0.0"
+          ALL_ABIS=("armeabi-v7a" "arm64-v8a" "x86" "x86_64")
+          KEY_ALIAS=$(grep '^RELEASE_KEY_ALIAS=' gradle.properties | cut -d= -f2)
+          KEY_PASSWORD=$(grep '^RELEASE_KEY_PASSWORD=' gradle.properties | cut -d= -f2)
+          STORE_PASSWORD=$(grep '^RELEASE_STORE_PASSWORD=' gradle.properties | cut -d= -f2)
+
+          for apk in PrimeGram-*.apk; do
+            abi=""
+            for a in "${ALL_ABIS[@]}"; do
+              if [[ "$apk" == *"$a"* ]]; then
+                abi="$a"
+                break
+              fi
+            done
+            if [ -z "$abi" ]; then
+              echo "Skipping $apk: filename doesn't name an ABI, can't tell which Python bundle to keep."
+              continue
+            fi
+
+            echo "=== $apk: keeping only the $abi Python bundle ==="
+            for other in "${ALL_ABIS[@]}"; do
+              if [ "$other" != "$abi" ]; then
+                zip -q -d "$apk" \
+                  "assets/chaquopy/requirements-${other}.imy" \
+                  "assets/chaquopy/stdlib-${other}.imy" \
+                  "assets/chaquopy/bootstrap-native/${other}/*" \
+                  2>/dev/null || true
+              fi
+            done
+
+            "${BUILD_TOOLS}/zipalign" -f -p 4 "$apk" "${apk}.aligned"
+            mv "${apk}.aligned" "$apk"
+            "${BUILD_TOOLS}/apksigner" sign \
+              --ks TMessagesProj/config/release.keystore \
+              --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass "pass:$STORE_PASSWORD" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              "$apk"
+            echo "New size: $(du -h "$apk" | cut -f1)"
           done
 
       - name: Upload Compiled APKs (Artifact)

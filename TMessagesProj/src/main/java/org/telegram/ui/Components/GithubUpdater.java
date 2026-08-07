@@ -1,10 +1,8 @@
 package org.telegram.ui.Components;
 
 import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
@@ -30,12 +28,77 @@ public class GithubUpdater {
     private static final String PREFS_NAME = "primegram_updater";
     private static final String KEY_LAST_CHECK = "last_check_time";
     private static final String KEY_LATER_TIME = "later_time";
+    private static final String KEY_PENDING_DOWNLOAD_ID = "pending_download_id";
+    private static final String KEY_PENDING_DOWNLOAD_VERSION = "pending_download_version";
+
+    /**
+     * Reattaches {@link PrimeUpdateProgressDialog} to a download started on a previous run of the
+     * app - {@link #downloadAndInstallUpdate} only shows progress while its dialog is alive, so
+     * without this a download finished (or still running) while the app was closed just sits in
+     * the Downloads folder with nothing ever offering to install it.
+     * Returns true when a pending download was found and handled - the caller should skip the
+     * regular version check for this cycle so the user isn't shown two update prompts at once.
+     */
+    public static boolean checkPendingDownload(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        long downloadId = prefs.getLong(KEY_PENDING_DOWNLOAD_ID, -1);
+        if (downloadId == -1) {
+            return false;
+        }
+        String version = prefs.getString(KEY_PENDING_DOWNLOAD_VERSION, "");
+        DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+        if (manager == null) {
+            clearPendingDownload(context);
+            return false;
+        }
+        DownloadManager.Query query = new DownloadManager.Query();
+        query.setFilterById(downloadId);
+        try (Cursor cursor = manager.query(query)) {
+            if (cursor == null || !cursor.moveToFirst()) {
+                clearPendingDownload(context);
+                return false;
+            }
+            int statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
+            int status = statusIdx >= 0 ? cursor.getInt(statusIdx) : DownloadManager.STATUS_FAILED;
+            if (status == DownloadManager.STATUS_FAILED) {
+                clearPendingDownload(context);
+                return false;
+            }
+            PrimeUpdateProgressDialog.resume(context, downloadId, version, pendingDownloadCallback(context));
+            return true;
+        }
+    }
+
+    private static PrimeUpdateProgressDialog.Callback pendingDownloadCallback(Context context) {
+        return new PrimeUpdateProgressDialog.Callback() {
+            @Override
+            public void onInstallRequested(long downloadId) {
+                clearPendingDownload(context);
+                installApk(context, downloadId);
+            }
+
+            @Override
+            public void onCancelled(long downloadId) {
+                clearPendingDownload(context);
+            }
+        };
+    }
+
+    private static void clearPendingDownload(Context context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .remove(KEY_PENDING_DOWNLOAD_ID)
+                .remove(KEY_PENDING_DOWNLOAD_VERSION)
+                .apply();
+    }
 
     public static void checkForUpdates(Context context, String currentVersion, boolean isManual) {
+        if (checkPendingDownload(context)) {
+            return;
+        }
         new Thread(() -> {
             try {
                 SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                
+
                 if (!isManual) {
                     // If user pressed "Later", wait 24 hours
                     long laterTime = prefs.getLong(KEY_LATER_TIME, 0);
@@ -108,7 +171,6 @@ public class GithubUpdater {
                             org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
                                 if (autoUpdate && !isManual) {
                                     downloadAndInstallUpdate(context, finalDownloadUrl, latestVersion);
-                                    android.widget.Toast.makeText(context, "Скачивание обновления PrimeGram...", android.widget.Toast.LENGTH_SHORT).show();
                                 } else {
                                     try {
                                         org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(context);
@@ -163,23 +225,13 @@ public class GithubUpdater {
         android.app.DownloadManager manager = (android.app.DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         long downloadId = manager.enqueue(request);
 
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString("downloaded_version", latestVersion).apply();
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putString("downloaded_version", latestVersion)
+                .putLong(KEY_PENDING_DOWNLOAD_ID, downloadId)
+                .putString(KEY_PENDING_DOWNLOAD_VERSION, latestVersion)
+                .apply();
 
-        android.content.BroadcastReceiver onComplete = new android.content.BroadcastReceiver() {
-            public void onReceive(Context ctxt, android.content.Intent intent) {
-                long id = intent.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                if (downloadId == id) {
-                    installApk(context, downloadId);
-                    context.unregisterReceiver(this);
-                }
-            }
-        };
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(onComplete, new android.content.IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED);
-        } else {
-            context.registerReceiver(onComplete, new android.content.IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE));
-        }
+        PrimeUpdateProgressDialog.show(context, downloadId, latestVersion, pendingDownloadCallback(context));
     }
 
     private static void installApk(Context context, long downloadId) {
