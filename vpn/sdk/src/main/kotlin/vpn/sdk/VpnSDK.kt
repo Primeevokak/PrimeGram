@@ -418,27 +418,58 @@ object VpnSDK {
             var sni = ""
             var sid = ""
             var fp = "chrome"
-            var flow = "xtls-rprx-vision"
+            // Only ever a real default for raw tcp - xray-core rejects `flow` outright on any
+            // other transport (ws/grpc/xhttp/etc.), so a link that didn't specify one (this
+            // server's xhttp link among them) must get an empty flow, not silently inherit tcp's.
+            // Resolved once `type` is known, below.
+            var flow: String? = null
+            var spx = ""
+            var wsHost = ""
+            var wsPath = ""
+            var grpcServiceName = ""
+            var xhttpMode = ""
+            var xhttpPath = ""
+            var xhttpExtraRaw: String? = null
 
             if (questionIndex != -1) {
                 val queryEnd = if (hashIndex != -1 && hashIndex > questionIndex) hashIndex else hostPortRest.length
                 val query = hostPortRest.substring(questionIndex + 1, queryEnd)
                 val params = query.split("&")
                 for (param in params) {
-                    val kv = param.split("=")
-                    if (kv.size == 2) {
-                        when (kv[0]) {
-                            "type" -> type = kv[1]
-                            "security" -> security = kv[1]
-                            "pbk" -> pbk = kv[1]
-                            "sni" -> sni = kv[1]
-                            "sid" -> sid = kv[1]
-                            "fp" -> fp = kv[1]
-                            "flow" -> flow = kv[1]
-                        }
+                    // Splitting on every "=" (the old code's split("=") with a size==2 check)
+                    // silently dropped any param whose own value contains one - not a risk for
+                    // pbk/sid here, but exactly the shape "extra"'s URL-encoded JSON blob takes.
+                    // indexOf finds only the first "=", which is the real key/value delimiter.
+                    val eq = param.indexOf('=')
+                    if (eq == -1) continue
+                    val key = param.substring(0, eq)
+                    // None of these were ever URL-decoded before - harmless for a plain host name
+                    // like sni, but path=%2F and extra={...} arrive as literal percent-escapes
+                    // that xray then tries to use as-is.
+                    val value = try {
+                        java.net.URLDecoder.decode(param.substring(eq + 1), "UTF-8")
+                    } catch (ignored: Exception) {
+                        param.substring(eq + 1)
+                    }
+                    when (key) {
+                        "type" -> type = value
+                        "security" -> security = value
+                        "pbk" -> pbk = value
+                        "sni" -> sni = value
+                        "sid" -> sid = value
+                        "fp" -> fp = value
+                        "flow" -> flow = value
+                        "spx" -> spx = value
+                        "host" -> wsHost = value
+                        "path" -> { wsPath = value; xhttpPath = value }
+                        "serviceName" -> grpcServiceName = value
+                        "mode" -> xhttpMode = value
+                        "extra" -> xhttpExtraRaw = value
                     }
                 }
             }
+
+            val resolvedFlow = flow ?: if (type == "tcp") "xtls-rprx-vision" else ""
 
             // realitySettings used to be emitted unconditionally here regardless of what
             // `security` in the link actually said - a server on plain TLS (or none) got a
@@ -448,8 +479,30 @@ object VpnSDK {
             // that can never succeed. Only Reality gets realitySettings now; TLS gets a plain
             // tlsSettings block (still needs the SNI/fingerprint), and "none" gets neither.
             val securityBlock = when (security) {
-                "reality" -> """, "realitySettings": {"publicKey": "$pbk", "shortId": "$sid", "serverName": "$sni", "fingerprint": "$fp"}"""
+                "reality" -> """, "realitySettings": {"publicKey": "$pbk", "shortId": "$sid", "serverName": "$sni", "fingerprint": "$fp"${if (spx.isNotEmpty()) """, "spiderX": "$spx"""" else ""}}"""
                 "tls" -> """, "tlsSettings": {"serverName": "$sni", "fingerprint": "$fp"}"""
+                else -> ""
+            }
+
+            // The transport (`type`) picks how the TCP stream itself is framed, independently of
+            // TLS/Reality above - a network field of "ws"/"grpc"/"xhttp" with no matching settings
+            // block used to be silently accepted by the JSON parser and then rejected (or, worse,
+            // just never negotiated) by xray at connect time, the same "starts, never carries
+            // traffic" failure the missing realitySettings branch caused. Only tcp truly needs
+            // nothing else here.
+            val transportBlock = when (type) {
+                "ws" -> """, "wsSettings": {"path": "$wsPath", "headers": {"Host": "$wsHost"}}"""
+                "grpc" -> """, "grpcSettings": {"serviceName": "$grpcServiceName"}"""
+                "xhttp" -> {
+                    val extraJson = xhttpExtraRaw?.let {
+                        try {
+                            org.json.JSONObject(it).toString()
+                        } catch (ignored: Exception) {
+                            null
+                        }
+                    }
+                    """, "xhttpSettings": {"path": "$xhttpPath", "mode": "${xhttpMode.ifEmpty { "auto" }}"${if (extraJson != null) ""","extra": $extraJson""" else ""}}"""
+                }
                 else -> ""
             }
 
@@ -471,13 +524,13 @@ object VpnSDK {
                     "users": [{
                       "id": "$uuid",
                       "encryption": "none",
-                      "flow": "$flow"
+                      "flow": "$resolvedFlow"
                     }]
                   }]
                 },
                 "streamSettings": {
                   "network": "$type",
-                  "security": "$security"$securityBlock
+                  "security": "$security"$securityBlock$transportBlock
                 }
               }]
             }
