@@ -4,6 +4,9 @@ import com.chaquo.python.PyObject;
 
 import org.telegram.messenger.FileLog;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 /**
  * PrimeGram: the app's side of every hook a plugin can be on.
  *
@@ -12,11 +15,32 @@ import org.telegram.messenger.FileLog;
  * having plugins at all must be one field read for users who have none. Only when a plugin has
  * actually subscribed does anything here touch Python.
  *
- * <p>Dispatch is synchronous, on the calling thread, deliberately: the caller is asking whether to
- * send this message, and there is no useful answer to that question later. Plugins therefore run on
- * whatever thread the app was on, which is the one place the engine's own queue does not apply.
+ * <p>Dispatch is synchronous, on the calling thread, deliberately for {@link #onSendMessage},
+ * {@link #onFileOpen} and {@link #onIntent}: the caller is asking a yes/no question about
+ * something it is about to do right now, and there is no useful answer to that later. Those three
+ * genuinely have no queue to hop onto.
+ *
+ * <p>{@link #onPreRequest} and {@link #onPostRequest} used to work the same way, and that was a
+ * real bug, not just the same tradeoff applied consistently: {@link
+ * org.telegram.tgnet.ConnectionsManager#sendRequest} - which calls them - is reachable from
+ * arbitrary app threads, including the UI thread directly (the dialogs list's "⋮" menu calls
+ * {@code ContactsController.loadGlobalPrivacySetting()} straight from an {@code OnClickListener}).
+ * Running Python inline there means a plugin doing anything slow in {@code pre_request_hook} - or
+ * simply losing a GIL race against whatever the plugin engine's own queue thread happened to be
+ * running at that instant - froze the UI thread for however long that took, with no bound. Fixed
+ * by always dispatching through {@link PrimePythonEngine#queue()} (the same serial queue every
+ * other hook already used) and waiting on it with a short, hard timeout: fast enough that a
+ * well-behaved plugin's answer arrives before the wait would ever matter, and short enough that a
+ * slow or GIL-contended one no longer matters either - the request just goes out unmodified, the
+ * same graceful-degradation this class already applied to a plugin that throws.
  */
 public final class PrimePluginHooks {
+
+    /** How long a caller of {@link #onPreRequest}/{@link #onPostRequest} will wait for a plugin's
+     *  answer before giving up and using the request/response unchanged. Deliberately short - this
+     *  can run on the UI thread, and the whole point is that a slow plugin must not be able to
+     *  make every network request feel like it hung. */
+    private static final long HOOK_TIMEOUT_MS = 250;
 
     /** Set from Python whenever a plugin subscribes to or leaves the send path. */
     private static volatile boolean sendMessageHooks;
@@ -135,6 +159,11 @@ public final class PrimePluginHooks {
      * @return the request to send - the same object when nobody touched it, a different one when a
      *         plugin replaced it, or null when a plugin cancelled the whole thing
      */
+    /** Sentinel distinguishing "the plugin queue answered null (cancel this request)" from "we
+     *  gave up waiting and resultHolder still holds its unwritten initial value" - both look like
+     *  "no result" otherwise, and they need opposite outcomes. */
+    private static final Object CANCELLED = new Object();
+
     public static Object onPreRequest(int account, Object request) {
         if (!requestHooks || request == null) {
             return request;
@@ -143,22 +172,31 @@ public final class PrimePluginHooks {
         if (!engine.isStarted()) {
             return request;
         }
+        final CountDownLatch latch = new CountDownLatch(1);
+        final Object[] resultHolder = {request};
+        engine.queue().postRunnable(() -> {
+            try {
+                final PyObject loader = engine.module("_prime_loader");
+                if (loader != null) {
+                    final PyObject result = loader.callAttr("dispatch_pre_request", account, request);
+                    resultHolder[0] = (result == null || result.toJava(Object.class) == null) ? CANCELLED : result.toJava(Object.class);
+                }
+            } catch (Throwable e) {
+                // The request goes out unchanged. A plugin must not be able to stop the client
+                // from talking to the server by throwing.
+                FileLog.e(e);
+            } finally {
+                latch.countDown();
+            }
+        });
         try {
-            final PyObject loader = engine.module("_prime_loader");
-            if (loader == null) {
-                return request;
+            if (!latch.await(HOOK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                FileLog.d("PrimePluginHooks: onPreRequest timed out, sending unmodified");
             }
-            final PyObject result = loader.callAttr("dispatch_pre_request", account, request);
-            if (result == null || result.toJava(Object.class) == null) {
-                return null;
-            }
-            return result.toJava(Object.class);
-        } catch (Throwable e) {
-            // The request goes out unchanged. A plugin must not be able to stop the client from
-            // talking to the server by throwing.
-            FileLog.e(e);
-            return request;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
+        return resultHolder[0] == CANCELLED ? null : resultHolder[0];
     }
 
     /**
@@ -174,20 +212,42 @@ public final class PrimePluginHooks {
         if (!engine.isStarted()) {
             return response;
         }
-        try {
-            final PyObject loader = engine.module("_prime_loader");
-            if (loader == null) {
-                return response;
+        final CountDownLatch latch = new CountDownLatch(1);
+        final Object[] resultHolder = {response};
+        engine.queue().postRunnable(() -> {
+            try {
+                final PyObject loader = engine.module("_prime_loader");
+                if (loader != null) {
+                    final PyObject result = loader.callAttr("dispatch_post_request", account, request, response, error);
+                    if (result != null) {
+                        resultHolder[0] = result.toJava(Object.class);
+                    }
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            } finally {
+                latch.countDown();
             }
-            final PyObject result = loader.callAttr("dispatch_post_request", account, request, response, error);
-            return result == null ? response : result.toJava(Object.class);
-        } catch (Throwable e) {
-            FileLog.e(e);
-            return response;
+        });
+        try {
+            if (!latch.await(HOOK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                FileLog.d("PrimePluginHooks: onPostRequest timed out, delivering unmodified");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
+        return resultHolder[0];
     }
 
-    /** Offers a container of updates, and every update inside it, to the plugins. */
+    /** Offers a container of updates, and every update inside it, to the plugins. Fire-and-forget,
+     *  same as {@link #onAppEvent} - nothing waits on a return value, so unlike the pre/post-request
+     *  pair above this never needed to block its caller at all. It used to anyway: on the update
+     *  path that caller is {@code Utilities.stageQueue} (see the comment at the two call sites in
+     *  MessagesController), Telegram's own single serial queue for processing incoming updates -
+     *  every update batch for every open chat and channel ran the plugin's Python inline on that
+     *  queue, stalling it (and everything else waiting on it) for as long as the plugin's code and
+     *  the GIL took. That is the periodic mid-scroll freezing this fixes: nothing about it needed
+     *  interaction, because update batches arrive from the server on their own. */
     public static void onUpdates(int account, Object updates, boolean container) {
         if (!requestHooks || updates == null) {
             return;
@@ -196,14 +256,16 @@ public final class PrimePluginHooks {
         if (!engine.isStarted()) {
             return;
         }
-        try {
-            final PyObject loader = engine.module("_prime_loader");
-            if (loader != null) {
-                loader.callAttr("dispatch_updates", account, updates, container);
+        engine.queue().postRunnable(() -> {
+            try {
+                final PyObject loader = engine.module("_prime_loader");
+                if (loader != null) {
+                    loader.callAttr("dispatch_updates", account, updates, container);
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
             }
-        } catch (Throwable e) {
-            FileLog.e(e);
-        }
+        });
     }
 
     /**

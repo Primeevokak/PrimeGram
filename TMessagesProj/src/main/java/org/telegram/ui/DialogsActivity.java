@@ -891,6 +891,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
         private Rect blurBounds = new Rect();
 
+        /** See the comment in {@link #dispatchDraw} - throttles how often the live glass/blur
+         *  backdrop actually re-renders, independent of how often this view itself draws. */
+        private static final long BLUR3_MIN_INTERVAL_MS = 32;
+        private long lastBlur3InvalidateMs;
+
         @Override
         protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
             if (child == blurredView) {
@@ -958,7 +963,24 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         @Override
         protected void dispatchDraw(Canvas canvas) {
             if (Build.VERSION.SDK_INT >= 31 && scrollableViewNoiseSuppressor != null) {
-                blur3_InvalidateBlur();
+                // PrimeGram: this runs on every single frame this view draws - during a fling,
+                // that is every frame at the display's full refresh rate - and blur3_InvalidateBlur
+                // is not cheap: it re-captures the live dialogs list into a RenderNode and rebuilds
+                // a GPU Gaussian-blur chain from it every time, unconditionally. Nothing about that
+                // work is skippable outright (the backdrop genuinely is moving), but a blurred
+                // backdrop updating at a lower cadence than the sharp foreground is not something
+                // the eye can tell apart from one updating every frame - the blur itself already
+                // throws away the fine temporal detail that would make the difference visible. Capping
+                // it to ~30fps instead of the display's native rate cuts this specific cost roughly
+                // in half during a fast fling without any perceptible change to how the glass looks,
+                // and was the main-thread/GPU backpressure a popup window's synchronous
+                // WindowManager relayout call was stalling behind - see the "⋮ tapped mid-scroll"
+                // investigation this fixes.
+                final long now = android.os.SystemClock.elapsedRealtime();
+                if (now - lastBlur3InvalidateMs >= BLUR3_MIN_INTERVAL_MS) {
+                    lastBlur3InvalidateMs = now;
+                    blur3_InvalidateBlur();
+                }
             }
 
             if (invalidateScrollY && (rightSlidingDialogContainer == null || !rightSlidingDialogContainer.hasFragment()) && progressToActionMode == 0) {

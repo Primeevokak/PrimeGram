@@ -48206,6 +48206,17 @@ public class ChatActivity extends BaseFragment implements
     private final ArrayList<RectF> glassDrawablesPositionsMerged = new ArrayList<>();
     private int glassDrawablesPositionsCount;
 
+    /** Same reasoning as {@code DialogsActivity}'s dispatchDraw throttle on its own blur3
+     *  pipeline: this runs once per rendered frame during active scroll, and {@code
+     *  invalidateResultRenderNodes} below is a real RenderNode capture + GPU Gaussian-blur
+     *  rebuild, not something cheap to do 60-120 times a second. A blurred backdrop lagging the
+     *  sharp foreground by up to one throttle interval is not something the blur itself lets the
+     *  eye notice. This is what caused the periodic freezes reported while scrolling channel
+     *  posts - same mechanism as the dialogs-list one, just triggered from chat scroll instead of
+     *  the "⋮" popup. */
+    private static final long BLUR_MIN_INTERVAL_MS = 32;
+    private long lastBlurInvalidateMs;
+
     private void invalidateMergedVisibleBlurredPositionsAndSourcesImpl(int flags) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null) {
             return;
@@ -48219,6 +48230,12 @@ public class ChatActivity extends BaseFragment implements
             glassDrawablesPositionsCount = getMergedVisibleBlurredPositions(glassDrawablesPositionsMerged);
             scrollableViewNoiseSuppressor.setupRenderNodes(glassDrawablesPositionsMerged, glassDrawablesPositionsCount);
         }
+
+        final long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastBlurInvalidateMs < BLUR_MIN_INTERVAL_MS) {
+            return;
+        }
+        lastBlurInvalidateMs = now;
 
         //if (BitwiseUtils.hasFlag(flags, BLUR_INVALIDATE_FLAG_POSITIONS | BLUR_INVALIDATE_FLAG_SCROLL)) {
         final boolean hasChanges = scrollableViewNoiseSuppressor.invalidateResultRenderNodes(contentView::drawList, contentView.getWidth(), contentView.getHeight());
