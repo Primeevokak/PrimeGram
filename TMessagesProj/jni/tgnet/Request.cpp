@@ -79,7 +79,7 @@ bool Request::isCancelRequest() {
 
 bool Request::needInitRequest(Datacenter *datacenter, uint32_t currentVersion) {
     bool media = PFS_ENABLED && datacenter != nullptr && isMediaRequest() && datacenter->hasMediaAddress();
-    return !media && datacenter->lastInitVersion != currentVersion || media && datacenter->lastInitMediaVersion != currentVersion;
+    return (!media && datacenter->lastInitVersion != currentVersion) || (media && datacenter->lastInitMediaVersion != currentVersion);
 }
 
 void Request::onQuickAck() {

@@ -974,7 +974,7 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
 
             if (messageSessionId != connection->getSessionId()) {
                 ConnectionsManager::getInstance(instanceNum).scheduleTask([connection, packetData, messageSessionId]() {
-                    if (LOGS_ENABLED) DEBUG_E("connection(%p) received invalid message session id", connection);
+                    if (LOGS_ENABLED) DEBUG_E("connection(%p) received invalid message session id 0x%" PRIx64 ", expected 0x%" PRIx64, connection, messageSessionId, connection->getSessionId());
                     packetData->reuse();
                 });
                 return;
@@ -987,7 +987,7 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
             ConnectionsManager::getInstance(instanceNum).deserializingDatacenter = datacenter;
             TLObject *object = ConnectionsManager::getInstance(instanceNum).TLdeserialize(nullptr, messageLength, packetData);
 
-            ConnectionsManager::getInstance(instanceNum).scheduleTask([this, connection, datacenter, instanceNum, packetData, object, messageId, messageSeqNo, messageServerSalt, messageLength]() mutable {
+            ConnectionsManager::getInstance(instanceNum).scheduleTask([this, connection, datacenter, instanceNum, packetData, object, messageId, messageSeqNo, messageServerSalt]() mutable {
                 int32_t processedStatus = connection->isMessageIdProcessed(messageId);
 
                 if (messageSeqNo % 2 != 0) {
@@ -1280,11 +1280,11 @@ void ConnectionsManager::processServerResponse(TLObject *message, int64_t messag
         bool ignoreResult = false;
         if (hasResult) {
             TLObject *object = response->result.get();
-            if (LOGS_ENABLED) DEBUG_D("message_id %lld connection(%p, account%u, dc%u, type %d) received rpc_result with %s", messageId, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), typeid(*object).name());
+            if (LOGS_ENABLED) DEBUG_D("message_id %" PRId64 " connection(%p, account%u, dc%u, type %d) received rpc_result with %s", messageId, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), typeid(*object).name());
         }
         RpcError *error = hasResult ? dynamic_cast<RpcError *>(response->result.get()) : nullptr;
         if (error != nullptr) {
-            if (LOGS_ENABLED) DEBUG_E("message_id %lld req_msg_id %lld connection(%p, account%u, dc%u, type %d) rpc error %d: %s", messageId, resultMid, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), error->error_code, error->error_message.c_str());
+            if (LOGS_ENABLED) DEBUG_E("message_id %" PRId64 " req_msg_id %" PRId64 " connection(%p, account%u, dc%u, type %d) rpc error %d: %s", messageId, resultMid, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), error->error_code, error->error_message.c_str());
             if (error->error_code == 303) {
                 uint32_t migrateToDatacenterId = DEFAULT_DATACENTER_ID;
 
@@ -1989,7 +1989,10 @@ void ConnectionsManager::sendRequest(TLObject *object, onCompleteFunc onComplete
         auto request = new Request(instanceNum, requestToken, connectionType, flags, datacenterId, onComplete, onQuickAck, onWriteToSocket, onClear);
         request->rawRequest = object;
         request->rpcRequest = wrapInLayer(object, getDatacenterWithId(datacenterId), request);
-        if (LOGS_ENABLED) DEBUG_D("send request wrapped %p - %s", request->rpcRequest.get(), typeid(*(request->rpcRequest.get())).name());
+        if (LOGS_ENABLED) {
+            TLObject *rpcRequestPtr = request->rpcRequest.get();
+            DEBUG_D("send request wrapped %p - %s", rpcRequestPtr, typeid(*rpcRequestPtr).name());
+        }
         auto cancelledIterator = tokensToBeCancelled.find(request->requestToken);
         if (cancelledIterator != tokensToBeCancelled.end()) {
             if (LOGS_ENABLED) DEBUG_D("(2) request is cancelled before sending, token %d", requestToken);
@@ -2065,7 +2068,7 @@ void ConnectionsManager::setUserId(int64_t userId) {
                 sendPing(datacenter, true);
             }
         }
-        if (LOGS_ENABLED) DEBUG_D("set user %lld", userId);
+        if (LOGS_ENABLED) DEBUG_D("set user %" PRId64, userId);
         if (currentUserId != 0 && !waitingLoginRequests.empty()) {
             for (auto iter = waitingLoginRequests.begin(); iter != waitingLoginRequests.end(); iter++) {
                 Request *request = iter->get();
@@ -2240,7 +2243,7 @@ void ConnectionsManager::failNotRunningRequest(int32_t token) {
                 if (LOGS_ENABLED) DEBUG_D("cancelled queued rpc request %p - %s", request->rawRequest, typeid(*request->rawRequest).name());
                 requestsQueue.erase(iter);
                 removeRequestFromGuid(token);
-                return true;
+                return;
             }
         }
     });
@@ -3091,7 +3094,10 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
                             request->outgoingQuery = message->outgoingBody;
                             message->outgoingBody = nullptr;
                         } else {
-                            if (LOGS_ENABLED) DEBUG_D("wrap body(%p, %s) to TL_invokeAfterMsg, token = %d, after 0x%" PRIx64, message->body.get(), typeid(*(message->body.get())).name(), networkMessage->requestId, request->msg_id);
+                            if (LOGS_ENABLED) {
+                                TLObject *bodyPtr = message->body.get();
+                                DEBUG_D("wrap body(%p, %s) to TL_invokeAfterMsg, token = %d, after 0x%" PRIx64, bodyPtr, typeid(*bodyPtr).name(), networkMessage->requestId, request->msg_id);
+                            }
                             request->query = std::move(message->body);
                         }
                         message->body = std::unique_ptr<TLObject>(request);
@@ -3284,7 +3290,7 @@ std::unique_ptr<TLObject> ConnectionsManager::wrapInLayer(TLObject *object, Data
 static const char *const url_symbols64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 static unsigned char url_char_to_value[256];
 static void init_base64url_table() {
-    static bool is_inited = []() {
+    [[maybe_unused]] static bool is_inited = []() {
         std::fill(std::begin(url_char_to_value), std::end(url_char_to_value), static_cast<unsigned char>(64));
         for (unsigned char i = 0; i < 64; i++) {
             url_char_to_value[static_cast<size_t>(url_symbols64[i])] = i;
@@ -3316,7 +3322,7 @@ std::string base64UrlDecode(std::string base64) {
         size_t left = std::min(base64.size() - i, static_cast<size_t>(4));
         int c = 0;
         for (size_t t = 0; t < left; t++) {
-            auto value = url_char_to_value[base64.c_str()[i++]];
+            auto value = url_char_to_value[static_cast<unsigned char>(base64.c_str()[i++])];
             if (value == 64) {
                 return "";
             }

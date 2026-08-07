@@ -318,7 +318,7 @@ DataSaving parseDataSaving(JNIEnv *env, jint dataSaving) {
             throwNewJavaIllegalArgumentException(env, "DATA_SAVING_ROAMING is not supported");
             return DataSaving::Never;
         default:
-            throwNewJavaIllegalArgumentException(env, "Unknown data saving constant: " + dataSaving);
+            throwNewJavaIllegalArgumentException(env, std::string("Unknown data saving constant: ").append(std::to_string(dataSaving)).c_str());
             return DataSaving::Never;
     }
 }
@@ -464,17 +464,17 @@ JNIEXPORT jlong JNICALL Java_org_telegram_messenger_voip_NativeInstance_makeGrou
                     jfloatArray floatArray = env->NewFloatArray(size);
                     jbooleanArray boolArray = env->NewBooleanArray(size);
 
-                    jint intFill[size];
-                    jfloat floatFill[size];
-                    jboolean boolFill[size];
-                    for (int a = 0; a < size; a++) {
+                    std::vector<jint> intFill(size);
+                    std::vector<jfloat> floatFill(size);
+                    std::vector<jboolean> boolFill(size);
+                    for (unsigned int a = 0; a < size; a++) {
                         intFill[a] = update.updates[a].ssrc;
                         floatFill[a] = update.updates[a].value.isMuted ? 0 : update.updates[a].value.level;
                         boolFill[a] = !update.updates[a].value.isMuted && update.updates[a].value.voice;
                     }
-                    env->SetIntArrayRegion(intArray, 0, size, intFill);
-                    env->SetFloatArrayRegion(floatArray, 0, size, floatFill);
-                    env->SetBooleanArrayRegion(boolArray, 0, size, boolFill);
+                    env->SetIntArrayRegion(intArray, 0, size, intFill.data());
+                    env->SetFloatArrayRegion(floatArray, 0, size, floatFill.data());
+                    env->SetBooleanArrayRegion(boolArray, 0, size, boolFill.data());
 
                     jobject globalRef = ((AndroidContext *) platformContext.get())->getJavaGroupInstance();
                     env->CallVoidMethod(globalRef, env->GetMethodID(NativeInstanceClass, "onAudioLevelsUpdated", "([I[F[Z)V"), intArray, floatArray, boolArray);
@@ -516,11 +516,11 @@ JNIEXPORT jlong JNICALL Java_org_telegram_messenger_voip_NativeInstance_makeGrou
                 unsigned int size = ssrcs.size();
                 jintArray intArray = env->NewIntArray(size);
 
-                jint intFill[size];
-                for (int a = 0; a < size; a++) {
+                std::vector<jint> intFill(size);
+                for (unsigned int a = 0; a < size; a++) {
                     intFill[a] = ssrcs[a];
                 }
-                env->SetIntArrayRegion(intArray, 0, size, intFill);
+                env->SetIntArrayRegion(intArray, 0, size, intFill.data());
 
                 jobject globalRef = ((AndroidContext *) platformContext.get())->getJavaGroupInstance();
                 env->CallVoidMethod(globalRef, env->GetMethodID(NativeInstanceClass, "onParticipantDescriptionsRequired", "(J[I)V"), (jlong) task.get(), intArray);
@@ -1269,7 +1269,7 @@ Java_org_telegram_messenger_voip_NativeInstance_setConferenceCallId(JNIEnv *env,
         DEBUG_D("setConferenceCallId failed, instance doesn't contain groupNativeInstance");
         return;
     }
-    DEBUG_D("setConferenceCallId %d", call_id);
+    DEBUG_D("setConferenceCallId %lld", (long long) call_id);
     *instance->conferenceCallId = (long) call_id;
 }
 

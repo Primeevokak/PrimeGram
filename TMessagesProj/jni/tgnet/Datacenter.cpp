@@ -196,7 +196,7 @@ Datacenter::Datacenter(int32_t instance, NativeByteBuffer *data) {
 TcpAddress *Datacenter::getCurrentAddress(uint32_t flags) {
     uint32_t currentAddressNum;
     std::vector<TcpAddress> *addresses;
-    if (flags == 0 && (authKeyPerm == nullptr || PFS_ENABLED && authKeyTemp == nullptr) && !addressesIpv4Temp.empty()) {
+    if (flags == 0 && (authKeyPerm == nullptr || (PFS_ENABLED && authKeyTemp == nullptr)) && !addressesIpv4Temp.empty()) {
         flags = TcpAddressFlagTemp;
     }
     if ((flags & TcpAddressFlagTemp) != 0) {
@@ -254,7 +254,7 @@ int32_t Datacenter::getCurrentPort(uint32_t flags) {
     uint32_t currentAddressNum;
     uint32_t currentPortNum;
     std::vector<TcpAddress> *addresses;
-    if (flags == 0 && (authKeyPerm == nullptr || PFS_ENABLED && authKeyTemp == nullptr) && !addressesIpv4Temp.empty()) {
+    if (flags == 0 && (authKeyPerm == nullptr || (PFS_ENABLED && authKeyTemp == nullptr)) && !addressesIpv4Temp.empty()) {
         flags = TcpAddressFlagTemp;
     }
     if ((flags & TcpAddressFlagTemp) != 0) {
@@ -374,7 +374,7 @@ void Datacenter::nextAddressOrPort(uint32_t flags) {
     uint32_t currentPortNum;
     uint32_t currentAddressNum;
     std::vector<TcpAddress> *addresses;
-    if (flags == 0 && (authKeyPerm == nullptr || PFS_ENABLED && authKeyTemp == nullptr) && !addressesIpv4Temp.empty()) {
+    if (flags == 0 && (authKeyPerm == nullptr || (PFS_ENABLED && authKeyTemp == nullptr)) && !addressesIpv4Temp.empty()) {
         flags = TcpAddressFlagTemp;
     }
     if ((flags & TcpAddressFlagTemp) != 0) {
@@ -443,7 +443,7 @@ void Datacenter::nextAddressOrPort(uint32_t flags) {
 
 bool Datacenter::isCustomPort(uint32_t flags) {
     uint32_t currentPortNum;
-    if (flags == 0 && (authKeyPerm == nullptr || PFS_ENABLED && authKeyTemp == nullptr) && !addressesIpv4Temp.empty()) {
+    if (flags == 0 && (authKeyPerm == nullptr || (PFS_ENABLED && authKeyTemp == nullptr)) && !addressesIpv4Temp.empty()) {
         flags = TcpAddressFlagTemp;
     }
     if ((flags & TcpAddressFlagTemp) != 0) {
