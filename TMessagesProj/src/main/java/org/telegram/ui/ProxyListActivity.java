@@ -505,32 +505,11 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     });
                 }
             } else if (position == customVlessRow) {
-                org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity());
-                builder.setTitle("Свой VLESS");
-                final android.widget.EditText editText = new android.widget.EditText(getParentActivity());
-                editText.setHint("vless://...");
-                builder.setView(editText);
-                builder.setPositiveButton(getString(R.string.OK), (dialog, which) -> {
-                    String url = editText.getText().toString().trim();
-                    if (!url.startsWith("vless://")) {
-                        android.widget.Toast.makeText(getParentActivity(), "Ссылка должна начинаться с vless://", android.widget.Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    boolean ok = VpnSDK.setCustomVlessConfig(url);
-                    if (listAdapter != null) {
-                        listAdapter.notifyItemChanged(emergencyProxyRow);
-                    }
-                    if (ok) {
-                        android.widget.Toast.makeText(getParentActivity(), "Ключ подключён, прокси активен", android.widget.Toast.LENGTH_SHORT).show();
-                    } else if ("invalid_url".equals(VpnSDK.getLastCustomVlessError())) {
-                        android.widget.Toast.makeText(getParentActivity(), "Не удалось разобрать ссылку — проверьте формат vless://", android.widget.Toast.LENGTH_LONG).show();
-                    } else {
-                        String err = VpnSDK.getLastCustomVlessError();
-                        android.widget.Toast.makeText(getParentActivity(), "Ссылка распознана, но подключиться не удалось" + (err != null ? ": " + err : "") + ". Проверьте ключ и сервер.", android.widget.Toast.LENGTH_LONG).show();
-                    }
-                });
-                builder.setNegativeButton(getString(R.string.Cancel), null);
-                showDialog(builder.create());
+                // Used to be its own vless://-only dialog straight against VpnSDK, duplicating
+                // (and drifting out of sync with) the real server list this now opens - that old
+                // dialog didn't know about vmess/trojan/ss/socks, and a key entered here never
+                // showed up in, or could be pinged from, the list built in Settings.
+                presentFragment(new PrimeVpnServersActivity());
             } else if (position == tgwsProxyRow) {
                 SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
                 boolean enabled = mainconfig.getBoolean("primegram_tgws_enabled", true);
@@ -1047,7 +1026,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     if (position == proxyAddRow) {
                         textCell.setText(getString(R.string.AddProxy), deleteAllRow != -1);
                     } else if (position == customVlessRow) {
-                        textCell.setText("Ввести свой VLESS ключ", true);
+                        textCell.setText("Серверы (VLESS/VMess/Trojan/SS/SOCKS)", true);
                     } else if (position == deleteAllRow) {
                         textCell.setTextColor(Theme.getColor(Theme.key_text_RedRegular));
                         textCell.setText(getString(R.string.DeleteAllProxies), false);

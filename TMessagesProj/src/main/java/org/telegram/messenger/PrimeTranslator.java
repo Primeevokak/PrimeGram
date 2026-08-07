@@ -124,11 +124,23 @@ public class PrimeTranslator {
                     out.entities = new ArrayList<>();
                     if (source.isEmpty()) {
                         out.text = "";
+                    } else if (provider == PROVIDER_MULTIPLAY) {
+                        // Index parity still splits the load across both hosts for a real batch,
+                        // but with only one text (every "translate before send" call - the
+                        // outgoing path only ever has one) that split had no second provider to
+                        // fall back to: index 0 always meant Google, so on a network that can't
+                        // reach Google specifically (common enough on this fork's actual
+                        // audience, where Yandex is often the one that still works), Multiplay
+                        // was indistinguishable from plain Google and always failed. Trying the
+                        // other provider on failure, here, is what actually earns the name.
+                        final int primary = index % 2 == 0 ? PROVIDER_GOOGLE : PROVIDER_YANDEX;
+                        try {
+                            out.text = primary == PROVIDER_YANDEX ? yandex(source, target) : google(source, target);
+                        } catch (Throwable primaryError) {
+                            out.text = primary == PROVIDER_YANDEX ? google(source, target) : yandex(source, target);
+                        }
                     } else {
-                        final int useProvider = provider == PROVIDER_MULTIPLAY
-                                ? (index % 2 == 0 ? PROVIDER_GOOGLE : PROVIDER_YANDEX)
-                                : provider;
-                        out.text = useProvider == PROVIDER_YANDEX ? yandex(source, target) : google(source, target);
+                        out.text = provider == PROVIDER_YANDEX ? yandex(source, target) : google(source, target);
                     }
                     resultsArr[index] = out;
                 } catch (Throwable t) {

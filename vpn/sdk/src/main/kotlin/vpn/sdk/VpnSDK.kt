@@ -440,6 +440,19 @@ object VpnSDK {
                 }
             }
 
+            // realitySettings used to be emitted unconditionally here regardless of what
+            // `security` in the link actually said - a server on plain TLS (or none) got a
+            // Reality handshake attempted against it anyway, with an empty publicKey/shortId to
+            // boot, which fails instantly and looks from the outside like "connects, but no
+            // traffic ever gets through" - ConnectionsManager retries forever against a config
+            // that can never succeed. Only Reality gets realitySettings now; TLS gets a plain
+            // tlsSettings block (still needs the SNI/fingerprint), and "none" gets neither.
+            val securityBlock = when (security) {
+                "reality" -> """, "realitySettings": {"publicKey": "$pbk", "shortId": "$sid", "serverName": "$sni", "fingerprint": "$fp"}"""
+                "tls" -> """, "tlsSettings": {"serverName": "$sni", "fingerprint": "$fp"}"""
+                else -> ""
+            }
+
             return """
             {
               "log": {"loglevel": "warning"},
@@ -464,13 +477,7 @@ object VpnSDK {
                 },
                 "streamSettings": {
                   "network": "$type",
-                  "security": "$security",
-                  "realitySettings": {
-                    "publicKey": "$pbk",
-                    "shortId": "$sid",
-                    "serverName": "$sni",
-                    "fingerprint": "$fp"
-                  }
+                  "security": "$security"$securityBlock
                 }
               }]
             }
