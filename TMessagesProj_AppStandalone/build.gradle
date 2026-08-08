@@ -53,6 +53,9 @@ android {
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
+            v1SigningEnabled true
+            v2SigningEnabled true
+            enableV3Signing true
         }
 
         release {
@@ -60,6 +63,14 @@ android {
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
+            // AGP drops the legacy v1 (JAR) signature by default once minSdkVersion >= 24, since
+            // v2/v3 alone satisfy stock Android. Some OEM package installers (Huawei/EMUI in
+            // particular) still expect v1 to be present and reject a v2/v3-only APK with a generic
+            // parse error instead of a signature-specific one - forcing it back on costs nothing
+            // and fixes installs on those.
+            v1SigningEnabled true
+            v2SigningEnabled true
+            enableV3Signing true
         }
     }
 

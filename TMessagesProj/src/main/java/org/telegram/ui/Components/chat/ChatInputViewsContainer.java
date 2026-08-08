@@ -273,6 +273,17 @@ public class ChatInputViewsContainer extends FrameLayout {
         );
         tmpRect.inset(0, -dp(7));
         tmpRect.offset(0, blurTop + (int) bubbleInputTranlationY);
+        if (org.telegram.messenger.NonIslandHelper.chatElements()) {
+            // The -7dp inset above exists to bleed the island bubble's shadow past its
+            // content bounds. In flat/classic mode there is no shadow and no gap for it to
+            // bleed into - that top sliver bled straight onto the chat list instead, painting
+            // over the bottom of the last visible message with no layout-side padding to
+            // account for it, since nothing else knew that sliver existed.
+            tmpRect.top += dp(16);
+            tmpRect.bottom = getMeasuredHeight();
+            tmpRect.left = 0;
+            tmpRect.right = getMeasuredWidth();
+        }
 
         blurredBackgroundDrawable.setBounds(tmpRect);
         if (drawInputBackground)

@@ -1547,6 +1547,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                         .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
             }
             if (item.id == ID_HIDE_ARCHIVE_FOLDER) {
+                // Mutually exclusive with "archive opens by pull": that feature relies on the
+                // archive folder staying the first row so it has something to pull, which this
+                // one removes outright - together they left an empty placeholder row, or hid a
+                // real chat, standing in for whichever the archive row wasn't found where expected.
+                if (org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_ARCHIVE_FOLDER)
+                        && org.telegram.messenger.SharedConfig.archiveHidden) {
+                    org.telegram.messenger.SharedConfig.toggleArchiveHidden();
+                }
                 org.telegram.messenger.NotificationCenter.getGlobalInstance()
                         .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
             }
@@ -1625,6 +1633,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             // Upstream already has this state - it is what the "swipe the archive row up"
             // gesture toggles. We only surface it as a setting.
             org.telegram.messenger.SharedConfig.toggleArchiveHidden();
+            // Mutually exclusive with "Убрать строку «Архив»" - see the note over there.
+            if (org.telegram.messenger.SharedConfig.archiveHidden
+                    && org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_ARCHIVE_FOLDER)) {
+                org.telegram.messenger.PrimeTweaks.set(org.telegram.messenger.PrimeTweaks.HIDE_ARCHIVE_FOLDER, false);
+            }
             org.telegram.messenger.NotificationCenter.getGlobalInstance()
                     .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
             listView.adapter.update(true);

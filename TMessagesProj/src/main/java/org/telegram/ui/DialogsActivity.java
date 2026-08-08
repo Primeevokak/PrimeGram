@@ -10803,6 +10803,18 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
             for (int a = 0; a < viewPages.length; a++) {
                 final ViewPage viewPage = viewPages[a];
+                // archivePullViewState is normally only set once, at view-page creation, because
+                // the pull gesture that drives it keeps its own state in sync as it happens. The
+                // settings-screen toggle for the same SharedConfig.archiveHidden flag bypasses
+                // that gesture entirely, so without this the row stays in whatever state the page
+                // was created with until the fragment is rebuilt (e.g. app restart).
+                if (viewPage.dialogsType == DIALOGS_TYPE_DEFAULT && folderId == 0 && communityId == 0
+                        && viewPage.archivePullViewState != ARCHIVE_ITEM_STATE_SHOWED) {
+                    viewPage.archivePullViewState = SharedConfig.archiveHidden ? ARCHIVE_ITEM_STATE_HIDDEN : ARCHIVE_ITEM_STATE_PINNED;
+                    if (viewPage.pullForegroundDrawable != null) {
+                        viewPage.pullForegroundDrawable.setWillDraw(viewPage.archivePullViewState != ARCHIVE_ITEM_STATE_PINNED);
+                    }
+                }
                 MessagesController.DialogFilter filter = null;
                 if (viewPages[0].dialogsType == 7 || viewPages[0].dialogsType == 8) {
                     filter = getMessagesController().selectedDialogFilter[viewPages[0].dialogsType == 8 ? 1 : 0];

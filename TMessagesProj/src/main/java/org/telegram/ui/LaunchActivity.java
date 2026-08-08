@@ -9726,7 +9726,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             setSidebarOpen(false, true);
         }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
 
-        menuList.addView(createSidebarMenuRow(context, R.drawable.msg_settings, "Плагины", v -> {
+        menuList.addView(createSidebarMenuRow(context, R.drawable.msg_puzzle, "Плагины", v -> {
             presentFragment(new org.telegram.ui.PrimePluginsActivity());
             setSidebarOpen(false, true);
         }), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));

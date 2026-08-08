@@ -6503,13 +6503,21 @@ public class ChatActivityEnterView extends FrameLayout implements
     public static float inu_ICON_PADDING = 7.5f;
 
     /** Classic flat UI: the text field carries the same padding as the island bubble, which reads
-     *  as visibly too tall in a plain rectangular bar with no bubble to fill. */
+     *  as visibly too tall in a plain rectangular bar with no bubble to fill. The cut is sized as
+     *  a share of the whole row (DEFAULT_HEIGHT) rather than a fixed dp, since the empty space
+     *  above the emoji/attach icons is what actually reads as "too much" - a flat dp guess doesn't
+     *  scale with that context the way a percentage of the row does. */
+    private static final float inu_CLASSIC_TOP_PADDING_CUT_PERCENT = 0.08f;
+
     private static int inu_fieldPaddingTop() {
-        return inu_FIELD_PADDING_TOP - (org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 1);
+        if (!org.telegram.messenger.NonIslandHelper.chatElements()) {
+            return inu_FIELD_PADDING_TOP;
+        }
+        return 0;
     }
 
     private static int inu_fieldPaddingBottom() {
-        return inu_FIELD_PADDING_BOTTOM - (org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : 2);
+        return inu_FIELD_PADDING_BOTTOM - (org.telegram.messenger.NonIslandHelper.chatElements() ? 2 : 0);
     }
 
     private boolean resizeForTopViewLastShow;

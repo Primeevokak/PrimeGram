@@ -8454,6 +8454,10 @@ public class ChatActivity extends BaseFragment implements
         bottomChannelButtonsLayout.setVisibility(View.INVISIBLE);
         bottomChannelButtonsLayout.setClipChildren(false);
         bottomChannelButtonsLayout.setAccentColor(getThemedColor(Theme.key_featuredStickers_addButton));
+        // Without this, the flat/classic container radius+padding reset never runs here - only
+        // ChannelAdminLogActivity's copy of this layout called it, so the search/gift/DM buttons
+        // stayed floating as separate island bubbles instead of merging into the flat bar.
+        bottomChannelButtonsLayout.setupDrawableForContainer();
         bottomChannelButtonsLayout.setButtonOnClickListener(ChatActivityChannelButtonsLayout.BUTTON_SEARCH, v -> {
             openSearchWithText(isSupportedTags() ? "" : null);
         });
@@ -12256,7 +12260,7 @@ public class ChatActivity extends BaseFragment implements
         if (isInsideContainer && parentChatActivity == null) {
             paddingBottom = AndroidUtilities.navigationBarHeight;
         } else {
-            paddingBottom = blurredViewBottomOffset + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 1 : 9 + 7)
+            paddingBottom = blurredViewBottomOffset + dp(org.telegram.messenger.NonIslandHelper.chatElements() ? 3 : 9 + 7)
                 + inputIslandHeightCurrent
                 + getTopicTabsSideSize(TopicsTabsView.Position.BOTTOM)
                 + windowInsetsStateHolder.getAnimatedMaxBottomInset();
@@ -47401,7 +47405,7 @@ public class ChatActivity extends BaseFragment implements
         }
 
         final float margin = windowInsetsStateHolder.getAnimatedMaxBottomInset() +
-                (chatInputViewsContainer.getInputBubbleHeight() + dp(9) - dp(5));
+                (chatInputViewsContainer.getInputBubbleHeight() + dp(9 - (org.telegram.messenger.NonIslandHelper.chatElements() ? 9 : -dp(5))));
 
         topicsTabs.setSideMenuBackgroundMarginBottom(margin);
     }
@@ -47435,7 +47439,12 @@ public class ChatActivity extends BaseFragment implements
         final float enterViewIslandHeight = Math.max(
             chatActivityEnterView != null ? chatActivityEnterView.getIslandTotalHeight(target): 0, dp(ChatActivityEnterView.DEFAULT_HEIGHT));
 
-        final float defaultIslandHeight = dp(ChatActivityEnterView.DEFAULT_HEIGHT);
+        // When the channel buttons row is what's actually shown instead of the enter view, the
+        // island height has to reflect its real (taller, 56dp) height - otherwise the background
+        // is only painted to the 44dp default and the top of those round buttons sits on bare
+        // wallpaper instead of the panel.
+        final float defaultIslandHeight = (bottomChannelButtonsLayout != null && bottomChannelButtonsLayout.getVisibility() == View.VISIBLE)
+                ? dp(56) : dp(ChatActivityEnterView.DEFAULT_HEIGHT);
         final float enterViewFactor;
         float visibility;
         float pollAddVisibility;

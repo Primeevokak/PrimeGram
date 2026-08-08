@@ -1087,11 +1087,50 @@ public class TgWsProxyService extends Service {
     /** How many fast failures in a row justify abandoning the current domain. */
     private static final int FAST_FAILURE_THRESHOLD = 3;
 
-    private static void noteFastSessionFailure() {
+    /**
+     * Domains currently getting their sessions cut short, mapped to when they are worth trying
+     * again.
+     *
+     * <p>A domain that just triggered {@link #noteFastSessionFailure} is whatever is killing
+     * sessions right now - DPI that lets the handshake through and then resets the connection, or
+     * the shared Worker behind it choking under load from every other user of the same public
+     * domain list. Forgetting {@link #currentBaseDomain} alone was not enough: the very next pick
+     * was a uniform random draw over all ten candidates, so the domain that just failed could be
+     * (and in the logs, often was) picked again immediately. This keeps it out of that draw for a
+     * while so failover actually moves toward whatever is working right now instead of re-rolling
+     * the same bad domain.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long> domainSickUntil = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Short on purpose - this is "actively being cut right now", not "unreachable" like ipFailUntil's hour. */
+    private static final long DOMAIN_SICK_COOLDOWN_MS = 4 * 60_000L;
+
+    /** The declared candidates minus whichever are currently sick, or all of them if that would leave nothing. */
+    private static List<String> healthyBaseDomains() {
+        final long now = System.currentTimeMillis();
+        List<String> healthy = new ArrayList<>();
+        for (String domain : BASE_DOMAINS) {
+            Long until = domainSickUntil.get(domain);
+            if (until == null || until <= now) {
+                healthy.add(domain);
+            }
+        }
+        return healthy.isEmpty() ? new ArrayList<>(Arrays.asList(BASE_DOMAINS)) : healthy;
+    }
+
+    private static void noteFastSessionFailure(String connectedDomain) {
         if (fastFailureCount.incrementAndGet() < FAST_FAILURE_THRESHOLD) {
             return;
         }
         fastFailureCount.set(0);
+        if (connectedDomain != null) {
+            for (String baseDomain : BASE_DOMAINS) {
+                if (connectedDomain.endsWith(baseDomain)) {
+                    domainSickUntil.put(baseDomain, System.currentTimeMillis() + DOMAIN_SICK_COOLDOWN_MS);
+                    logInfo("Marking " + baseDomain + " sick for " + (DOMAIN_SICK_COOLDOWN_MS / 1000) + "s after " + FAST_FAILURE_THRESHOLD + " short-lived sessions");
+                    break;
+                }
+            }
+        }
         synchronized (domainLock) {
             logInfo("Resetting currentBaseDomain after " + FAST_FAILURE_THRESHOLD + " short-lived sessions");
             currentBaseDomain = null;
@@ -1302,7 +1341,7 @@ public class TgWsProxyService extends Service {
             if (currentBaseDomain == null) {
                 if (System.currentTimeMillis() - lastDomainSelectionTime > 30_000) {
                     logInfo("Selecting base domain from candidates using pair-wise latency tests...");
-                    List<String> candidates = new ArrayList<>(Arrays.asList(BASE_DOMAINS));
+                    List<String> candidates = healthyBaseDomains();
                     Collections.shuffle(candidates);
 
                     final String[] selected = new String[1];
@@ -1359,7 +1398,7 @@ public class TgWsProxyService extends Service {
                     } catch (InterruptedException ignored) {}
 
                     if (selected[0] == null) {
-                        selected[0] = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                        selected[0] = candidates.get(RANDOM.nextInt(candidates.size()));
                         logInfo("All latency probes failed. Selected fallback: " + selected[0]);
                         PrimeStartupTrace.mark("!! proxy: all domain probes failed, guessing " + selected[0]);
                     } else {
@@ -1370,7 +1409,8 @@ public class TgWsProxyService extends Service {
                     cachedBaseAddress = null;
                     lastDomainSelectionTime = System.currentTimeMillis();
                 } else {
-                    currentBaseDomain = BASE_DOMAINS[RANDOM.nextInt(BASE_DOMAINS.length)];
+                    List<String> healthy = healthyBaseDomains();
+                    currentBaseDomain = healthy.get(RANDOM.nextInt(healthy.size()));
                     cachedBaseAddress = null;
                     logInfo("Quick failover (cooldown active): selected random domain: " + currentBaseDomain);
                 }
@@ -1432,23 +1472,34 @@ public class TgWsProxyService extends Service {
             boolean isTimeout = e instanceof java.net.SocketTimeoutException || (e.getMessage() != null && e.getMessage().contains("timed out"));
             logError("Failed to connect to proxy " + wsDomain + " (" + e.getMessage() + "), trying fronting fallback...", null);
 
-            try {
-                tlsSocket = createTlsSocketWithSni(wsDomain, "sprinthost.ru", 443, 5_000);
-                wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
-                chosenDomain = wsDomain;
-                primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " up via fronting in "
-                        + (System.currentTimeMillis() - connectStartedAt) + " ms, direct leg failed after "
-                        + (tlsReadyAt - connectStartedAt) + " ms");
-                logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ") via fronting");
-                ipFailUntil.remove(wsDomain);
-                consecutiveConnectFailures.set(0);
-                return new WsConnection(tlsSocket, chosenDomain);
-            } catch (Exception eFronting) {
+            Exception lastFrontingEx = null;
+            for (String frontingSni : FRONTING_SNI_DOMAINS) {
+                try {
+                    tlsSocket = createTlsSocketWithSni(wsDomain, frontingSni, 443, 5_000);
+                    wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
+                    chosenDomain = wsDomain;
+                    primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " up via fronting (" + frontingSni + ") in "
+                            + (System.currentTimeMillis() - connectStartedAt) + " ms, direct leg failed after "
+                            + (tlsReadyAt - connectStartedAt) + " ms");
+                    logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ") via fronting as " + frontingSni);
+                    ipFailUntil.remove(wsDomain);
+                    consecutiveConnectFailures.set(0);
+                    return new WsConnection(tlsSocket, chosenDomain);
+                } catch (Exception eFronting) {
+                    lastFrontingEx = eFronting;
+                    if (tlsSocket != null) {
+                        try { tlsSocket.close(); } catch (IOException ignored) {}
+                        tlsSocket = null;
+                    }
+                    logError("Fronting as " + frontingSni + " failed for " + wsDomain, eFronting);
+                }
+            }
+            {
+                Exception eFronting = lastFrontingEx;
                 primeTraceConnect("!! proxy: DC" + dcId + (isMedia ? "m" : "") + " FAILED after "
                         + (System.currentTimeMillis() - connectStartedAt) + " ms on " + wsDomain
-                        + " (" + e.getMessage() + " / fronting: " + eFronting.getMessage() + ")");
-                logError("Fronting also failed for " + wsDomain, eFronting);
-                boolean isFrontingTimeout = eFronting instanceof java.net.SocketTimeoutException || (eFronting.getMessage() != null && eFronting.getMessage().contains("timed out"));
+                        + " (" + e.getMessage() + " / fronting: " + (eFronting == null ? "no candidates" : eFronting.getMessage()) + ")");
+                boolean isFrontingTimeout = eFronting instanceof java.net.SocketTimeoutException || (eFronting != null && eFronting.getMessage() != null && eFronting.getMessage().contains("timed out"));
                 
                 if (isTimeout || isFrontingTimeout) {
                     ipFailUntil.put(wsDomain, System.currentTimeMillis() + 3600_000L);
@@ -1718,7 +1769,7 @@ public class TgWsProxyService extends Service {
             logInfo("Session established, entering active relay bridge...");
 
             // Запускаем двунаправленный мост с ре-шифрованием
-            bridgeConnections(client, in, out, tlsSocket, wsIn, wsOut, cryptoCtx, splitter, dcId, isMedia);
+            bridgeConnections(client, in, out, tlsSocket, wsIn, wsOut, cryptoCtx, splitter, dcId, isMedia, chosenDomain);
 
         } catch (Exception e) {
             logError("handleClient error", e);
@@ -2103,7 +2154,8 @@ public class TgWsProxyService extends Service {
 
     private void bridgeConnections(Socket client, InputStream in, OutputStream out,
                                    SSLSocket tlsSocket, InputStream wsIn, OutputStream wsOut,
-                                   CryptoCtx ctx, MsgSplitter splitter, int dcId, boolean isMedia) {
+                                   CryptoCtx ctx, MsgSplitter splitter, int dcId, boolean isMedia,
+                                   String connectedDomain) {
         AtomicBoolean closed = new AtomicBoolean(false);
         MsgSplitter wsSplitter = new MsgSplitter(PROTO_INTERMEDIATE_INT);
         final SessionActivity activity = new SessionActivity(dcId, isMedia, System.currentTimeMillis());
@@ -2238,7 +2290,7 @@ public class TgWsProxyService extends Service {
                     + (firstFrame ? ", no server frame ever arrived" : ""));
 
             if (System.currentTimeMillis() - sessionStartTime < 5000) {
-                noteFastSessionFailure();
+                noteFastSessionFailure(connectedDomain);
             } else {
                 // A session that lasted means the domain is fine; forget earlier stumbles so
                 // unrelated failures spread over time never add up to a failover.
@@ -2528,11 +2580,20 @@ public class TgWsProxyService extends Service {
         return tlsSocket;
     }
 
+    /** Fronting-only candidates for the fake SNI: domains an ISP will never block, so a DPI box
+     *  that only checks the SNI against a list waves the connection through. Tried in order. */
+    private static final String[] FRONTING_SNI_DOMAINS = new String[]{"max.ru", "yandex.ru"};
+
     private SSLSocket createTlsSocketWithSni(String targetHost, String sniHost, int port, int timeoutMs) throws IOException {
         Socket plainSocket = connectWithIpv4Preference(targetHost, port, timeoutMs);
         SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, sniHost, port, true);
         tlsSocket.setUseClientMode(true);
-        tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
+        // TLS 1.2 sends the server's Certificate message in the clear during the handshake - since
+        // the socket actually talks to Telegram's own IP, that certificate names *.web.telegram.org,
+        // not the sniHost we're pretending to be. Any DPI that inspects the handshake beyond just the
+        // SNI field would see that mismatch in plaintext. TLS 1.3 encrypts the Certificate message,
+        // so restricting to 1.3-only here is what actually keeps the fronting SNI's lie intact.
+        tlsSocket.setEnabledProtocols(new String[]{"TLSv1.3"});
         tlsSocket.setTcpNoDelay(true);
         tlsSocket.setSoTimeout(timeoutMs);
         return tlsSocket;
