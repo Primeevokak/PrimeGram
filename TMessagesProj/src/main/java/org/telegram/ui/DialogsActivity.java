@@ -4344,13 +4344,19 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                                     viewsH += viewPage.dialogsAdapter.getItemHeight(i);
                                 }
                                 int canScrollDy = -(view.getTop() - pTop) + viewsH;
-                                if (!rightSlidingDialogContainer.hasFragment() && !(actionBar != null && actionBar.isActionModeShowed()) && !org.telegram.messenger.NonIslandHelper.globalSearch()) {
+                                // NonIslandHelper.globalSearch() used to exempt classic mode from this
+                                // compensation, on the assumption its search field needs none - but the
+                                // field's own translationY (see checkListViewScroll's classic branch) tracks
+                                // scrollYOffset just like island mode's does. Skipping this let the list
+                                // overscroll further than that translation range, opening a gap between the
+                                // field and the list during a top pull that island mode never showed.
+                                if (!rightSlidingDialogContainer.hasFragment() && !(actionBar != null && actionBar.isActionModeShowed())) {
                                     canScrollDy -= dp(SEARCH_FIELD_HEIGHT);
                                 }
                                 if (hasStories && (viewPage.scroller.isRunning() || dialogStoriesCell.isExpanded()) && !rightSlidingDialogContainer.hasFragment() && !fixScrollYAfterArchiveOpened) {
                                     canScrollDy += dp(DialogStoriesCell.HEIGHT_IN_DP);
                                 }
-                                if ((viewPage.scroller.isRunning() || dialogStoriesCell.isExpanded()) && !rightSlidingDialogContainer.hasFragment() && !fixScrollYAfterArchiveOpened && !(actionBar != null && actionBar.isActionModeShowed()) && !org.telegram.messenger.NonIslandHelper.globalSearch()) {
+                                if ((viewPage.scroller.isRunning() || dialogStoriesCell.isExpanded()) && !rightSlidingDialogContainer.hasFragment() && !fixScrollYAfterArchiveOpened && !(actionBar != null && actionBar.isActionModeShowed())) {
                                     canScrollDy += dp(SEARCH_FIELD_HEIGHT);
                                 }
                                 int positiveDy = Math.abs(dy);

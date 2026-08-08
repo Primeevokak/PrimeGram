@@ -62,7 +62,14 @@ public class PrimeMessageMarks {
             return;
         }
         try {
-            drawOnlineDot(canvas, cell, messageObject);
+            // The online dot is NOT drawn here - see drawOnlineDotFor. cell.getAvatarImage()
+            // returns the same ImageReceiver ChatActivity positions and draws itself, from its
+            // own RecyclerView-level override of the list's dispatchDraw (child.getY(), not
+            // this cell's local canvas). Reading its coordinates from inside the cell's own
+            // onDraw put the dot at that receiver's list-relative position while everything
+            // else in this method draws in cell-local space - the two only agreed by accident
+            // for a cell sitting at y=0, which is why the dot floated free of the avatar for
+            // every other one.
 
             // Asked only when there is any tag at all: getLabelFor takes a lock and boxes the
             // dialog id, and this runs for every visible cell on every frame.
@@ -132,12 +139,15 @@ public class PrimeMessageMarks {
      * upstream for years; group chats never did, which is where they are actually useful —
      * you can see who is around before writing.
      *
-     * <p>Drawn here rather than in the cell for the same reason as the chips: it must not
-     * participate in measurement. The dot sits on the avatar's bottom-right corner with a thin
-     * outline, so it reads on any wallpaper without needing to know the background colour.
+     * <p>Called from {@code ChatActivity}'s own avatar-drawing pass, right after it draws the
+     * avatar {@code ImageReceiver} itself, on that same canvas - so the dot always shares
+     * whatever position, scale and translation the avatar was just drawn with, including during
+     * the forum side-menu transition. It must not participate in measurement, which rules out
+     * drawing it as a real child view. The dot sits on the avatar's bottom-right corner with a
+     * thin outline, so it reads on any wallpaper without needing to know the background colour.
      */
-    private static void drawOnlineDot(Canvas canvas, ChatMessageCell cell, MessageObject messageObject) {
-        if (!cell.isAvatarVisible || !isOnlineDotsEnabled()) {
+    public static void drawOnlineDotFor(Canvas canvas, org.telegram.messenger.ImageReceiver avatar, MessageObject messageObject) {
+        if (avatar == null || messageObject == null || !isOnlineDotsEnabled()) {
             return;
         }
         if (messageObject.messageOwner == null || messageObject.messageOwner.from_id == null) {
@@ -147,8 +157,7 @@ public class PrimeMessageMarks {
         if (userId == 0 || !isUserOnlineCached(messageObject.currentAccount, userId)) {
             return;
         }
-        org.telegram.messenger.ImageReceiver avatar = cell.getAvatarImage();
-        if (avatar == null || avatar.getImageWidth() <= 0) {
+        if (avatar.getImageWidth() <= 0) {
             return;
         }
         if (onlineDotPaint == null) {

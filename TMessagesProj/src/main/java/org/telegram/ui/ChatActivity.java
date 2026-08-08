@@ -6436,6 +6436,7 @@ public class ChatActivity extends BaseFragment implements
                             canvas.translate(dp(24) * getSideMenuAlpha(), 0f);
                         }
                         imageReceiver.draw(canvas);
+                        org.telegram.ui.Cells.PrimeMessageMarks.drawOnlineDotFor(canvas, imageReceiver, message);
                         canvas.restore();
 
                         if (!replaceAnimation && child.getTranslationY() != 0) {

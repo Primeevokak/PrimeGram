@@ -148,3 +148,21 @@ jobs:
           body: "Автоматическая сборка релиза ${{ github.ref_name }}"
           draft: false
           prerelease: false
+
+      # A tag build checks out that tag, detached - not the release branch GitHub Pages
+      # serves docs/ from. Editing it in place would edit a commit nothing deploys, so this
+      # fetches the actual release branch first and commits there instead.
+      - name: Update displayed version on the site
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          git fetch origin release
+          git checkout release
+          sed -i "s/версия [0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+/версия ${VERSION}/" docs/index.html
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: bump displayed version to ${VERSION}"
+            git push origin release
+          fi
