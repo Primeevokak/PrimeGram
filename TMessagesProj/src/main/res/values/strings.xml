@@ -2,6 +2,10 @@
 <resources>
     <string name="AppName">Telegram</string>
     <string name="AppNameBeta">Telegram Beta</string>
+    <!-- PrimeGram: the label shown in the launcher / app list / recents, kept separate from
+         AppName because that string is used throughout the app's own UI text (share sheets,
+         "Open in Telegram", protocol references) where it should stay literally correct. -->
+    <string name="AppNameLauncher">PrimeGram</string>
     <string name="LanguageName">English</string>
     <string name="English">English</string>
     <string name="LanguageNameInEnglish">English</string>

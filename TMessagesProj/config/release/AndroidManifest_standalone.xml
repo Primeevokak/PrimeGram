@@ -36,7 +36,7 @@
     <application
         android:icon="@mipmap/ic_launcher_sa"
         android:roundIcon="@mipmap/ic_launcher_sa"
-        android:label="@string/AppName"
+        android:label="@string/AppNameLauncher"
         android:theme="@style/Theme.TMessages.Start"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
@@ -50,6 +50,7 @@
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/ic_launcher_sa"
             android:roundIcon="@mipmap/ic_launcher_sa"
+            android:label="@string/AppNameLauncher"
             android:exported="true"
             tools:node="replace">
 
@@ -66,6 +67,7 @@
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_6_launcher_sa"
             android:roundIcon="@mipmap/icon_6_launcher_sa"
+            android:label="@string/AppNameLauncher"
             android:exported="true"
             tools:node="replace">
 
@@ -82,6 +84,7 @@
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_4_launcher_sa"
             android:roundIcon="@mipmap/icon_4_launcher_sa"
+            android:label="@string/AppNameLauncher"
             android:exported="true"
             tools:node="replace">
 
@@ -98,6 +101,7 @@
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_3_launcher_sa"
             android:roundIcon="@mipmap/icon_3_launcher_sa"
+            android:label="@string/AppNameLauncher"
             android:exported="true"
             tools:node="replace">
 
@@ -114,6 +118,7 @@
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_5_launcher_sa"
             android:roundIcon="@mipmap/icon_5_launcher_sa"
+            android:label="@string/AppNameLauncher"
             android:exported="true"
             tools:node="replace">
 
@@ -130,6 +135,7 @@
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_2_launcher_sa"
             android:roundIcon="@mipmap/icon_2_launcher_sa"
+            android:label="@string/AppNameLauncher"
             android:exported="true"
             tools:node="replace">
 

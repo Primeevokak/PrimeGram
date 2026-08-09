@@ -618,7 +618,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             layout.setPadding(0, AndroidUtilities.dp(18), 0, AndroidUtilities.dp(18));
 
             final ImageView logo = new ImageView(context);
-            logo.setImageResource(R.mipmap.ic_launcher_round);
+            logo.setImageResource(R.mipmap.ic_launcher_sa);
             layout.addView(logo, org.telegram.ui.Components.LayoutHelper.createLinear(72, 72));
 
             final TextView name = new TextView(context);

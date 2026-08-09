@@ -79,6 +79,8 @@ public final class PrimeWhatsNew {
      */
     public static List<Entry> entries() {
         final List<Entry> entries = new ArrayList<>();
+        entries.add(new Entry("msg_theme", "Своё лицо",
+                "Приложение в списке установленных теперь называется PrimeGram, а не Telegram, и ставится под собственной иконкой."));
         entries.add(new Entry("msg_settings_old", "Классический вид почищен",
                 "Убрали фантомную зону над полем ввода, перекрывавшую текст сообщений, и лишнюю пустую зону над «Убрать звук» в каналах."));
         entries.add(new Entry("msg_archive", "Архив и потягивание больше не спорят",
