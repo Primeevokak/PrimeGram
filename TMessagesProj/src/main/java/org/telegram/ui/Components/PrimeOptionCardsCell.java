@@ -107,7 +107,9 @@ public abstract class PrimeOptionCardsCell extends LinearLayout {
 
     private class Card extends FrameLayout {
 
-        private final PrimeSettingsUi.CardDrawable background = new PrimeSettingsUi.CardDrawable(10);
+        private final PrimeSettingsUi.CardDrawable background = new PrimeSettingsUi.CardDrawable(
+                org.telegram.ui.Components.design.DesignSystem.current()
+                        .cornerRadius(org.telegram.ui.Components.design.DesignSystem.Role.CARD));
         private final TextPaint textPaint = new TextPaint(TextPaint.ANTI_ALIAS_FLAG);
         private final RectF bounds = new RectF();
         private final CharSequence label;

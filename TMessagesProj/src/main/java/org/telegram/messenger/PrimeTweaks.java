@@ -94,6 +94,14 @@ public class PrimeTweaks {
     /** Which service translates messages. See PrimeTranslator for the values. */
     public static final String TRANSLATE_PROVIDER = "prime_translate_provider";
 
+    /**
+     * Which visual design language renders the app. See
+     * {@link org.telegram.ui.Components.design.DesignSystem} for the values - only FLAT is
+     * actually implemented so far, the rest of the enum exists ahead of its renderers so the
+     * setting's storage format does not need to change again when they land.
+     */
+    public static final String DESIGN_MODE = "prime_design_mode";
+
     // ---- chats ----
     public static final String HIDE_REACTIONS_CHANNELS = "prime_hide_reactions_channels";
     public static final String HIDE_REACTIONS_GROUPS = "prime_hide_reactions_groups";
@@ -143,6 +151,7 @@ public class PrimeTweaks {
     private static boolean senderMiniAvatars;
     private static boolean adminShortcuts;
     private static int translateProvider = PrimeTranslator.PROVIDER_TELEGRAM;
+    private static int designMode = 0;
     private static boolean saveRoundAndVoice;
     private static boolean sendUncompressed;
     private static int maxVideoHeight;
@@ -220,6 +229,7 @@ public class PrimeTweaks {
             senderMiniAvatars = p.getBoolean(SENDER_MINI_AVATARS, false);
             adminShortcuts = p.getBoolean(ADMIN_SHORTCUTS, false);
             translateProvider = p.getInt(TRANSLATE_PROVIDER, PrimeTranslator.PROVIDER_TELEGRAM);
+            designMode = p.getInt(DESIGN_MODE, 0);
             saveRoundAndVoice = p.getBoolean(SAVE_ROUND_AND_VOICE, false);
             sendUncompressed = p.getBoolean(SEND_UNCOMPRESSED, false);
             maxVideoHeight = p.getInt(MAX_VIDEO_HEIGHT, 0);
@@ -275,6 +285,9 @@ public class PrimeTweaks {
                 break;
             case TRANSLATE_PROVIDER:
                 translateProvider = value;
+                break;
+            case DESIGN_MODE:
+                designMode = value;
                 break;
             case MAX_VIDEO_HEIGHT:
                 maxVideoHeight = value;
@@ -496,6 +509,11 @@ public class PrimeTweaks {
     public static int translateProvider() {
         ensureLoaded();
         return translateProvider;
+    }
+
+    public static int designMode() {
+        ensureLoaded();
+        return designMode;
     }
 
     /** Adds ban and purge straight to the message menu, for groups you moderate. */

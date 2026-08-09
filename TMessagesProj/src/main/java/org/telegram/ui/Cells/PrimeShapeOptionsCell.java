@@ -29,6 +29,18 @@ public class PrimeShapeOptionsCell extends PrimeOptionCardsCell {
     public static final int MODE_TRANSLATOR = 2;
     /** Ceiling for downloaded video quality. */
     public static final int MODE_VIDEO_QUALITY = 3;
+    /** The "Write" FAB: round or square. */
+    public static final int MODE_FAB_SHAPE = 4;
+    /** Outgoing/incoming bubble corner: with the little tail, or without. */
+    public static final int MODE_BUBBLE_TAIL = 5;
+    /** Sender's mini avatar next to their name in a group dialog preview: shown or not. */
+    public static final int MODE_SENDER_AVATAR = 6;
+    /** Chat header title alignment: left (with the logo) or centered. */
+    public static final int MODE_HEADER_ALIGN = 7;
+    /** Timestamp painted over a sticker/round video: shown or hidden. */
+    public static final int MODE_STICKER_TIME = 8;
+    /** Which {@link org.telegram.ui.Components.design.DesignSystem} renders the app. */
+    public static final int MODE_DESIGN_SYSTEM = 9;
 
     private final int mode;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -63,6 +75,107 @@ public class PrimeShapeOptionsCell extends PrimeOptionCardsCell {
             case MODE_VIDEO_QUALITY:
                 drawVideoQuality(canvas, bounds, index);
                 break;
+            case MODE_FAB_SHAPE:
+                drawFabShape(canvas, bounds, index);
+                break;
+            case MODE_BUBBLE_TAIL:
+                drawBubbleTail(canvas, bounds, index);
+                break;
+            case MODE_SENDER_AVATAR:
+                drawSenderAvatar(canvas, bounds, index);
+                break;
+            case MODE_HEADER_ALIGN:
+                drawHeaderAlign(canvas, bounds, index);
+                break;
+            case MODE_STICKER_TIME:
+                drawStickerTime(canvas, bounds, index);
+                break;
+            case MODE_DESIGN_SYSTEM:
+                drawDesignSystem(canvas, bounds, index);
+                break;
+        }
+    }
+
+    /** A little card of its own, drawn with each system's real corner radius - the setting shown by example. */
+    private void drawDesignSystem(Canvas canvas, RectF bounds, int index) {
+        final org.telegram.ui.Components.design.DesignSystem system = index == 1
+                ? org.telegram.ui.Components.design.MaterialDesignSystem.INSTANCE
+                : org.telegram.ui.Components.design.FlatDesignSystem.INSTANCE;
+        final float r = dp(system.cornerRadius(org.telegram.ui.Components.design.DesignSystem.Role.CARD) * 0.6f);
+        final float size = Math.min(bounds.width(), bounds.height()) * 0.7f;
+        tmp.set(bounds.centerX() - size / 2, bounds.centerY() - size / 2,
+                bounds.centerX() + size / 2, bounds.centerY() + size / 2);
+        paint.setColor(PrimeSettingsUi.mockColor(true));
+        canvas.drawRoundRect(tmp, r, r, paint);
+    }
+
+    /** A little circle standing for the FAB itself, round or square. */
+    private void drawFabShape(Canvas canvas, RectF bounds, int index) {
+        final float size = Math.min(bounds.width(), bounds.height()) * 0.5f;
+        tmp.set(bounds.centerX() - size / 2, bounds.centerY() - size / 2,
+                bounds.centerX() + size / 2, bounds.centerY() + size / 2);
+        paint.setColor(PrimeSettingsUi.mockColor(true));
+        final float radius = index == 0 ? size / 2 : dp(6);
+        canvas.drawRoundRect(tmp, radius, radius, paint);
+    }
+
+    /** A bubble with or without the little corner tail, the actual shape this setting controls. */
+    private void drawBubbleTail(Canvas canvas, RectF bounds, int index) {
+        final float bubbleHeight = dp(24);
+        final float left = bounds.left + (index == 1 ? 0 : dp(6));
+        tmp.set(left, bounds.centerY() - bubbleHeight / 2, bounds.right - dp(6), bounds.centerY() + bubbleHeight / 2);
+        paint.setColor(PrimeSettingsUi.mockColor(false));
+        canvas.drawRoundRect(tmp, dp(10), dp(10), paint);
+        if (index == 0) {
+            // The tail: a small triangle at the bottom-left corner of the bubble.
+            final android.graphics.Path path = new android.graphics.Path();
+            path.moveTo(tmp.left, tmp.bottom - dp(8));
+            path.lineTo(tmp.left - dp(6), tmp.bottom);
+            path.lineTo(tmp.left, tmp.bottom);
+            path.close();
+            canvas.drawPath(path, paint);
+        }
+    }
+
+    /** A small circle (the avatar) beside two lines of "text", present or absent. */
+    private void drawSenderAvatar(Canvas canvas, RectF bounds, int index) {
+        float textLeft = bounds.left + dp(4);
+        if (index == 1) {
+            final float r = dp(9);
+            paint.setColor(PrimeSettingsUi.mockColor(true));
+            canvas.drawCircle(bounds.left + dp(4) + r, bounds.centerY(), r, paint);
+            textLeft = bounds.left + dp(4) + r * 2 + dp(6);
+        }
+        paint.setColor(PrimeSettingsUi.mockColor(false));
+        canvas.drawRoundRect(textLeft, bounds.centerY() - dp(7), bounds.right - dp(4), bounds.centerY() - dp(2), dp(2), dp(2), paint);
+        canvas.drawRoundRect(textLeft, bounds.centerY() + dp(2), bounds.right - dp(4) - dp(14), bounds.centerY() + dp(7), dp(2), dp(2), paint);
+    }
+
+    /** A "logo" square plus a line of "title" text, left-anchored or centered as a group. */
+    private void drawHeaderAlign(Canvas canvas, RectF bounds, int index) {
+        final float titleWidth = bounds.width() * 0.5f;
+        final float logoSize = dp(14);
+        final float groupWidth = index == 1 ? titleWidth : logoSize + dp(6) + titleWidth;
+        float left = index == 1 ? bounds.centerX() - groupWidth / 2 : bounds.left;
+        if (index == 0) {
+            paint.setColor(PrimeSettingsUi.mockColor(true));
+            canvas.drawRoundRect(left, bounds.centerY() - logoSize / 2, left + logoSize, bounds.centerY() + logoSize / 2, dp(4), dp(4), paint);
+            left += logoSize + dp(6);
+        }
+        paint.setColor(PrimeSettingsUi.mockColor(false));
+        canvas.drawRoundRect(left, bounds.centerY() - dp(4), left + titleWidth, bounds.centerY() + dp(4), dp(3), dp(3), paint);
+    }
+
+    /** A sticker-shaped square with, or without, a little timestamp pill in its corner. */
+    private void drawStickerTime(Canvas canvas, RectF bounds, int index) {
+        final float size = Math.min(bounds.width(), bounds.height()) * 0.6f;
+        tmp.set(bounds.centerX() - size / 2, bounds.centerY() - size / 2,
+                bounds.centerX() + size / 2, bounds.centerY() + size / 2);
+        paint.setColor(PrimeSettingsUi.mockColor(false));
+        canvas.drawRoundRect(tmp, dp(8), dp(8), paint);
+        if (index == 0) {
+            paint.setColor(PrimeSettingsUi.mockColor(true));
+            canvas.drawRoundRect(tmp.right - dp(20), tmp.bottom - dp(10), tmp.right - dp(2), tmp.bottom - dp(2), dp(4), dp(4), paint);
         }
     }
 

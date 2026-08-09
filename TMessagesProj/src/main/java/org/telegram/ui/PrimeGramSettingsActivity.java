@@ -139,6 +139,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_STICKER_SIZE_CARDS = 93;
     private static final int ID_TRANSLATOR_CARDS = 94;
     private static final int ID_VIDEO_QUALITY_CARDS = 95;
+    // Deliberately NOT reusing ID_SQUARE_FAB/ID_SENDER_MINI_AVATARS/ID_CENTER_TITLE/
+    // ID_REMOVE_TAIL/ID_HIDE_STICKER_TIME for the card versions below: those ids are still in
+    // primeTweakKeyFor()'s table for the old plain-switch rows, and onClick() unconditionally
+    // flips whatever that table maps an id to. Reusing them would double-toggle the value
+    // whenever a card view's own onSelected happened to also let the click reach onClick().
+    private static final int ID_FAB_SHAPE_CARDS = 112;
+    private static final int ID_SENDER_AVATAR_CARDS = 113;
+    private static final int ID_HEADER_ALIGN_CARDS = 114;
+    private static final int ID_BUBBLE_TAIL_CARDS = 115;
+    private static final int ID_STICKER_TIME_CARDS = 116;
+    private static final int ID_BUBBLE_RADIUS_EDITOR = 117;
+    private static final int ID_DESIGN_SYSTEM_CARDS = 118;
     /** Ids for the explanation cells, kept clear of everything else. */
     private static final int ID_LOGS_ENABLED = 96;
     private static final int ID_HIDE_SETTINGS_HEADER = 97;
@@ -411,6 +423,20 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int SECTION_MEDIA_TRANSLATE = 33;
     private static final int SECTION_MEDIA_MUSIC = 34;
 
+    // PrimeGram: SECTION_ADVANCED and SECTION_PREMIUM used to pack every one of their headers
+    // into a single flat leaf screen while every sibling top-level section (Interface, Media)
+    // already drilled into its own picker of sub-screens. On a screen with this many settings,
+    // an ungrouped list reads as "too much" regardless of how any one row looks - splitting it
+    // the same way the others already are is what actually fixes that, not a prettier switch.
+    private static final int SECTION_ADVANCED_UPDATES = 40;
+    private static final int SECTION_ADVANCED_PERFORMANCE = 41;
+    private static final int SECTION_ADVANCED_DIAGNOSTICS = 42;
+    private static final int SECTION_ADVANCED_EXPERIMENTAL = 43;
+
+    private static final int SECTION_PREMIUM_CHATS = 50;
+    private static final int SECTION_PREMIUM_MEDIA = 51;
+    private static final int SECTION_PREMIUM_PROFILE = 52;
+
     /** Category rows on the hub. Offset well past the setting ids so they cannot collide. */
     private static final int ID_SECTION_BASE = 900;
 
@@ -618,7 +644,21 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             layout.setPadding(0, AndroidUtilities.dp(18), 0, AndroidUtilities.dp(18));
 
             final ImageView logo = new ImageView(context);
-            logo.setImageResource(R.mipmap.ic_launcher_sa);
+            // Not setImageResource(R.mipmap.ic_launcher_sa): that resource is an adaptive icon
+            // (background+foreground+monochrome layers), and AdaptiveIconDrawable drawn straight
+            // into a plain ImageView - with no launcher to apply the platform's mask/inset - can
+            // render as a blank fill instead of the icon, depending on OEM and API level. Asking
+            // PackageManager for the icon gets back whatever the OS actually composited for the
+            // launcher, which is guaranteed to already be a plain, correctly-sized Drawable.
+            try {
+                logo.setImageDrawable(context.getPackageManager().getApplicationIcon(context.getPackageName()));
+            } catch (Throwable t) {
+                // Falls back to a resource TMessagesProj actually owns: ic_launcher_sa only
+                // exists in the app module (TMessagesProj_AppStandalone), which is why the
+                // library-only compile of this file (:TMessagesProj:compileReleaseJavaWithJavac)
+                // could not even resolve it as a fallback reference here.
+                logo.setImageResource(R.mipmap.ic_launcher_round);
+            }
             layout.addView(logo, org.telegram.ui.Components.LayoutHelper.createLinear(72, 72));
 
             final TextView name = new TextView(context);
@@ -893,6 +933,20 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
             case SECTION_MEDIA_MUSIC: return "Музыка";
 
+            case SECTION_ADVANCED_UPDATES: return "Обновления";
+
+            case SECTION_ADVANCED_PERFORMANCE: return "Быстродействие";
+
+            case SECTION_ADVANCED_DIAGNOSTICS: return "Диагностика";
+
+            case SECTION_ADVANCED_EXPERIMENTAL: return "Эксперименты";
+
+            case SECTION_PREMIUM_CHATS: return "Чаты и папки";
+
+            case SECTION_PREMIUM_MEDIA: return "Медиа и стикеры";
+
+            case SECTION_PREMIUM_PROFILE: return "Профиль и текст";
+
             default: return "Настройки PrimeGram";
 
         }
@@ -978,11 +1032,15 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Скрыть истории", org.telegram.messenger.PrimeTweaks.HIDE_STORIES));
             row(tweak(ID_HIDE_FAB, IconBackgroundColors.BLUE, R.drawable.msg_message,
                     "Скрыть кнопку «Написать»", org.telegram.messenger.PrimeTweaks.HIDE_FLOATING_BUTTON));
-            row(tweak(ID_SQUARE_FAB, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_msgbubble3,
-                    "Квадратная кнопка «Написать»", org.telegram.messenger.PrimeTweaks.SQUARE_FAB));
-            row(tweak(ID_SENDER_MINI_AVATARS, IconBackgroundColors.GREEN, R.drawable.msg_contacts,
-                    "Аватарка отправителя в превью", org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS));
             endCard(items);
+
+            items.add(UItem.asHeader("Кнопка «Написать» и превью"));
+            if (fabShapeCards() != null) {
+                items.add(UItem.asCustom(ID_FAB_SHAPE_CARDS, fabShapeCards()));
+            }
+            if (senderAvatarCards() != null) {
+                items.add(UItem.asCustom(ID_SENDER_AVATAR_CARDS, senderAvatarCards()));
+            }
 
             items.add(UItem.asHeader("Архив и вкладки"));
             row(check(ID_ARCHIVE_ON_PULL, IconBackgroundColors.ORANGE, R.drawable.msg_archive_hide,
@@ -1007,8 +1065,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Скрыть кнопку «Поделиться»", org.telegram.messenger.PrimeTweaks.HIDE_SHARE_BUTTON));
             row(tweak(ID_EDITED_AS_ICON, IconBackgroundColors.ORANGE, R.drawable.msg_edit,
                     "«Изменено» значком", org.telegram.messenger.PrimeTweaks.EDITED_AS_ICON));
-            row(tweak(ID_HIDE_STICKER_TIME, IconBackgroundColors.PURPLE, R.drawable.msg_sticker,
-                    "Скрыть время на стикерах и кружочках", org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME));
             row(tweak(ID_HIDE_SEND_AS_PEER, IconBackgroundColors.GRAY, R.drawable.msg_channel,
                     "Скрыть выбор «отправить от имени»", org.telegram.messenger.PrimeTweaks.HIDE_SEND_AS_PEER));
             row(tweak(ID_COMMA_AFTER_MENTION, IconBackgroundColors.CYAN, R.drawable.msg_mention,
@@ -1016,6 +1072,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             row(tweak(ID_HIDE_KEYBOARD_ON_SCROLL, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_go_down,
                     "Прятать клавиатуру при прокрутке", org.telegram.messenger.PrimeTweaks.HIDE_KEYBOARD_ON_SCROLL));
             endCard(items);
+
+            items.add(UItem.asHeader("Время на стикерах и кружочках"));
+            if (stickerTimeCards() != null) {
+                items.add(UItem.asCustom(ID_STICKER_TIME_CARDS, stickerTimeCards()));
+            }
 
             items.add(UItem.asHeader("Размер стикеров"));
             // The preview sits between the header and the controls, so the sticker being resized
@@ -1059,18 +1120,23 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_UI_APPEARANCE) {
+            // Stage 2 pilot: only changes the corner radius of this settings screen's own cards
+            // so far (see PrimeOptionCardsCell) - chat bubbles and everything else still render
+            // through the same code they always have, on purpose, until this proves out.
+            items.add(UItem.asHeader("Дизайн-система (пилот)"));
+            if (designSystemCards() != null) {
+                items.add(UItem.asCustom(ID_DESIGN_SYSTEM_CARDS, designSystemCards()));
+            }
+            items.add(UItem.asShadow("Пока меняет скругление только карточек на этом экране настроек — проверка, что переключение вообще работает, прежде чем распространять его на весь интерфейс."));
+
             // The preview is not a row here - attachPinnedPreview() holds it above the list, so it
             // stays visible for every switch in the section rather than only the first few.
-            row(tweak(ID_CENTER_TITLE, IconBackgroundColors.BLUE, R.drawable.msg_photo_text_regular,
-                    "Заголовок по центру", org.telegram.messenger.PrimeTweaks.CENTER_TITLE));
             row(tweak(ID_MAIN_TITLE_USERNAME, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_contacts_name,
                     "Вместо логотипа — своё имя", org.telegram.messenger.PrimeTweaks.MAIN_TITLE_USERNAME));
             row(tweak(ID_HIDE_EMOJI_STATUS, IconBackgroundColors.ORANGE, R.drawable.msg_smile_status,
                     "Скрыть свой эмодзи-статус", org.telegram.messenger.PrimeTweaks.HIDE_EMOJI_STATUS));
             row(tweak(ID_HIDE_SETTINGS_HEADER, IconBackgroundColors.GRAY, R.drawable.msg_settings,
                     "Убрать шапку профиля в настройках", org.telegram.messenger.PrimeTweaks.HIDE_SETTINGS_HEADER));
-            row(tweak(ID_REMOVE_TAIL, IconBackgroundColors.PURPLE, R.drawable.msg_msgbubble3,
-                    "Пузыри без хвостика", org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL));
             row(tweak(ID_FORCE_SNOW, IconBackgroundColors.CYAN, R.drawable.msg_colors,
                     "Снег круглый год", org.telegram.messenger.PrimeTweaks.FORCE_SNOW));
             row(button(ID_ICON_PACKS, IconBackgroundColors.RED, R.drawable.msg_photos,
@@ -1089,6 +1155,20 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             if (avatarCornersCell() != null) {
                 items.add(UItem.asCustom(ID_AVATAR_CORNERS, avatarCornersCell()));
             }
+
+            items.add(UItem.asHeader("Заголовок чата"));
+            if (headerAlignCards() != null) {
+                items.add(UItem.asCustom(ID_HEADER_ALIGN_CARDS, headerAlignCards()));
+            }
+
+            items.add(UItem.asHeader("Форма пузырей"));
+            if (bubbleTailCards() != null) {
+                items.add(UItem.asCustom(ID_BUBBLE_TAIL_CARDS, bubbleTailCards()));
+            }
+            if (bubbleRadiusEditor() != null) {
+                items.add(UItem.asCustom(ID_BUBBLE_RADIUS_EDITOR, bubbleRadiusEditor()));
+            }
+
             items.add(info(1, "Оформление",
                     "Форма аватарок меняется сразу и везде.",
                     "Снегопад и новогодняя шапка у заголовка — те же, что Telegram показывает 31 декабря, только без привязки к дате.\n\nЗаголовок центрируется лишь когда для этого есть место: если название длинное и наехало бы на кнопки, оно остаётся слева.\n\nФорма аватарок меняется прямо во время перетаскивания и сразу везде — в списке чатов, в шапке чата, в профиле. Круги, которые рисует не аватарка, а что-то другое — кружочки-видео, значки — остаются кругами.\n\nСкругление задаётся долей, а не числом точек: поэтому на маленькой аватарке оно выглядит так же, как на большой, и в примере показаны сразу четыре размера.\n\n«Классический плоский вид» откатывает недавний «island»-редизайн (скруглённые плавающие панели, стеклянные эффекты) обратно к плоскому виду прежних версий Telegram — панель ввода, вкладки, шапки чатов и списка чатов. Открытые экраны обновляются при следующем открытии."));
@@ -1408,7 +1488,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_ADVANCED) {
-            items.add(UItem.asHeader("Обновления приложения"));
+            items.add(section(SECTION_ADVANCED_UPDATES, IconBackgroundColors.GREEN, R.drawable.msg_download,
+                    "Обновления", "Автообновление, проверить сейчас"));
+            items.add(section(SECTION_ADVANCED_PERFORMANCE, IconBackgroundColors.ORANGE, R.drawable.msg_speed,
+                    "Быстродействие", "Оптимизации PrimeGram"));
+            items.add(section(SECTION_ADVANCED_DIAGNOSTICS, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
+                    "Диагностика", "Логи, трасса запуска, батарея, push"));
+            items.add(section(SECTION_ADVANCED_EXPERIMENTAL, IconBackgroundColors.RED, R.drawable.msg_maxvideo,
+                    "Эксперименты", "Аппаратное ускорение видео"));
+            items.add(UItem.asShadow(null));
+        }
+
+        if (section == SECTION_ADVANCED_UPDATES) {
             row(check(ID_AUTO_UPDATES, IconBackgroundColors.GREEN, R.drawable.msg_download,
                     "Автоматически скачивать обновления",
                     preferences.getBoolean("primegram_auto_updates", true)));
@@ -1416,16 +1507,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Проверить обновления", null));
             endCard(items);
             items.add(UItem.asShadow("PrimeGram может автоматически проверять релизы на GitHub и скачивать новые версии."));
+        }
 
-            items.add(UItem.asHeader("Быстродействие"));
+        if (section == SECTION_ADVANCED_PERFORMANCE) {
             row(tweak(ID_OPTIMIZATIONS, IconBackgroundColors.ORANGE, R.drawable.msg_speed,
                     "Оптимизации PrimeGram", org.telegram.messenger.PrimeTweaks.OPTIMIZATIONS));
             endCard(items);
             items.add(info(7, "Оптимизации PrimeGram",
                     "Ускоряют работу ценой памяти и фоновых действий.",
                     "Сюда входят: подготовка вкладок «Профиль» и «Настройки» заранее, чтобы переход к ним был мгновенным; прогрев соединений туннеля при возврате в приложение, чтобы не ждать рукопожатие; увеличенный запас соединений для медиа, чтобы лента историй не открывалась по одной картинке.\n\nКаждая из них меняет память или фоновую работу на скорость. На большинстве устройств это выгодный обмен, но если приложение стало нестабильным или телефон греется — выключите и посмотрите, станет ли лучше. Это честнее, чем откатываться на старую сборку.\n\nК оптимизации батареи Android эта настройка отношения не имеет: та живёт в системных разрешениях и включается кнопкой в разделе «Соединение»."));
+        }
 
-            items.add(UItem.asHeader("Диагностика"));
+        if (section == SECTION_ADVANCED_DIAGNOSTICS) {
             row(check(ID_LOGS_ENABLED, IconBackgroundColors.GRAY, R.drawable.msg_log,
                     "Подробные логи", org.telegram.messenger.BuildVars.LOGS_ENABLED));
             row(button(ID_STARTUP_TRACE, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
@@ -1438,8 +1531,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(info(6, "Подробные логи",
                     "Нужны только когда мы просим трассировку запуска.",
                     "Telegram пишет в лог очень много, и каждая строка форматируется в том потоке, который её отправил, — включая главный. Постоянно включённые логи заметно замедляют работу и занимают место.\n\nВключайте, когда нужно снять трассировку запуска или разобраться с ошибкой, и выключайте после. Трассировка PrimeGram пишется в тот же лог, поэтому без этой настройки её не будет.\n\nСама трасса показывает, сколько миллисекунд занял каждый этап последнего холодного старта: загрузка нативных библиотек, открытие базы, появление списка чатов."));
+        }
 
-            items.add(UItem.asHeader("Экспериментальные настройки"));
+        if (section == SECTION_ADVANCED_EXPERIMENTAL) {
             row(check(ID_HW_ACCEL, IconBackgroundColors.RED, R.drawable.msg_maxvideo,
                     "Аппаратное ускорение видео (MediaCodec)",
                     org.telegram.messenger.CrashSafeToggle.isEnabled("primegram_hw_accel")));
@@ -1459,8 +1553,16 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     ? "Сейчас включено: расширение функционала на этом устройстве — бесконечные реакции, эмодзи-статусы, значок в профиле и увеличенные лимиты ниже. "
                     : "Сейчас выключено — сервер по-прежнему не считает вас Premium-пользователем. ")
                     + "Включается в «Серой зоне»."));
+            items.add(section(SECTION_PREMIUM_CHATS, IconBackgroundColors.BLUE, R.drawable.msg_limit_folder,
+                    "Чаты и папки", "Папки, закреплённые чаты, каналы"));
+            items.add(section(SECTION_PREMIUM_MEDIA, IconBackgroundColors.ORANGE, R.drawable.msg_fave,
+                    "Медиа и стикеры", "GIF, избранные и недавние стикеры"));
+            items.add(section(SECTION_PREMIUM_PROFILE, IconBackgroundColors.GREEN, R.drawable.msg_limit_links,
+                    "Профиль и текст", "Ссылки, описание, био"));
+            items.add(UItem.asShadow(null));
+        }
 
-            items.add(UItem.asHeader("Лимиты чатов и папок"));
+        if (section == SECTION_PREMIUM_CHATS) {
             row(button(ID_LIMIT_FOLDERS, IconBackgroundColors.BLUE, R.drawable.msg_limit_folder,
                     "Максимальное количество папок", String.valueOf(messagesController.dialogFiltersLimitPremium)));
             row(button(ID_LIMIT_PINNED_FOLDER, IconBackgroundColors.CYAN, R.drawable.msg_limit_pin,
@@ -1473,8 +1575,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Лимит каналов и супергрупп", String.valueOf(messagesController.channelsLimitPremium)));
             endCard(items);
             items.add(UItem.asShadow("Увеличенные лимиты для структуры ваших переписок и папок."));
+        }
 
-            items.add(UItem.asHeader("Лимиты медиа и стикеров"));
+        if (section == SECTION_PREMIUM_MEDIA) {
             row(button(ID_LIMIT_GIFS, IconBackgroundColors.BLUE, R.drawable.msg_gif,
                     "Лимит сохраненных GIF", String.valueOf(messagesController.savedGifsLimitPremium)));
             row(button(ID_LIMIT_STICKERS, IconBackgroundColors.ORANGE, R.drawable.msg_fave,
@@ -1483,8 +1586,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Лимит недавних стикеров", String.valueOf(messagesController.maxRecentStickersCount)));
             endCard(items);
             items.add(UItem.asShadow("Лимиты на количество гифок в панели отправки, избранных и недавних стикеров. Недавние стикеры обрезает сам клиент, поэтому это ограничение снимается полностью и без участия сервера."));
+        }
 
-            items.add(UItem.asHeader("Лимиты профиля и текста"));
+        if (section == SECTION_PREMIUM_PROFILE) {
             row(button(ID_LIMIT_PUBLIC_LINKS, IconBackgroundColors.GREEN, R.drawable.msg_limit_links,
                     "Лимит публичных ссылок", String.valueOf(messagesController.publicLinksLimitPremium)));
             row(button(ID_LIMIT_CAPTION, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_photo_text2,
@@ -2701,6 +2805,136 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
      */
     private static final int[] STICKER_SIZE_VALUES = {10, org.telegram.messenger.PrimeTweaks.STICKER_SIZE_DEFAULT, 20};
     private static final String[] STICKER_SIZE_NAMES = {"Компактно", "Как в оригинале", "Крупно"};
+
+    // PrimeGram: two-option card selectors for settings that used to be plain switches. The
+    // value itself is still a single boolean in PrimeTweaks - only the row asking for it changed,
+    // from a label with a toggle to two labelled mockups, index 0 always the "off"/default state.
+    private static final String[] FAB_SHAPE_NAMES = {"Круглая", "Квадратная"};
+    private static final String[] BUBBLE_TAIL_NAMES = {"С хвостиком", "Без хвостика"};
+    private static final String[] SENDER_AVATAR_NAMES = {"Без аватарки", "С аватаркой"};
+    private static final String[] HEADER_ALIGN_NAMES = {"Слева, с логотипом", "По центру"};
+    private static final String[] STICKER_TIME_NAMES = {"Время видно", "Время скрыто"};
+    private static final String[] DESIGN_SYSTEM_NAMES = {"Плоский", "Material"};
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell fabShapeCards;
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell bubbleTailCards;
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell senderAvatarCards;
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell headerAlignCards;
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell stickerTimeCards;
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell designSystemCards;
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell designSystemCards() {
+        if (designSystemCards == null && getContext() != null) {
+            designSystemCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_DESIGN_SYSTEM,
+                    DESIGN_SYSTEM_NAMES, null, org.telegram.messenger.PrimeTweaks.designMode(), null);
+            designSystemCards.setOnSelected(index -> {
+                final android.view.View root = fragmentView;
+                final Runnable apply = () -> {
+                    org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.DESIGN_MODE, index);
+                    if (listView != null && listView.adapter != null) {
+                        listView.adapter.update(true);
+                    }
+                };
+                if (root instanceof android.view.ViewGroup) {
+                    final android.view.ViewGroup group = (android.view.ViewGroup) root;
+                    org.telegram.ui.Components.design.DesignSwitchAnimator.run(
+                            group, group.getWidth() / 2, group.getHeight() / 2, apply);
+                } else {
+                    apply.run();
+                }
+            });
+        }
+        return designSystemCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell fabShapeCards() {
+        if (fabShapeCards == null && getContext() != null) {
+            final int current = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SQUARE_FAB) ? 1 : 0;
+            fabShapeCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_FAB_SHAPE,
+                    FAB_SHAPE_NAMES, null, current, null);
+            fabShapeCards.setOnSelected(index ->
+                    org.telegram.messenger.PrimeTweaks.set(org.telegram.messenger.PrimeTweaks.SQUARE_FAB, index == 1));
+        }
+        return fabShapeCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell bubbleTailCards() {
+        if (bubbleTailCards == null && getContext() != null) {
+            final int current = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL) ? 1 : 0;
+            bubbleTailCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_BUBBLE_TAIL,
+                    BUBBLE_TAIL_NAMES, null, current, null);
+            bubbleTailCards.setOnSelected(index -> {
+                org.telegram.messenger.PrimeTweaks.set(org.telegram.messenger.PrimeTweaks.REMOVE_MESSAGE_TAIL, index == 1);
+                updateLivePreview();
+            });
+        }
+        return bubbleTailCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell senderAvatarCards() {
+        if (senderAvatarCards == null && getContext() != null) {
+            final int current = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS) ? 1 : 0;
+            senderAvatarCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_SENDER_AVATAR,
+                    SENDER_AVATAR_NAMES, null, current, null);
+            senderAvatarCards.setOnSelected(index -> {
+                org.telegram.messenger.PrimeTweaks.set(org.telegram.messenger.PrimeTweaks.SENDER_MINI_AVATARS, index == 1);
+                // Previews are built once per bind and cached, so nothing changes until the
+                // dialogs list is told to rebuild them.
+                org.telegram.messenger.NotificationCenter.getGlobalInstance()
+                        .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
+            });
+        }
+        return senderAvatarCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell headerAlignCards() {
+        if (headerAlignCards == null && getContext() != null) {
+            final int current = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.CENTER_TITLE) ? 1 : 0;
+            headerAlignCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_HEADER_ALIGN,
+                    HEADER_ALIGN_NAMES, null, current, null);
+            headerAlignCards.setOnSelected(index -> {
+                org.telegram.messenger.PrimeTweaks.set(org.telegram.messenger.PrimeTweaks.CENTER_TITLE, index == 1);
+                updateLivePreview();
+            });
+        }
+        return headerAlignCards;
+    }
+
+    private org.telegram.ui.Cells.PrimeShapeOptionsCell stickerTimeCards() {
+        if (stickerTimeCards == null && getContext() != null) {
+            final int current = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME) ? 1 : 0;
+            stickerTimeCards = new org.telegram.ui.Cells.PrimeShapeOptionsCell(getContext(),
+                    org.telegram.ui.Cells.PrimeShapeOptionsCell.MODE_STICKER_TIME,
+                    STICKER_TIME_NAMES, null, current, null);
+            stickerTimeCards.setOnSelected(index ->
+                    org.telegram.messenger.PrimeTweaks.set(org.telegram.messenger.PrimeTweaks.HIDE_STICKER_TIME, index == 1));
+        }
+        return stickerTimeCards;
+    }
+
+    private org.telegram.ui.Components.PrimeBubbleRadiusEditor bubbleRadiusEditor;
+
+    private org.telegram.ui.Components.PrimeBubbleRadiusEditor bubbleRadiusEditor() {
+        if (bubbleRadiusEditor == null && getContext() != null) {
+            bubbleRadiusEditor = new org.telegram.ui.Components.PrimeBubbleRadiusEditor(getContext(), null);
+            bubbleRadiusEditor.setOnChange(() -> {
+                if (org.telegram.messenger.SharedConfig.bubbleRadius == bubbleRadiusEditor.getRadius()) {
+                    return;
+                }
+                org.telegram.messenger.SharedConfig.bubbleRadius = bubbleRadiusEditor.getRadius();
+                MessagesController.getGlobalMainSettings().edit()
+                        .putInt("bubbleRadius", bubbleRadiusEditor.getRadius())
+                        .apply();
+                updateLivePreview();
+            });
+        }
+        return bubbleRadiusEditor;
+    }
 
     private org.telegram.ui.Cells.PrimeShapeOptionsCell stickerSizeCards;
     private org.telegram.ui.Cells.PrimeShapeOptionsCell doubleTapCards;
