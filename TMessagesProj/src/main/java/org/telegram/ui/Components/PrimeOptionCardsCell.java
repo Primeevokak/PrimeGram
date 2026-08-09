@@ -98,6 +98,22 @@ public abstract class PrimeOptionCardsCell extends LinearLayout {
     }
 
     /**
+     * Reapplies the current {@link org.telegram.ui.Components.design.DesignSystem}'s shape to
+     * every card - the corner radius baked into each {@link PrimeSettingsUi.CardDrawable} at
+     * construction is otherwise invisible to a later design-mode switch, since these cells are
+     * cached and rebound rather than recreated (see {@code PrimeGramSettingsActivity}'s
+     * "Дизайн-система (пилот)" card, which calls this on every already-built option-card cell
+     * it can reach right after the mode changes).
+     */
+    public void refreshDesignSystem() {
+        final org.telegram.ui.Components.design.DesignSystem system =
+                org.telegram.ui.Components.design.DesignSystem.current();
+        for (Card card : cards) {
+            card.background.applyDesignSystem(system, org.telegram.ui.Components.design.DesignSystem.Role.CARD);
+        }
+    }
+
+    /**
      * Draws option {@code index} inside {@code bounds}.
      *
      * <p>{@code selection} runs 0 to 1 during the selection animation, so an option may emphasise
@@ -107,9 +123,7 @@ public abstract class PrimeOptionCardsCell extends LinearLayout {
 
     private class Card extends FrameLayout {
 
-        private final PrimeSettingsUi.CardDrawable background = new PrimeSettingsUi.CardDrawable(
-                org.telegram.ui.Components.design.DesignSystem.current()
-                        .cornerRadius(org.telegram.ui.Components.design.DesignSystem.Role.CARD));
+        private final PrimeSettingsUi.CardDrawable background = new PrimeSettingsUi.CardDrawable(10);
         private final TextPaint textPaint = new TextPaint(TextPaint.ANTI_ALIAS_FLAG);
         private final RectF bounds = new RectF();
         private final CharSequence label;
@@ -122,6 +136,8 @@ public abstract class PrimeOptionCardsCell extends LinearLayout {
             setWillNotDraw(false);
             textPaint.setTextSize(dp(12));
             background.setInvalidateCallback(this::invalidate);
+            background.applyDesignSystem(org.telegram.ui.Components.design.DesignSystem.current(),
+                    org.telegram.ui.Components.design.DesignSystem.Role.CARD);
         }
 
         void setSelectedState(boolean selected, boolean animated) {

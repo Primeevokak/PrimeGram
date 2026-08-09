@@ -56,8 +56,12 @@ public class PrimeSettingsUi {
 
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
-        private final float radius;
+        private final RectF shadowRect = new RectF();
+        private float radius;
+        private float shadowDy;
+        private int shadowAlpha;
 
         private float selection;
         private ValueAnimator animator;
@@ -70,6 +74,23 @@ public class PrimeSettingsUi {
         public CardDrawable(float radiusDp) {
             this.radius = dp(radiusDp);
             stroke.setStyle(Paint.Style.STROKE);
+        }
+
+        /**
+         * Reapplies shape from whichever {@link org.telegram.ui.Components.design.DesignSystem}
+         * is current, so a design-mode switch (see {@code PrimeGramSettingsActivity}'s
+         * "Дизайн-система (пилот)" card) changes an already-built card instead of only affecting
+         * ones constructed afterward - a radius baked into a {@code final} field at construction
+         * time is invisible to a later switch, which was the actual bug behind "no difference at
+         * all" the first time this shipped.
+         */
+        public void applyDesignSystem(org.telegram.ui.Components.design.DesignSystem system,
+                                       org.telegram.ui.Components.design.DesignSystem.Role role) {
+            radius = dp(system.cornerRadius(role));
+            final org.telegram.ui.Components.design.ShadowSpec shadow = system.shadow(role);
+            shadowDy = dp(shadow.dyDp);
+            shadowAlpha = shadow.alpha;
+            invalidateSelf();
         }
 
         /** Where to send invalidations, since a Drawable inside a custom view has no host. */
@@ -118,6 +139,15 @@ public class PrimeSettingsUi {
             final float inset = stroke.getStrokeWidth() / 2f;
             rect.set(getBounds().left + inset, getBounds().top + inset,
                     getBounds().right - inset, getBounds().bottom - inset);
+            if (shadowAlpha > 0) {
+                // A plain offset rounded rect rather than a real blurred shadow (Paint's own
+                // setShadowLayer needs a software layer type this Drawable has no view to
+                // request) - crude, but the point here is that Material visibly has elevation
+                // and Flat visibly has none, which this already shows at a glance.
+                shadowPaint.setColor(ColorUtils.setAlphaComponent(android.graphics.Color.BLACK, shadowAlpha));
+                shadowRect.set(rect.left, rect.top + shadowDy, rect.right, rect.bottom + shadowDy);
+                canvas.drawRoundRect(shadowRect, radius, radius, shadowPaint);
+            }
             canvas.drawRoundRect(rect, radius, radius, fill);
             canvas.drawRoundRect(rect, radius, radius, stroke);
         }

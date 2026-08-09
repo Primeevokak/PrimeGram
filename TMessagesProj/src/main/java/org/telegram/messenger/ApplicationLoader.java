@@ -387,14 +387,24 @@ public class ApplicationLoader extends Application {
         // a chance to crash again. See CrashSafeToggle's javadoc.
         org.telegram.ui.Components.AnimatedFileNative.armHwAccelForThisSession();
 
-        VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
-        PrimeStartupTrace.mark("VpnSDK.setup done");
-        VpnSDK.setLogListener(new kotlin.jvm.functions.Function1<String, kotlin.Unit>() {
-            @Override
-            public kotlin.Unit invoke(String msg) {
-                org.telegram.messenger.TgWsProxyService.addLog("[VLESS] " + msg);
-                return kotlin.Unit.INSTANCE;
-            }
+        // Off the main thread on purpose: this is pure object construction (an HTTP client,
+        // some repositories) for a proxy nobody has asked to use yet - there is no tunnel here,
+        // that only gets built on first real use (see TunnelFactory.getTunnelManager's own
+        // "do not call from the main thread" note). Measured at ~600ms, over 60% of
+        // Application.onCreate, entirely because building the Ktor client engine is slow on a
+        // cold JVM - nothing about it needs to finish before the chat list can appear. Same
+        // "off the critical path" treatment PrimeVpnGuard.start and the push service already
+        // get further down this method.
+        Utilities.globalQueue.postRunnable(() -> {
+            VpnSDK.setup(applicationContext, BuildVars.DEBUG_VERSION);
+            PrimeStartupTrace.mark("VpnSDK.setup done");
+            VpnSDK.setLogListener(new kotlin.jvm.functions.Function1<String, kotlin.Unit>() {
+                @Override
+                public kotlin.Unit invoke(String msg) {
+                    org.telegram.messenger.TgWsProxyService.addLog("[VLESS] " + msg);
+                    return kotlin.Unit.INSTANCE;
+                }
+            });
         });
 
         if (BuildVars.LOGS_ENABLED) {

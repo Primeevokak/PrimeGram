@@ -161,6 +161,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_STICKER_SIZE_SLIDER = 102;
     private static final int ID_SIDEBAR_ZONE = 103;
     private static final int ID_PLUGINS = 104;
+    private static final int ID_BLOCKS = 119;
     private static final int ID_TGWS_SETTINGS = 105;
     private static final int ID_TOOLBAR_BUTTONS = 107;
     private static final int ID_GUIDE = 108;
@@ -560,6 +561,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         items.add(SettingsActivity.SettingCell.Factory.of(ID_PLUGINS,
                 IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom,
                 R.drawable.msg_puzzle, "Плагины", primePluginsSubtitle()));
+        items.add(SettingsActivity.SettingCell.Factory.of(ID_BLOCKS,
+                IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom,
+                R.drawable.msg_calendar2, "Блоки", primeBlocksSubtitle()));
         items.add(section(SECTION_ABOUT, IconBackgroundColors.GRAY, R.drawable.settings_ask,
                 "Разрешения и поддержка", "Доступы приложения и связь с автором"));
         items.add(UItem.asShadow(null));
@@ -712,6 +716,25 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         final int active = org.telegram.messenger.plugins.PrimePluginHooks.activeCount();
         if (active > 0 && active < count) {
             return count + " " + word + " · " + active + " активно";
+        }
+        return count + " " + word;
+    }
+
+    private CharSequence primeBlocksSubtitle() {
+        final int count = org.telegram.messenger.blocks.PrimeBlocksController.getInstance().count();
+        if (count == 0) {
+            return "Автоматизация из готовых блоков, без кода";
+        }
+        final int tens = count % 100, ones = count % 10;
+        final String word;
+        if (tens >= 11 && tens <= 14) {
+            word = "скриптов";
+        } else if (ones == 1) {
+            word = "скрипт";
+        } else if (ones >= 2 && ones <= 4) {
+            word = "скрипта";
+        } else {
+            word = "скриптов";
         }
         return count + " " + word;
     }
@@ -1807,6 +1830,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             org.telegram.ui.Components.PrimeWhatsNewSheet.show(this);
         } else if (item.id == ID_PLUGINS) {
             presentFragment(new PrimePluginsActivity());
+        } else if (item.id == ID_BLOCKS) {
+            presentFragment(new PrimeBlocksActivity());
         } else if (item.id == ID_TGWS_SETTINGS) {
             presentFragment(new PrimeTgWsActivity());
         } else if (item.id == ID_ICON_PACKS) {
@@ -2832,6 +2857,19 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 final android.view.View root = fragmentView;
                 final Runnable apply = () -> {
                     org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.DESIGN_MODE, index);
+                    // Cached card cells are rebound, not recreated, so listView.adapter.update()
+                    // alone never touches a CardDrawable's own baked-in radius/shadow - refresh
+                    // every option-card cell already built this session directly. This is what
+                    // was missing the first time this shipped: switching modes silently did
+                    // nothing visible until the whole screen was rebuilt from scratch.
+                    for (org.telegram.ui.Cells.PrimeShapeOptionsCell cell : new org.telegram.ui.Cells.PrimeShapeOptionsCell[]{
+                            designSystemCards, fabShapeCards, bubbleTailCards, senderAvatarCards,
+                            headerAlignCards, stickerTimeCards, stickerSizeCards, doubleTapCards,
+                            translatorCards, videoQualityCards}) {
+                        if (cell != null) {
+                            cell.refreshDesignSystem();
+                        }
+                    }
                     if (listView != null && listView.adapter != null) {
                         listView.adapter.update(true);
                     }

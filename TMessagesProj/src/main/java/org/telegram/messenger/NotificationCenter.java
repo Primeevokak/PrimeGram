@@ -376,6 +376,7 @@ public class NotificationCenter {
     public static final int communityPendingRequestsUpdate = totalEvents++;
     public static final int communitySwitchedCollapsed = totalEvents++;
     public static final int pluginsDidUpdate = totalEvents++;
+    public static final int blocksDidUpdate = totalEvents++;
 
     public static boolean alreadyLogged;
 

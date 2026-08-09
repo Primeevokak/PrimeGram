@@ -4365,6 +4365,13 @@ public class AndroidUtilities {
                     && org.telegram.ui.PrimePluginInstallDialog.offer(activity, f, resourcesProvider)) {
                 return true;
             }
+            // PrimeGram: same reasoning as .plugin just above - a .pr file is a PrimeGram Blocks
+            // script (a JSON block program, not Python), and this app is the only reader of one.
+            if (!restrict && fileName != null
+                    && fileName.toLowerCase().endsWith(org.telegram.messenger.blocks.PrimeBlocksController.EXTENSION)
+                    && org.telegram.ui.PrimeBlockInstallDialog.offer(activity, f, resourcesProvider)) {
+                return true;
+            }
             // PrimeGram: same reasoning as .plugin just above - a .icons file is exteraGram's own
             // icon-pack format, and this app is the only reasonable reader of one.
             if (!restrict && fileName != null

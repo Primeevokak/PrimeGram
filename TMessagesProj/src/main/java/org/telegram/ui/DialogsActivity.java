@@ -10801,6 +10801,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             if (viewPages == null || dialogsListFrozen) {
                 return;
             }
+            // MessagesStorage.getDialogs "handed to controller" -> here is currently a single
+            // untraced ~1000ms gap. This mark splits it: if it lands close to "handed to
+            // controller", the time is in what happens after this point (adapter rebuild,
+            // 181 DialogCells laid out cold); if it lands much later, the gap is instead in
+            // MessagesController.processLoadedDialogs itself, before this notification even
+            // gets posted - two different places to optimise, not distinguishable before this.
+            org.telegram.messenger.PrimeStartupTrace.mark("DialogsActivity.dialogsNeedReload received");
             // The first reload that actually carries dialogs is the moment the user sees
             // their chats — the number worth optimising against.
             if (!getMessagesController().getDialogs(folderId).isEmpty()) {
