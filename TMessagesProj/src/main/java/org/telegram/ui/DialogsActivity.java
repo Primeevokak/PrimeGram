@@ -14050,6 +14050,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             });
         });
         io.addGap();
+        // PrimeGram: a way to reach Telegram's own settings even if the bottom tab bar is
+        // customized down to nothing - the whole point of that customization is letting people
+        // remove tabs they don't want, and Settings has to stay reachable regardless of what
+        // they removed it from.
+        io.add(R.drawable.msg_settings, getString(R.string.Settings), () -> presentFragment(new SettingsActivity()));
         io.add(R.drawable.outline_groups_24, getString(R.string.NewGroup), () -> {
             Bundle args = new Bundle();
             presentFragment(new GroupCreateActivity(args));

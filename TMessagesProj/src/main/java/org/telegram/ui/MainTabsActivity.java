@@ -871,7 +871,13 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
     public GlassTabView[] tabs;
 
     public void selectTab(int position, boolean animated) {
-        animatorTabsVisible.setValue(position != POSITION_FEED, animated);
+        // A swipe between two other tabs still passes through the Feed page's index in the
+        // pager mid-gesture, rounded from a fractional position - canSwipeToPosition stops it
+        // from ever landing there when Feed is hidden, but this runs on every rounded position
+        // during the drag, not just on landing. Without the isFeedHidden() check, the tab bar
+        // hid and reappeared on every such pass-through, since a hidden Feed's page still isn't
+        // "not Feed" by index.
+        animatorTabsVisible.setValue(position != POSITION_FEED || isFeedHidden(), animated);
         for (int a = 0; a < tabs.length; a++) {
             GlassTabView tab = tabs[a];
             tab.setSelected(indexToPosition(a) == position, animated);
