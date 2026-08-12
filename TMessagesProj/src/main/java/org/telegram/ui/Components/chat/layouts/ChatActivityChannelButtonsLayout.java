@@ -98,6 +98,20 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         return container;
     }
 
+    /** Matches the "button" enum values {@code action.ui.set_channel_button_visible} registers in BuiltinActions. */
+    private static String overrideKeyFor(int buttonId) {
+        switch (buttonId) {
+            case BUTTON_SEARCH:
+                return "search";
+            case BUTTON_GIFT:
+                return "gift";
+            case BUTTON_DIRECT:
+                return "direct";
+            default:
+                return "channel_button_" + buttonId;
+        }
+    }
+
     public void makeViewWrapContent(View view) {
         wrapContentButtons.add(view);
     }
@@ -106,6 +120,12 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         if (buttonId < 0 || buttonId >= buttonHolders.length) {
             return;
         }
+
+        // PrimeGram Blocks: a script's action.ui.set_channel_button_visible can only ever turn a
+        // "show" the chat's own logic already decided on into a "don't show" - never force one on
+        // that this call site didn't already want, so this can't desync from real chat state.
+        // See PrimeBlocksUiOverrides' own javadoc.
+        show = show && org.telegram.messenger.blocks.PrimeBlocksUiOverrides.isVisible(overrideKeyFor(buttonId));
 
         if (buttonHolders[buttonId] == null && !show) {
             return;
@@ -270,13 +290,19 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
     private float totalWidthLeft, totalWidthRight;
 
     private void checkContainerPaddings(boolean canRequestLayout) {
+        // Must track the same animated progress checkButtonsPositionsAndVisibility() uses for
+        // totalWidthLeft/Right (.getFloatValue(), not the instant boolean .getValue()) - the
+        // container's margins drive its own clip outline, and the pill background painted in
+        // drawChild() is bounded by totalWidthLeft/Right. Using the instant target here made the
+        // outline jump to its final position while the drawn background was still mid-animation,
+        // producing a visible "ghost" duplicate edge for the ~300ms of any button show/hide.
         int paddingLeft = dp(7), paddingRight = dp(7);
         for (final int buttonId : buttonsOrderLeft) {
             final ButtonHolder holder = buttonHolders[buttonId];
             if (holder == null) {
                 continue;
             }
-            paddingLeft += holder.visibilityAnimator.getValue() ? dp(44 + 10) : 0;
+            paddingLeft += Math.round(holder.visibilityAnimator.getFloatValue() * dp(44 + 10));
         }
 
         for (final int buttonId : buttonsOrderRight) {
@@ -284,7 +310,7 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
             if (holder == null) {
                 continue;
             }
-            paddingRight += holder.visibilityAnimator.getValue() ? dp(44 + 10) : 0;
+            paddingRight += Math.round(holder.visibilityAnimator.getFloatValue() * dp(44 + 10));
         }
 
         if (org.telegram.messenger.NonIslandHelper.chatElements() && containerDrawable != null) {
@@ -409,6 +435,16 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         super.onLayout(changed, left, top, right, bottom);
 
         checkButtonsPositionsAndVisibility();
+
+        // PrimeGram: containerDrawable is painted manually inside drawChild(), from container's
+        // CURRENT bounds at the moment drawChild() happens to run - it is not part of the normal
+        // View invalidation graph, so the platform has no idea it needs repainting whenever
+        // container's own bounds change. Without this, containerDrawable only repaints when this
+        // view happens to redraw for some unrelated reason, and otherwise stays visually stuck at
+        // wherever it was last painted while container (and its text) moves to its new layout -
+        // exactly the "text moved, pill background didn't" ghost. onLayout() is called every time
+        // container's bounds are actually finalized, so forcing a redraw here keeps them in sync.
+        invalidate();
     }
 
     public interface OnButtonsTotalWidthChanged {
@@ -428,15 +464,21 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
             if (org.telegram.messenger.NonIslandHelper.chatElements()) {
                 tmpRect.set(0, 0, getMeasuredWidth(), getMeasuredHeight());
             } else {
-                tmpRect.set(
-                    totalWidthLeft + dp(1), 0,
-                    getMeasuredWidth() - dp(1) - totalWidthRight,
-                    getMeasuredHeight());
+                // PrimeGram: BlurredBackgroundDrawable insets its own visible shape INWARD from
+                // setBounds() by its configured padding (see Props.build(), boundsWithPadding =
+                // bounds.inset(padding, padding)) - setupDrawableForContainer() sets that padding
+                // to dp(6). So setBounds() must be given container's real bounds EXPANDED by that
+                // same dp(6) on every edge, or the painted pill ends up dp(6) smaller than
+                // container (and its text) on every side instead of matching it.
+                final int pad = dp(6);
+                tmpRect.set(container.getLeft() - pad, container.getTop() - pad, container.getRight() + pad, container.getBottom() + pad);
             }
 
             tmpRect.round(AndroidUtilities.rectTmp2);
             containerDrawable.setBounds(AndroidUtilities.rectTmp2);
             containerDrawable.draw(canvas);
+            org.telegram.messenger.PrimeUiInspector.recordManualDraw(this, "containerDrawable (pill background)",
+                    tmpRect.left, tmpRect.top, tmpRect.right, tmpRect.bottom);
         }
 
         return super.drawChild(canvas, child, drawingTime);
@@ -446,15 +488,17 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
     protected void dispatchDraw(@NonNull Canvas canvas) {
         final int accentAlpha = (int) (255 * totalVisibilityFactor * animatorCenterAccentBackground.getFloatValue());
         if (accentAlpha > 0) {
-            tmpRect.set(
-                totalWidthLeft + dp(10),
-                dp(9),
-                getMeasuredWidth() - dp(10) - totalWidthRight,
-                getMeasuredHeight() - dp(9)
-            );
+            // PrimeGram: this used to be computed independently from totalWidthLeft/Right +
+            // dp(10)/dp(9) against this view's own (56dp) height, never in sync with container's
+            // real (44dp, dp(7)-margin) bounds - a second, permanently oversized rounded-rect
+            // ghost behind the actual pill, untouched by any of the containerDrawable fixes above
+            // since it's a completely separate draw call. Match container's real bounds instead.
+            tmpRect.set(container.getLeft(), container.getTop(), container.getRight(), container.getBottom());
             backgroundAccentPaint.setColor(accentColor);
             backgroundAccentPaint.setAlpha(accentAlpha);
-            canvas.drawRoundRect(tmpRect, dp(19), dp(19), backgroundAccentPaint);
+            canvas.drawRoundRect(tmpRect, dp(22), dp(22), backgroundAccentPaint);
+            org.telegram.messenger.PrimeUiInspector.recordManualDraw(this, "accent background",
+                    tmpRect.left, tmpRect.top, tmpRect.right, tmpRect.bottom);
         }
 
         super.dispatchDraw(canvas);

@@ -382,6 +382,11 @@ public class MessagesStorage extends BaseController {
             database.executeFast("PRAGMA journal_mode = WAL").stepThis().dispose();
             database.executeFast("PRAGMA synchronous = NORMAL").stepThis().dispose();
             database.executeFast("PRAGMA journal_size_limit = 10485760").stepThis().dispose();
+            // PrimeGram: a bigger page cache + memory-mapped reads meaningfully help the
+            // cold-start dialog query, which hits a page cache that's cold right after
+            // install/update - see the "Cold Start Optimization" plan's Part 2.
+            database.executeFast("PRAGMA cache_size = -20000").stepThis().dispose();
+            database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
 
             if (createTable) {
                 if (BuildVars.LOGS_ENABLED) {
@@ -501,6 +506,8 @@ public class MessagesStorage extends BaseController {
                 database.executeFast("PRAGMA journal_mode = WAL").stepThis().dispose();
                 database.executeFast("PRAGMA synchronous = NORMAL").stepThis().dispose();
                 database.executeFast("PRAGMA journal_size_limit = 10485760").stepThis().dispose();
+                database.executeFast("PRAGMA cache_size = -20000").stepThis().dispose();
+                database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
             } catch (SQLiteException e) {
                 FileLog.e(new Exception(e));
                 restored = false;
@@ -17612,6 +17619,31 @@ public class MessagesStorage extends BaseController {
             int[] max = new int[1];
             try {
                 cursor = database.queryFinalized("SELECT MAX(mid) FROM messages_v2 WHERE uid = " + dialog_id);
+                if (cursor.next()) {
+                    max[0] = cursor.intValue(0);
+                }
+            } catch (Exception e) {
+                checkSQLException(e);
+            } finally {
+                if (cursor != null) {
+                    cursor.dispose();
+                }
+            }
+            AndroidUtilities.runOnUIThread(() -> callback.run(max[0]));
+        });
+    }
+
+    /**
+     * PrimeGram Blocks: backs {@code condition.not_replied_since_trigger} - the max {@code date}
+     * of an outgoing message in this dialog, or 0 if there is none. Mirrors
+     * {@link #getDialogMaxMessageId} exactly, just against {@code out = 1} instead of unfiltered.
+     */
+    public void getLastOutgoingMessageDate(long dialog_id, IntCallback callback) {
+        storageQueue.postRunnable(() -> {
+            SQLiteCursor cursor = null;
+            int[] max = new int[1];
+            try {
+                cursor = database.queryFinalized("SELECT MAX(date) FROM messages_v2 WHERE uid = " + dialog_id + " AND out = 1");
                 if (cursor.next()) {
                     max[0] = cursor.intValue(0);
                 }

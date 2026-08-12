@@ -1,0 +1,82 @@
+package org.telegram.messenger;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
+
+/**
+ * PrimeGram: "работа в фоне" toggle for the local WS proxy service (TgWsProxyService). Lets a
+ * user trade background message delivery over the tunnel for battery - push notifications (see
+ * GcmPushListenerService, a real FirebaseMessagingService registered in the manifest) arrive
+ * through Google's FCM entirely independently of this service, so they keep working either way.
+ *
+ * <p>Off by default - current always-on behavior is unchanged unless a user opts in. When on:
+ * <ul>
+ *   <li>the proxy is stopped a grace period after the app is backgrounded, not instantly - a
+ *   momentary pause (a system permission dialog, switching apps for a second) must not tear down
+ *   and rebuild the whole tunnel;</li>
+ *   <li>it's restarted the moment the app is foregrounded again;</li>
+ *   <li>{@code postInitApplication()}'s cold-start auto-start is skipped when this process was
+ *   woken by a push rather than the user opening the app - a background push doesn't need the
+ *   proxy spun back up just to be answered, it already has its own answer via FCM.</li>
+ * </ul>
+ */
+public final class PrimeBackgroundProxy {
+
+    private static final String KEY = "primegram_tgws_background_disabled";
+    /** Long enough that a fleeting pause (permission dialog, app switcher tap) never tears the
+     *  tunnel down, short enough that "closed the app" actually saves battery soon after. */
+    private static final long STOP_GRACE_MS = 45_000;
+
+    private static final Handler handler = new Handler(Looper.getMainLooper());
+    private static final Runnable stopRunnable = () -> {
+        if (ApplicationLoader.mainInterfacePaused) {
+            TgWsProxyService.stopService(ApplicationLoader.applicationContext);
+        }
+    };
+
+    public static boolean isBackgroundWorkDisabled() {
+        return prefs().getBoolean(KEY, false);
+    }
+
+    public static void setBackgroundWorkDisabled(boolean disabled) {
+        prefs().edit().putBoolean(KEY, disabled).apply();
+        if (!disabled) {
+            handler.removeCallbacks(stopRunnable);
+            if (!ApplicationLoader.mainInterfacePaused) {
+                TgWsProxyService.startService(ApplicationLoader.applicationContext);
+            }
+        }
+    }
+
+    private static SharedPreferences prefs() {
+        return ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+    }
+
+    /** Call from LaunchActivity.onPause(). */
+    public static void onAppPaused() {
+        if (!isBackgroundWorkDisabled()) {
+            return;
+        }
+        handler.removeCallbacks(stopRunnable);
+        handler.postDelayed(stopRunnable, STOP_GRACE_MS);
+    }
+
+    /** Call from LaunchActivity.onResume(). */
+    public static void onAppResumed() {
+        handler.removeCallbacks(stopRunnable);
+        if (isBackgroundWorkDisabled() && !TgWsProxyService.isRunning()) {
+            TgWsProxyService.startService(ApplicationLoader.applicationContext);
+        }
+    }
+
+    /** Call from postInitApplication(), before its own auto-start decision, to tell a
+     *  push-triggered cold start apart from the user actually opening the app. */
+    public static boolean shouldSkipColdStart() {
+        return isBackgroundWorkDisabled() && ApplicationLoader.mainInterfacePaused;
+    }
+
+    private PrimeBackgroundProxy() {
+    }
+}

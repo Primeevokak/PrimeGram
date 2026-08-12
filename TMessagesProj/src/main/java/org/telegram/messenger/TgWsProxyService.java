@@ -382,6 +382,15 @@ public class TgWsProxyService extends Service {
     private final java.util.concurrent.ConcurrentHashMap<String, Long> ipFailUntil = new java.util.concurrent.ConcurrentHashMap<>();
 
 
+    /**
+     * PrimeGram: each active proxied connection holds up to 2 OS threads for its whole lifetime
+     * (the executor thread running handleClient/bridgeConnections plus the dedicated toWs relay
+     * thread) - a real phone has no business running hundreds of them. With up to ~5 DCs and a
+     * media/non-media variant each, the old cap of 20 per bucket allowed a theoretical 200
+     * concurrent connections (400 threads); a real session needs a small handful per DC at once.
+     */
+    private static final int MAX_CONCURRENT_PER_DC = 6;
+
     private java.util.concurrent.Semaphore getSemaphoreForDc(int dcId, boolean isMedia) {
         String key = dcId + "_" + isMedia;
         java.util.concurrent.Semaphore sem = dcSemaphores.get(key);
@@ -389,7 +398,7 @@ public class TgWsProxyService extends Service {
             synchronized (dcSemaphores) {
                 sem = dcSemaphores.get(key);
                 if (sem == null) {
-                    sem = new java.util.concurrent.Semaphore(20);
+                    sem = new java.util.concurrent.Semaphore(MAX_CONCURRENT_PER_DC);
                     dcSemaphores.put(key, sem);
                 }
             }
@@ -501,16 +510,29 @@ public class TgWsProxyService extends Service {
         // the default priority those threads are equal to the one drawing the screen, so a burst
         // of connection attempts competes with scrolling and shows up as stutter. Nothing in this
         // pool is ever more urgent than the next frame.
-        executor = Executors.newCachedThreadPool(r -> new Thread(() -> {
-            // Deliberately not THREAD_PRIORITY_BACKGROUND: that moves the thread into the
-            // background cgroup, which caps the whole group at a few percent of one core and
-            // would throttle the tunnel every message goes through. This is just below default -
-            // the UI wins a tie, the proxy still gets the CPU it asks for.
-            try {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT + 4);
-            } catch (Throwable ignore) {}
-            r.run();
-        }, "tgws-proxy"));
+        //
+        // PrimeGram: this used to be Executors.newCachedThreadPool() - genuinely unbounded, a new
+        // OS thread for every accepted local SOCKS5 connection before the per-DC semaphore (see
+        // getSemaphoreForDc) even gets a chance to queue it. A reconnect burst could spin up
+        // dozens of these, each blocking on sem.acquire() rather than doing anything, and cached
+        // pools only reclaim threads that are actually IDLE - a thread parked in acquire() never
+        // qualifies, so nothing ever gave them back. A bounded pool turns "unlimited threads
+        // waiting on a semaphore" into "a bounded queue waiting on the same semaphore" - same
+        // ordering, a fixed thread cost.
+        executor = new java.util.concurrent.ThreadPoolExecutor(
+            4, 24, 60L, java.util.concurrent.TimeUnit.SECONDS,
+            new java.util.concurrent.LinkedBlockingQueue<>(128),
+            r -> new Thread(() -> {
+                // Deliberately not THREAD_PRIORITY_BACKGROUND: that moves the thread into the
+                // background cgroup, which caps the whole group at a few percent of one core and
+                // would throttle the tunnel every message goes through. This is just below default -
+                // the UI wins a tie, the proxy still gets the CPU it asks for.
+                try {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT + 4);
+                } catch (Throwable ignore) {}
+                r.run();
+            }, "tgws-proxy")
+        );
         sslSocketFactory = buildTrustAllSslFactory();
         primeWatchForeground();
 
@@ -719,7 +741,15 @@ public class TgWsProxyService extends Service {
                             try { client.close(); } catch (IOException ignored) {}
                             continue;
                         }
-                        executor.submit(() -> handleClient(client));
+                        try {
+                            executor.submit(() -> handleClient(client));
+                        } catch (java.util.concurrent.RejectedExecutionException saturated) {
+                            // The bounded pool/queue (see executor's construction above) is
+                            // completely full - a real overload, not a socket problem. Drop this
+                            // one connection instead of falsely marking the server socket unbound,
+                            // which would otherwise trigger a pointless rebind.
+                            try { client.close(); } catch (IOException ignored) {}
+                        }
                     } catch (IOException e) {
                         isSocketBound = false;
                         if (running.get()) {
@@ -1221,7 +1251,11 @@ public class TgWsProxyService extends Service {
             java.util.Iterator<WsConnection> it = q.iterator();
             while (it.hasNext()) {
                 WsConnection conn = it.next();
-                if (now - conn.createdAt > 100_000 || conn.tlsSocket.isClosed()) {
+                // Same liveness probe getPooledWsConnection uses at hand-out time, run here too so
+                // a socket the edge already closed gets evicted (and refilled) proactively during
+                // this periodic sweep, rather than only being discovered the next time something
+                // actually tries to use it.
+                if (now - conn.createdAt > 100_000 || conn.tlsSocket.isClosed() || !isPooledConnectionAlive(conn.tlsSocket)) {
                     try { conn.tlsSocket.close(); } catch (Exception ignored) {}
                     it.remove();
                 }
@@ -1241,6 +1275,43 @@ public class TgWsProxyService extends Service {
         }
     }
 
+    /**
+     * Tells a genuinely dead pooled socket apart from a merely idle one before it gets handed to
+     * a real session.
+     *
+     * <p>Cloudflare (and similar edge proxies) close idle WebSockets server-side well within the
+     * pool's old 30s age ceiling, but the local {@link SSLSocket#isClosed()} only ever reflects a
+     * *local* close - it stays false until the next actual read/write touches the dead socket.
+     * Without this check, {@link #getPooledWsConnection} would hand out a socket that looks fine,
+     * {@code handleClient} would log "Session established" before ever reading a byte, and the
+     * first real read would surface a WS CLOSE frame within a second or two - which is exactly the
+     * "short-lived session" pattern that then marks a perfectly healthy domain sick and forces a
+     * failover loop. A 1ms peek read costs nothing on a genuinely idle-but-alive socket
+     * (immediately throws {@link java.net.SocketTimeoutException}, the expected/good case) and
+     * catches a dead one (EOF or any other IO error) before it does any damage.
+     */
+    private static boolean isPooledConnectionAlive(SSLSocket socket) {
+        try {
+            socket.setSoTimeout(1);
+            int b = socket.getInputStream().read();
+            if (b == -1) {
+                return false; // remote already closed (EOF)
+            }
+            // The server sent something unsolicited before we ever wrote a byte - not ours to
+            // silently discard (a real session would need it), so treat this socket as unusable
+            // rather than risk desyncing the stream.
+            return false;
+        } catch (java.net.SocketTimeoutException expected) {
+            return true; // nothing waiting to be read - the normal, alive-and-idle case
+        } catch (Exception e) {
+            return false; // any other IO error means the socket is actually dead
+        } finally {
+            try {
+                socket.setSoTimeout(0);
+            } catch (Exception ignored) {}
+        }
+    }
+
     private WsConnection getPooledWsConnection(int dcId, boolean isMedia) {
         String key = dcId + "_" + isMedia;
         activeDcs.put(key, System.currentTimeMillis());
@@ -1254,8 +1325,9 @@ public class TgWsProxyService extends Service {
             // immediately, which looks like the new domain failing too.
             boolean wrongDomain = activeDomain != null && conn.domain != null && !conn.domain.endsWith(activeDomain);
             // Idle WebSockets get closed by the edge well before the old 100s ceiling, so a
-            // "fresh" pooled socket could already be dead on arrival.
-            if (age > 30_000 || wrongDomain || conn.tlsSocket.isClosed()) {
+            // "fresh" pooled socket could already be dead on arrival - tightened from 30s now that
+            // isPooledConnectionAlive actually verifies liveness instead of only guessing from age.
+            if (age > 20_000 || wrongDomain || conn.tlsSocket.isClosed() || !isPooledConnectionAlive(conn.tlsSocket)) {
                 try { conn.tlsSocket.close(); } catch (Exception ignored) {}
                 continue;
             }

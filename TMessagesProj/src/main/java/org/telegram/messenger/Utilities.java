@@ -158,34 +158,38 @@ public class Utilities {
         if (value == null) {
             return 0;
         }
-        if (BuildConfig.BUILD_HOST_IS_WINDOWS) {
-            Matcher matcher = pattern.matcher(value);
-            if (matcher.find()) {
-                return Integer.valueOf(matcher.group());
+        // PrimeGram: BuildConfig.BUILD_HOST_IS_WINDOWS reflects the machine that BUILT the APK,
+        // not the device it runs on - since this repo is built on Windows, every APK built here
+        // was permanently shipping the slow Matcher-based path below to real Android phones. The
+        // manual char-scan path is behaviorally identical (both extract the first contiguous run
+        // of `[-0-9]` characters) and was flagged directly in a cold-start trace as a multi-second
+        // main-thread stall from repeated regex Matcher construction on a cold, unwarmed JVM.
+        int val = 0;
+        try {
+            int start = -1, end;
+            for (end = 0; end < value.length(); ++end) {
+                char character = value.charAt(end);
+                boolean allowedChar = character == '-' || character >= '0' && character <= '9';
+                if (allowedChar && start < 0) {
+                    start = end;
+                } else if (!allowedChar && start >= 0) {
+                    // PrimeGram: do NOT increment end here - it already correctly points at the
+                    // first disallowed character (the loop's own `++end` hasn't run yet at a
+                    // `break`), so including it was an off-by-one that fed Integer.parseInt a
+                    // trailing garbage character (e.g. "255," instead of "255") and silently
+                    // returned 0 on every string that had anything after the digit run. This
+                    // branch was never actually exercised in any build compiled on this machine
+                    // until the BUILD_HOST_IS_WINDOWS regex branch above was removed - a real,
+                    // dormant bug this session's perf fix woke up, not something introduced by it.
+                    break;
+                }
             }
-        } else {
-            int val = 0;
-            try {
-                int start = -1, end;
-                for (end = 0; end < value.length(); ++end) {
-                    char character = value.charAt(end);
-                    boolean allowedChar = character == '-' || character >= '0' && character <= '9';
-                    if (allowedChar && start < 0) {
-                        start = end;
-                    } else if (!allowedChar && start >= 0) {
-                        end++;
-                        break;
-                    }
-                }
-                if (start >= 0) {
-                    String str = value.subSequence(start, end).toString();
-//                val = parseInt(str);
-                    val = Integer.parseInt(str);
-                }
-            } catch (Exception ignore) {}
-            return val;
-        }
-        return 0;
+            if (start >= 0) {
+                String str = value.subSequence(start, end).toString();
+                val = Integer.parseInt(str);
+            }
+        } catch (Exception ignore) {}
+        return val;
     }
 
     private static int parseInt(final String s) {

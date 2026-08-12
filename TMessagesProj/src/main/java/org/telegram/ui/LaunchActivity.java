@@ -490,8 +490,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (Build.VERSION.SDK_INT >= 24) {
             AndroidUtilities.isInMultiwindow = isInMultiWindowMode();
         }
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: createCommonChatResources begin");
         Theme.createCommonChatResources();
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: createDialogsResources begin");
         Theme.createDialogsResources(this);
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: chat/dialogs resources ready");
         if (SharedConfig.passcodeHash.length() != 0 && SharedConfig.appLocked) {
             SharedConfig.lastPauseTime = (int) (SystemClock.elapsedRealtime() / 1000);
         }
@@ -813,6 +816,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 setVisibility(GONE);
             }
         });
+        // PrimeGram: "Диагностика" UI inspector - added LAST, after every other overlay this
+        // method adds to frameLayout (drawer/sidebar/theme-switch/fireworks), so it actually
+        // draws on top of all of them instead of being buried underneath. Stays GONE (see
+        // PrimeUiInspectorOverlay's own visibility handling) unless explicitly turned on from
+        // Settings, so it costs nothing while off.
+        frameLayout.addView(new org.telegram.ui.Components.PrimeUiInspectorOverlay(this), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         setupActionBarLayout();
         drawerLayoutContainer.setParentActionBarLayout(actionBarLayout);
         actionBarLayout.setDrawerLayoutContainer(drawerLayoutContainer);
@@ -825,7 +834,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             updateSidebarVisibility();
         });
         actionBarLayout.setDelegate(this);
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: loadWallpaper begin");
         Theme.loadWallpaper(true);
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: loadWallpaper end");
 
         checkCurrentAccount();
         updateCurrentConnectionState(currentAccount);
@@ -866,7 +877,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 actionBarLayout.addFragmentToStack(org.telegram.messenger.DrawerHelper.createMainFragment());
             } else {
                 MainTabsActivity mainTabsActivity = new MainTabsActivity();
+                org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: addFragmentToStack(MainTabsActivity) begin");
                 actionBarLayout.addFragmentToStack(mainTabsActivity);
+                org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: addFragmentToStack(MainTabsActivity) end");
             }
 
             try {
@@ -933,7 +946,15 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         }
         checkLayout();
         checkSystemBarColors();
-        handleIntent(getIntent(), false, savedInstanceState != null, false, null, true, true);
+        // PrimeGram: rebuildFragments used to be hardcoded true here, which meant the fragment
+        // just added a few lines above (MainTabsActivity, with a real, freshly-created view) got
+        // immediately torn down and rebuilt again via rebuildFragments(REBUILD_FLAG_REBUILD_LAST)
+        // - a whole extra createView pass (tab bar, avatar tab, click listeners, all of it) on
+        // every single cold start with nothing to actually rebuild. Only a genuine process restore
+        // (savedInstanceState != null) has a reason to rebuild an already-existing fragment stack.
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: handleIntent begin");
+        handleIntent(getIntent(), false, savedInstanceState != null, false, null, savedInstanceState != null, true);
+        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: handleIntent end");
         try {
             String os1 = Build.DISPLAY;
             String os2 = Build.USER;
@@ -1136,6 +1157,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         //    refreshRateController = new RefreshRateController(this);
         //}
         checkFrameMetrics();
+        // PrimeGram: "Диагностика" live performance monitor - only actually samples anything
+        // while its Settings toggle is on (see PrimePerfMonitor.applyState()).
+        org.telegram.messenger.PrimePerfMonitor.bind(this);
         org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity.onCreate end");
     }
 
@@ -6993,6 +7017,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         pipActivityHandler.onPause();
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.stopAllHeavyOperations, 4096);
         ApplicationLoader.mainInterfacePaused = true;
+        org.telegram.messenger.PrimeBackgroundProxy.onAppPaused();
         int account = currentAccount;
         Utilities.stageQueue.postRunnable(() -> {
             ApplicationLoader.mainInterfacePausedStageQueue = true;
@@ -7111,6 +7136,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         isActive = false;
         activeInstanceCount--;
         unregisterReceiver(batteryReceiver);
+        org.telegram.messenger.PrimePerfMonitor.unbind(this);
 
         if (activeInstanceCount == 0) {
             org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("stop");
@@ -7242,6 +7268,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startAllHeavyOperations, 4096);
         MediaController.getInstance().setFeedbackView(feedbackView = actionBarLayout.getView(), true);
         ApplicationLoader.mainInterfacePaused = false;
+        org.telegram.messenger.PrimeBackgroundProxy.onAppResumed();
         MessagesController.getInstance(currentAccount).sortDialogs(null);
         showLanguageAlert(false);
         showSubscriptionDialog();

@@ -14446,7 +14446,12 @@ public class MessagesController extends BaseController implements NotificationCe
             MessageObject object = array.valueAt(a);
             object.pollVisibleOnScreen = false;
         }
-        int time = getConnectionsManager().getCurrentTime();
+        // PrimeGram: this whole method runs on every updateMessagesVisiblePart() call - i.e. on
+        // every frame while a chat scrolls/flings, for every dialog, poll or not. getCurrentTime()
+        // is a JNI call into tgnet, not free - it used to run unconditionally here even though the
+        // overwhelming majority of calls have no poll in visibleObjects at all. Fetch it lazily,
+        // only once an actual poll is found, so a normal chat scrolling by never pays for it.
+        int time = -1;
         int minExpireTime = Integer.MAX_VALUE;
         boolean hasExpiredPolls = false;
         for (int a = 0, N = visibleObjects.size(); a < N; a++) {
@@ -14456,6 +14461,9 @@ public class MessagesController extends BaseController implements NotificationCe
             }
             TLRPC.TL_messageMediaPoll mediaPoll = (TLRPC.TL_messageMediaPoll) messageObject.messageOwner.media;
             if (!mediaPoll.poll.closed && mediaPoll.poll.close_date != 0) {
+                if (time < 0) {
+                    time = getConnectionsManager().getCurrentTime();
+                }
                 if (mediaPoll.poll.close_date <= time) {
                     hasExpiredPolls = true;
                 } else {
@@ -19272,6 +19280,12 @@ public class MessagesController extends BaseController implements NotificationCe
             } else if (baseUpdate instanceof TL_update.TL_updateChatParticipantAdd) {
                 TL_update.TL_updateChatParticipantAdd update = (TL_update.TL_updateChatParticipantAdd) baseUpdate;
                 getMessagesStorage().updateChatInfo(update.chat_id, update.user_id, 0, update.inviter_id, update.version);
+                // PrimeGram Blocks: additive hook for trigger.user_joined_chat - does not touch
+                // the storage update above.
+                final long primeJoinedChatId = update.chat_id;
+                final long primeJoinedUserId = update.user_id;
+                AndroidUtilities.runOnUIThread(() -> getNotificationCenter().postNotificationName(
+                        NotificationCenter.primeUserJoinedChat, -primeJoinedChatId, primeJoinedUserId));
             } else if (baseUpdate instanceof TL_update.TL_updateChatParticipantDelete) {
                 TL_update.TL_updateChatParticipantDelete update = (TL_update.TL_updateChatParticipantDelete) baseUpdate;
                 getMessagesStorage().updateChatInfo(update.chat_id, update.user_id, 1, 0, update.version);
@@ -19593,6 +19607,12 @@ public class MessagesController extends BaseController implements NotificationCe
 
                 ImageLoader.saveMessageThumbs(message);
                 AndroidUtilities.runOnUIThread(()-> getSendMessagesHelper().onMessageEdited(message));
+                // PrimeGram Blocks: additive hook for trigger.message_edited (see BlockCompiler/PrimeBlocksRuntime) -
+                // does not touch any existing edit-processing behavior above.
+                final long primeEditedDialogId = message.dialog_id;
+                final int primeEditedMessageId = message.id;
+                AndroidUtilities.runOnUIThread(() -> getNotificationCenter().postNotificationName(
+                        NotificationCenter.primeMessageEdited, primeEditedDialogId, primeEditedMessageId));
 
                 boolean isDialogCreated = createdDialogIds.contains(message.dialog_id);
                 MessageObject obj = new MessageObject(currentAccount, message, usersDict, chatsDict, isDialogCreated, isDialogCreated);

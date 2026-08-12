@@ -1,5 +1,6 @@
 package org.telegram.messenger.blocks;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 /**
@@ -55,5 +56,26 @@ final class BuiltinActions {
                 "Заблокировать пользователя",
                 "Блокирует отправителя сообщения-триггера",
                 "", Collections.emptyList()));
+
+        // UI-editing actions - configure PrimeGram's own interface rather than act on a chat.
+        // Meant to run from a script whose trigger is trigger.app_started (see BuiltinTriggers),
+        // so the desired UI state gets (re)applied on every launch.
+        BlockRegistry.register(new BlockType(
+                "action.ui.set_sidebar_enabled", BlockType.Category.ACTION,
+                "Боковая панель PrimeGram",
+                "Включает или выключает свайп-панель сбоку экрана",
+                "", Collections.singletonList(
+                        new ParamSpec("enabled", ParamSpec.Kind.BOOLEAN, "Включена", true)
+                )));
+
+        BlockRegistry.register(new BlockType(
+                "action.ui.set_channel_button_visible", BlockType.Category.ACTION,
+                "Кнопка в шапке канала",
+                "Показывает или скрывает одну из круглых кнопок над полем ввода в канале",
+                "", Arrays.asList(
+                        new ParamSpec("button", ParamSpec.Kind.ENUM, "Кнопка", "search",
+                                new String[]{"search", "gift", "direct"}, 0, 0),
+                        new ParamSpec("visible", ParamSpec.Kind.BOOLEAN, "Показана", true)
+                )));
     }
 }

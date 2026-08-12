@@ -4235,7 +4235,10 @@ public class NotificationsController extends BaseController implements Notificat
                         name = LocaleController.getString(R.string.NotificationHiddenName);
                     }
                 } else {
-                    name = LocaleController.getString(R.string.AppName);
+                    // PrimeGram: AppName is deliberately kept as "Telegram" for protocol/service
+                    // accuracy elsewhere (see strings.xml's own comment) - this is the app's own
+                    // notification title, which should say the fork's name, not Telegram's.
+                    name = LocaleController.getString(R.string.AppNameLauncher);
                 }
                 replace = false;
             } else {

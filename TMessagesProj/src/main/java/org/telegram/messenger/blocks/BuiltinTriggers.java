@@ -48,5 +48,47 @@ final class BuiltinTriggers {
                 "Пользователь вступил в чат",
                 "Срабатывает, когда кто-то присоединяется к группе",
                 "", Collections.emptyList()));
+
+        BlockRegistry.register(new BlockType(
+                "trigger.message_read", BlockType.Category.TRIGGER,
+                "Сообщение прочитано",
+                "Срабатывает, когда прочитанные сообщения в чате продвигаются вперёд",
+                "", Collections.emptyList()));
+
+        BlockRegistry.register(new BlockType(
+                "trigger.poll_answered", BlockType.Category.TRIGGER,
+                "Ответ на опрос",
+                "Срабатывает, когда кто-то отвечает на опрос",
+                "", Collections.emptyList()));
+
+        BlockRegistry.register(new BlockType(
+                "trigger.call_started", BlockType.Category.TRIGGER,
+                "Звонок начался",
+                "Срабатывает при начале звонка",
+                "", Collections.emptyList()));
+
+        BlockRegistry.register(new BlockType(
+                "trigger.call_ended", BlockType.Category.TRIGGER,
+                "Звонок завершён",
+                "Срабатывает при завершении звонка",
+                "", Collections.emptyList()));
+
+        BlockRegistry.register(new BlockType(
+                "trigger.chat_history_cleared", BlockType.Category.TRIGGER,
+                "История чата очищена",
+                "Срабатывает, когда история чата очищается",
+                "", Collections.emptyList()));
+
+        BlockRegistry.register(new BlockType(
+                "trigger.channel_rights_updated", BlockType.Category.TRIGGER,
+                "Права администратора изменены",
+                "Срабатывает, когда меняются права в канале или группе",
+                "", Collections.emptyList()));
+
+        BlockRegistry.register(new BlockType(
+                "trigger.app_started", BlockType.Category.TRIGGER,
+                "Запуск приложения",
+                "Срабатывает при каждом запуске PrimeGram - используется для скриптов, настраивающих интерфейс",
+                "", Collections.emptyList()));
     }
 }

@@ -58,7 +58,17 @@ public class TextStyleSpan extends MetricAffectingSpan {
 
         public void applyStyle(TextPaint p) {
             Typeface typeface = getTypeface();
-            if (typeface != null) {
+            // PrimeGram: Layout.draw() re-applies every MetricAffectingSpan's style to the Paint
+            // on EVERY single draw pass of that text - by design, not a bug, since the same Paint
+            // gets reused across differently-styled runs. On stock Android that's a cheap field
+            // write; on MIUI/HyperOS, Paint.setTypeface() is hooked (miui.util.TypefaceUtils /
+            // FontManagerStubImpl) to do reflection and font-file lookups on every call, including
+            // ones that don't actually change anything - this fires on every frame a bold/italic/
+            // mono/header span is on screen, i.e. constantly while scrolling a chat with any
+            // formatted text. Skipping the call when the Paint already has this exact Typeface
+            // is always safe (a getter compare before a setter) and starves that hook of most of
+            // its calls in the common case of the same run being redrawn unchanged frame to frame.
+            if (typeface != null && p.getTypeface() != typeface) {
                 p.setTypeface(typeface);
             }
             if ((flags & FLAG_STYLE_UNDERLINE) != 0) {

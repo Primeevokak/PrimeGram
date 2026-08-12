@@ -520,6 +520,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private int undoViewIndex;
     private UndoView[] undoView = new UndoView[2];
     public FilterTabsView filterTabsView;
+    /** PrimeGram: which local archive folder (see PrimeArchiveFolders) is selected, 0 = "Все". */
+    private int primeSelectedArchiveFolderId;
+    // PrimeGram: getDialogsArray()'s local-archive-folder filter used to allocate a new ArrayList
+    // and do a full linear scan on EVERY call - including from checkListLoad(), which runs on
+    // every scroll tick, up to twice per tick. The filtered set only actually changes when the
+    // selected folder or its dialog-id membership changes, so it's cached against those two
+    // things and only rebuilt when either does.
+    private int primeArchiveFilterCacheFolderId = Integer.MIN_VALUE;
+    private int primeArchiveFilterCacheSourceSize = -1;
+    private java.util.ArrayList<TLRPC.Dialog> primeArchiveFilterCacheResult;
     private boolean askingForPermissions;
     private int searchViewPagerIndex;
     @Nullable
@@ -2942,6 +2952,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             currentConnectionState = getConnectionsManager().getConnectionState();
 
             globalObserversGroup.add(NotificationCenter.emojiLoaded);
+            globalObserversGroup.add(NotificationCenter.primeArchiveFoldersChanged);
             if (!onlySelect) {
                 globalObserversGroup.add(NotificationCenter.closeSearchByActiveAction);
                 globalObserversGroup.add(NotificationCenter.proxySettingsChanged);
@@ -3107,11 +3118,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             statusDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable(null, dp(26));
             statusDrawable.center = true;
         }
-        if (logoDrawable == null) {
-            logoDrawable = getContext().getResources().getDrawable(R.drawable.telegram_logo_2).mutate();
-            logoDrawable.setBounds(0, dp(2), logoDrawable.getIntrinsicWidth(), dp(2) + logoDrawable.getIntrinsicHeight());
-            logoDrawable.setColorFilter(getThemedColor(Theme.key_telegram_color_dialogsLogo), PorterDuff.Mode.MULTIPLY);
-        }
         final TLRPC.User selfUser = UserConfig.getInstance(currentAccount).getCurrentUser();
         CharSequence titleText = null;
         if (org.telegram.messenger.PrimeTweaks.mainTitleUsername() && selfUser != null) {
@@ -3125,14 +3131,86 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
         if (TextUtils.isEmpty(titleText)) {
-            // The stock title is the word "Telegram" with the logo painted over it as a span, so
-            // what you see is the logo.
-            final SpannableStringBuilder ssb = new SpannableStringBuilder(getString(R.string.AppName));
-            ssb.setSpan(new ImageSpan(logoDrawable), 0, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            titleText = ssb;
+            // The stock title paints the Telegram wordmark logo (telegram_logo_2) over the word
+            // "Telegram" as an ImageSpan - PrimeGram has no equivalent wordmark art, and a
+            // hand-drawn vector logotype would look worse than just naming the app, so this is
+            // plain text instead of a fabricated logo image.
+            titleText = getString(R.string.AppNameLauncher);
         }
         actionBar.setTitle(titleText, statusDrawable);
         updateStatus(selfUser, false);
+    }
+
+    /**
+     * PrimeGram: (re)builds the Archive's local-folder tab strip from
+     * {@link org.telegram.messenger.PrimeArchiveFolders} - the local-only equivalent of the
+     * cloud-filter tab rebuild a few hundred lines up, just without any of the
+     * viewPages[1]/dialogFilters-index bookkeeping that only matters for the swipeable dual-page
+     * cloud-filter system.
+     */
+    private void primeRebuildArchiveFolderTabs() {
+        // PrimeGram: primeArchiveFoldersChanged is a GLOBAL notification (see globalObserversGroup
+        // registration above) - every open DialogsActivity instance receives it, including the
+        // main chat list's own instance, which has its own non-null filterTabsView holding the
+        // real cloud folder tabs. Without this guard, editing an archive folder would blow away
+        // and replace the main screen's cloud folder tabs with the local archive ones.
+        if (!isArchive() || filterTabsView == null) {
+            return;
+        }
+        // Folder membership may have just changed (that's the whole reason this notification
+        // fires) - the getDialogsArray() filter cache can't tell that from folderId/list-size
+        // alone, so drop it here.
+        primeArchiveFilterCacheFolderId = Integer.MIN_VALUE;
+        primeArchiveFilterCacheResult = null;
+        final java.util.List<org.telegram.messenger.PrimeArchiveFolders.Folder> folders =
+                org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolders();
+        final int currentId = filterTabsView.isEmpty() ? 0 : filterTabsView.getCurrentTabId();
+        filterTabsView.removeTabs();
+        filterTabsView.addTab(0, 0, LocaleController.getString(R.string.FilterAllChats), false, true, false);
+        for (org.telegram.messenger.PrimeArchiveFolders.Folder folder : folders) {
+            filterTabsView.addTab(folder.id, folder.id, folder.name, false, false, false);
+        }
+        filterTabsView.finishAddingTabs(false);
+        if (org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolder(currentId) != null || currentId == 0) {
+            filterTabsView.selectTabWithId(currentId, 1f);
+            primeSelectedArchiveFolderId = currentId;
+        } else {
+            primeSelectedArchiveFolderId = 0;
+        }
+        canShowFilterTabsView = !folders.isEmpty();
+        updateFilterTabsVisibility(false);
+        if (viewPages != null && viewPages[0] != null && viewPages[0].dialogsAdapter != null) {
+            viewPages[0].dialogsAdapter.notifyDataSetChanged();
+        }
+    }
+
+    /** PrimeGram: one-field name dialog for a new local archive folder, then adds {@code dialogId} to it. */
+    private void primeShowCreateArchiveFolderDialog(long dialogId) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final org.telegram.ui.Components.EditTextBoldCursor field = new org.telegram.ui.Components.EditTextBoldCursor(getParentActivity());
+        field.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16);
+        field.setTextColor(getThemedColor(Theme.key_dialogTextBlack));
+        field.setHint("Название папки");
+        field.setSingleLine(true);
+        final int pad = dp(21);
+        field.setPadding(pad, dp(6), pad, 0);
+
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
+        builder.setTitle("Новая папка");
+        builder.setView(field);
+        builder.setPositiveButton(LocaleController.getString(R.string.Create), (dialog, which) -> {
+            final String name = field.getText().toString().trim();
+            if (name.isEmpty()) {
+                return;
+            }
+            final org.telegram.messenger.PrimeArchiveFolders.Folder folder =
+                    org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).createFolder(name);
+            org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).addDialog(folder.id, dialogId);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        builder.show();
     }
 
     public void updateStatus(TLRPC.User user, boolean animated) {
@@ -3334,6 +3412,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     @Override
     public View createView(final Context context) {
+        org.telegram.messenger.PrimeStartupTrace.mark("DialogsActivity.createView begin");
         searching = false;
         searchWas = false;
         wasDrawn = false;
@@ -3972,6 +4051,71 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     showDeleteAlert(getMessagesController().getDialogFilters().get(id));
                 }
             });
+        }
+
+        // PrimeGram: local-only folders inside Archive - a much smaller sibling of the cloud
+        // filter tabs above, not touching MessagesController.getDialogFilters()/server sync at
+        // all. Tab selection just re-filters the single archive list in place (no swipeable
+        // dual-page crossfade the way real folders have - that machinery is tightly coupled to
+        // MessagesController.DialogFilter/viewPages[1] indices and not worth cloning for a local
+        // feature). See the "Local-Only Folders Inside Archive" plan.
+        if (isArchive() && !onlySelect && TextUtils.isEmpty(searchString)) {
+            filterTabsView = new FilterTabsView(context, resourceProvider) {
+                @Override
+                public boolean onInterceptTouchEvent(MotionEvent ev) {
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                    maybeStartTracking = false;
+                    return super.onInterceptTouchEvent(ev);
+                }
+            };
+            filterTabsView.setVisibility(View.GONE);
+            canShowFilterTabsView = false;
+            animatorFilterTabsVisible.setValue(false, false);
+            filterTabsView.setDelegate(new FilterTabsView.FilterTabsViewDelegate() {
+                @Override
+                public void onPageSelected(FilterTabsView.Tab tab, boolean forward) {
+                    primeSelectedArchiveFolderId = tab.isDefault ? 0 : tab.id;
+                    viewPages[0].dialogsAdapter.notifyDataSetChanged();
+                }
+
+                @Override
+                public void onPageScrolled(float progress) {
+                }
+
+                @Override
+                public void onSamePageSelected() {
+                    scrollToTop(true, false);
+                }
+
+                @Override
+                public int getTabCounter(int tabId) {
+                    return 0;
+                }
+
+                @Override
+                public boolean didSelectTab(FilterTabsView.TabView tabView, boolean selected) {
+                    return false;
+                }
+
+                @Override
+                public boolean isTabMenuVisible() {
+                    return false;
+                }
+
+                @Override
+                public void onDeletePressed(int id) {
+                }
+
+                @Override
+                public void onPageReorder(int fromId, int toId) {
+                }
+
+                @Override
+                public boolean canPerformActions() {
+                    return !searching;
+                }
+            });
+            primeRebuildArchiveFolderTabs();
         }
 
         if (allowSwitchAccount && UserConfig.getActivatedAccountsCount() > 1) {
@@ -5799,6 +5943,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(fragmentView, this::onApplyWindowInsets);
+        org.telegram.messenger.PrimeStartupTrace.mark("DialogsActivity.createView end");
         return fragmentView;
     }
 
@@ -7025,7 +7170,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     }
 
     private void updateFilterTabs(boolean force, boolean animated) {
-        if (filterTabsView == null || inPreviewMode || searchIsShowed || (rightSlidingDialogContainer != null && rightSlidingDialogContainer.hasFragment())) {
+        // PrimeGram: on the Archive instance, filterTabsView is NOT the cloud-folder tab strip -
+        // it's a completely different, locally-populated FilterTabsView (see the isArchive()
+        // branch in createView() and primeRebuildArchiveFolderTabs()). This stock method knows
+        // nothing about that and would happily overwrite it with real cloud folders on every
+        // dialogFiltersUpdated/resume call, which is exactly how cloud folder names were leaking
+        // into the Archive's tab strip.
+        if (isArchive() || filterTabsView == null || inPreviewMode || searchIsShowed || (rightSlidingDialogContainer != null && rightSlidingDialogContainer.hasFragment())) {
             return;
         }
         if (filterOptions != null) {
@@ -8878,8 +9029,79 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
 
+        // PrimeGram: local-only archive folders - a much simpler sibling of the cloud-filter
+        // "Добавить в папку" submenu just above (no server sync, no always/never-show TL
+        // bookkeeping, just a toggleable membership set - see PrimeArchiveFolders). Built the same
+        // ActionBarPopupWindowLayout swipeback way for visual consistency with the menu it lives
+        // alongside, gated to only ever appear inside Archive.
+        final boolean hasArchiveFolders = isArchive();
+        LinearLayout primeArchiveFoldersMenuView = null;
+        final int[] primeArchiveFoldersMenu = new int[1];
+        if (hasArchiveFolders) {
+            primeArchiveFoldersMenuView = new LinearLayout(getParentActivity());
+            primeArchiveFoldersMenuView.setOrientation(LinearLayout.VERTICAL);
+
+            final ScrollView primeScrollView = new ScrollView(getParentActivity()) {
+                @Override
+                protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                    super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(
+                            (int) Math.min(
+                                    MeasureSpec.getSize(heightMeasureSpec),
+                                    Math.min(AndroidUtilities.displaySize.y * 0.35f, dp(400))
+                            ),
+                            MeasureSpec.getMode(heightMeasureSpec)
+                    ));
+                }
+            };
+            final LinearLayout primeFoldersList = new LinearLayout(getParentActivity());
+            primeFoldersList.setOrientation(LinearLayout.VERTICAL);
+            primeScrollView.addView(primeFoldersList);
+
+            for (org.telegram.messenger.PrimeArchiveFolders.Folder folder : org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolders()) {
+                final boolean contains = folder.dialogIds.contains(dialogId);
+                final ActionBarMenuSubItem folderItem = new ActionBarMenuSubItem(getParentActivity(), 2, false, false, null);
+                folderItem.setChecked(contains);
+                folderItem.setTextAndIcon(folder.name, R.drawable.msg_folders);
+                folderItem.setMinimumWidth(160);
+                folderItem.setOnClickListener(e -> {
+                    if (contains) {
+                        org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).removeDialog(folder.id, dialogId);
+                    } else {
+                        org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).addDialog(folder.id, dialogId);
+                    }
+                    hideActionMode(true);
+                    finishPreviewFragment();
+                });
+                primeFoldersList.addView(folderItem);
+            }
+
+            final ActionBarMenuSubItem primeNewFolderItem = new ActionBarMenuSubItem(getParentActivity(), false, false);
+            primeNewFolderItem.setTextAndIcon(LocaleController.getString(R.string.Create), R.drawable.msg_addfolder);
+            primeNewFolderItem.setMinimumWidth(160);
+            primeNewFolderItem.setOnClickListener(e -> {
+                hideActionMode(true);
+                finishPreviewFragment();
+                primeShowCreateArchiveFolderDialog(dialogId);
+            });
+            primeFoldersList.addView(primeNewFolderItem);
+
+            final ActionBarPopupWindow.GapView primeGap = new ActionBarPopupWindow.GapView(getParentActivity(), getResourceProvider(), Theme.key_actionBarDefaultSubmenuSeparator);
+            primeGap.setTag(R.id.fit_width_tag, 1);
+            final ActionBarMenuSubItem primeBackItem = new ActionBarMenuSubItem(getParentActivity(), true, false);
+            primeBackItem.setTextAndIcon(LocaleController.getString(R.string.Back), R.drawable.ic_ab_back);
+            primeBackItem.setMinimumWidth(160);
+            primeBackItem.setOnClickListener(e -> {
+                if (previewMenu[0] != null) {
+                    previewMenu[0].getSwipeBack().closeForeground();
+                }
+            });
+            primeArchiveFoldersMenuView.addView(primeBackItem);
+            primeArchiveFoldersMenuView.addView(primeGap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 8));
+            primeArchiveFoldersMenuView.addView(primeScrollView);
+        }
+
         int flags = ActionBarPopupWindow.ActionBarPopupWindowLayout.FLAG_SHOWN_FROM_BOTTOM;
-        if (hasFolders) {
+        if (hasFolders || hasArchiveFolders) {
             flags |= ActionBarPopupWindow.ActionBarPopupWindowLayout.FLAG_USE_SWIPEBACK;
         }
 
@@ -8905,6 +9127,17 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     previewActivity[0].getFragmentView().setLayoutParams(lp);
                 }
             });
+        }
+
+        if (hasArchiveFolders) {
+            primeArchiveFoldersMenu[0] = previewMenu[0].addViewToSwipeBack(primeArchiveFoldersMenuView);
+            final ActionBarMenuSubItem addToArchiveFolderItem = new ActionBarMenuSubItem(getParentActivity(), true, false);
+            addToArchiveFolderItem.setTextAndIcon("Добавить в папку", R.drawable.msg_addfolder);
+            addToArchiveFolderItem.setMinimumWidth(160);
+            addToArchiveFolderItem.setOnClickListener(e ->
+                    previewMenu[0].getSwipeBack().openForeground(primeArchiveFoldersMenu[0])
+            );
+            previewMenu[0].addView(addToArchiveFolderItem);
         }
 
         if (!isCommunityCell) {
@@ -10226,7 +10459,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
         if (addToFolderItem != null) {
-            if (folderId == 1 || filterTabsView != null && getFilterTabsVisibilityFactor(false) > 0.5f && filterTabsView.currentTabIsDefault() && !FiltersListBottomSheet.getCanAddDialogFilters(this, selectedDialogs).isEmpty()) {
+            // PrimeGram: this used to show unconditionally in Archive (folderId == 1) - the stock
+            // "add to a real cloud folder" action, entirely separate from and unaware of the local
+            // PrimeArchiveFolders system this fork added for Archive. Having both active at once
+            // is exactly how a channel selected in Archive ended up being offered the real
+            // (non-archive) cloud folders as a destination. The two systems must stay independent,
+            // so the cloud one no longer offers itself at all while inside Archive - only the
+            // local "Добавить в папку" (long-press menu, primeShowCreateArchiveFolderDialog and
+            // the archive-folder submenu) is available there.
+            if (!isArchive() && filterTabsView != null && getFilterTabsVisibilityFactor(false) > 0.5f && filterTabsView.currentTabIsDefault() && !FiltersListBottomSheet.getCanAddDialogFilters(this, selectedDialogs).isEmpty()) {
                 addToFolderItem.setVisibility(View.VISIBLE);
             } else {
                 addToFolderItem.setVisibility(View.GONE);
@@ -10797,6 +11038,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @SuppressWarnings("unchecked")
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.primeArchiveFoldersChanged) {
+            primeRebuildArchiveFolderTabs();
+            return;
+        }
         if (id == NotificationCenter.dialogsNeedReload) {
             if (viewPages == null || dialogsListFrozen) {
                 return;
@@ -11306,7 +11551,31 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
         MessagesController messagesController = AccountInstance.getInstance(currentAccount).getMessagesController();
         if (dialogsType == DIALOGS_TYPE_DEFAULT) {
-            return messagesController.getDialogs(folderId);
+            final ArrayList<TLRPC.Dialog> dialogs = messagesController.getDialogs(folderId);
+            // PrimeGram: local-only archive folder filtering - see primeRebuildArchiveFolderTabs
+            // and PrimeArchiveFolders. Only ever active inside Archive (folderId == 1) with a
+            // real (non-"Все") local folder selected.
+            if (isArchive() && primeSelectedArchiveFolderId != 0) {
+                if (primeArchiveFilterCacheResult != null && primeArchiveFilterCacheFolderId == primeSelectedArchiveFolderId
+                        && primeArchiveFilterCacheSourceSize == dialogs.size()) {
+                    return primeArchiveFilterCacheResult;
+                }
+                final org.telegram.messenger.PrimeArchiveFolders.Folder folder =
+                        org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolder(primeSelectedArchiveFolderId);
+                if (folder != null) {
+                    final ArrayList<TLRPC.Dialog> filtered = new ArrayList<>();
+                    for (int i = 0; i < dialogs.size(); i++) {
+                        if (folder.dialogIds.contains(dialogs.get(i).id)) {
+                            filtered.add(dialogs.get(i));
+                        }
+                    }
+                    primeArchiveFilterCacheFolderId = primeSelectedArchiveFolderId;
+                    primeArchiveFilterCacheSourceSize = dialogs.size();
+                    primeArchiveFilterCacheResult = filtered;
+                    return filtered;
+                }
+            }
+            return dialogs;
         } else if (dialogsType == DIALOGS_TYPE_WIDGET || dialogsType == DIALOGS_TYPE_IMPORT_HISTORY) {
             return messagesController.dialogsServerOnly;
         } else if (dialogsType == DIALOGS_TYPE_ADD_USERS_TO) {

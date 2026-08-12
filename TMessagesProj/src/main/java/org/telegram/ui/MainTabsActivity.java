@@ -402,6 +402,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
 
         updateLayout();
         checkUnreadCount(false);
+        org.telegram.messenger.PrimeStartupTrace.mark("MainTabsActivity.createView end");
         return contentView;
     }
 

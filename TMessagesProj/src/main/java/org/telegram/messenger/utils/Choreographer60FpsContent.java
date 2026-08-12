@@ -91,21 +91,25 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
     public void post(FrameCallback callback) {
         checkMainThread();
         mOneShot.add(callback);
+        scheduleIfNeeded();
     }
 
     public void postInvalidateDrawable(Drawable drawable) {
         checkMainThread();
         mDrawablesToInvalidate.add(drawable);
+        scheduleIfNeeded();
     }
 
     public void postInvalidateDrawable30fps(Drawable drawable) {
         checkMainThread();
         mDrawablesToInvalidate30fps.add(drawable);
+        scheduleIfNeeded();
     }
 
     public void postInvalidateView(View view) {
         checkMainThread();
         mViewsToInvalidate.add(view);
+        scheduleIfNeeded();
     }
 
     /**
@@ -136,6 +140,7 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
         fps = Math.max(1, Math.min(fps, TARGET_FPS));
         removeFrameCallback(callback); // remove from any existing group first
         getOrCreateGroup(fps).runnableCallbacks.add(callback);
+        scheduleIfNeeded();
     }
 
     /**
@@ -153,6 +158,7 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
         fps = Math.max(1, Math.min(fps, TARGET_FPS));
         removeFrameCallback(callback); // remove from any existing group first
         getOrCreateGroup(fps).callbacks.add(callback);
+        scheduleIfNeeded();
     }
 
     /**
@@ -167,6 +173,7 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
         for (int i = 0; i < mGroups.size(); i++) {
             CallbackGroup group = mGroups.valueAt(i);
             if (group.runnableCallbacks.remove(callback)) {
+                removeGroupIfEmpty(group, mGroups.keyAt(i));
                 return;
             }
         }
@@ -184,15 +191,41 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
         for (int i = 0; i < mGroups.size(); i++) {
             CallbackGroup group = mGroups.valueAt(i);
             if (group.callbacks.remove(callback)) {
+                removeGroupIfEmpty(group, mGroups.keyAt(i));
                 return;
             }
         }
     }
 
+    private void removeGroupIfEmpty(CallbackGroup group, int fpsKey) {
+        if (group.callbacks.isEmpty() && group.runnableCallbacks.isEmpty()) {
+            mGroups.remove(fpsKey);
+        }
+    }
+
     // ── Private implementation ────────────────────────────────────────────────
 
+    /** Whether a Choreographer wakeup is currently pending. Without this, once anything ever
+     *  called getInstance(), this class rescheduled itself EVERY VSYNC forever - a perpetual
+     *  no-op wakeup even at total idle with zero registered callbacks/drawables/views. */
+    private boolean mScheduled;
+
     private Choreographer60FpsContent() {
+        mScheduled = true;
         mChoreographer.postFrameCallback(this);
+    }
+
+    private void scheduleIfNeeded() {
+        if (!mScheduled) {
+            mScheduled = true;
+            mLastVsyncNs = 0;
+            mChoreographer.postFrameCallback(this);
+        }
+    }
+
+    private boolean hasPendingWork() {
+        return mGroups.size() > 0 || !mOneShot.isEmpty() || !mDrawablesToInvalidate.isEmpty()
+                || !mDrawablesToInvalidate30fps.isEmpty() || !mViewsToInvalidate.isEmpty();
     }
 
     @Override
@@ -209,7 +242,11 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
             }
         }
 
-        mChoreographer.postFrameCallback(this);
+        if (hasPendingWork()) {
+            mChoreographer.postFrameCallback(this);
+        } else {
+            mScheduled = false;
+        }
     }
 
     private void dispatchFrame(long frameTimeNanos) {

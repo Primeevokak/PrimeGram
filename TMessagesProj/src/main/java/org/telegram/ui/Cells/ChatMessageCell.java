@@ -1303,6 +1303,20 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     private CountdownTimer pollCountDownTimer;
     private StaticLayout loadingProgressLayout;
     private long loadingProgressLayoutHash;
+    // PrimeGram: odometer-style counting for the "X / Y MB" download/upload text - a steady,
+    // humanly-visible tick-up rate (~1 MB every 500ms - slow enough to actually watch each MB
+    // land, not just a blur) that chases whatever the latest real progress value is, completely
+    // decoupled from how often/rarely real network updates actually arrive. A raw update just
+    // moves the target; the displayed number keeps counting toward it at its own constant pace on
+    // every draw frame, so a big real jump (e.g. 12MB -> 24MB reported in one network callback)
+    // still reads as the file visibly filling up rather than a snap - and if the real download
+    // finishes before the counter catches up, the counter simply keeps ticking until it reaches
+    // the real total. See primeSetLoadingProgress/primeTickLoadingProgressAnimation.
+    private static final float PRIME_PROGRESS_TICK_BYTES_PER_MS = (1024f * 1024f) / 500f;
+    private long primeAnimatedLoadedSize;
+    private long primeLoadProgressAnimTargetSize;
+    private long primeLoadProgressAnimTargetTotal;
+    private long primeLoadProgressAnimLastFrameTime;
     private int infoX;
     private int infoWidth;
 
@@ -15095,6 +15109,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     canvas.save();
                     canvas.translate(x, subtitleY);
                     if (buttonState == 1 && loadingProgressLayout != null) {
+                        primeTickLoadingProgressAnimation();
                         loadingProgressLayout.draw(canvas);
                     } else {
                         infoLayout.draw(canvas);
@@ -18196,7 +18211,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     public void onProgressDownload(String fileName, long downloadedSize, long totalSize) {
         float progress = totalSize == 0 ? 0 : Math.min(1f, downloadedSize / (float) totalSize);
         currentMessageObject.loadedFileSize = downloadedSize;
-        createLoadingProgressLayout(downloadedSize, totalSize);
+        primeSetLoadingProgress(downloadedSize, totalSize);
         if (drawVideoImageButton) {
             videoRadialProgress.setProgress(progress, true);
         } else {
@@ -18242,7 +18257,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         if (lastLoadingSizeTotal > 0 && Math.abs(lastLoadingSizeTotal - totalSize) > UPLOADING_ALLOWABLE_ERROR) {
             lastLoadingSizeTotal = totalSize;
         }
-        createLoadingProgressLayout(uploadedSize, totalSize);
+        primeSetLoadingProgress(uploadedSize, totalSize);
     }
 
     private void createLoadingProgressLayout(TLRPC.Document document) {
@@ -18250,10 +18265,78 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             return;
         }
         long[] progresses = ImageLoader.getInstance().getFileProgressSizes(FileLoader.getDocumentFileName(document));
+        final long loadedSize;
+        final long totalSize;
         if (progresses != null) {
-            createLoadingProgressLayout(progresses[0], progresses[1]);
+            loadedSize = progresses[0];
+            totalSize = progresses[1];
         } else {
-            createLoadingProgressLayout(currentMessageObject.loadedFileSize, document.size);
+            loadedSize = currentMessageObject.loadedFileSize;
+            totalSize = document.size;
+        }
+        // PrimeGram: a (re)bind, not a live progress tick - show the real value immediately, no
+        // easing, but keep the animation state in sync so the next real onProgressDownload/Upload
+        // call eases from here instead of wherever a previously-bound message left off.
+        primeAnimatedLoadedSize = loadedSize;
+        primeLoadProgressAnimTargetSize = loadedSize;
+        primeLoadProgressAnimTargetTotal = totalSize;
+        createLoadingProgressLayout(loadedSize, totalSize);
+    }
+
+    /**
+     * PrimeGram: entry point for a live progress update (as opposed to a cell (re)bind) - just
+     * moves the target. The displayed number's own steady tick-up (primeTickLoadingProgressAnimation)
+     * chases it independently on every draw frame, so a real update arriving as one big jump (or
+     * arriving rarely) doesn't change how the counter looks - it always counts up at its own pace.
+     */
+    private void primeSetLoadingProgress(long loadedSize, long totalSize) {
+        if (totalSize <= 0) {
+            primeAnimatedLoadedSize = loadedSize;
+            primeLoadProgressAnimTargetSize = loadedSize;
+            primeLoadProgressAnimTargetTotal = totalSize;
+            createLoadingProgressLayout(loadedSize, totalSize);
+            return;
+        }
+        if (primeLoadProgressAnimTargetTotal != totalSize || primeAnimatedLoadedSize > loadedSize) {
+            // Different file, or progress moved backward (retry/restart) - nothing sensible to
+            // count up from, snap immediately rather than count in reverse.
+            primeAnimatedLoadedSize = loadedSize;
+            createLoadingProgressLayout(loadedSize, totalSize);
+        }
+        primeLoadProgressAnimTargetSize = loadedSize;
+        primeLoadProgressAnimTargetTotal = totalSize;
+        primeLoadProgressAnimLastFrameTime = System.currentTimeMillis();
+        invalidate();
+    }
+
+    /**
+     * PrimeGram: advances the displayed value one tick closer to the target at the fixed
+     * PRIME_PROGRESS_TICK_BYTES_PER_MS pace and rebuilds the text layout if it moved - call right
+     * before drawing loadingProgressLayout. Keeps invalidating (and therefore keeps counting) for
+     * as long as it's behind the target, including after the real download has already finished.
+     */
+    private void primeTickLoadingProgressAnimation() {
+        if (primeLoadProgressAnimTargetTotal <= 0 || primeAnimatedLoadedSize >= primeLoadProgressAnimTargetSize) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long dt = now - primeLoadProgressAnimLastFrameTime;
+        if (dt <= 0) {
+            dt = 1;
+        } else if (dt > 100) {
+            // The cell was off-screen or the thread stalled for a while - clamp so it doesn't
+            // leap ahead to "catch up" on return, it just resumes ticking from here.
+            dt = 100;
+        }
+        primeLoadProgressAnimLastFrameTime = now;
+        long step = (long) (PRIME_PROGRESS_TICK_BYTES_PER_MS * dt);
+        if (step < 1) {
+            step = 1;
+        }
+        primeAnimatedLoadedSize = Math.min(primeLoadProgressAnimTargetSize, primeAnimatedLoadedSize + step);
+        createLoadingProgressLayout(primeAnimatedLoadedSize, primeLoadProgressAnimTargetTotal);
+        if (primeAnimatedLoadedSize < primeLoadProgressAnimTargetSize) {
+            invalidate();
         }
     }
 
@@ -24878,6 +24961,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                                     canvas.translate(0, dp(14.3f * alpha));
                                 }
 //                            loadingProgressLayout.copyStylesFrom(Theme.chat_infoPaint);
+                                primeTickLoadingProgressAnimation();
                                 loadingProgressLayout.draw(canvas);
                                 canvas.restore();
                             } else if (drawDocTitleLayout) {

@@ -268,7 +268,7 @@ public class ApplicationLoader extends Application {
         SharedConfig.loadProxyList();
         PrimeStartupTrace.mark("postInitApplication: proxy list");
         SharedPreferences mainconfig = applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
-        if (mainconfig.getBoolean("primegram_tgws_enabled", true)) {
+        if (mainconfig.getBoolean("primegram_tgws_enabled", true) && !PrimeBackgroundProxy.shouldSkipColdStart()) {
             try {
                 // postInitApplication() runs on the UI thread (see PushListenerController /
                 // GcmPushListenerService, which call it from AndroidUtilities.runOnUIThread on
@@ -346,7 +346,13 @@ public class ApplicationLoader extends Application {
         // Only the displayed account here; the deferred ones do this as they come up. Note that
         // checkAppAccount() talks to the system AccountManager over IPC, so it is far from free.
         ContactsController.getInstance(primaryAccount).checkAppAccount();
-        DownloadController.getInstance(primaryAccount);
+        // PrimeGram: nothing needs DownloadController until the user actually views/downloads
+        // media - deferred off the synchronous startup path the same way VpnSDK.setup() already
+        // is above, instead of eagerly constructing it (and its Presets) before first paint. See
+        // the "Cold Start Optimization" plan's Part 3.
+        final int downloadControllerAccount = primaryAccount;
+        Utilities.globalQueue.postRunnable(() ->
+                AndroidUtilities.runOnUIThread(() -> DownloadController.getInstance(downloadControllerAccount)));
         PrimeStartupTrace.mark("postInitApplication: contacts and downloads ready");
         BillingController.getInstance().startConnection();
         PrimeStartupTrace.mark("postInitApplication end");
@@ -406,6 +412,20 @@ public class ApplicationLoader extends Application {
                 }
             });
         });
+
+        // PrimeGram Blocks: wire the interpreter's NotificationCenter observers for every
+        // already-logged-in account, so a script's trigger fires from a cold start, not only
+        // once some other screen happens to touch that account. Same activated-accounts guard
+        // used for the network-change broadcast above. loadIfNeeded() previously only ran when
+        // the user opened the "Блоки" screen, which meant an installed script's triggers stayed
+        // silent (PrimeBlocksController.count() == 0) for anyone who never opened that screen -
+        // it has to run here unconditionally instead.
+        org.telegram.messenger.blocks.PrimeBlocksController.getInstance().loadIfNeeded();
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            if (UserConfig.getInstance(a).isClientActivated()) {
+                org.telegram.messenger.blocks.PrimeBlocksRuntime.getInstance(a).attach();
+            }
+        }
 
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("app start time = " + (startTime = SystemClock.elapsedRealtime()));

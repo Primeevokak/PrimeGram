@@ -113,6 +113,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_WHATS_NEW = 146;
     private static final int ID_VLESS_CUSTOM_KEY = 147;
     private static final int ID_BATTERY_DIAG = 148;
+    private static final int ID_UI_INSPECTOR = 149;
+    private static final int ID_PERF_MONITOR = 150;
+    private static final int ID_PERF_MONITOR_LOG = 151;
+    private static final int ID_TGWS_BACKGROUND = 152;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -1261,6 +1265,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             endCard(items);
             items.add(UItem.asShadow("Локальный SOCKS5-сервер, через который приложение ходит в сеть в обход блокировок. Домен подключения, порт и журнал — на отдельном экране."));
 
+            row(check(ID_TGWS_BACKGROUND, IconBackgroundColors.GREEN, R.drawable.msg2_battery,
+                    "Не работать в фоне", org.telegram.messenger.PrimeBackgroundProxy.isBackgroundWorkDisabled()));
+            endCard(items);
+            items.add(UItem.asShadow("Останавливает локальный сервер вскоре после сворачивания приложения и запускает заново при открытии — экономит батарею на слабых устройствах. Push-уведомления продолжают приходить как обычно: они идут через Google (FCM), а не через этот сервер."));
+
             boolean batteryOptOk = AndroidUtilities.isIgnoringBatteryOptimizations();
             row(button(ID_BATTERY_OPTIMIZATION, IconBackgroundColors.ORANGE, R.drawable.msg_speed,
                     "Отключить оптимизацию батареи",
@@ -1550,10 +1559,22 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Энергопотребление", "экспорт и отправка"));
             row(button(ID_PUSH_STATUS, IconBackgroundColors.ORANGE, R.drawable.msg_notifications,
                     "Состояние уведомлений", primePushSummary()));
+            row(check(ID_UI_INSPECTOR, IconBackgroundColors.RED, R.drawable.msg_pin_code,
+                    "Инспектор элементов UI", org.telegram.messenger.PrimeUiInspector.isEnabled()));
+            row(check(ID_PERF_MONITOR, IconBackgroundColors.PURPLE, R.drawable.msg_speed,
+                    "Мониторинг нагрузки", org.telegram.messenger.PrimePerfMonitor.isEnabled()));
+            row(button(ID_PERF_MONITOR_LOG, IconBackgroundColors.PURPLE, R.drawable.msg_log,
+                    "Лог нагрузки", "просмотр и копирование"));
             endCard(items);
             items.add(info(6, "Подробные логи",
                     "Нужны только когда мы просим трассировку запуска.",
                     "Telegram пишет в лог очень много, и каждая строка форматируется в том потоке, который её отправил, — включая главный. Постоянно включённые логи заметно замедляют работу и занимают место.\n\nВключайте, когда нужно снять трассировку запуска или разобраться с ошибкой, и выключайте после. Трассировка PrimeGram пишется в тот же лог, поэтому без этой настройки её не будет.\n\nСама трасса показывает, сколько миллисекунд занял каждый этап последнего холодного старта: загрузка нативных библиотек, открытие базы, появление списка чатов."));
+            items.add(info(24, "Инспектор элементов UI",
+                    "Обводит каждый View на экране зелёной рамкой с его именем.",
+                    "Поверх всего интерфейса рисуется зелёная рамка вокруг каждого элемента (View), который сейчас реально лежит на экране, а рядом с рамкой — имя его класса и id, если он есть.\n\nНужно, когда на экране виден лишний фон/обводка/призрачный элемент, но непонятно, какой именно View его рисует — рамки и подписи позволяют ткнуть в нужное место и прочитать точное имя, вместо того чтобы гадать по скриншоту.\n\nРамок много и они мешают пользоваться приложением, поэтому включайте только на время диагностики конкретной проблемы и выключайте сразу после."));
+            items.add(info(25, "Мониторинг нагрузки",
+                    "Раз в две секунды пишет в лог, что именно тормозит, а не просто что тормозит.",
+                    "Пока включено, каждые две секунды в лог дописывается строка: экран, на котором это было, fps, доля джанк-кадров, средняя и худшая длительность кадра, и разбивка по фазам — сколько времени ушло на layout/measure, draw, анимацию, GPU и так далее, с пометкой какая фаза съедает больше всего.\n\nДля самого тяжёлого кадра в каждом окне отдельной строкой пишется стек главного потока в момент этого кадра — не догадка по цифрам, а реальная цепочка вызовов, которая тормозила.\n\nВключите, повторите то действие, которое дёргается, затем откройте «Лог нагрузки» и скопируйте — там будет видно и где это произошло, и какая фаза кадра виновата, и что конкретно выполнялось.\n\nРаботает через системный FrameMetrics API (Android 7+). На старых версиях включение ничего не делает."));
         }
 
         if (section == SECTION_ADVANCED_EXPERIMENTAL) {
@@ -1739,6 +1760,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showWhisperLanguagePicker();
         } else if (item.id == ID_DOUBLE_TAP_REACTION) {
             presentFragment(new org.telegram.ui.ReactionsDoubleTapManageActivity());
+        } else if (item.id == ID_UI_INSPECTOR) {
+            org.telegram.messenger.PrimeUiInspector.setEnabled(!org.telegram.messenger.PrimeUiInspector.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_PERF_MONITOR) {
+            org.telegram.messenger.PrimePerfMonitor.setEnabled(!org.telegram.messenger.PrimePerfMonitor.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_PERF_MONITOR_LOG) {
+            showPerfMonitorLog();
         } else if (item.id == ID_LOGS_ENABLED) {
             // The same preference the debug menu writes, so the two can never disagree.
             org.telegram.messenger.ApplicationLoader.applicationContext
@@ -1959,6 +1988,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
             }
             listView.adapter.update(true);
+        } else if (item.id == ID_TGWS_BACKGROUND) {
+            org.telegram.messenger.PrimeBackgroundProxy.setBackgroundWorkDisabled(
+                    !org.telegram.messenger.PrimeBackgroundProxy.isBackgroundWorkDisabled());
+            listView.adapter.update(true);
         } else if (item.id == ID_VPN_GUARD) {
             final boolean enabled = !org.telegram.messenger.PrimeVpnGuard.isEnabled();
             org.telegram.messenger.PrimeVpnGuard.setEnabled(enabled);
@@ -2134,6 +2167,23 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             org.telegram.ui.Components.BulletinFactory.of(this)
                     .createSimpleBulletin(R.raw.copy, "Скопировано").show();
         });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showPerfMonitorLog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final String log = org.telegram.messenger.PrimePerfMonitor.dump();
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Лог нагрузки");
+        builder.setMessage(log);
+        builder.setPositiveButton("Скопировать", (dialog, which) -> {
+            AndroidUtilities.addToClipboard(log);
+            org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this).createCopyBulletin("Скопировано").show();
+        });
+        builder.setNeutralButton("Очистить", (dialog, which) -> org.telegram.messenger.PrimePerfMonitor.clear());
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         showDialog(builder.create());
     }

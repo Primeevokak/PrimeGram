@@ -377,6 +377,16 @@ public class NotificationCenter {
     public static final int communitySwitchedCollapsed = totalEvents++;
     public static final int pluginsDidUpdate = totalEvents++;
     public static final int blocksDidUpdate = totalEvents++;
+    /** PrimeGram: local (non-synced) archive folders changed - see PrimeArchiveFolders. */
+    public static final int primeArchiveFoldersChanged = totalEvents++;
+    /** PrimeGram Blocks: posted additively from MessagesController's existing edit-message update handling. */
+    public static final int primeMessageEdited = totalEvents++;
+    /** PrimeGram Blocks: posted additively from MessagesController's existing participant-added update handling. */
+    public static final int primeUserJoinedChat = totalEvents++;
+    /** PrimeGram: the "Диагностика" UI-inspector overlay toggle changed - see PrimeUiInspector. */
+    public static final int primeUiInspectorChanged = totalEvents++;
+    /** PrimeGram: the "Диагностика" live performance monitor toggle changed - see PrimePerfMonitor. */
+    public static final int primePerfMonitorChanged = totalEvents++;
 
     public static boolean alreadyLogged;
 

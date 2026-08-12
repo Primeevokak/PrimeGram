@@ -1213,6 +1213,51 @@ public class LocaleController {
         return getLocaleFileStrings(file, false);
     }
 
+    /**
+     * PrimeGram: wraps {@link #getLocaleFileStrings} with a flat binary cache alongside the
+     * source file, so only the first cold start after a language pack actually changes pays the
+     * full XML-parse cost (measured at ~700ms on a cold JVM for a full remote language file) -
+     * every other cold start loads a plain key/value dump instead. See the "Cold Start
+     * Optimization" plan's Part 4. Only used from {@code applyLanguage}'s own load path, not the
+     * diff-merge/save-to-disk call sites elsewhere in this class, which read a file this same
+     * method is about to rewrite - not worth the added invalidation subtlety there for a path
+     * that isn't cold-start-critical.
+     */
+    private HashMap<String, String> getLocaleFileStringsCached(File file) {
+        final File cacheFile = new File(file.getPath() + ".cache");
+        final long length = file.length();
+        final long lastModified = file.lastModified();
+        if (cacheFile.exists()) {
+            try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.BufferedInputStream(new FileInputStream(cacheFile)))) {
+                if (in.readLong() == length && in.readLong() == lastModified) {
+                    final int count = in.readInt();
+                    final HashMap<String, String> result = new HashMap<>(Math.max(16, count));
+                    for (int i = 0; i < count; i++) {
+                        result.put(in.readUTF(), in.readUTF());
+                    }
+                    return result;
+                }
+            } catch (Exception ignored) {
+                // Falls through to a real parse below - a corrupt/stale/unreadable cache must
+                // never surface as a locale-loading failure.
+            }
+        }
+
+        final HashMap<String, String> parsed = getLocaleFileStrings(file);
+        try (java.io.DataOutputStream out = new java.io.DataOutputStream(new java.io.BufferedOutputStream(new java.io.FileOutputStream(cacheFile)))) {
+            out.writeLong(length);
+            out.writeLong(lastModified);
+            out.writeInt(parsed.size());
+            for (HashMap.Entry<String, String> entry : parsed.entrySet()) {
+                out.writeUTF(entry.getKey());
+                out.writeUTF(entry.getValue());
+            }
+        } catch (Exception ignored) {
+            // Best-effort - a cache-write failure must not affect the values already parsed.
+        }
+        return parsed;
+    }
+
     private HashMap<String, String> getLocaleFileStrings(File file, boolean preserveEscapes) {
         FileInputStream stream = null;
         reloadLastFile = false;
@@ -1360,9 +1405,9 @@ public class LocaleController {
             if (pathToFile == null) {
                 localeValues.clear();
             } else if (!fromFile) {
-                localeValues = getLocaleFileStrings(hasBase ? localeInfo.getPathToBaseFile() : localeInfo.getPathToFile());
+                localeValues = getLocaleFileStringsCached(hasBase ? localeInfo.getPathToBaseFile() : localeInfo.getPathToFile());
                 if (hasBase) {
-                    localeValues.putAll(getLocaleFileStrings(localeInfo.getPathToFile()));
+                    localeValues.putAll(getLocaleFileStringsCached(localeInfo.getPathToFile()));
                 }
             }
             currentLocale = newLocale;
