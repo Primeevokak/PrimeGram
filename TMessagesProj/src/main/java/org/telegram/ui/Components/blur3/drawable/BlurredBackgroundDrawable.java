@@ -241,14 +241,23 @@ public abstract class BlurredBackgroundDrawable extends Drawable {
             boundsWithPadding.set(bounds);
             boundsWithPadding.inset(padding, padding);
 
-            path.rewind();
-            path.addRoundRect(
-                boundsWithPadding.left,
-                boundsWithPadding.top,
-                boundsWithPadding.right,
-                boundsWithPadding.bottom,
-                radii, Path.Direction.CW);
-            path.close();
+            // PrimeGram: draw() below only ever reads `path` when radiiAreSame is false - the
+            // common case (a uniformly-rounded pill/panel) takes the canvas.drawRoundRect() fast
+            // path instead and never looks at it. Building this Path (rewind + addRoundRect +
+            // close) is pure waste in that case, and this runs on every onBoundsChange() - i.e.
+            // every single frame of any slide/resize animation on a BlurredBackgroundDrawable,
+            // several of which exist across the chat UI. getPath() has no other callers in the
+            // codebase, so nothing else can observe it going stale here.
+            if (!radiiAreSame) {
+                path.rewind();
+                path.addRoundRect(
+                    boundsWithPadding.left,
+                    boundsWithPadding.top,
+                    boundsWithPadding.right,
+                    boundsWithPadding.bottom,
+                    radii, Path.Direction.CW);
+                path.close();
+            }
 
             final float radiusMax = Math.min(boundsWithPadding.width(), boundsWithPadding.height()) / 2f;
 
