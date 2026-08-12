@@ -4286,10 +4286,100 @@ public class Theme {
     private static int[] defaultColors;
     private static SparseIntArray fallbackKeys = new SparseIntArray();
     private static HashSet<Integer> themeAccentExclusionKeys = new HashSet<>();
-    private static SparseIntArray currentColorsNoAccent;
-    private static SparseIntArray currentColors;
+    private static PrimeColorMap currentColorsNoAccent;
+    private static PrimeColorMap currentColors;
     private static SparseIntArray animatingColors;
     private static boolean shouldDrawGradientIcons;
+
+    /**
+     * PrimeGram: getColor() is on the hottest draw path in the app - every ChatMessageCell/
+     * DialogCell redraw resolves dozens of keys through it, several times per unique key in the
+     * same pass (confirmed: key_chat_serviceText alone is looked up from 9 separate call sites in
+     * ChatMessageCell). The stock implementation backing currentColors/currentColorsNoAccent was
+     * a plain SparseIntArray - a binary search per lookup. Theme's color keys are dense sequential
+     * ints (colorsCount++), which is exactly the case a flat array beats a binary search on.
+     *
+     * <p>This subclasses SparseIntArray rather than replacing its type everywhere: every existing
+     * call site (100+, across this file) keeps working completely unchanged - put()/delete()/
+     * indexOfKey()/valueAt()/keyAt()/size()/clone() are all still real SparseIntArray operations
+     * (so accent-blending code, theme-file loading, wallpaper handling etc. are byte-for-byte
+     * unmodified) and Java's virtual dispatch means any code holding a PrimeColorMap through a
+     * plain SparseIntArray-typed parameter (e.g. ThemeAccent.fillAccentColors, which several
+     * unrelated screens call with their own local preview SparseIntArrays too) still calls into
+     * these overrides correctly. Only getColor() itself (the actual hot path) was rewritten to use
+     * the O(1) {@link #hasFast}/{@link #getFast} pair added here instead of indexOfKey+valueAt -
+     * everything else reading these fields is unaffected, on purpose, to keep this change surgical.
+     */
+    static final class PrimeColorMap extends SparseIntArray {
+        private static final int NONE = 0;
+        private int[] fast = new int[Math.max(colorsCount, 16)];
+        private boolean[] present = new boolean[fast.length];
+
+        private void ensureCapacity(int key) {
+            if (key >= fast.length) {
+                final int newSize = Math.max(key + 1, fast.length * 2);
+                fast = java.util.Arrays.copyOf(fast, newSize);
+                present = java.util.Arrays.copyOf(present, newSize);
+            }
+        }
+
+        @Override
+        public void put(int key, int value) {
+            super.put(key, value);
+            if (key >= 0) {
+                ensureCapacity(key);
+                fast[key] = value;
+                present[key] = true;
+            }
+        }
+
+        @Override
+        public void delete(int key) {
+            super.delete(key);
+            if (key >= 0 && key < present.length) {
+                present[key] = false;
+                fast[key] = NONE;
+            }
+        }
+
+        @Override
+        public void clear() {
+            super.clear();
+            java.util.Arrays.fill(present, false);
+            java.util.Arrays.fill(fast, NONE);
+        }
+
+        /** True if this exact key has a value set - mirrors {@code indexOfKey(key) >= 0}. */
+        boolean hasFast(int key) {
+            return key >= 0 && key < present.length && present[key];
+        }
+
+        /** Only valid when {@link #hasFast} is true for the same key. */
+        int getFast(int key) {
+            return fast[key];
+        }
+
+        @Override
+        public PrimeColorMap clone() {
+            final PrimeColorMap copy = new PrimeColorMap();
+            for (int i = 0; i < size(); i++) {
+                copy.put(keyAt(i), valueAt(i));
+            }
+            return copy;
+        }
+    }
+
+    /** Copies a plain SparseIntArray (e.g. from getThemeFileValues(), which stays untouched -
+     *  theme-file parsing is cold/disk-bound, not worth complicating) into a fast-lookup map. */
+    private static PrimeColorMap toFastColorMap(SparseIntArray src) {
+        final PrimeColorMap map = new PrimeColorMap();
+        if (src != null) {
+            for (int i = 0; i < src.size(); i++) {
+                map.put(src.keyAt(i), src.valueAt(i));
+            }
+        }
+        return map;
+    }
 
     private static final ThreadLocal<float[]> hsvTemp1Local = new ThreadLocal<>();
     private static final ThreadLocal<float[]> hsvTemp2Local = new ThreadLocal<>();
@@ -4608,8 +4698,8 @@ public class Theme {
         themes = new ArrayList<>();
         otherThemes = new ArrayList<>();
         themesDict = new HashMap<>();
-        currentColorsNoAccent = new SparseIntArray();
-        currentColors = new SparseIntArray();
+        currentColorsNoAccent = new PrimeColorMap();
+        currentColors = new PrimeColorMap();
 
         SharedPreferences themeConfig = ApplicationLoader.applicationContext.getSharedPreferences("themeconfig", Activity.MODE_PRIVATE);
 
@@ -6383,9 +6473,9 @@ public class Theme {
                 }
                 String[] wallpaperLink = new String[1];
                 if (themeInfo.assetName != null) {
-                    currentColorsNoAccent = getThemeFileValues(null, themeInfo.assetName, null);
+                    currentColorsNoAccent = toFastColorMap(getThemeFileValues(null, themeInfo.assetName, null));
                 } else {
-                    currentColorsNoAccent = getThemeFileValues(new File(themeInfo.pathToFile), null, wallpaperLink);
+                    currentColorsNoAccent = toFastColorMap(getThemeFileValues(new File(themeInfo.pathToFile), null, wallpaperLink));
                 }
                 themedWallpaperFileOffset = currentColorsNoAccent.get(key_wallpaperFileOffset, -1);
                 if (!TextUtils.isEmpty(wallpaperLink[0])) {
@@ -6605,12 +6695,12 @@ public class Theme {
                 };
                 if (themeInfo.assetName != null) {
                     getThemeFileValuesInBackground(null, themeInfo.assetName, null, colors -> {
-                        currentColorsNoAccent = colors;
+                        currentColorsNoAccent = toFastColorMap(colors);
                         next.run();
                     });
                 } else {
                     getThemeFileValuesInBackground(new File(themeInfo.pathToFile), null, wallpaperLink, colors -> {
-                        currentColorsNoAccent = colors;
+                        currentColorsNoAccent = toFastColorMap(colors);
                         next.run();
                     });
                 }
@@ -9608,15 +9698,15 @@ public class Theme {
                 return getDefaultColor(key);
             }
         }
-        int index = currentColors.indexOfKey(key);
+        // PrimeGram: was currentColors.indexOfKey(key) + valueAt(index) - a binary search on
+        // every single call, on the hottest color-resolution path in the app. hasFast/getFast are
+        // O(1) array reads backed by PrimeColorMap's parallel flat cache (see its class doc) -
+        // same semantics (hasFast mirrors indexOfKey(key) >= 0), zero behavior change.
         int color;
-        if (index < 0) {
+        if (!currentColors.hasFast(key)) {
             int fallbackKey = fallbackKeys.get(key, -1);
-            if (fallbackKey != -1) {
-                int fallbackIndex = currentColors.indexOfKey(fallbackKey);
-                if (fallbackIndex >= 0) {
-                    return currentColors.valueAt(fallbackIndex);
-                }
+            if (fallbackKey != -1 && currentColors.hasFast(fallbackKey)) {
+                return currentColors.getFast(fallbackKey);
             }
 
             if (isDefault != null) {
@@ -9629,7 +9719,7 @@ public class Theme {
             }
             return getDefaultColor(key);
         } else {
-            color = currentColors.valueAt(index);
+            color = currentColors.getFast(key);
         }
         if (key_windowBackgroundWhite == key || key_windowBackgroundGray == key || key_actionBarDefault == key || key_actionBarDefaultArchived == key) {
             color |= 0xff000000;

@@ -599,6 +599,7 @@ public class ChatActivity extends BaseFragment implements
     private FrameLayout searchContainer;
     private ImageView searchCalendarButton;
     private ImageView searchUserButton;
+    private ImageView searchForwardButton;
     private AnimatedTextView searchCountText;
     private AnimatedTextView searchExpandList;
     private AnimatedTextView searchOtherButton;
@@ -10746,6 +10747,9 @@ public class ChatActivity extends BaseFragment implements
                     if (searchUserButton != null && searchUserButton.getVisibility() != GONE) {
                         leftMargin += 48;
                     }
+                    if (searchForwardButton != null && searchForwardButton.getVisibility() != GONE) {
+                        leftMargin += 48;
+                    }
                     ((MarginLayoutParams) child.getLayoutParams()).leftMargin = AndroidUtilities.dp(leftMargin);
                 }
                 super.measureChildWithMargins(child, parentWidthMeasureSpec, widthUsed, parentHeightMeasureSpec, heightUsed);
@@ -10846,6 +10850,38 @@ public class ChatActivity extends BaseFragment implements
             });
             searchCalendarButton.setContentDescription(LocaleController.getString(R.string.JumpToDate));
         }
+
+        searchForwardButton = new ImageView(getContext());
+        searchForwardButton.setScaleType(ImageView.ScaleType.CENTER);
+        searchForwardButton.setImageResource(R.drawable.msg_forward);
+        searchForwardButton.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_chat_searchPanelIcons), PorterDuff.Mode.MULTIPLY));
+        searchForwardButton.setBackgroundDrawable(Theme.createSelectorDrawable(getThemedColor(Theme.key_actionBarActionModeDefaultSelector), 1));
+        searchContainer.addView(searchForwardButton, LayoutHelper.createFrame(ChatActivityEnterView.DEFAULT_HEIGHT, ChatActivityEnterView.DEFAULT_HEIGHT, Gravity.LEFT | Gravity.TOP, 2.66f, 0, 0, 0));
+        searchForwardButton.setVisibility(View.GONE);
+        searchForwardButton.setOnClickListener(view -> openHashtagSearchForward());
+        searchForwardButton.setContentDescription(LocaleController.getString(R.string.Forward));
+    }
+
+    private void openHashtagSearchForward() {
+        if (getParentActivity() == null || searchingHashtag == null) {
+            return;
+        }
+        final ArrayList<MessageObject> results;
+        final CharSequence title;
+        if (chatMode == MODE_SEARCH && searchType == SEARCH_MY_MESSAGES) {
+            results = messages;
+            title = LocaleController.getString(R.string.SearchMyMessages);
+        } else if (chatMode == MODE_SEARCH && searchType == SEARCH_PUBLIC_POSTS) {
+            results = messages;
+            title = LocaleController.getString(R.string.SearchPublicPosts);
+        } else {
+            results = getMediaDataController().searchResultMessages;
+            title = LocaleController.getString(R.string.SearchThisChat);
+        }
+        if (results == null || results.isEmpty()) {
+            return;
+        }
+        presentFragment(new PrimeForwardSelectionActivity(LocaleController.getString(R.string.Forward) + " " + searchingHashtag + " — " + title, results));
     }
 
     private void showSearchShowOther(boolean show) {
@@ -27346,6 +27382,15 @@ public class ChatActivity extends BaseFragment implements
             searchExpandList.setClickable(count > 0);
             searchExpandList.animate().alpha(count > 0 ? 1f : 0.5f).start();
         }
+        updateSearchForwardButton();
+    }
+
+    private void updateSearchForwardButton() {
+        if (searchForwardButton == null) {
+            return;
+        }
+        final boolean isHashtagResultsTab = searchingHashtag != null && (chatMode != MODE_SEARCH || searchType == SEARCH_MY_MESSAGES || searchType == SEARCH_PUBLIC_POSTS);
+        searchForwardButton.setVisibility(isHashtagResultsTab && searchLastCount > 0 ? View.VISIBLE : View.GONE);
     }
 
     private void updateSearchCountText() {

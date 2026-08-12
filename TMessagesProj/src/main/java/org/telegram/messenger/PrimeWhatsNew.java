@@ -48,19 +48,13 @@ public final class PrimeWhatsNew {
     /**
      * Whether the panel is due.
      *
-     * <p>A fresh install is not an update, and someone who has just found the app has enough to
-     * look at without a list of things that changed since a version they never ran. They are
-     * marked as having seen the current notes instead, so the first panel they get is the next
-     * real one.
+     * <p>Shown on a fresh install too, at the user's own request - someone who just found the
+     * fork should see what it actually offers over stock Telegram, not just people upgrading
+     * from a previous version.
      */
     public static boolean shouldShow() {
         final String seen = prefs().getString(KEY_LAST_SEEN, null);
         if (seen == null) {
-            final boolean firstEverLaunch = prefs().getInt("primegram_app_launch_count", 0) <= 1;
-            if (firstEverLaunch) {
-                markSeen();
-                return false;
-            }
             return !entries().isEmpty();
         }
         return !seen.equals(currentVersion()) && !entries().isEmpty();
@@ -95,6 +89,12 @@ public final class PrimeWhatsNew {
                 "Загрузка и отправка файлов показывают мегабайты плавно, а не скачками."));
         entries.add(new Entry("msg_pin_code", "Меньше лишней работы под капотом",
                 "Приложение реже пересчитывает то, что не менялось, — общая отзывчивость выше."));
+        entries.add(new Entry("msg_folders", "Папки теперь и в архиве",
+                "Можно раскладывать архивные чаты по своим папкам — так же, как на главном экране, только эти папки отдельные и никак с обычными не связаны."));
+        entries.add(new Entry("msg_msgbubble3", "Чат стал плавнее",
+                "Прокрутка и переходы в переписке идут заметно ровнее, особенно там, где есть ответы и цитаты."));
+        entries.add(new Entry("checkbig", "Заодно почистили и то, что тормозило не по нашей вине",
+                "Нашли и поправили несколько мест, где подтормаживал даже оригинальный Telegram."));
         return entries;
     }
 }

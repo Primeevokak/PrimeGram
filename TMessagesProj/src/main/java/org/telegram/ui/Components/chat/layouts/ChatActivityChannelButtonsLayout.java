@@ -208,6 +208,7 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        checkButtonsPositionsAndVisibility();
         checkContainerPaddings(false);
 
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -236,6 +237,7 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         if (totalVisibilityFactor != factor) {
             totalVisibilityFactor = factor;
             checkButtonsPositionsAndVisibility();
+            checkContainerPaddings(true);
             invalidate();
         }
     }
@@ -248,6 +250,7 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         }
         if (id == WRAPPING_BUTTON_ANIMATOR_ID) {
             checkButtonsPositionsAndVisibility();
+            checkContainerPaddings(true);
             invalidate();
         }
 
@@ -258,8 +261,8 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         }
 
         if (animatorId == VISIBILITY_ANIMATOR_ID) {
-            checkContainerPaddings(true);
             checkButtonsPositionsAndVisibility();
+            checkContainerPaddings(true);
             invalidate();
         }
     }
@@ -289,33 +292,40 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
 
     private float totalWidthLeft, totalWidthRight;
 
-    private void checkContainerPaddings(boolean canRequestLayout) {
-        // Must track the same animated progress checkButtonsPositionsAndVisibility() uses for
-        // totalWidthLeft/Right (.getFloatValue(), not the instant boolean .getValue()) - the
-        // container's margins drive its own clip outline, and the pill background painted in
-        // drawChild() is bounded by totalWidthLeft/Right. Using the instant target here made the
-        // outline jump to its final position while the drawn background was still mid-animation,
-        // producing a visible "ghost" duplicate edge for the ~300ms of any button show/hide.
-        int paddingLeft = dp(7), paddingRight = dp(7);
-        for (final int buttonId : buttonsOrderLeft) {
-            final ButtonHolder holder = buttonHolders[buttonId];
-            if (holder == null) {
-                continue;
-            }
-            paddingLeft += Math.round(holder.visibilityAnimator.getFloatValue() * dp(44 + 10));
-        }
-
-        for (final int buttonId : buttonsOrderRight) {
-            final ButtonHolder holder = buttonHolders[buttonId];
-            if (holder == null) {
-                continue;
-            }
-            paddingRight += Math.round(holder.visibilityAnimator.getFloatValue() * dp(44 + 10));
-        }
-
+    // PrimeGram: the single source of truth for where container's pill visually belongs.
+    // Horizontal bounds are computed synchronously from totalWidthLeft/totalWidthRight (updated by
+    // checkButtonsPositionsAndVisibility(), including its wrap-content-button shrink) and this
+    // view's own measured width - never from container.getLeft/Right(), which only reflect
+    // wherever container's last COMPLETED layout pass put it. Margin changes applied via
+    // requestLayout() take effect on a future traversal, not immediately - so anything reading
+    // container's actual horizontal bounds right after a margin change could see stale, wider
+    // bounds for however many frames that traversal was delayed, which is exactly the "pill still
+    // bulges past where the buttons/icons actually are" ghost this was written to close.
+    //
+    // Vertical bounds, unlike horizontal, are NOT synchronously derived - container.getTop()/
+    // getBottom() are used directly. Nothing here ever changes container's vertical margins or
+    // height (only checkContainerPaddings()'s left/rightMargin are touched), so there is no
+    // equivalent staleness risk on that axis, and deriving top/bottom from getMeasuredHeight()
+    // instead (as an earlier version of this method did) is actively wrong: this view's OWN
+    // measured height can legitimately differ, frame to frame, from whatever height was in effect
+    // when container was last actually laid out (e.g. while contentPanTranslation/hideFactor pans
+    // this view for the keyboard) - producing a same-size pill offset vertically from the real one.
+    private void computeContainerRect(RectF out) {
+        final float left, right;
         if (org.telegram.messenger.NonIslandHelper.chatElements() && containerDrawable != null) {
-            paddingLeft = paddingRight = 0;
+            left = 0;
+            right = getMeasuredWidth();
+        } else {
+            left = dp(7) + totalWidthLeft;
+            right = getMeasuredWidth() - dp(7) - totalWidthRight;
         }
+        out.set(left, container.getTop(), right, container.getBottom());
+    }
+
+    private void checkContainerPaddings(boolean canRequestLayout) {
+        computeContainerRect(tmpRect);
+        final int paddingLeft = Math.round(tmpRect.left);
+        final int paddingRight = Math.round(getMeasuredWidth() - tmpRect.right);
 
         final MarginLayoutParams lp = (MarginLayoutParams) container.getLayoutParams();
 
@@ -323,7 +333,29 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
             lp.leftMargin = paddingLeft;
             lp.rightMargin = paddingRight;
             if (canRequestLayout) {
-                container.requestLayout();
+                // PrimeGram: requestLayout() alone only SCHEDULES a future traversal - container
+                // (and its MATCH_PARENT children, e.g. the "Убрать звук"/"Mute" text) keeps
+                // reporting its OLD, wider bounds until that traversal actually runs, which can be
+                // a frame or more later during a live button show/hide animation (this runs once
+                // per animator tick). Meanwhile computeContainerRect() above is fully synchronous -
+                // the pill painted from it in drawChild() already reflects THIS frame's true target.
+                // That gap between "pill already at the new bounds" and "container's real children
+                // still laid out at the old ones" is exactly the transient ghost/ desync caught
+                // mid-animation. Measuring and laying out container immediately, right here, closes
+                // it completely: by the time this call returns, container's real bounds already
+                // match what was just painted - nothing left to catch up on a later frame.
+                if (getMeasuredWidth() > 0 && getMeasuredHeight() > 0) {
+                    final int width = getMeasuredWidth() - paddingLeft - paddingRight;
+                    final int height = container.getMeasuredHeight() > 0 ? container.getMeasuredHeight() : dp(44);
+                    container.measure(
+                        View.MeasureSpec.makeMeasureSpec(Math.max(width, 0), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
+                    );
+                    final int top = container.getTop();
+                    container.layout(paddingLeft, top, paddingLeft + width, top + height);
+                } else {
+                    container.requestLayout();
+                }
             }
         }
     }
@@ -461,9 +493,8 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
     @Override
     protected boolean drawChild(@NonNull Canvas canvas, View child, long drawingTime) {
         if (child == container && containerDrawable != null) {
-            if (org.telegram.messenger.NonIslandHelper.chatElements()) {
-                tmpRect.set(0, 0, getMeasuredWidth(), getMeasuredHeight());
-            } else {
+            computeContainerRect(tmpRect);
+            if (!org.telegram.messenger.NonIslandHelper.chatElements()) {
                 // PrimeGram: BlurredBackgroundDrawable insets its own visible shape INWARD from
                 // setBounds() by its configured padding (see Props.build(), boundsWithPadding =
                 // bounds.inset(padding, padding)) - setupDrawableForContainer() sets that padding
@@ -471,7 +502,7 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
                 // same dp(6) on every edge, or the painted pill ends up dp(6) smaller than
                 // container (and its text) on every side instead of matching it.
                 final int pad = dp(6);
-                tmpRect.set(container.getLeft() - pad, container.getTop() - pad, container.getRight() + pad, container.getBottom() + pad);
+                tmpRect.inset(-pad, -pad);
             }
 
             tmpRect.round(AndroidUtilities.rectTmp2);
@@ -492,8 +523,8 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
             // dp(10)/dp(9) against this view's own (56dp) height, never in sync with container's
             // real (44dp, dp(7)-margin) bounds - a second, permanently oversized rounded-rect
             // ghost behind the actual pill, untouched by any of the containerDrawable fixes above
-            // since it's a completely separate draw call. Match container's real bounds instead.
-            tmpRect.set(container.getLeft(), container.getTop(), container.getRight(), container.getBottom());
+            // since it's a completely separate draw call. Match the same computed rect instead.
+            computeContainerRect(tmpRect);
             backgroundAccentPaint.setColor(accentColor);
             backgroundAccentPaint.setAlpha(accentAlpha);
             canvas.drawRoundRect(tmpRect, dp(22), dp(22), backgroundAccentPaint);

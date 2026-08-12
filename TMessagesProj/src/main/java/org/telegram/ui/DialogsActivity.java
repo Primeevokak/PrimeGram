@@ -3213,6 +3213,74 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         builder.show();
     }
 
+    /** PrimeGram: multi-select counterpart to primeShowCreateArchiveFolderDialog - the action-mode
+     *  "Добавить в папку" button's entry point for adding several selected archived chats to a
+     *  local folder at once (the long-press submenu above only ever handles one chat). */
+    private void primeShowAddSelectedToArchiveFolderMenu() {
+        if (getParentActivity() == null || selectedDialogs.isEmpty()) {
+            return;
+        }
+        final ArrayList<Long> dialogIds = new ArrayList<>(selectedDialogs);
+        final java.util.List<org.telegram.messenger.PrimeArchiveFolders.Folder> folders =
+                org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolders();
+
+        final CharSequence[] items = new CharSequence[folders.size() + 1];
+        for (int i = 0; i < folders.size(); i++) {
+            items[i] = folders.get(i).name;
+        }
+        items[folders.size()] = LocaleController.getString(R.string.Create);
+
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
+        builder.setTitle("Добавить в папку");
+        builder.setItems(items, (dialog, which) -> {
+            if (which == folders.size()) {
+                primeShowCreateArchiveFolderDialogForMany(dialogIds);
+            } else {
+                final org.telegram.messenger.PrimeArchiveFolders.Folder folder = folders.get(which);
+                final org.telegram.messenger.PrimeArchiveFolders instance = org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount);
+                for (int i = 0; i < dialogIds.size(); i++) {
+                    instance.addDialog(folder.id, dialogIds.get(i));
+                }
+                hideActionMode(true);
+            }
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        builder.show();
+    }
+
+    /** New-folder variant of primeShowCreateArchiveFolderDialog that adds every id in dialogIds
+     *  instead of just one, for the multi-select entry point above. */
+    private void primeShowCreateArchiveFolderDialogForMany(ArrayList<Long> dialogIds) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final org.telegram.ui.Components.EditTextBoldCursor field = new org.telegram.ui.Components.EditTextBoldCursor(getParentActivity());
+        field.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16);
+        field.setTextColor(getThemedColor(Theme.key_dialogTextBlack));
+        field.setHint("Название папки");
+        field.setSingleLine(true);
+        final int pad = dp(21);
+        field.setPadding(pad, dp(6), pad, 0);
+
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
+        builder.setTitle("Новая папка");
+        builder.setView(field);
+        builder.setPositiveButton(LocaleController.getString(R.string.Create), (dialog, which) -> {
+            final String name = field.getText().toString().trim();
+            if (name.isEmpty()) {
+                return;
+            }
+            final org.telegram.messenger.PrimeArchiveFolders instance = org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount);
+            final org.telegram.messenger.PrimeArchiveFolders.Folder folder = instance.createFolder(name);
+            for (int i = 0; i < dialogIds.size(); i++) {
+                instance.addDialog(folder.id, dialogIds.get(i));
+            }
+            hideActionMode(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        builder.show();
+    }
+
     public void updateStatus(TLRPC.User user, boolean animated) {
         if (dialogStoriesCell != null) {
             dialogStoriesCell.updateStatus(user, animated);
@@ -4192,6 +4260,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 } else if (id == 11) {
                     openAccountSelector(switchItem);
                 } else if (id == add_to_folder) {
+                    if (isArchive()) {
+                        primeShowAddSelectedToArchiveFolderMenu();
+                        return;
+                    }
                     FiltersListBottomSheet sheet = new FiltersListBottomSheet(DialogsActivity.this, selectedDialogs);
                     sheet.setDelegate((filter, checked) -> {
                         ArrayList<Long> alwaysShow = FiltersListBottomSheet.getDialogsCount(DialogsActivity.this, filter, selectedDialogs, true, false);
@@ -10459,15 +10531,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
         if (addToFolderItem != null) {
-            // PrimeGram: this used to show unconditionally in Archive (folderId == 1) - the stock
-            // "add to a real cloud folder" action, entirely separate from and unaware of the local
-            // PrimeArchiveFolders system this fork added for Archive. Having both active at once
-            // is exactly how a channel selected in Archive ended up being offered the real
-            // (non-archive) cloud folders as a destination. The two systems must stay independent,
-            // so the cloud one no longer offers itself at all while inside Archive - only the
-            // local "Добавить в папку" (long-press menu, primeShowCreateArchiveFolderDialog and
-            // the archive-folder submenu) is available there.
-            if (!isArchive() && filterTabsView != null && getFilterTabsVisibilityFactor(false) > 0.5f && filterTabsView.currentTabIsDefault() && !FiltersListBottomSheet.getCanAddDialogFilters(this, selectedDialogs).isEmpty()) {
+            // PrimeGram: this used to show unconditionally in Archive (folderId == 1), opening the
+            // stock "add to a real cloud folder" sheet - entirely separate from and unaware of the
+            // local PrimeArchiveFolders system this fork added for Archive, which is how a channel
+            // selected in Archive ended up being offered real (non-archive) cloud folders. The two
+            // systems must stay independent, so inside Archive this button still shows (it's the
+            // only multi-select "add several selected chats to a folder" entry point - the
+            // long-press submenu only ever handles one chat at a time) but its click handler below
+            // routes to the local archive-folder picker instead of the cloud one.
+            if (isArchive() || filterTabsView != null && getFilterTabsVisibilityFactor(false) > 0.5f && filterTabsView.currentTabIsDefault() && !FiltersListBottomSheet.getCanAddDialogFilters(this, selectedDialogs).isEmpty()) {
                 addToFolderItem.setVisibility(View.VISIBLE);
             } else {
                 addToFolderItem.setVisibility(View.GONE);

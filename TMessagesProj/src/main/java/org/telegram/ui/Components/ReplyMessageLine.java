@@ -47,6 +47,19 @@ public class ReplyMessageLine {
     public boolean hasColor2, hasColor3;
     private boolean lastHasColor3;
     private float lastHeight;
+
+    // PrimeGram: drawBackground()/drawLine() used to rewind+addRoundRect their Path every single
+    // call regardless of whether the rect/radii/rad actually changed since the last draw - the
+    // same "no dirty check before rebuilding a Path" cost already found and fixed in
+    // BlurredBackgroundDrawable, except this one runs for every reply/quote/link preview line on
+    // every visible message, every frame it's drawn. A static (non-animating) reply line now
+    // skips the rebuild entirely.
+    private final RectF lastBackgroundRect = new RectF();
+    private final float[] lastBackgroundRadii = new float[8];
+    private boolean backgroundPathValid;
+    private final RectF lastLineRect = new RectF();
+    private int lastLineRad = Integer.MIN_VALUE;
+    private boolean lineClipPathValid;
     private Path color2Path = new Path();
     private Path color3Path = new Path();
     private int switchedCount = 0;
@@ -528,10 +541,15 @@ public class ReplyMessageLine {
     public void drawLine(Canvas canvas, RectF rect, float alpha) {
         canvas.save();
 
-        clipPath.rewind();
         final int rad = (int) Math.floor(SharedConfig.bubbleRadius / (sponsored ? 2f : 3f));
-        rectF.set(rect.left, rect.top, rect.left + Math.max(dp(3), dp(2 * rad)), rect.bottom);
-        clipPath.addRoundRect(rectF, dp(rad), dp(rad), Path.Direction.CW);
+        if (!lineClipPathValid || lastLineRad != rad || !lastLineRect.equals(rect)) {
+            clipPath.rewind();
+            rectF.set(rect.left, rect.top, rect.left + Math.max(dp(3), dp(2 * rad)), rect.bottom);
+            clipPath.addRoundRect(rectF, dp(rad), dp(rad), Path.Direction.CW);
+            lastLineRad = rad;
+            lastLineRect.set(rect);
+            lineClipPathValid = true;
+        }
         canvas.clipPath(clipPath);
         canvas.clipRect(rect.left, rect.top, rect.left + dp(3), rect.bottom);
 
@@ -653,8 +671,13 @@ public class ReplyMessageLine {
 
     public void drawBackground(Canvas canvas, RectF rect, float alpha, boolean hasQuote, boolean emojiOnly) {
         if (!emojiOnly) {
-            backgroundPath.rewind();
-            backgroundPath.addRoundRect(rect, radii, Path.Direction.CW);
+            if (!backgroundPathValid || !lastBackgroundRect.equals(rect) || !java.util.Arrays.equals(lastBackgroundRadii, radii)) {
+                backgroundPath.rewind();
+                backgroundPath.addRoundRect(rect, radii, Path.Direction.CW);
+                lastBackgroundRect.set(rect);
+                System.arraycopy(radii, 0, lastBackgroundRadii, 0, radii.length);
+                backgroundPathValid = true;
+            }
 
             backgroundPaint.setColor(backgroundColorAnimated.set(backgroundColor));
             backgroundPaint.setAlpha((int) (backgroundPaint.getAlpha() * alpha));

@@ -12,9 +12,12 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.SystemClock;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
+import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.PrimeUiInspector;
 
@@ -83,6 +86,17 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
     private final Rect tmpTextBounds = new Rect();
     private long lastRecomputeMs;
 
+    // PrimeGram: a small always-on-top "copy" chip, drawn and hit-tested directly by this overlay
+    // rather than routed through Settings - a Settings row can only ever dump whatever screen is
+    // on top AT THE MOMENT IT'S PRESSED, which by definition is the Settings screen itself, not the
+    // buggy screen the user navigated away from to get there. This chip lets the dump be grabbed
+    // without ever leaving the screen that has the actual problem.
+    private static final String COPY_CHIP_LABEL = "Скопировать элементы";
+    private final Paint chipBackgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint chipTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF chipRect = new RectF();
+    private boolean chipPressed;
+
     /** One collected View, plus the geometry the last placement pass decided on - drawn as-is on
      *  frames that don't recompute. */
     private static final class Item {
@@ -94,6 +108,7 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
         RectF labelRect;
         int color;
         boolean moved;
+        int depth;
     }
 
     /** Same idea for a non-View manual mark. */
@@ -124,6 +139,11 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
 
         labelTextPaint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 9, getResources().getDisplayMetrics()));
 
+        chipBackgroundPaint.setStyle(Paint.Style.FILL);
+        chipBackgroundPaint.setColor(0xEE1565C0);
+        chipTextPaint.setColor(Color.WHITE);
+        chipTextPaint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 13, getResources().getDisplayMetrics()));
+
         setWillNotDraw(false);
         updateVisibility();
     }
@@ -139,6 +159,38 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.primeUiInspectorChanged);
+    }
+
+    /** Plain-text dump of every element the overlay currently sees - real (unnudged) screen rects,
+     *  in tree-walk order with indentation so nesting is still legible in text form. Reflects
+     *  whatever the last {@link #recompute} pass saw, which is at most {@link #RECOMPUTE_INTERVAL_MS}
+     *  stale - fine for a manual "grab it now" action, not meant for anything time-sensitive. */
+    private String dumpElements() {
+        final StringBuilder sb = new StringBuilder();
+        sb.append("PrimeGram UI Inspector — ").append(items.size() + manualItems.size()).append(" элементов\n\n");
+        if (!manualItems.isEmpty()) {
+            sb.append("-- canvas-painted (не View) --\n");
+            for (final ManualItem m : manualItems) {
+                appendRect(sb, m.label, m.frame);
+            }
+            sb.append('\n');
+        }
+        sb.append("-- дерево View --\n");
+        for (final Item item : items) {
+            for (int i = 0; i < item.depth; i++) {
+                sb.append("  ");
+            }
+            appendRect(sb, item.label, item.frame);
+        }
+        return sb.toString();
+    }
+
+    private void appendRect(StringBuilder sb, String label, RectF frame) {
+        sb.append(label).append("  [")
+            .append(Math.round(frame.left)).append(',').append(Math.round(frame.top))
+            .append(" - ")
+            .append(Math.round(frame.right)).append(',').append(Math.round(frame.bottom))
+            .append(']').append('\n');
     }
 
     @Override
@@ -192,9 +244,55 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
             canvas.drawText(item.label, item.labelRect.left + 3, item.labelRect.bottom - 4, labelTextPaint);
         }
 
+        drawCopyChip(canvas);
+
         // Cheap now (just the draw calls above) - keeps the overlay tracking scroll/animation
         // smoothly between recompute passes without paying the recompute cost every time.
         postInvalidateOnAnimation();
+    }
+
+    private void drawCopyChip(Canvas canvas) {
+        chipTextPaint.getTextBounds(COPY_CHIP_LABEL, 0, COPY_CHIP_LABEL.length(), tmpTextBounds);
+        final float paddingH = dp(14), paddingV = dp(10);
+        final float w = tmpTextBounds.width() + paddingH * 2, h = tmpTextBounds.height() + paddingV * 2;
+        final float right = getWidth() - dp(16), bottom = getHeight() - dp(120);
+        chipRect.set(right - w, bottom - h, right, bottom);
+
+        canvas.drawRoundRect(chipRect, dp(10), dp(10), chipBackgroundPaint);
+        canvas.drawText(COPY_CHIP_LABEL, chipRect.left + paddingH, chipRect.bottom - paddingV - tmpTextBounds.bottom, chipTextPaint);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                if (chipRect.contains(event.getX(), event.getY())) {
+                    chipPressed = true;
+                    return true;
+                }
+                return false;
+            case MotionEvent.ACTION_UP:
+                if (chipPressed) {
+                    chipPressed = false;
+                    if (chipRect.contains(event.getX(), event.getY())) {
+                        copyDumpToClipboard();
+                    }
+                    return true;
+                }
+                return false;
+            case MotionEvent.ACTION_CANCEL:
+                chipPressed = false;
+                return false;
+            default:
+                return chipPressed;
+        }
+    }
+
+    private void copyDumpToClipboard() {
+        final String dump = dumpElements();
+        AndroidUtilities.addToClipboard(dump);
+        final int lines = items.size() + manualItems.size();
+        Toast.makeText(getContext(), "Скопировано: " + lines + " элементов", Toast.LENGTH_SHORT).show();
     }
 
     /** The expensive pass: walk the View tree, pull in manual marks, and run the placement
@@ -210,14 +308,14 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
         placedLabels.clear();
 
         for (int i = 0; i < root.getChildCount(); i++) {
-            collect(root.getChildAt(i));
+            collect(root.getChildAt(i), 0);
         }
 
         placeManualMarks();
         placeItems();
     }
 
-    private void collect(View view) {
+    private void collect(View view, int depth) {
         if (view == this || view.getVisibility() == GONE || view.getWidth() <= 0 || view.getHeight() <= 0
                 || view.getAlpha() <= 0.01f) {
             return;
@@ -235,7 +333,7 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
             if (view instanceof ViewGroup) {
                 final ViewGroup group = (ViewGroup) view;
                 for (int i = 0; i < group.getChildCount(); i++) {
-                    collect(group.getChildAt(i));
+                    collect(group.getChildAt(i), depth + 1);
                 }
             }
             return;
@@ -245,6 +343,7 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
 
         final Item item = new Item();
         item.view = view;
+        item.depth = depth;
         item.frame = new RectF(left, top, left + tmpVisibleRect.width(), top + tmpVisibleRect.height());
         item.label = describe(view);
         labelTextPaint.getTextBounds(item.label, 0, item.label.length(), tmpTextBounds);
@@ -255,7 +354,7 @@ public class PrimeUiInspectorOverlay extends View implements NotificationCenter.
         if (view instanceof ViewGroup) {
             final ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                collect(group.getChildAt(i));
+                collect(group.getChildAt(i), depth + 1);
             }
         }
     }

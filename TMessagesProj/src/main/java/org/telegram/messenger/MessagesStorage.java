@@ -7910,6 +7910,63 @@ public class MessagesStorage extends BaseController {
         return ref.get();
     }
 
+    /**
+     * PrimeGram: bulk counterpart to {@link #getMessage(long, long)} - fetching N messages one at
+     * a time meant N round trips through storageQueue, each blocking the caller on its own
+     * CountDownLatch. Forwarding a tag with a few thousand entries turned into a few thousand
+     * sequential waits. This does the same lookup with one "mid IN (...)" query per {@code ids}
+     * chunk (SQLite has no hard limit here, but very long IN() lists parse slower than a couple of
+     * chunked ones), so the same job takes a handful of queries no matter how large the tag is.
+     */
+    public ArrayList<TLRPC.Message> getMessagesByIds(long dialogId, ArrayList<Integer> ids) {
+        final ArrayList<TLRPC.Message> result = new ArrayList<>();
+        if (ids == null || ids.isEmpty()) {
+            return result;
+        }
+        final CountDownLatch countDownLatch = new CountDownLatch(1);
+        storageQueue.postRunnable(() -> {
+            SQLiteCursor cursor = null;
+            try {
+                for (int start = 0; start < ids.size(); start += 500) {
+                    final int end = Math.min(start + 500, ids.size());
+                    final StringBuilder idsStr = new StringBuilder();
+                    for (int i = start; i < end; i++) {
+                        if (idsStr.length() > 0) {
+                            idsStr.append(',');
+                        }
+                        idsStr.append(ids.get(i));
+                    }
+                    cursor = database.queryFinalized("SELECT data FROM messages_v2 WHERE uid = " + dialogId + " AND mid IN (" + idsStr + ")");
+                    while (cursor.next()) {
+                        NativeByteBuffer data = cursor.byteBufferValue(0);
+                        if (data != null) {
+                            TLRPC.Message message = TLRPC.Message.TLdeserialize(data, data.readInt32(false), false);
+                            data.reuse();
+                            if (message != null) {
+                                result.add(message);
+                            }
+                        }
+                    }
+                    cursor.dispose();
+                    cursor = null;
+                }
+            } catch (Exception e) {
+                checkSQLException(e);
+            } finally {
+                if (cursor != null) {
+                    cursor.dispose();
+                }
+                countDownLatch.countDown();
+            }
+        });
+        try {
+            countDownLatch.await();
+        } catch (Exception e) {
+            checkSQLException(e);
+        }
+        return result;
+    }
+
     public boolean hasInviteMeMessage(long chatId) {
         CountDownLatch countDownLatch = new CountDownLatch(1);
         boolean[] result = new boolean[1];
