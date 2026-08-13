@@ -387,6 +387,10 @@ public class BotHelpCell extends View {
 
         Theme.chat_msgTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
         Theme.chat_msgTextPaint.linkColor = getThemedColor(Theme.key_chat_messageLinkIn);
+        // PrimeGram: ChatMessageCell.setupTextColors() caches whether it needs to reapply this
+        // same shared Paint - writing to it here from outside that cache would otherwise go
+        // unnoticed and leave the next message cell drawn with this cell's colors.
+        Theme.chatTextPaintsDirtyStamp++;
         canvas.save();
         canvas.translate(textX = dp(isPhotoVisible ? 14 : 11) + x, textY = dp(11) + y);
         if (links.draw(canvas)) {

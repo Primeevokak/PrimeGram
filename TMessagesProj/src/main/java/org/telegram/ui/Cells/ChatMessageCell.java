@@ -19998,33 +19998,54 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
 
     private Paint selectionOverlayPaint;
 
+    // PrimeGram: setupTextColors() runs on every single message cell's draw and used to spend it
+    // unconditionally re-running ~14 Theme.getColor() lookups + Paint writes on Theme.chat_msgText*
+    // - shared static Paints, one instance for the whole app, not one per cell. Since consecutive
+    // cells drawn during a scroll are very often the same direction (a run of messages from the
+    // same side of the conversation) and the same theme, the values being written are frequently
+    // identical to what's already sitting in those Paints from the previous cell's draw - this
+    // cache skips the rewrite when that's true. Correctness depends on catching every OTHER place
+    // that writes to these same shared Paints directly (BotHelpCell, TextMessageEnterTransition) -
+    // each bumps Theme.chatTextPaintsDirtyStamp when it does, which invalidates this cache exactly
+    // like an isOutOwner/theme change would. See Theme.chatTextPaintsDirtyStamp's own doc.
+    private static boolean textColorsCacheValid;
+    private static boolean textColorsCacheOutOwner;
+    private static int textColorsCacheDirtyStamp = Integer.MIN_VALUE;
+
     public void setupTextColors() {
-        if (currentMessageObject.isOutOwner()) {
-            Theme.chat_msgTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
-            Theme.chat_msgGameTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
-            Theme.chat_msgTextCodePaint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
-            Theme.chat_msgTextCode2Paint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
-            Theme.chat_msgTextCode3Paint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
-            Theme.chat_msgGameTextPaint.linkColor =
-            Theme.chat_replyTextPaint.linkColor =
-            Theme.chat_quoteTextPaint.linkColor =
-            Theme.chat_msgTextPaint.linkColor =
-            Theme.chat_msgTextCodePaint.linkColor =
-            Theme.chat_msgTextCode2Paint.linkColor =
-            Theme.chat_msgTextCode3Paint.linkColor = getThemedColor(Theme.key_chat_messageLinkOut);
-        } else {
-            Theme.chat_msgTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
-            Theme.chat_msgGameTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
-            Theme.chat_msgTextCodePaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
-            Theme.chat_msgTextCode2Paint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
-            Theme.chat_msgTextCode3Paint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
-            Theme.chat_msgGameTextPaint.linkColor =
-            Theme.chat_replyTextPaint.linkColor =
-            Theme.chat_quoteTextPaint.linkColor =
-            Theme.chat_msgTextPaint.linkColor =
-            Theme.chat_msgTextCodePaint.linkColor =
-            Theme.chat_msgTextCode2Paint.linkColor =
-            Theme.chat_msgTextCode3Paint.linkColor = getThemedColor(Theme.key_chat_messageLinkIn);
+        final boolean outOwner = currentMessageObject.isOutOwner();
+        final int dirtyStamp = Theme.chatTextPaintsDirtyStamp;
+        if (!textColorsCacheValid || textColorsCacheOutOwner != outOwner || textColorsCacheDirtyStamp != dirtyStamp) {
+            if (outOwner) {
+                Theme.chat_msgTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
+                Theme.chat_msgGameTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
+                Theme.chat_msgTextCodePaint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
+                Theme.chat_msgTextCode2Paint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
+                Theme.chat_msgTextCode3Paint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
+                Theme.chat_msgGameTextPaint.linkColor =
+                Theme.chat_replyTextPaint.linkColor =
+                Theme.chat_quoteTextPaint.linkColor =
+                Theme.chat_msgTextPaint.linkColor =
+                Theme.chat_msgTextCodePaint.linkColor =
+                Theme.chat_msgTextCode2Paint.linkColor =
+                Theme.chat_msgTextCode3Paint.linkColor = getThemedColor(Theme.key_chat_messageLinkOut);
+            } else {
+                Theme.chat_msgTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
+                Theme.chat_msgGameTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
+                Theme.chat_msgTextCodePaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
+                Theme.chat_msgTextCode2Paint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
+                Theme.chat_msgTextCode3Paint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
+                Theme.chat_msgGameTextPaint.linkColor =
+                Theme.chat_replyTextPaint.linkColor =
+                Theme.chat_quoteTextPaint.linkColor =
+                Theme.chat_msgTextPaint.linkColor =
+                Theme.chat_msgTextCodePaint.linkColor =
+                Theme.chat_msgTextCode2Paint.linkColor =
+                Theme.chat_msgTextCode3Paint.linkColor = getThemedColor(Theme.key_chat_messageLinkIn);
+            }
+            textColorsCacheValid = true;
+            textColorsCacheOutOwner = outOwner;
+            textColorsCacheDirtyStamp = dirtyStamp;
         }
 
         if (documentAttach != null) {

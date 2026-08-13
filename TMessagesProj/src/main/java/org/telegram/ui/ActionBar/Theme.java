@@ -6755,11 +6755,20 @@ public class Theme {
         return lightness > 0.705f || lightness2 > 0.705f;
     }
 
+    /**
+     * PrimeGram: bumped whenever something writes to the shared {@code chat_msgTextPaint}-family
+     * Paints outside {@link org.telegram.ui.Cells.ChatMessageCell#setupTextColors()}'s own cache
+     * (a theme refresh here, or a direct write from {@link org.telegram.ui.Cells.BotHelpCell} /
+     * {@link org.telegram.ui.TextMessageEnterTransition}) - see that method for why this exists.
+     */
+    public static int chatTextPaintsDirtyStamp;
+
     public static void refreshThemeColors() {
         refreshThemeColors(false, false);
     }
 
     public static void refreshThemeColors(boolean bg, boolean messages) {
+        chatTextPaintsDirtyStamp++;
         currentColors = currentColorsNoAccent.clone();
         shouldDrawGradientIcons = true;
         ThemeAccent accent = currentTheme.getAccent(false);

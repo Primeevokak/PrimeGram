@@ -619,6 +619,11 @@ public class TextMessageEnterTransition implements MessageEnterTransitionContain
 
             Theme.chat_replyTextPaint.setColor(ColorUtils.blendARGB(replayObjectFromColor, replyMessageColor, progress));
             Theme.chat_replyNamePaint.setColor(ColorUtils.blendARGB(replayFromColor, replyOwnerMessageColor, progress));
+            // PrimeGram: unlike the chat_msgTextPaint swap below (which restores its old color
+            // before returning), this leaves chat_replyTextPaint set to this transition's own
+            // blended color - ChatMessageCell's reply-color cache needs to know it's no longer
+            // showing what IT last applied.
+            Theme.chatTextPaintsDirtyStamp++;
 
             if (messageView.needReplyImage) {
                 fromReplayX -= dp(44);
