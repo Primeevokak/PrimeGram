@@ -263,7 +263,20 @@ public class ChatInputViewsContainer extends FrameLayout {
             Math.max(getMeasuredHeight(), getMeasuredHeight() - (int) imeBottomInset + dp(INPUT_KEYBOARD_RADIUS * 2))
         );
 
-        final int blurTop = getMeasuredHeight() - currentBlurredHeight;
+        // PrimeGram: used to be `getMeasuredHeight() - currentBlurredHeight`, an independent
+        // formula re-deriving where the island content's bottom edge SHOULD be from
+        // maxBottomInset/dp(INPUT_BUBBLE_BOTTOM) - while inputIslandBubbleContainer (which holds
+        // the actual content: chatActivityEnterView, bottomChannelButtonsLayout, bottomOverlay...)
+        // gets its REAL rendered position from a completely separate computation, checkViewsPositions()'s
+        // setTranslationY(-maxBottomInset - dp(INPUT_BUBBLE_BOTTOM)) against its own laid-out
+        // bottom. Both were meant to land on the same point, but with two independent formulas and
+        // no guarantee they run against the same instant of maxBottomInset (which itself animates),
+        // they could drift - this background painted a few pixels above where the real content
+        // actually sat, the exact "sticking out above the button" ghost. Anchoring directly to
+        // inputIslandBubbleContainer's real current bottom edge instead removes the second formula
+        // entirely - there is nothing left to drift out of sync with.
+        final float islandBottom = inputIslandBubbleContainer.getBottom() + inputIslandBubbleContainer.getTranslationY();
+        final int blurTop = Math.round(islandBottom) - inputBubbleHeightRound;
 
         tmpRect.set(
             Math.round(inputBubbleOffsetLeft),
@@ -286,8 +299,17 @@ public class ChatInputViewsContainer extends FrameLayout {
         }
 
         blurredBackgroundDrawable.setBounds(tmpRect);
-        if (drawInputBackground)
+        if (drawInputBackground) {
             blurredBackgroundDrawable.draw(canvas);
+            // PrimeGram: this background is painted here, entirely independently of wherever
+            // whatever's actually sitting on top of it (chatActivityEnterView, bottomChannelButtonsLayout,
+            // bottomOverlay, ...) really laid out - its own rect is derived purely from
+            // inputBubbleHeightRound/blurTop/insets above, nothing here ever compares it against the
+            // real content bounds. Self-reporting it lets the UI Inspector's dump show its exact
+            // painted rect directly instead of it having to be derived by hand from this formula.
+            org.telegram.messenger.PrimeUiInspector.recordManualDraw(this, "blurredBackgroundDrawable (input island bg)",
+                    tmpRect.left, tmpRect.top, tmpRect.right, tmpRect.bottom);
+        }
 
         if (needDrawInAppKeyboard) {
             underKeyboardBackgroundDrawable.draw(canvas);

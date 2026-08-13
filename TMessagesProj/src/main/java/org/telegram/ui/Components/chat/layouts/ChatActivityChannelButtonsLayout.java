@@ -467,6 +467,18 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         super.onLayout(changed, left, top, right, bottom);
 
         checkButtonsPositionsAndVisibility();
+        // PrimeGram: checkButtonsPositionsAndVisibility() just recomputed totalWidthLeft/Right
+        // (used LIVE by computeContainerRect()/the pill in drawChild()) against THIS layout pass's
+        // fresh getMeasuredWidth() - but nothing here told checkContainerPaddings() to re-derive
+        // container's own margins from that same fresh value. Every other call site that touches
+        // totalWidthLeft/Right already re-syncs immediately after (onMeasure, the animator
+        // callbacks, setTotalVisibilityFactor); onLayout() was the one place that didn't, so
+        // container's real margins could go stale relative to what the pill was already painting
+        // as soon as any ordinary layout pass (rotation, keyboard, an ancestor relayout - not just
+        // this view's own button animations) ran without also happening to hit one of those other
+        // call sites - exactly the "pill wider than the real button, off by an inconsistent amount"
+        // ghost, confirmed by comparing the inspector's real container rect against the painted one.
+        checkContainerPaddings(true);
 
         // PrimeGram: containerDrawable is painted manually inside drawChild(), from container's
         // CURRENT bounds at the moment drawChild() happens to run - it is not part of the normal

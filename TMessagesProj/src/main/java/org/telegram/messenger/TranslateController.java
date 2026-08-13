@@ -239,6 +239,18 @@ public class TranslateController extends BaseController {
         toggleTranslatingDialog(dialogId, !isTranslatingDialog(dialogId));
     }
 
+    /**
+     * PrimeGram: the stock top-panel translate banner only shows once auto language detection
+     * (see the block above adding to {@link #translatableDialogs}) has already flagged the dialog
+     * translatable - manually invoking translate from the chat's own menu had nowhere to put the
+     * user, since {@link #isDialogTranslatable} would still say no for a dialog detection never
+     * got to. Marking the dialog translatable directly here lets a manual trigger show the SAME
+     * banner (with its own enable/hide choice) instead of forcing translation on immediately.
+     */
+    public void markDialogTranslatable(long dialogId) {
+        translatableDialogs.add(dialogId);
+    }
+
     public boolean toggleTranslatingDialog(long dialogId, boolean value) {
         boolean currentValue = isTranslatingDialog(dialogId), notified = false;
         if (value && !currentValue) {

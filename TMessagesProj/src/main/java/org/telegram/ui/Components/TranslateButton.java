@@ -354,29 +354,45 @@ public class TranslateButton extends FrameLayout implements Theme.Colorable {
 
         popupLayout.addView(new ActionBarPopupWindow.GapView(getContext(), resourcesProvider), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 8));
 
-        final LinkSpanDrawable.LinksTextView cocoonButton = new LinkSpanDrawable.LinksTextView(getContext());
-        cocoonButton.setPadding(dp(13), dp(8.33f), dp(13), dp(8.33f));
-        cocoonButton.setDisablePaddingsOffsetY(true);
-        cocoonButton.setTextColor(Theme.getColor(Theme.key_dialogTextBlack, resourcesProvider));
-        cocoonButton.setLinkTextColor(Theme.getColor(Theme.key_chat_messageLinkIn, resourcesProvider));
-        cocoonButton.setEmojiColor(Theme.getColor(Theme.key_dialogTextBlack, resourcesProvider));
-        CharSequence cocoonText = TextUtils.concat(AndroidUtilities.replaceTags(getString(R.string.CocoonPoweredBy)), " ", AndroidUtilities.premiumText(getString(R.string.CocoonPoweredByLink), () -> {
-            popupWindow.dismiss();
-            showCocoonAlert(getContext(), resourcesProvider);
-        }));
-        SpannableStringBuilder egg = new SpannableStringBuilder("🥚");
-        egg.setSpan(new AnimatedEmojiSpan(5197252827247841976L, cocoonButton.getPaint().getFontMetricsInt()), 0, egg.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        SpannableStringBuilder eggSpaced = new SpannableStringBuilder(egg);
-        eggSpaced.append(" ");
-        cocoonText = AndroidUtilities.replaceCharSequence("🥚 ", cocoonText, eggSpaced);
-        cocoonText = AndroidUtilities.replaceCharSequence("🥚", cocoonText, egg);
-        cocoonButton.setText(HintView2.cutInFancyHalfText(cocoonText, cocoonButton.getPaint()));
-        cocoonButton.setBackground(Theme.createRadSelectorDrawable(Theme.getColor(Theme.key_listSelector, resourcesProvider), 0, 12));
-        cocoonButton.setOnClickListener(v -> {
-            popupWindow.dismiss();
-            showCocoonAlert(getContext(), resourcesProvider);
-        });
-        popupLayout.addView(cocoonButton);
+        // PrimeGram: "Cocoon" is Telegram's own server-side translation backend and this whole
+        // button/sheet is Cocoon-specific marketing (logo, confidential-compute feature cells,
+        // links) - showing it when a PrimeGram-selected external provider (Google/Yandex/Multiplay)
+        // is what actually ran the translation would be attributing the work to the wrong service.
+        // Keep the real Cocoon button+sheet only for PROVIDER_TELEGRAM; for an external provider,
+        // show a plain, honest attribution line instead with no Cocoon-specific link/sheet behind it.
+        if (!org.telegram.messenger.PrimeTranslator.isExternal()) {
+            final LinkSpanDrawable.LinksTextView cocoonButton = new LinkSpanDrawable.LinksTextView(getContext());
+            cocoonButton.setPadding(dp(13), dp(8.33f), dp(13), dp(8.33f));
+            cocoonButton.setDisablePaddingsOffsetY(true);
+            cocoonButton.setTextColor(Theme.getColor(Theme.key_dialogTextBlack, resourcesProvider));
+            cocoonButton.setLinkTextColor(Theme.getColor(Theme.key_chat_messageLinkIn, resourcesProvider));
+            cocoonButton.setEmojiColor(Theme.getColor(Theme.key_dialogTextBlack, resourcesProvider));
+            CharSequence cocoonText = TextUtils.concat(AndroidUtilities.replaceTags(getString(R.string.CocoonPoweredBy)), " ", AndroidUtilities.premiumText(getString(R.string.CocoonPoweredByLink), () -> {
+                popupWindow.dismiss();
+                showCocoonAlert(getContext(), resourcesProvider);
+            }));
+            SpannableStringBuilder egg = new SpannableStringBuilder("🥚");
+            egg.setSpan(new AnimatedEmojiSpan(5197252827247841976L, cocoonButton.getPaint().getFontMetricsInt()), 0, egg.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            SpannableStringBuilder eggSpaced = new SpannableStringBuilder(egg);
+            eggSpaced.append(" ");
+            cocoonText = AndroidUtilities.replaceCharSequence("🥚 ", cocoonText, eggSpaced);
+            cocoonText = AndroidUtilities.replaceCharSequence("🥚", cocoonText, egg);
+            cocoonButton.setText(HintView2.cutInFancyHalfText(cocoonText, cocoonButton.getPaint()));
+            cocoonButton.setBackground(Theme.createRadSelectorDrawable(Theme.getColor(Theme.key_listSelector, resourcesProvider), 0, 12));
+            cocoonButton.setOnClickListener(v -> {
+                popupWindow.dismiss();
+                showCocoonAlert(getContext(), resourcesProvider);
+            });
+            popupLayout.addView(cocoonButton);
+        } else {
+            final TextView providerLabel = new TextView(getContext());
+            providerLabel.setPadding(dp(13), dp(8.33f), dp(13), dp(8.33f));
+            providerLabel.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+            providerLabel.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText, resourcesProvider));
+            providerLabel.setGravity(Gravity.CENTER);
+            providerLabel.setText("Переведено с помощью " + org.telegram.messenger.PrimeTranslator.currentProviderName());
+            popupLayout.addView(providerLabel);
+        }
 
         popupWindow.setPauseNotifications(true);
         popupWindow.setDismissAnimationDuration(220);

@@ -599,7 +599,6 @@ public class ChatActivity extends BaseFragment implements
     private FrameLayout searchContainer;
     private ImageView searchCalendarButton;
     private ImageView searchUserButton;
-    private ImageView searchForwardButton;
     private AnimatedTextView searchCountText;
     private AnimatedTextView searchExpandList;
     private AnimatedTextView searchOtherButton;
@@ -4018,10 +4017,17 @@ public class ChatActivity extends BaseFragment implements
                 } else if (id == search) {
                     openSearchWithText(isSupportedTags() ? "" : null);
                 } else if (id == translate) {
+                    // PrimeGram: used to call toggleTranslatingDialog(dialogId, true) directly here,
+                    // switching on machine translation for the whole chat the instant this menu item
+                    // was tapped - no confirmation, no way to just peek at the option first. Telegram
+                    // already has a purpose-built UI for exactly this decision (the top banner, with
+                    // its own enable button and a separate hide/dismiss "x") - un-hide it and mark
+                    // the dialog translatable so the banner is guaranteed to actually show (auto
+                    // language detection may never have flagged this dialog on its own), then let the
+                    // user make the call from there instead of deciding it for them.
                     getMessagesController().getTranslateController().setHideTranslateDialog(getDialogId(), false, true);
-                    if (!getMessagesController().getTranslateController().toggleTranslatingDialog(getDialogId(), true)) {
-                        updateTopPanel(true);
-                    }
+                    getMessagesController().getTranslateController().markDialogTranslatable(getDialogId());
+                    updateTopPanel(true);
                 } else if (id == call || id == video_call) {
                     if (currentUser != null && getParentActivity() != null) {
                         VoIPHelper.startCall(currentUser, id == video_call, userInfo != null && userInfo.video_calls_available, getParentActivity(), getMessagesController().getUserFull(currentUser.id), getAccountInstance());
@@ -8451,6 +8457,19 @@ public class ChatActivity extends BaseFragment implements
             public void setVisibility(int visibility) {
                 super.setVisibility(visibility);
                 bottomViewsVisibilityController.setViewVisible(BOTTOM_OVERLAY_CHAT_CONTAINER, visibility == VISIBLE, getMeasuredWidth() > 0);
+                // PrimeGram: this row already paints its own correctly-fitted pill background
+                // (containerDrawable, confirmed via the UI Inspector to exactly match its real
+                // bounds) - chatInputViewsContainer's OWN independent "island" background
+                // (blurredBackgroundDrawable) is derived from a completely different formula
+                // (inputBubbleHeightRound/translation/insets) that was never guaranteed to land on
+                // the same rect, and in practice kept drifting a bit above the buttons no matter how
+                // that formula got adjusted. Rather than keep chasing pixel-perfect agreement
+                // between two independent backgrounds for the exact same area, just don't paint the
+                // second one while this row is what's showing - it's redundant here regardless.
+                if (chatInputViewsContainer != null) {
+                    chatInputViewsContainer.drawInputBackground = visibility != View.VISIBLE;
+                    chatInputViewsContainer.invalidate();
+                }
             }
         };
         bottomChannelButtonsLayout.setVisibility(View.INVISIBLE);
@@ -10046,7 +10065,14 @@ public class ChatActivity extends BaseFragment implements
         translateButton = new TranslateButton(getContext(), this, themeDelegate) {
             @Override
             protected void onButtonClick() {
-                if (getUserConfig().isPremium() || currentChat != null && currentChat.autotranslation) {
+                // PrimeGram: isFeatureAvailable() (which gates whether this banner can even show)
+                // already waives the Premium/autotranslation requirement once a non-Telegram
+                // provider is selected in settings - see TranslateController.isFeatureAvailable().
+                // This check didn't know that, so tapping the banner in a non-Premium chat with an
+                // external provider active fell through to the Premium paywall sheet instead of
+                // actually turning translation on, even though the banner was only visible in the
+                // first place because that same external-provider bypass said it was allowed.
+                if (getUserConfig().isPremium() || currentChat != null && currentChat.autotranslation || org.telegram.messenger.PrimeTranslator.isExternal()) {
                     getMessagesController().getTranslateController().toggleTranslatingDialog(getDialogId());
                 } else {
                     MessagesController.getNotificationsSettings(currentAccount).edit().putInt("dialog_show_translate_count" + getDialogId(), 14).commit();
@@ -10747,9 +10773,6 @@ public class ChatActivity extends BaseFragment implements
                     if (searchUserButton != null && searchUserButton.getVisibility() != GONE) {
                         leftMargin += 48;
                     }
-                    if (searchForwardButton != null && searchForwardButton.getVisibility() != GONE) {
-                        leftMargin += 48;
-                    }
                     ((MarginLayoutParams) child.getLayoutParams()).leftMargin = AndroidUtilities.dp(leftMargin);
                 }
                 super.measureChildWithMargins(child, parentWidthMeasureSpec, widthUsed, parentHeightMeasureSpec, heightUsed);
@@ -10851,37 +10874,6 @@ public class ChatActivity extends BaseFragment implements
             searchCalendarButton.setContentDescription(LocaleController.getString(R.string.JumpToDate));
         }
 
-        searchForwardButton = new ImageView(getContext());
-        searchForwardButton.setScaleType(ImageView.ScaleType.CENTER);
-        searchForwardButton.setImageResource(R.drawable.msg_forward);
-        searchForwardButton.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_chat_searchPanelIcons), PorterDuff.Mode.MULTIPLY));
-        searchForwardButton.setBackgroundDrawable(Theme.createSelectorDrawable(getThemedColor(Theme.key_actionBarActionModeDefaultSelector), 1));
-        searchContainer.addView(searchForwardButton, LayoutHelper.createFrame(ChatActivityEnterView.DEFAULT_HEIGHT, ChatActivityEnterView.DEFAULT_HEIGHT, Gravity.LEFT | Gravity.TOP, 2.66f, 0, 0, 0));
-        searchForwardButton.setVisibility(View.GONE);
-        searchForwardButton.setOnClickListener(view -> openHashtagSearchForward());
-        searchForwardButton.setContentDescription(LocaleController.getString(R.string.Forward));
-    }
-
-    private void openHashtagSearchForward() {
-        if (getParentActivity() == null || searchingHashtag == null) {
-            return;
-        }
-        final ArrayList<MessageObject> results;
-        final CharSequence title;
-        if (chatMode == MODE_SEARCH && searchType == SEARCH_MY_MESSAGES) {
-            results = messages;
-            title = LocaleController.getString(R.string.SearchMyMessages);
-        } else if (chatMode == MODE_SEARCH && searchType == SEARCH_PUBLIC_POSTS) {
-            results = messages;
-            title = LocaleController.getString(R.string.SearchPublicPosts);
-        } else {
-            results = getMediaDataController().searchResultMessages;
-            title = LocaleController.getString(R.string.SearchThisChat);
-        }
-        if (results == null || results.isEmpty()) {
-            return;
-        }
-        presentFragment(new PrimeForwardSelectionActivity(LocaleController.getString(R.string.Forward) + " " + searchingHashtag + " — " + title, results));
     }
 
     private void showSearchShowOther(boolean show) {
@@ -27382,15 +27374,6 @@ public class ChatActivity extends BaseFragment implements
             searchExpandList.setClickable(count > 0);
             searchExpandList.animate().alpha(count > 0 ? 1f : 0.5f).start();
         }
-        updateSearchForwardButton();
-    }
-
-    private void updateSearchForwardButton() {
-        if (searchForwardButton == null) {
-            return;
-        }
-        final boolean isHashtagResultsTab = searchingHashtag != null && (chatMode != MODE_SEARCH || searchType == SEARCH_MY_MESSAGES || searchType == SEARCH_PUBLIC_POSTS);
-        searchForwardButton.setVisibility(isHashtagResultsTab && searchLastCount > 0 ? View.VISIBLE : View.GONE);
     }
 
     private void updateSearchCountText() {
@@ -28447,6 +28430,17 @@ public class ChatActivity extends BaseFragment implements
         bottomChannelButtonsLayout.showButton(ChatActivityChannelButtonsLayout.BUTTON_DIRECT, showSuggestButton && bottomChannelButtonsLayout.getVisibility() == View.VISIBLE, animated);
         bottomChannelButtonsLayout.showButton(ChatActivityChannelButtonsLayout.BUTTON_GIFT, showGiftButton && bottomChannelButtonsLayout.getVisibility() == View.VISIBLE, animated);
         bottomChannelButtonsLayout.showButton(ChatActivityChannelButtonsLayout.BUTTON_GIGA_GROUP_INFO, showGigaGroupButton && bottomChannelButtonsLayout.getVisibility() == View.VISIBLE, animated);
+
+        // PrimeGram: suggestEmojiPanel's own visibility is driven entirely by the sticker-panel-
+        // expansion flag (see the other setVisibility(...) call sites for it) - nothing here ever
+        // told it that chatActivityEnterView (the input it suggests emoji FOR) just got replaced by
+        // this channel-buttons bar. If it was showing right before that happened, it just keeps
+        // rendering at its normal spot above the input - which is exactly where this bar now lives
+        // too - reading as an unexplained block sitting over/above "Убрать звук"/the channel
+        // buttons with no View-tree owner anyone would think to suspect.
+        if (suggestEmojiPanel != null && bottomChannelButtonsLayout.getVisibility() == View.VISIBLE) {
+            suggestEmojiPanel.forceClose();
+        }
 
         checkRaiseSensors();
     }
@@ -47506,7 +47500,14 @@ public class ChatActivity extends BaseFragment implements
         }
 
         if (!isInsideContainer && !isInPreviewMode()) {
-            return lerp(Math.max(lerp(defaultIslandHeight, enterViewIslandHeight, enterViewFactor) * visibility, dp(ChatActivityEnterView.DEFAULT_HEIGHT)), -dp(7), pollAddVisibility);
+            // PrimeGram: this floor used to be a flat dp(DEFAULT_HEIGHT) applied AFTER the
+            // `* visibility` scaling above - meaning even when visibility is 0 (nothing at the
+            // bottom is supposed to be showing at all), the island's blurred background in
+            // ChatInputViewsContainer.dispatchDraw() still got a non-zero minimum height and kept
+            // painting an empty bar with no content behind it. Scaling the floor by the same
+            // `visibility` closes that: at visibility=0 the floor is 0 too, so the background can
+            // actually disappear completely; at visibility=1 it's unchanged from before.
+            return lerp(Math.max(lerp(defaultIslandHeight, enterViewIslandHeight, enterViewFactor) * visibility, dp(ChatActivityEnterView.DEFAULT_HEIGHT) * visibility), -dp(7), pollAddVisibility);
         } else {
             return lerp(defaultIslandHeight, enterViewIslandHeight, enterViewFactor) * visibility;
         }

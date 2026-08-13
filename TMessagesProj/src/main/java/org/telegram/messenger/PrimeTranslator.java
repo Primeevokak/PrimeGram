@@ -48,6 +48,16 @@ public class PrimeTranslator {
         return PrimeTweaks.translateProvider() != PROVIDER_TELEGRAM;
     }
 
+    private static final String[] PROVIDER_NAMES = {"Telegram", "Google", "Yandex", "Multiplay"};
+
+    /** Display name of the provider currently selected in settings - used anywhere the UI needs to
+     *  say who actually did the translating, instead of Telegram's own hardcoded "Cocoon" branding
+     *  (which only describes {@link #PROVIDER_TELEGRAM}'s own server-side path). */
+    public static String currentProviderName() {
+        final int provider = PrimeTweaks.translateProvider();
+        return provider >= 0 && provider < PROVIDER_NAMES.length ? PROVIDER_NAMES[provider] : PROVIDER_NAMES[PROVIDER_TELEGRAM];
+    }
+
     private static volatile boolean warmed;
 
     /**

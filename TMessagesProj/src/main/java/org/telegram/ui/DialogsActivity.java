@@ -1394,6 +1394,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         @Override
         public boolean onTouchEvent(MotionEvent ev) {
             if (
+                    // PrimeGram: this whole block is the dual-page swipe-between-tabs gesture
+                    // (viewPages[0]/viewPages[1] cross-fade), which only exists for the cloud
+                    // filter tabs (pagesCount == 2, see createView()). Archive's local folder
+                    // tabs (primeRebuildArchiveFolderTabs) reuse this same filterTabsView/gesture
+                    // machinery for tab selection but only ever have viewPages.length == 1
+                    // (folderId != 0 forces pagesCount to 1) - without this guard, a horizontal
+                    // swipe inside Archive with the "switch folders" swipe gesture enabled reached
+                    // prepareForMoving() and indexed the nonexistent viewPages[1], crashing/hanging
+                    // the app on every swipe attempt.
+                    viewPages.length > 1 &&
                     parentLayout != null &&
                             filterTabsView != null && !filterTabsView.isEditing() &&
                             !searching &&
@@ -3178,7 +3188,18 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             primeSelectedArchiveFolderId = 0;
         }
         canShowFilterTabsView = !folders.isEmpty();
-        updateFilterTabsVisibility(false);
+        // PrimeGram: this is also called from createView() itself (right after filterTabsView is
+        // constructed, well before fragmentView is assigned a few hundred lines later) - going
+        // through updateFilterTabsVisibility() at that point is a no-op (it bails on fragmentView
+        // == null), so the tab strip's visibility never actually gets applied and the folder panel
+        // stays permanently hidden until some unrelated later event (e.g. creating another folder)
+        // happens to trigger a second rebuild after the fragment is fully built. Apply the value
+        // directly when that guard would otherwise swallow it.
+        if (fragmentView != null) {
+            updateFilterTabsVisibility(false);
+        } else {
+            animatorFilterTabsVisible.setValue(canShowFilterTabsView, false);
+        }
         if (viewPages != null && viewPages[0] != null && viewPages[0].dialogsAdapter != null) {
             viewPages[0].dialogsAdapter.notifyDataSetChanged();
         }
