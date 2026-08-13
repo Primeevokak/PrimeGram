@@ -419,7 +419,10 @@ public class ContactsController extends BaseController {
             } catch (Throwable ignore) {
 
             }
-            if (getUserConfig().isClientActivated()) {
+            if (getUserConfig().isClientActivated() && !getUserConfig().isBot()) {
+                // A bot session has no device contacts to reconcile against - Bot API accounts
+                // don't have a phone-book relationship with anyone, so this sync is both
+                // meaningless and untested against a bot-shaped account.
                 readContacts();
                 if (systemAccount == null) {
                     try {

@@ -1564,6 +1564,19 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         switchingAccount = false;
     }
 
+    /**
+     * Refreshes just the two account-list UIs (classic drawer + this fork's own sidebar) without
+     * switching the active account - for flows that create a new session in a free slot without
+     * immediately switching to it, e.g. {@link BotLoginActivity}. Without this, a freshly-created
+     * account is invisible in both lists until the app is restarted, since {@link
+     * #switchToAccount} is normally the only thing that calls these two refreshes.
+     */
+    public void refreshAccountsUi() {
+        org.telegram.messenger.DrawerHelper.notifyDataChanged();
+        updateSidebarProfileHeader();
+        updateSidebarAccounts();
+    }
+
     private void switchToAvailableAccountOrLogout() {
         int account = -1;
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
@@ -9832,6 +9845,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     /** Avatar + name + (privacy-masked) phone, tapping opens the account's own profile. */
     private BackupImageView sidebarAvatarImageView;
+    private View sidebarBotBadge;
     private TextView sidebarNameView;
     private TextView sidebarPhoneView;
 
@@ -9848,9 +9862,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             setSidebarOpen(false, true);
         });
 
+        FrameLayout avatarFrame = new FrameLayout(context);
         sidebarAvatarImageView = new BackupImageView(context);
         sidebarAvatarImageView.setRoundRadius(AndroidUtilities.dp(28));
-        header.addView(sidebarAvatarImageView, LayoutHelper.createLinear(56, 56, Gravity.CENTER_VERTICAL, 0, 0, 14, 0));
+        avatarFrame.addView(sidebarAvatarImageView, LayoutHelper.createFrame(56, 56));
+        sidebarBotBadge = org.telegram.messenger.PrimeBotBadge.createView(context);
+        avatarFrame.addView(sidebarBotBadge, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 14, Gravity.BOTTOM | Gravity.RIGHT));
+        header.addView(avatarFrame, LayoutHelper.createLinear(56, 56, Gravity.CENTER_VERTICAL, 0, 0, 14, 0));
 
         LinearLayout texts = new LinearLayout(context);
         texts.setOrientation(LinearLayout.VERTICAL);
@@ -9886,6 +9904,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         final AvatarDrawable avatarDrawable = new AvatarDrawable();
         avatarDrawable.setInfo(user);
         sidebarAvatarImageView.setForUserOrChat(user, avatarDrawable);
+        sidebarBotBadge.setVisibility(user != null && user.bot ? View.VISIBLE : View.GONE);
         sidebarNameView.setText(user != null ? UserObject.getUserName(user) : "");
         final String formattedPhone = user != null && !TextUtils.isEmpty(user.phone) ? PhoneFormat.getInstance().format("+" + user.phone) : "";
         sidebarPhoneView.setText(org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(formattedPhone, true));
@@ -9999,6 +10018,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 }
 
                 avatarFrame.addView(avatarImageView, LayoutHelper.createFrame(40, 40, Gravity.CENTER));
+                if (user.bot) {
+                    avatarFrame.addView(org.telegram.messenger.PrimeBotBadge.createView(context),
+                            LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 12, Gravity.BOTTOM | Gravity.RIGHT, 0, 0, 4, 4));
+                }
                 sidebarAccountsContainer.addView(avatarFrame, LayoutHelper.createLinear(52, 52, 0, 4, 0, 4));
             }
         }

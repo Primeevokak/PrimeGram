@@ -567,10 +567,14 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         avatarView.setForUserOrChat(user, avatarDrawable);
         titleView.setText(UserObject.getUserName(user));
         final StringBuilder sb = new StringBuilder();
-        if (user != null) {
+        if (user != null && !user.bot) {
             // PrimeGram: the same masking the profile does. This line was building the number
             // straight from the user object, so "скрывать свой номер" hid it one screen away and
             // left it in plain sight on the screen people open most often.
+            //
+            // A bot session has no real phone number (auth.importBotAuthorization leaves it
+            // empty), so this line is skipped entirely for bot accounts rather than showing a
+            // bogus "+" row.
             sb.append(org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(
                     PhoneFormat.getInstance().format("+" + user.phone), true));
         }
@@ -667,6 +671,12 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
 
         items.add(SettingCell.Factory.of(51, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_channel, "О приложении PrimeGram", "Канал разработчика, обновления и поддержка"));
         items.add(SettingCell.Factory.of(52, 0xFFB659FF, 0xFF617CFF, R.drawable.settings_premium, "Настройки PrimeGram", "Боковая панель, лимиты Premium и прочее"));
+        if (getUserConfig().isBot()) {
+            // Only reachable on a bot session (see BotLoginActivity) - name/about live in the
+            // normal edit screens (routed to bots.setBotInfo there), everything Bot API exposes
+            // that has no room in stock screens (description, menu button) lives here instead.
+            items.add(SettingCell.Factory.of(53, IconBackgroundColors.BLUE_ALT.top, IconBackgroundColors.BLUE_ALT.bottom, R.drawable.settings_features, "Управление ботом", "Описание, кнопка меню"));
+        }
         items.add(UItem.asShadow(null));
 
         accountNumbers.clear();
@@ -698,7 +708,10 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
                 }
             ));
             items.add(UItem.asShadow(null));
-        } else if (suggestions.contains("VALIDATE_PHONE_NUMBER") && getUserConfig().getCurrentUser() != null) {
+        } else if (suggestions.contains("VALIDATE_PHONE_NUMBER") && getUserConfig().getCurrentUser() != null && !getUserConfig().isBot()) {
+            // A bot session has no phone number to confirm and ActionIntroActivity's
+            // change-phone-number flow is a normal-account-only feature - this card would be
+            // both meaningless and non-functional for a bot account.
             items.add(SuggestionCell.Factory.of(
                 formatString(R.string.CheckPhoneNumber, PhoneFormat.getInstance().format("+" + getUserConfig().getCurrentUser().phone)),
                 replaceSingleTag(getString(R.string.CheckPhoneNumberInfo), () -> {
@@ -900,6 +913,10 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             }
             case 52: {
                 presentFragment(new PrimeGramSettingsActivity());
+                break;
+            }
+            case 53: {
+                presentFragment(new BotProfileSettingsActivity());
                 break;
             }
 

@@ -34,8 +34,10 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
+import org.telegram.tgnet.tl.TL_bots;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -211,13 +213,30 @@ public class ChangeBioActivity extends BaseFragment {
 
         final AlertDialog progressDialog = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
 
-        final TL_account.updateProfile req = new TL_account.updateProfile();
-        req.about = newName;
-        req.flags |= 4;
+        // A bot session gets BOT_METHOD_INVALID from account.updateProfile - the server-side
+        // equivalent of "about" for a bot is a distinct RPC (bots.setBotInfo, with no bot field
+        // set so it acts on the calling bot itself), and its response is a bare Bool rather than
+        // an updated TLRPC.User, so the local userFull.about update below has to happen by hand
+        // either way.
+        final boolean isBot = UserConfig.getInstance(currentAccount).isBot();
+        final TLObject req;
+        if (isBot) {
+            final TL_bots.setBotInfo botReq = new TL_bots.setBotInfo();
+            botReq.lang_code = "";
+            botReq.about = newName;
+            botReq.flags |= 1;
+            req = botReq;
+        } else {
+            final TL_account.updateProfile accountReq = new TL_account.updateProfile();
+            accountReq.about = newName;
+            accountReq.flags |= 4;
+            req = accountReq;
+        }
 
+        final long selfUserId = UserConfig.getInstance(currentAccount).getClientUserId();
         final int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
             if (error == null) {
-                final TLRPC.User user = (TLRPC.User)response;
+                final long userId = isBot ? selfUserId : ((TLRPC.User) response).id;
                 AndroidUtilities.runOnUIThread(() -> {
                     try {
                         progressDialog.dismiss();
@@ -225,7 +244,7 @@ public class ChangeBioActivity extends BaseFragment {
                         FileLog.e(e);
                     }
                     userFull.about = newName;
-                    NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.userInfoDidLoad, user.id, userFull);
+                    NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.userInfoDidLoad, userId, userFull);
                     finishFragment();
                 });
             } else {

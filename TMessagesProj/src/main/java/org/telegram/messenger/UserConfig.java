@@ -273,6 +273,14 @@ public class UserConfig extends BaseController {
         }
     }
 
+    /** Whether this logged-in session itself is a bot (via {@link org.telegram.ui.BotLoginActivity}),
+     *  not whether the person/chat being looked at is one - every other {@code .bot} check in this
+     *  codebase is peer-scoped, this is the one self-scoped check. */
+    public boolean isBot() {
+        TLRPC.User user = getCurrentUser();
+        return user != null && user.bot;
+    }
+
     public void setCurrentUser(TLRPC.User user) {
         synchronized (sync) {
             TLRPC.User oldUser = currentUser;

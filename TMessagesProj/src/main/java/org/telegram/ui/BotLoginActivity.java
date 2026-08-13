@@ -187,6 +187,15 @@ public class BotLoginActivity extends BaseFragment {
             MessagesController.getInstance(account).loadAppConfig();
             MediaDataController.getInstance(account);
 
+            if (getParentActivity() instanceof LaunchActivity) {
+                // Otherwise the new account sits fully authorized on disk but is invisible in
+                // both account-list UIs until the app restarts - switchToAccount() is normally
+                // the only thing that refreshes them, and this flow deliberately doesn't call it
+                // (unlike a normal login, this one shouldn't yank the user onto the bot's chat
+                // list the moment a token is entered).
+                ((LaunchActivity) getParentActivity()).refreshAccountsUi();
+            }
+
             statusView.setText("Готово: вошли как " + UserObject.getUserName(res.user)
                     + ".\n\nПереключиться на бота можно в боковой панели — он теперь один из аккаунтов.");
             tokenField.setText("");

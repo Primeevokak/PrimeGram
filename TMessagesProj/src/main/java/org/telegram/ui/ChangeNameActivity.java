@@ -27,6 +27,7 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.tl.TL_account;
+import org.telegram.tgnet.tl.TL_bots;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -80,6 +81,7 @@ public class ChangeNameActivity extends BaseFragment {
         if (user == null) {
             user = UserConfig.getInstance(currentAccount).getCurrentUser();
         }
+        final boolean isBot = UserConfig.getInstance(currentAccount).isBot();
 
         LinearLayout linearLayout = new LinearLayout(context);
         fragmentView = linearLayout;
@@ -111,8 +113,14 @@ public class ChangeNameActivity extends BaseFragment {
         linearLayout.addView(firstNameField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, 24, 24, 24, 0));
         firstNameField.setOnEditorActionListener((textView, i, keyEvent) -> {
             if (i == EditorInfo.IME_ACTION_NEXT) {
-                lastNameField.requestFocus();
-                lastNameField.setSelection(lastNameField.length());
+                if (isBot) {
+                    // Bots have no last name field to tab into - see the setVisibility(GONE)
+                    // below, so submit straight from the first (only) field instead.
+                    doneButton.performClick();
+                } else {
+                    lastNameField.requestFocus();
+                    lastNameField.setSelection(lastNameField.length());
+                }
                 return true;
             }
             return false;
@@ -140,6 +148,10 @@ public class ChangeNameActivity extends BaseFragment {
         lastNameField.setCursorSize(AndroidUtilities.dp(20));
         lastNameField.setCursorWidth(1.5f);
         linearLayout.addView(lastNameField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, 24, 16, 24, 0));
+        if (isBot) {
+            // Bot API names are one flat string - there is no last-name concept to edit.
+            lastNameField.setVisibility(View.GONE);
+        }
         lastNameField.setOnEditorActionListener((textView, i, keyEvent) -> {
             if (i == EditorInfo.IME_ACTION_DONE) {
                 doneButton.performClick();
@@ -174,25 +186,42 @@ public class ChangeNameActivity extends BaseFragment {
             return;
         }
         String newFirst = firstNameField.getText().toString();
-        String newLast = lastNameField.getText().toString();
-        if (currentUser.first_name != null && currentUser.first_name.equals(newFirst) && currentUser.last_name != null && currentUser.last_name.equals(newLast)) {
+        boolean isBot = UserConfig.getInstance(currentAccount).isBot();
+        String newLast = isBot ? "" : lastNameField.getText().toString();
+        if (currentUser.first_name != null && currentUser.first_name.equals(newFirst)
+                && (isBot || (currentUser.last_name != null && currentUser.last_name.equals(newLast)))) {
             return;
         }
-        TL_account.updateProfile req = new TL_account.updateProfile();
-        req.flags = 3;
-        currentUser.first_name = req.first_name = newFirst;
-        currentUser.last_name = req.last_name = newLast;
+        currentUser.first_name = newFirst;
+        currentUser.last_name = newLast;
         TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(UserConfig.getInstance(currentAccount).getClientUserId());
         if (user != null) {
-            user.first_name = req.first_name;
-            user.last_name = req.last_name;
+            user.first_name = newFirst;
+            user.last_name = newLast;
         }
         UserConfig.getInstance(currentAccount).saveConfig(true);
         NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.mainUserInfoChanged);
         NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_NAME);
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
 
-        });
+        // Bots have one flat name and no account.updateProfile access at all (BOT_METHOD_INVALID) -
+        // bots.setBotInfo with no `bot` field set acts on the calling bot itself.
+        if (isBot) {
+            TL_bots.setBotInfo req = new TL_bots.setBotInfo();
+            req.lang_code = "";
+            req.name = newFirst;
+            req.flags |= 8;
+            ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+
+            });
+        } else {
+            TL_account.updateProfile req = new TL_account.updateProfile();
+            req.flags = 3;
+            req.first_name = newFirst;
+            req.last_name = newLast;
+            ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+
+            });
+        }
     }
 
     @Override

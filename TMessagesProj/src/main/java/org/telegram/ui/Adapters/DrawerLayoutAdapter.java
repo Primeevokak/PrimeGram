@@ -262,6 +262,13 @@ public class DrawerLayoutAdapter extends RecyclerListView.SelectionAdapter {
                 accountNumbers.add(a);
             }
         }
+        // accountsShown was previously computed once, in the constructor - an account added
+        // later (e.g. logging into a bot while only one account existed) never turned this true,
+        // so its row never appeared no matter how many times notifyDataSetChanged() ran. Recomputed
+        // here on every reset instead, same formula as the constructor's, so a manual
+        // setAccountsShown(false, ...) still sticks (the persisted pref still wins) while a newly
+        // reached ">1 account" state is picked up.
+        accountsShown = UserConfig.getActivatedAccountsCount() > 1 && MessagesController.getGlobalMainSettings().getBoolean("accountsShown", true);
         Collections.sort(accountNumbers, (o1, o2) -> {
             long l1 = UserConfig.getInstance(o1).loginTime;
             long l2 = UserConfig.getInstance(o2).loginTime;

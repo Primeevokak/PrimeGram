@@ -39,6 +39,7 @@ public class DrawerUserCell extends FrameLayout implements NotificationCenter.No
     private final BackupImageView imageView;
     private final AvatarDrawable avatarDrawable;
     private final GroupCreateCheckBox checkBox;
+    private final android.widget.TextView botBadge;
     private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable botVerification;
     private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable status;
 
@@ -54,6 +55,13 @@ public class DrawerUserCell extends FrameLayout implements NotificationCenter.No
         imageView = new BackupImageView(context);
         imageView.setRoundRadius(dp(18));
         addView(imageView, LayoutHelper.createFrame(36, 36, Gravity.LEFT | Gravity.TOP, 14, 6, 0, 0));
+
+        // Top-right corner of the avatar, deliberately the opposite corner from checkBox below
+        // (bottom-right) so a bot account being the selected one doesn't hide this behind the
+        // selection checkmark.
+        botBadge = org.telegram.messenger.PrimeBotBadge.createView(context);
+        botBadge.setVisibility(GONE);
+        addView(botBadge, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 12, Gravity.LEFT | Gravity.TOP, 36, 3, 0, 0));
 
         textView = new SimpleTextView(context);
         textView.setPadding(0, dp(4), 0, dp(4));
@@ -173,6 +181,7 @@ public class DrawerUserCell extends FrameLayout implements NotificationCenter.No
         imageView.getImageReceiver().setCurrentAccount(account);
         imageView.setForUserOrChat(user, avatarDrawable);
         checkBox.setVisibility(account == UserConfig.selectedAccount ? VISIBLE : INVISIBLE);
+        botBadge.setVisibility(user.bot ? VISIBLE : GONE);
     }
 
     public int getAccountNumber() {

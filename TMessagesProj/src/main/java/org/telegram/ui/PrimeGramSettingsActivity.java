@@ -614,6 +614,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int SECTION_PREMIUM_MEDIA = 51;
     private static final int SECTION_PREMIUM_PROFILE = 52;
 
+    /** Tapping the masthead used to fall through to an unhandled section number and land on a
+     *  blank screen - this gives it somewhere real to go, the app's own logo. */
+    private static final int SECTION_LOGO = 90;
+
     /** Category rows on the hub. Offset well past the setting ids so they cannot collide. */
     private static final int ID_SECTION_BASE = 900;
 
@@ -862,7 +866,30 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
             primeHeaderView = layout;
         }
-        return UItem.asCustom(ID_SECTION_BASE + 99, primeHeaderView);
+        return UItem.asCustom(ID_SECTION_BASE + SECTION_LOGO, primeHeaderView);
+    }
+
+    private View primeLogoOnlyView;
+
+    /** Where tapping the masthead leads: just the logo, large, on black - the masthead itself
+     *  already says the name and version, so there is nothing else this screen needs to add. */
+    private UItem primeLogoOnlyCell() {
+        if (primeLogoOnlyView == null && getContext() != null) {
+            final Context context = getContext();
+            final android.widget.FrameLayout frameLayout = new android.widget.FrameLayout(context);
+            frameLayout.setBackgroundColor(0xFF000000);
+
+            final ImageView logo = new ImageView(context);
+            try {
+                logo.setImageDrawable(context.getPackageManager().getApplicationIcon(context.getPackageName()));
+            } catch (Throwable t) {
+                logo.setImageResource(R.mipmap.ic_launcher_round);
+            }
+            frameLayout.addView(logo, org.telegram.ui.Components.LayoutHelper.createFrame(180, 180, Gravity.CENTER));
+
+            primeLogoOnlyView = frameLayout;
+        }
+        return UItem.asCustom(primeLogoOnlyView, 400);
     }
 
     /**
@@ -1146,6 +1173,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
             case SECTION_PREMIUM_PROFILE: return "Профиль и текст";
 
+            case SECTION_LOGO: return "PrimeGram";
+
             default: return "Настройки PrimeGram";
 
         }
@@ -1192,6 +1221,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
         if (section == SECTION_ROOT) {
             fillRoot(items);
+            return;
+        }
+
+        if (section == SECTION_LOGO) {
+            items.add(primeLogoOnlyCell());
             return;
         }
 
