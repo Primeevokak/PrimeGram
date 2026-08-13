@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * PrimeGram: the catalogue of installed plugins, and the only thing that starts or stops one.
@@ -36,11 +37,18 @@ import java.util.List;
  */
 public final class PrimePluginsController {
 
-    /** What a plugin file is called, and the only extension we will install. */
+    /** What a single-file plugin is called. */
     public static final String EXTENSION = ".plugin";
+    /** What a packaged (elyxbuilder) plugin is called - a zip, extracted to a directory of the
+     *  same suffixed name rather than copied whole. See PluginManifest.parseYaml and
+     *  _prime_loader.load_elyx_plugin for the rest of this format's handling. */
+    public static final String EXTENSION_ELYX = ".elyx";
 
     /** Anything larger is not a plugin; refusing early keeps a hostile file off the main thread. */
     private static final long MAX_SIZE = 8 * 1024 * 1024;
+    /** A packaged {@code .elyx} plugin bundles real assets (fonts, images) alongside its code, so
+     *  it earns a much larger allowance than a single source file. */
+    private static final long MAX_SIZE_ELYX = 64 * 1024 * 1024;
 
     private static volatile PrimePluginsController instance;
 
@@ -136,11 +144,15 @@ public final class PrimePluginsController {
         final File[] files = pluginsDir().listFiles();
         if (files != null) {
             for (File file : files) {
-                if (!file.isFile() || !file.getName().endsWith(EXTENSION)) {
-                    continue;
-                }
                 try {
-                    final PluginManifest manifest = PluginManifest.parse(readHeader(file));
+                    final PluginManifest manifest;
+                    if (file.isFile() && file.getName().endsWith(EXTENSION)) {
+                        manifest = PluginManifest.parse(readHeader(file));
+                    } else if (file.isDirectory() && file.getName().endsWith(EXTENSION_ELYX)) {
+                        manifest = inspectElyxDirectory(file);
+                    } else {
+                        continue;
+                    }
                     final PrimePlugin plugin = new PrimePlugin(manifest, file);
                     plugin.setEnabled(PrimePluginStore.isEnabled(manifest.id));
                     found.add(plugin);
@@ -198,10 +210,153 @@ public final class PrimePluginsController {
         if (file == null || !file.exists()) {
             throw new IOException("no file");
         }
+        if (file.getName().endsWith(EXTENSION_ELYX)) {
+            if (file.length() > MAX_SIZE_ELYX) {
+                throw new IOException("too large");
+            }
+            return inspectElyx(file);
+        }
         if (file.length() > MAX_SIZE) {
             throw new IOException("too large");
         }
         return PluginManifest.parse(readHeader(file));
+    }
+
+    /** Reads a path relative to an {@code .elyx} package's root - either straight out of the zip
+     *  (before install, for the confirmation sheet) or out of an already-extracted directory
+     *  (after install, for {@link #rescanLocked}) - so both share the same manifest-building code
+     *  without caring which one it's talking to. */
+    private interface ElyxEntryReader {
+        /** Text content of the entry, or null if it does not exist. */
+        String readText(String relativePath) throws IOException;
+    }
+
+    private static PluginManifest buildElyxManifest(ElyxEntryReader reader) throws PluginManifest.MalformedException, IOException {
+        final String refmapSource = reader.readText("refmap.yml");
+        if (refmapSource == null) {
+            throw new PluginManifest.MalformedException("no refmap.yml");
+        }
+        final Map<String, String> refmap = readSimpleYaml(refmapSource);
+        final String metaPath = refmap.get("metainfo");
+        if (metaPath == null) {
+            throw new PluginManifest.MalformedException("refmap.yml has no metainfo");
+        }
+        final String metaSource = reader.readText(metaPath);
+        if (metaSource == null) {
+            throw new PluginManifest.MalformedException("meta.yml missing: " + metaPath);
+        }
+        return PluginManifest.parseYaml(metaSource, readElyxLocale(reader, refmap.get("strings")));
+    }
+
+    /** {@code {key}} placeholders in meta.yml (elyxbuilder's own convention for
+     *  {@code description: "{description}"}) resolve against the plugin's own locale file for the
+     *  app's current language, falling back to English, and to nothing at all rather than fail
+     *  the whole install over a missing translation. */
+    private static Map<String, String> readElyxLocale(ElyxEntryReader reader, String localesDir) {
+        if (localesDir == null) {
+            return Collections.emptyMap();
+        }
+        final String lang = org.telegram.messenger.LocaleController.getLocaleStringIso639();
+        String json = null;
+        try {
+            if (lang != null) {
+                json = reader.readText(localesDir + "/strings_" + lang + ".json");
+            }
+        } catch (IOException ignore) {
+        }
+        if (json == null) {
+            try {
+                json = reader.readText(localesDir + "/strings_en.json");
+            } catch (IOException ignore) {
+            }
+        }
+        if (json == null) {
+            return Collections.emptyMap();
+        }
+        final Map<String, String> result = new java.util.LinkedHashMap<>();
+        try {
+            final org.json.JSONObject obj = new org.json.JSONObject(json);
+            final java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                final String key = keys.next();
+                final Object value = obj.opt(key);
+                if (value instanceof String) {
+                    result.put(key, (String) value);
+                }
+            }
+        } catch (Throwable ignore) {
+        }
+        return result;
+    }
+
+    /** The same flat {@code key: value} shape {@link PluginManifest#parseYaml} reads for
+     *  meta.yml - refmap.yml is just as simple, so this stays a tiny local reader rather than
+     *  exposing that one publicly for a single other caller. */
+    private static Map<String, String> readSimpleYaml(String source) {
+        final Map<String, String> result = new java.util.LinkedHashMap<>();
+        for (String line : source.split("\n")) {
+            final String trimmed = line.trim();
+            final int colon = trimmed.indexOf(':');
+            if (trimmed.isEmpty() || trimmed.charAt(0) == '#' || colon <= 0) {
+                continue;
+            }
+            result.put(trimmed.substring(0, colon).trim(), trimmed.substring(colon + 1).trim());
+        }
+        return result;
+    }
+
+    private static PluginManifest inspectElyx(File zipFile) throws PluginManifest.MalformedException, IOException {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(zipFile)) {
+            return buildElyxManifest(relativePath -> {
+                final java.util.zip.ZipEntry entry = zip.getEntry(relativePath);
+                if (entry == null) {
+                    return null;
+                }
+                try (InputStream in = zip.getInputStream(entry)) {
+                    return readAll(in);
+                }
+            });
+        }
+    }
+
+    private static PluginManifest inspectElyxDirectory(File dir) throws PluginManifest.MalformedException, IOException {
+        return buildElyxManifest(relativePath -> {
+            final File f = new File(dir, relativePath);
+            if (!f.exists()) {
+                return null;
+            }
+            try (InputStream in = new FileInputStream(f)) {
+                return readAll(in);
+            }
+        });
+    }
+
+    /** The fields {@code load_elyx_plugin} needs but has no module-level dunders to read (unlike
+     *  {@code .plugin}, {@code meta.yml} was already fully parsed on this side before the
+     *  interpreter ever saw the plugin) - handed over as JSON since that is how every other
+     *  Java<->Python call in this controller already talks. */
+    private static String manifestToJson(PluginManifest manifest) {
+        final org.json.JSONObject json = new org.json.JSONObject();
+        try {
+            json.put("name", manifest.name);
+            json.put("description", manifest.description == null ? "" : manifest.description);
+            json.put("author", manifest.author == null ? "" : manifest.author);
+            json.put("version", manifest.version);
+            final String icon = manifest.icon();
+            json.put("icon", icon == null ? "" : icon);
+        } catch (org.json.JSONException ignore) {
+        }
+        return json.toString();
+    }
+
+    private static String readAll(InputStream in) throws IOException {
+        final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        final byte[] buffer = new byte[8192];
+        int n;
+        while ((n = in.read(buffer)) > 0) {
+            out.write(buffer, 0, n);
+        }
+        return out.toString("UTF-8");
     }
 
     /**
@@ -215,10 +370,19 @@ public final class PrimePluginsController {
             String failure = null;
             boolean replaced = false;
             File target = null;
+            final boolean isElyx = source.getName().endsWith(EXTENSION_ELYX);
             try {
                 manifest = inspect(source);
                 if (!manifest.isCompatibleWithApp(BuildVars.BUILD_VERSION_STRING)) {
                     failure = "version";
+                } else if (isElyx) {
+                    target = new File(pluginsDir(), manifest.id + EXTENSION_ELYX);
+                    replaced = target.exists();
+                    if (replaced) {
+                        unloadFromPython(manifest.id);
+                        deleteRecursive(target);
+                    }
+                    extractZip(source, target);
                 } else {
                     target = new File(pluginsDir(), manifest.id + EXTENSION);
                     replaced = target.exists();
@@ -279,6 +443,58 @@ public final class PrimePluginsController {
         }
     }
 
+    /** Unpacks an {@code .elyx} zip into {@code targetDir}, which must not already exist (the
+     *  caller is responsible for clearing a previous install first). Guards against a zip entry
+     *  whose name tries to escape {@code targetDir} ({@code ../../..}) - a hostile plugin file is
+     *  not a reason to let it write anywhere outside its own directory. */
+    private static void extractZip(File source, File targetDir) throws IOException {
+        if (!targetDir.mkdirs() && !targetDir.isDirectory()) {
+            throw new IOException("cannot create " + targetDir);
+        }
+        final String targetRoot = targetDir.getCanonicalPath() + File.separator;
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new FileInputStream(source))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                final File outFile = new File(targetDir, entry.getName());
+                if (!outFile.getCanonicalPath().startsWith(targetRoot)) {
+                    throw new IOException("zip entry escapes target: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    outFile.mkdirs();
+                } else {
+                    final File parent = outFile.getParentFile();
+                    if (parent != null) {
+                        parent.mkdirs();
+                    }
+                    try (FileOutputStream out = new FileOutputStream(outFile)) {
+                        final byte[] buffer = new byte[16 * 1024];
+                        int n;
+                        while ((n = zis.read(buffer)) > 0) {
+                            out.write(buffer, 0, n);
+                        }
+                    }
+                }
+                zis.closeEntry();
+            }
+        }
+    }
+
+    private static void deleteRecursive(File file) {
+        if (file == null || !file.exists()) {
+            return;
+        }
+        if (file.isDirectory()) {
+            final File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursive(child);
+                }
+            }
+        }
+        //noinspection ResultOfMethodCallIgnored
+        file.delete();
+    }
+
     /** Removes a plugin and everything it remembered. Deleting is meant to leave nothing behind. */
     public void delete(PrimePlugin plugin) {
         if (plugin == null) {
@@ -290,8 +506,12 @@ public final class PrimePluginsController {
         notifyChanged();
         PrimePythonEngine.getInstance().queue().postRunnable(() -> {
             unloadFromPython(plugin.id());
-            //noinspection ResultOfMethodCallIgnored
-            plugin.file.delete();
+            if (plugin.file.isDirectory()) {
+                deleteRecursive(plugin.file);
+            } else {
+                //noinspection ResultOfMethodCallIgnored
+                plugin.file.delete();
+            }
             PrimePluginStore.forget(plugin.id());
         });
     }
@@ -391,7 +611,9 @@ public final class PrimePluginsController {
                     FileLog.e("plugin " + plugin.id() + " requirements: " + text);
                 }
             }
-            final PyObject result = loader.callAttr("load_plugin", plugin.id(), plugin.file.getAbsolutePath());
+            final PyObject result = plugin.file.isDirectory()
+                    ? loader.callAttr("load_elyx_plugin", plugin.id(), plugin.file.getAbsolutePath(), manifestToJson(plugin.manifest))
+                    : loader.callAttr("load_plugin", plugin.id(), plugin.file.getAbsolutePath());
             final String error = result == null || result.toJava(Object.class) == null ? null : result.toString();
             if (TextUtils.isEmpty(error)) {
                 plugin.setError(null);

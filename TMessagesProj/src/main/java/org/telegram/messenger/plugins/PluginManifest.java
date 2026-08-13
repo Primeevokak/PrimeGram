@@ -138,6 +138,138 @@ public final class PluginManifest {
     }
 
     /**
+     * The {@code .elyx} counterpart to {@link #parse} - reads {@code meta.yml} (flat {@code key:
+     * value} lines, exactly what real elyxbuilder output looks like) instead of Python literal
+     * assignments. Deliberately not a general YAML parser for the same reason {@link #parse} is
+     * not a general Python parser: a reader that silently mis-parses a nested map or a list is
+     * worse than one that just doesn't produce that field.
+     *
+     * <p>{@code locale} resolves {@code {key}} placeholders in {@code description} (elyxbuilder's
+     * own convention - a plugin's {@code meta.yml} carries {@code description: "{description}"}
+     * and the real text lives in its {@code locales/strings_xx.json}) - pass an empty map to skip
+     * substitution and keep the raw {@code {key}} text.
+     */
+    public static PluginManifest parseYaml(String source, Map<String, String> locale) throws MalformedException {
+        final Map<String, String> values = readFlatYaml(source);
+
+        final String id = values.get("id");
+        if (id == null) {
+            throw new MalformedException("no id");
+        }
+        if (!isValidId(id)) {
+            throw new MalformedException("bad id: " + id);
+        }
+        final String name = values.get("name");
+        if (name == null || name.trim().isEmpty()) {
+            throw new MalformedException("no name");
+        }
+
+        String iconPack = null;
+        int iconIndex = -1;
+        final String icon = values.get("icon");
+        if (icon != null) {
+            final int slash = icon.lastIndexOf('/');
+            if (slash > 0 && slash < icon.length() - 1) {
+                try {
+                    iconIndex = Integer.parseInt(icon.substring(slash + 1).trim());
+                    iconPack = icon.substring(0, slash);
+                } catch (NumberFormatException ignore) {
+                    iconIndex = -1;
+                }
+            }
+        }
+
+        final String version = values.get("version");
+        return new PluginManifest(
+                id.trim(),
+                name.trim(),
+                substitutePlaceholders(values.get("description"), locale),
+                values.get("author"),
+                version == null || version.trim().isEmpty() ? "1.0" : version.trim(),
+                iconPack,
+                iconIndex,
+                values.get("app_version"),
+                null,
+                values.get("sdk_version"),
+                Collections.emptyList());
+    }
+
+    private static String substitutePlaceholders(String text, Map<String, String> locale) {
+        if (text == null || locale == null || locale.isEmpty() || text.indexOf('{') < 0) {
+            return text;
+        }
+        final StringBuilder result = new StringBuilder();
+        int i = 0;
+        while (i < text.length()) {
+            final char c = text.charAt(i);
+            if (c == '{') {
+                final int close = text.indexOf('}', i + 1);
+                if (close > i) {
+                    final String key = text.substring(i + 1, close);
+                    if (locale.containsKey(key)) {
+                        result.append(locale.get(key));
+                        i = close + 1;
+                        continue;
+                    }
+                }
+            }
+            result.append(c);
+            i++;
+        }
+        return result.toString();
+    }
+
+    /** Flat {@code key: value} lines only - no nesting, no lists, no multi-line scalars. Comments
+     *  start with {@code #} outside of a quoted value. A line this cannot confidently read is
+     *  skipped rather than guessed at, same as {@link #readTopLevelLiterals} does for Python. */
+    private static Map<String, String> readFlatYaml(String source) {
+        final Map<String, String> result = new LinkedHashMap<>();
+        if (source == null) {
+            return result;
+        }
+        for (String rawLine : source.split("\n", -1)) {
+            String line = rawLine;
+            if (line.indexOf('\r') >= 0) {
+                line = line.replace("\r", "");
+            }
+            final String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.charAt(0) == '#') {
+                continue;
+            }
+            // Only top-level (unindented) keys - meta.yml has no nesting worth reading, and an
+            // indented line under an unsupported nested key must not be mistaken for a new one.
+            if (Character.isWhitespace(line.charAt(0)) || line.charAt(0) == '-') {
+                continue;
+            }
+            final int colon = trimmed.indexOf(':');
+            if (colon <= 0) {
+                continue;
+            }
+            final String key = trimmed.substring(0, colon).trim();
+            String value = trimmed.substring(colon + 1).trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            if (value.charAt(0) == '"' || value.charAt(0) == '\'') {
+                final char quote = value.charAt(0);
+                final int closeQuote = value.indexOf(quote, 1);
+                if (closeQuote > 0) {
+                    value = value.substring(1, closeQuote);
+                }
+            } else {
+                final int hash = value.indexOf(" #");
+                if (hash >= 0) {
+                    value = value.substring(0, hash).trim();
+                }
+            }
+            if (!value.isEmpty()) {
+                result.put(key, value);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Whether this plugin says it can run on the app we are.
      *
      * <p>Both fields are checked because both exist in the wild, and a plugin that carries the two

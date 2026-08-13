@@ -388,6 +388,10 @@ public class ApplicationLoader extends Application {
         super.onCreate();
         PrimeStartupTrace.mark("Application.onCreate");
 
+        // As early as possible so it catches crashes from the rest of startup too, not just
+        // ones that happen once the UI is up.
+        PrimeCrashLog.install();
+
         // Must run before any GIF/round-video decoder is created this process,
         // so it can catch "hw_accel crashed last run" before the feature gets
         // a chance to crash again. See CrashSafeToggle's javadoc.

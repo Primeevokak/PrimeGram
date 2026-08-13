@@ -267,6 +267,124 @@ def load_plugin(plugin_id, path):
     return None
 
 
+def _read_refmap(package_dir):
+    """The tiny flat ``key: value`` shape refmap.yml/meta.yml both use - there is no YAML in the
+    standard library, and this format never needs one; a full parser would be answering a question
+    nobody in this file is asking."""
+    result = {}
+    try:
+        with open(os.path.join(package_dir, "refmap.yml"), "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or ":" not in line:
+                    continue
+                key, _, value = line.partition(":")
+                result[key.strip()] = value.strip()
+    except Exception:
+        pass
+    return result
+
+
+def _forget_elyx_submodules(pkg_name):
+    prefix = pkg_name + "."
+    for name in [k for k in sys.modules if k == pkg_name or k.startswith(prefix)]:
+        sys.modules.pop(name, None)
+
+
+def load_elyx_plugin(plugin_id, package_dir, manifest_json):
+    """Runs a packaged (elyxbuilder) plugin and starts its plugin class - the .elyx counterpart to
+    load_plugin() above, with the same contract (None on success, a message on failure) but a
+    fully separate implementation on purpose: .plugin's exec(compile(source, ...)) has no way to
+    run a real multi-file package with relative imports, and keeping the two apart means this
+    cannot regress the well-exercised .plugin path by so much as one shared line.
+
+    Unlike .plugin, there are no module-level ``__name__``/``__version__`` dunders to read after
+    execution - meta.yml was already parsed on the Java side before the interpreter ever saw this
+    plugin, so its fields arrive here as ``manifest_json`` instead.
+    """
+    if plugin_id in _loaded:
+        unload_plugin(plugin_id)
+    _load_tracebacks.pop(plugin_id, None)
+
+    refmap = _read_refmap(package_dir)
+    main_rel = refmap.get("main")
+    if not main_rel:
+        return "повреждённый пакет плагина: нет refmap.yml или поля main"
+    main_path = os.path.join(package_dir, *main_rel.split("/"))
+    src_dir = os.path.dirname(main_path)
+    if not os.path.isfile(main_path):
+        return "повреждённый пакет плагина: не найден %s" % main_rel
+
+    strings_rel = refmap.get("strings")
+    pkg_name = _MODULE_PREFIX + plugin_id
+    if strings_rel:
+        try:
+            import elyx.strings as _elyx_strings
+            _elyx_strings.register(pkg_name, os.path.join(package_dir, *strings_rel.split("/")))
+        except Exception:
+            pass
+
+    try:
+        import importlib.util
+        pkg_init = os.path.join(src_dir, "__init__.pyc")
+        if not os.path.isfile(pkg_init):
+            pkg_init = os.path.join(src_dir, "__init__.py")
+        pkg_spec = importlib.util.spec_from_file_location(
+            pkg_name, pkg_init, submodule_search_locations=[src_dir])
+        pkg_module = importlib.util.module_from_spec(pkg_spec)
+        sys.modules[pkg_name] = pkg_module
+        pkg_spec.loader.exec_module(pkg_module)
+
+        main_name = pkg_name + ".main"
+        main_spec = importlib.util.spec_from_file_location(main_name, main_path)
+        main_module = importlib.util.module_from_spec(main_spec)
+        sys.modules[main_name] = main_module
+        before = len(registry.last_defined)
+        main_spec.loader.exec_module(main_module)
+    except Exception as e:
+        _forget_elyx_submodules(pkg_name)
+        _load_tracebacks[plugin_id] = traceback.format_exc()
+        log("elyx plugin %s failed to execute:\n%s" % (plugin_id, traceback.format_exc()))
+        return _short_error(e)
+
+    defined = registry.last_defined[before:]
+    del registry.last_defined[before:]
+    if not defined:
+        _forget_elyx_submodules(pkg_name)
+        return "в пакете нет класса, унаследованного от BasePlugin"
+
+    # Same "last subclass defined wins" rule as load_plugin(), same reasoning.
+    plugin_class = defined[-1]
+    try:
+        manifest = json.loads(manifest_json or "{}")
+    except Exception:
+        manifest = {}
+
+    try:
+        plugin = plugin_class()
+        plugin.id = plugin_id
+        plugin.name = manifest.get("name") or plugin_id
+        plugin.description = manifest.get("description") or ""
+        plugin.author = manifest.get("author") or ""
+        plugin.version = manifest.get("version") or "1.0"
+        plugin.icon = manifest.get("icon") or None
+        plugin.requirements = []
+        plugin.enabled = True
+        plugin.error_message = None
+        _loaded[plugin_id] = plugin
+        registry.plugins[plugin_id] = plugin
+        plugin.on_plugin_load()
+        plugin.initialized = True
+        _publish_request_hooks()
+        _publish_dependencies(plugin_id, main_module)
+    except Exception as e:
+        _load_tracebacks[plugin_id] = traceback.format_exc()
+        log("elyx plugin %s failed to load:\n%s" % (plugin_id, traceback.format_exc()))
+        unload_plugin(plugin_id)
+        return _short_error(e)
+    return None
+
+
 def _publish_dependencies(plugin_id, module):
     """Which other loaded plugins ended up in {@code module}'s own namespace - the closest thing to
     "this plugin is a library for that one" this SDK has, since a plugin never declares another
@@ -323,7 +441,16 @@ def unload_plugin(plugin_id):
     for key in [k for k in _settings_rows if k[0] == plugin_id]:
         _settings_rows.pop(key, None)
     plugin_settings.forget(plugin_id)
-    sys.modules.pop(_MODULE_PREFIX + plugin_id, None)
+    pkg_name = _MODULE_PREFIX + plugin_id
+    # Covers both formats: a .plugin is just sys.modules[pkg_name] with nothing under it, an .elyx
+    # package left every hooks/ui/utils/data submodule it imported registered under this same
+    # prefix too - see _forget_elyx_submodules.
+    _forget_elyx_submodules(pkg_name)
+    try:
+        import elyx.strings as _elyx_strings
+        _elyx_strings.unregister(pkg_name)
+    except Exception:
+        pass
 
 
 def install_requirements(requirements_json):

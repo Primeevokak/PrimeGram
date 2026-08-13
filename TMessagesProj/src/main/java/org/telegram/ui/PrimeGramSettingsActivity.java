@@ -117,6 +117,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_PERF_MONITOR = 150;
     private static final int ID_PERF_MONITOR_LOG = 151;
     private static final int ID_TGWS_BACKGROUND = 152;
+    private static final int ID_CRASH_LOG_ENABLED = 153;
+    private static final int ID_CRASH_LOG = 154;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -177,42 +179,181 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     // The script lives here, next to the section and row ids it points at, so a renumbered row
     // breaks the compiler rather than quietly aiming the tour at the wrong switch.
     //
-    // Eleven stops, chosen by one rule: does the row's own name tell you what it does? "Снег
-    // круглый год" needs no explanation and is not here. "Зона активации", "TgWs-сервер" and
-    // "Плагины" are here because a user who has not read this conversation has no way to guess.
+    // Chosen by one rule: does the row's own name tell you what it does? "Снег круглый год"
+    // needs no explanation and is not here. "Зона активации", "TgWs-сервер" and "Плагины" are
+    // here because a user has no way to guess. Grown a lot past its original eleven stops as the
+    // fork itself grew - some steps now bundle several related rows into one stop's text (see
+    // "Фон, батарея и VPN") rather than adding a stop per row, to keep the tour's length
+    // proportional to how much a user actually needs explained, not to the row count.
 
     private static org.telegram.messenger.PrimeGuide.Step[] primeGuideSteps() {
         final java.util.ArrayList<org.telegram.messenger.PrimeGuide.Step> steps = new java.util.ArrayList<>();
+
+        // ── Корень ──────────────────────────────────────────────────────────────────────
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, 0,
                 "Что здесь есть",
-                "PrimeGram добавляет к Telegram несколько десятков настроек. Пробегусь по тем, которые сложно найти самому, — минута.\n\nЛюбой шаг можно пропустить, а весь гайд перезапустить снизу этого экрана."));
+                "PrimeGram добавляет к Telegram много настроек, и их число заметно выросло с прошлой версии гайда. Пробегусь по тем, которые сложно найти или легко понять неправильно, — займёт несколько минут.\n\nЛюбой шаг можно пропустить, а весь гайд перезапустить снизу этого экрана."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_PLUGINS,
                 "Плагины",
                 "Расширения на Python, совместимые с exteraGram. Плагин приходит файлом .plugin — нажмите на него в любом чате, и приложение предложит установить.\n\nПлагин выполняется внутри приложения и видит всё, к чему у него есть доступ. Ставьте только те, чьему автору доверяете."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_BLOCKS,
+                "Блоки",
+                "Пока не работает — при нажатии просто честно скажет, что функция в разработке. Раньше здесь была экспериментальная система автоматизаций; она вернётся, когда будет готова, и об этом напишут в «Что нового»."));
+
+        // ── Интерфейс ───────────────────────────────────────────────────────────────────
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_SECTION_BASE + SECTION_INTERFACE,
                 "Интерфейс",
-                "Всё про внешний вид: список чатов, поведение в чатах, оформление, лента каналов. Заглянем внутрь."));
+                "Всё про внешний вид: список чатов, поведение в чатах, оформление, реакции, лента каналов. Самый большой раздел — заглянем внутрь по частям."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_INTERFACE, ID_SIDEBAR_ENABLED,
                 "Боковая панель",
                 "Свайп от левого края открывает панель с аккаунтами, кошельком, прокси и настройками — не нужно тянуться к бургеру наверху."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_INTERFACE, ID_SIDEBAR_ZONE,
                 "Зона активации",
                 "Панель отзывается не на всю левую треть экрана, а на прямоугольник, который вы сами нарисуете пальцем.\n\nЭто нужно, если свайп панели спорит с листанием вкладок: сузьте зону и сдвиньте её туда, куда дотягивается большой палец."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_DIALOGS, 0,
+                "Локальные папки в архиве",
+                "Отдельная от обычных папок функция, у которой нет своего переключателя здесь в настройках — только в самом архиве. Долгое нажатие на чат внутри архива → «Добавить в папку»: локальные, только на этом устройстве, никак не связаны с облачными папками Telegram.\n\nУправлять папками — долгое нажатие на вкладку папки внутри архива: переименовать, удалить."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_DIALOGS, ID_ARCHIVE_ON_PULL,
+                "Три настройки архива",
+                "Не мешают друг другу. «Открывается потягиванием» — классический режим Telegram: тянете список вниз, архив выезжает сверху, вместо отдельной строки.\n\n«Не разархивировать свайпом» отключает только жест «Архивировать» — если у вас на свайп назначено «Прочитать» или «Закрепить», они продолжат работать.\n\n«Убрать строку «Архив»» прячет архив из списка чатов, но сам архив и всё, что в нём лежит, остаётся на месте — открывается через боковое меню."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_DIALOGS, ID_SENDER_AVATAR_CARDS,
+                "Аватарка отправителя",
+                "Маленькая аватарка перед текстом последнего сообщения в списке чатов — только в группах и только в превью, не в самой переписке. В личных чатах не нужна: там и так рядом аватарка собеседника."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_CHAT, ID_EDITED_AS_ICON,
+                "«Изменено» значком",
+                "Заменяет слово «изменено» карандашом перед временем сообщения — экономит место в узкой строке, ничего не скрывает."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_CHAT, ID_DOUBLE_TAP_REACTION,
+                "Двойное нажатие",
+                "Что происходит при двойном нажатии на сообщение — реакция, ответ или ничего. Если выбрана «Реакция», строка ниже даёт выбрать какую именно: открывается тот же пикер эмодзи, что и у самого Telegram, поэтому все правила Premium и кастомных эмодзи работают как обычно."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_CHAT, ID_MENU_SAVE,
+                "Новые пункты меню сообщения",
+                "«В избранное» пересылает сообщение (или весь альбом целиком) прямо в Saved Messages, без выбора чата. «Подробности» показывает ID сообщения, отправителя и время отправки/правки — всё можно скопировать одним нажатием."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_CHAT, ID_ADMIN_SHORTCUTS,
+                "Админ-действия",
+                "Добавляет «Забанить» и «Удалить все сообщения» в меню долгого нажатия — только в группах, где у вас есть право банить, и только на чужих сообщениях, не на постах от имени канала. Оба требуют подтверждения, случайно не сработают."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_APPEARANCE, ID_DESIGN_SYSTEM_CARDS,
+                "Дизайн-система (пилот)",
+                "Несмотря на название — сейчас меняет только скругление углов у карточек-превью на этом самом экране настроек. Ни пузыри чата, ни остальной интерфейс пока не трогает. Это осознанно ранняя стадия, а не недоработка."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_APPEARANCE, ID_NON_ISLAND_UI,
+                "Классический плоский вид",
+                "Возвращает старый плоский вид Telegram — панель ввода, вкладки, шапки чатов и списка — вместо новых «плавающих островков» со скруглениями и стеклом. Уже открытые экраны обновятся при следующем открытии."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_APPEARANCE, ID_NAVIGATION_DRAWER,
+                "Навигация: вкладки или боковое меню",
+                "Переключает с нижних вкладок на классическое меню-бургер — требует перезапуск, включает боковую панель автоматически, чтобы не остаться без пути в настройки.\n\nРядом есть и «Скрыть вкладки снизу» — тоже требует перезапуск и тоже принудительно включает боковую панель, раз других путей в навигацию не останется."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_APPEARANCE, ID_AVATAR_CORNERS,
+                "Форма аватарок",
+                "Скругление в процентах от размера, не в пикселях — применяется сразу везде: список чатов, шапка, профиль. Не трогает то, что и так рисуется кругом по другой причине — видеосообщения, значки."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_REACTIONS, ID_HIDE_REACTIONS_CHANNELS,
+                "Скрыть реакции",
+                "Три раздельных переключателя — каналы, группы, личные чаты. Скрывают только отображение реакций под сообщением: поставить реакцию через меню сообщения всё ещё можно, она просто не покажется."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_FORMAT, ID_RELATIVE_LAST_SEEN,
+                "«N минут назад»",
+                "Относительное время у «был(а) в сети» — только для последних суток. Дальше — точная дата, иначе «3 недели назад» была бы бесполезной цифрой."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_PROFILE, ID_SHOW_ID_AND_DC,
+                "ID и дата-центр",
+                "Числовой ID показывается всегда. Дата-центр — только если у собеседника есть аватарка: определить его иначе нечем."));
+
+        // ── Соединение ──────────────────────────────────────────────────────────────────
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_SECTION_BASE + SECTION_CONNECTION,
+                "Соединение",
+                "Туннели, прокси, поведение в фоне — про то, как приложение обходит блокировки и ведёт себя, когда его не видно."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_TGWS_SETTINGS,
                 "TgWs-сервер",
                 "Локальный туннель, через который приложение ходит в сеть в обход блокировок.\n\nНа этом экране видно, работает ли он, через какой домен идёт трафик и с какой задержкой отвечают остальные. Домен можно закрепить вручную, если провайдер режет конкретные."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_EMERGENCY_PROXY,
+                "Аварийный VLESS и свои серверы",
+                "Отдельный от TgWs локальный прокси на случай, если основной туннель заблокирован целиком — включается сразу с автополучением ключа.\n\nНиже, в «Серверы», можно добавить свои VLESS/VMess/Trojan/Shadowsocks вместо автоматических."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_TGWS_BACKGROUND,
+                "Фон, батарея и VPN",
+                "Три связанные настройки. TgWs останавливается в фоне ради батареи — уведомления всё равно приходят через Firebase, не через туннель, так что пуши это не сломает.\n\n«Отключить оптимизацию батареи» нужен на MIUI/OneUI, где система агрессивно убивает фоновые процессы.\n\n«Отключать прокси при включённом VPN» гасит локальный прокси, пока работает системный VPN — держать оба сразу обычно бессмысленно; список исключений ниже нужен, если Android не сообщает, какое именно VPN-приложение активно."));
+
+        // ── Приватность ─────────────────────────────────────────────────────────────────
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_SECTION_BASE + SECTION_PRIVACY,
+                "Приватность",
+                "Небольшой раздел, но с двумя пунктами, которые легко понять не так, как они работают на самом деле."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_PRIVACY, ID_HIDE_PHONE,
+                "Скрыть номер",
+                "Только на вашем собственном экране — для скриншотов. Сервер и собеседники видят настоящий номер как обычно. Это не прячет номер от других, а маскирует то, что видите вы сами."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_PRIVACY, ID_GREY_ZONE,
+                "Серая зона",
+                "Функции, снимающие ограничения у собеседника, и «режим призрака». Автор прямо предупреждает: используете на свой риск."));
+
+        // ── Инструменты ─────────────────────────────────────────────────────────────────
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_SECTION_BASE + SECTION_TOOLS,
+                "Инструменты",
+                "Форматирование, поиск, теги сообщений, расшифровка голосовых, встроенный браузер. Два подраздела здесь появились совсем недавно."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_MAIN, ID_TEXT_TOOLBAR,
                 "Панель форматирования",
-                "Выделите текст в поле ввода — над ним появится ряд кнопок: жирный, курсив, моноширинный, спойлер, цитата, ссылка.\n\nСостав и порядок кнопок настраиваются: перетащите их прямо на изображении панели."));
+                "Выделите текст в поле ввода — над ним появится ряд кнопок: жирный, курсив, моноширинный, спойлер, цитата, ссылка.\n\nСостав и порядок кнопок настраиваются: перетащите их прямо на изображении панели ниже."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_MAIN, ID_LINK_PREVIEW,
+                "Предпросмотр ссылок",
+                "Долгое нажатие на ссылку в чате открывает мини-окно предпросмотра. Страница при этом реально загружается — трафик расходуется, а сайт видит визит, как при обычном открытии."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_MAIN, ID_SEARCH_PLUS,
                 "Поиск+",
                 "Находит собеседника по числовому ID, номеру телефона или ссылке — то, чего обычный поиск не умеет.\n\nПоиск по ID встроен и в обычный поиск: наберите там одни цифры, и ответ появится отдельным разделом внизу."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_MAIN, ID_TEMP_SUBS,
+                "Временные подписки",
+                "Этот экран только показывает каналы с уже включённым таймером самоотписки. Сам таймер включается из меню канала, не отсюда."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_TAGS, ID_MESSAGE_TAGS,
+                "Помеченные сообщения",
+                "Совершенно новый раздел. Долгое нажатие на сообщение в любом чате → «Пометить тегом» — тег виден только вам, хранится на устройстве, собеседник ничего не узнает.\n\nЭтот экран — только просмотр и пересылка уже помеченного. Сама пометка ставится из чата, не отсюда."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_STT, ID_STT_ENABLED,
-                "Расшифровка голосовых",
-                "Превращает голосовое сообщение в текст. Работает и без подписки Telegram: через ваш ключ к внешнему сервису или полностью на устройстве, без интернета."));
+                "Расшифровка через сервис",
+                "Превращает голосовое сообщение в текст через внешний сервис — работает без подписки Telegram, но само аудио уходит с устройства к третьей стороне."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_STT, ID_WHISPER_ENABLED,
+                "Расшифровка на устройстве",
+                "Альтернатива сервису выше — работает офлайн, модель нужно один раз скачать. Включён одновременно только один способ расшифровки: второй выключается автоматически."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_BROWSER, ID_ADBLOCK,
+                "Блокировка рекламы",
+                "Новый подраздел. Работает только внутри встроенного браузера и блокирует по домену целиком — правила на конкретный элемент страницы не поддерживаются, только списки доменов. Показывает счётчик заблокированного за сессию."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_TOOLS_BROWSER, ID_DNS_ENABLED,
+                "Свой DNS",
+                "Резолвит адреса через зашифрованный DNS-over-HTTPS вместо DNS провайдера — самый дешёвый способ блокировки сайтов обходится именно так."));
+
+        // ── Медиа и музыка ──────────────────────────────────────────────────────────────
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_SECTION_BASE + SECTION_MEDIA,
+                "Медиа и музыка",
+                "Отправка, качество, камера и перевод сообщений — раздел про перевод стоит внимания, если пользуетесь встроенным переводчиком."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_MEDIA_SEND, ID_BIGFILE,
+                "Большие файлы",
+                "Отправка файлов больше лимита Telegram — приложение режет файл на части и склеивает при получении. Получатель без PrimeGram увидит пронумерованные части и должен будет склеить их вручную."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_MEDIA_QUALITY, ID_VIDEO_QUALITY_CARDS,
+                "Качество видео при загрузке",
+                "Ограничивает, какую дорожку видео СКАЧИВАТЬ — не то, что уже скачано. Если подходящего качества нет, скачается обычная дорожка."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_MEDIA_CAMERA, ID_CAMERA2,
+                "Camera2",
+                "Сейчас реально влияет только на кружочки (видеосообщения) — на съёмку обычного фото и видео задней камерой Camera2 в Telegram отключён отдельно, независимо от этого переключателя."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_MEDIA_TRANSLATE, ID_TRANSLATOR_CARDS,
+                "Провайдер перевода",
+                "Telegram — идёт через тот же туннель, лимиты аккаунта, сохраняет форматирование (жирный, ссылки). Google и Yandex — отдельным запросом мимо туннеля, без Premium, но теряют форматирование целиком. Multiplay распределяет между Google и Yandex и подстраховывает: если один недоступен, пробует второй. Статьи Instant View переводятся через Telegram всегда, независимо от выбора здесь."));
+
+        // ── Дополнительно ───────────────────────────────────────────────────────────────
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_SECTION_BASE + SECTION_ADVANCED,
+                "Дополнительно",
+                "Обновления, быстродействие, диагностика, эксперименты — включая два совсем новых инструмента поиска багов."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ADVANCED_PERFORMANCE, ID_OPTIMIZATIONS,
+                "Оптимизации PrimeGram",
+                "Ускоряют работу ценой памяти и фоновых действий: вкладки «Профиль» и «Настройки» готовятся заранее, соединения туннеля прогреваются при возврате в приложение, лента историй получает запас соединений для медиа.\n\nЕсли приложение стало нестабильным или телефон греется — выключите и проверьте, станет ли лучше."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ADVANCED_DIAGNOSTICS, ID_PERF_MONITOR,
+                "Мониторинг нагрузки",
+                "Новый инструмент. Раз в две секунды пишет в лог: экран, fps, доля просевших кадров, какая фаза кадра съедает время — а для самого тяжёлого кадра в каждом окне ещё и реальный стек вызовов главного потока, а не догадку по цифрам."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ADVANCED_DIAGNOSTICS, ID_CRASH_LOG_ENABLED,
+                "Запись крашей",
+                "Тоже новый. Отдельно от подробных логов — пишет только реальный крах приложения, никогда выход из аккаунта или закрытие сессии.\n\nУ новых установок включена сразу; у тех, кто уже пользуется приложением, остаётся выключенной, пока не включите сами."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ADVANCED_EXPERIMENTAL, ID_HW_ACCEL,
+                "Аппаратное ускорение видео",
+                "Может экономить батарею, но нестабильно на части устройств: если с ним включённым приложение упало, при следующем запуске оно само выключится с объяснением. Требует перезапуск."));
+
+        // ── Premium и о приложении ──────────────────────────────────────────────────────
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_PREMIUM, 0,
                 "Локальный Premium",
                 "Лимиты Telegram — количество папок, закреплённых чатов, длина подписи — сняты на этом устройстве.\n\nЭто только внешний вид: сервер о них не знает, и другие люди изменений не увидят."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_PREMIUM_MEDIA, ID_LIMIT_RECENT_STICKERS,
+                "Исключение среди лимитов",
+                "В отличие от остальных лимитов на этих экранах — не подмена того, что видит сервер, а реальное снятие ограничения: список недавних стикеров у клиента больше не обрезается вообще."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ABOUT, ID_LOCKSCREEN_CALLS,
+                "Звонки на заблокированном экране",
+                "Без этого разрешения входящий звонок на заблокированном экране покажет только уведомление, а не полноэкранный вызов."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ROOT, ID_GUIDE,
                 "Это всё",
                 "Остальное подписано понятнее и ждёт вас в разделах. Гайд всегда можно запустить заново отсюда."));
@@ -221,7 +362,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     private org.telegram.ui.Components.PrimeGuideOverlay guideOverlay;
 
+    /** PrimeGram: which page "Гайд" was tapped from, so the tour can pop back to it when it ends -
+     *  see {@link #primeCloseGuideTabs()}. Static like {@link org.telegram.messenger.PrimeGuide}'s
+     *  own state, for the same reason: the tour outlives this exact fragment instance. */
+    private static java.lang.ref.WeakReference<PrimeGramSettingsActivity> guideStartFragment;
+
     private void primeStartGuide() {
+        guideStartFragment = new java.lang.ref.WeakReference<>(this);
         org.telegram.messenger.PrimeGuide.setSteps(primeGuideSteps());
         org.telegram.messenger.PrimeGuide.start();
         primeShowGuideStep();
@@ -329,7 +476,32 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     private void primeGuideStop() {
         org.telegram.messenger.PrimeGuide.stop();
-        primeDismissGuide(null);
+        primeDismissGuide(this::primeCloseGuideTabs);
+    }
+
+    /**
+     * primeGuideNext() opens a fresh {@link PrimeGramSettingsActivity} per section the tour
+     * visits ({@code presentFragment}, not a replace) - each one stacks on top of the last.
+     * Left alone, finishing the tour dropped the user on whichever section it ended on, with
+     * every section it passed through still underneath, needing several manual backs to get
+     * out. Pop everything the tour itself pushed back down to wherever "Гайд" was originally
+     * tapped from - covers both a normal finish and an early "Пропустить", since both funnel
+     * through {@link #primeGuideStop()}.
+     */
+    private void primeCloseGuideTabs() {
+        final PrimeGramSettingsActivity start = guideStartFragment != null ? guideStartFragment.get() : null;
+        guideStartFragment = null;
+        if (start == null || getParentLayout() == null) {
+            return;
+        }
+        final java.util.List<org.telegram.ui.ActionBar.BaseFragment> stack = getParentLayout().getFragmentStack();
+        final int startIndex = stack.indexOf(start);
+        if (startIndex < 0) {
+            return;
+        }
+        for (int i = stack.size() - 1; i > startIndex; i--) {
+            getParentLayout().removeFragmentFromStack(stack.get(i));
+        }
     }
 
     private void primeDismissGuide(Runnable after) {
@@ -1565,6 +1737,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Мониторинг нагрузки", org.telegram.messenger.PrimePerfMonitor.isEnabled()));
             row(button(ID_PERF_MONITOR_LOG, IconBackgroundColors.PURPLE, R.drawable.msg_log,
                     "Лог нагрузки", "просмотр и копирование"));
+            row(check(ID_CRASH_LOG_ENABLED, IconBackgroundColors.RED, R.drawable.msg_warning,
+                    "Запись крашей", org.telegram.messenger.PrimeCrashLog.isEnabled()));
+            row(button(ID_CRASH_LOG, IconBackgroundColors.RED, R.drawable.msg_log,
+                    "Лог крашей", "просмотр и копирование"));
             endCard(items);
             items.add(info(6, "Подробные логи",
                     "Нужны только когда мы просим трассировку запуска.",
@@ -1578,6 +1754,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(info(25, "Мониторинг нагрузки",
                     "Раз в две секунды пишет в лог, что именно тормозит, а не просто что тормозит.",
                     "Пока включено, каждые две секунды в лог дописывается строка: экран, на котором это было, fps, доля джанк-кадров, средняя и худшая длительность кадра, и разбивка по фазам — сколько времени ушло на layout/measure, draw, анимацию, GPU и так далее, с пометкой какая фаза съедает больше всего.\n\nДля самого тяжёлого кадра в каждом окне отдельной строкой пишется стек главного потока в момент этого кадра — не догадка по цифрам, а реальная цепочка вызовов, которая тормозила.\n\nВключите, повторите то действие, которое дёргается, затем откройте «Лог нагрузки» и скопируйте — там будет видно и где это произошло, и какая фаза кадра виновата, и что конкретно выполнялось.\n\nРаботает через системный FrameMetrics API (Android 7+). На старых версиях включение ничего не делает."));
+            items.add(info(27, "Запись крашей",
+                    "Пишет реальный краш приложения, а не факт выхода из аккаунта или закрытия сессии.",
+                    "Ловит только необработанные исключения, из-за которых процесс приложения падает - никак не связано с подробными логами и не пишется при обычном выходе из аккаунта или закрытии приложения.\n\nПри краше в лог попадает время, экран на котором это произошло, и полный стек исключения. Хранятся последние 10 крашей, старые вытесняются новыми.\n\nНа новых установках включено по умолчанию - чтобы баг у реального пользователя не потерялся молча. У всех, кто уже пользуется приложением на момент выхода этого обновления, настройка сохраняется выключенной, пока не включите сами."));
         }
 
         if (section == SECTION_ADVANCED_EXPERIMENTAL) {
@@ -1771,6 +1950,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         } else if (item.id == ID_PERF_MONITOR_LOG) {
             showPerfMonitorLog();
+        } else if (item.id == ID_CRASH_LOG_ENABLED) {
+            org.telegram.messenger.PrimeCrashLog.setEnabled(!org.telegram.messenger.PrimeCrashLog.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_CRASH_LOG) {
+            showCrashLog();
         } else if (item.id == ID_LOGS_ENABLED) {
             // The same preference the debug menu writes, so the two can never disagree.
             org.telegram.messenger.ApplicationLoader.applicationContext
@@ -2187,6 +2371,23 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this).createCopyBulletin("Скопировано").show();
         });
         builder.setNeutralButton("Очистить", (dialog, which) -> org.telegram.messenger.PrimePerfMonitor.clear());
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showCrashLog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final String log = org.telegram.messenger.PrimeCrashLog.dump();
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Лог крашей");
+        builder.setMessage(log);
+        builder.setPositiveButton("Скопировать", (dialog, which) -> {
+            AndroidUtilities.addToClipboard(log);
+            org.telegram.ui.Components.BulletinFactory.of(PrimeGramSettingsActivity.this).createCopyBulletin("Скопировано").show();
+        });
+        builder.setNeutralButton("Очистить", (dialog, which) -> org.telegram.messenger.PrimeCrashLog.clear());
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         showDialog(builder.create());
     }

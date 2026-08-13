@@ -80,13 +80,13 @@ public class MusicSettingsActivity extends UniversalFragment {
             item.checked = family.equals(currentFont);
             items.add(item);
         }
-        boolean downloaded = MusicResources.areResourcesDownloaded();
-        items.add(UItem.asShadow(downloaded
-                ? "Дополнительные шрифты скачаны. Не-системные шрифты используют скачанные файлы, иначе — системный шрифт."
-                : "Дополнительные шрифты (Onest, Circular, YS Text/Music, Noto Sans JP) ещё не скачаны — до этого не-системные варианты используют системный шрифт."));
-        items.add(UItem.asButton(ID_DOWNLOAD_FONTS, "Скачать доп. шрифты", downloaded ? "Готово" : ""));
-        if (downloaded) {
-            items.add(UItem.asButton(ID_CLEAR_FONTS, "Удалить скачанные шрифты", ""));
+        boolean hasOverride = MusicResources.hasOverride();
+        items.add(UItem.asShadow(hasOverride
+                ? "Дополнительные шрифты (Onest, Circular, YS Text/Music, Noto Sans JP) встроены в приложение; сейчас используется ваш скачанный оверрайд вместо них."
+                : "Дополнительные шрифты (Onest, Circular, YS Text/Music, Noto Sans JP) встроены в приложение и доступны сразу — скачивать ничего не нужно."));
+        items.add(UItem.asButton(ID_DOWNLOAD_FONTS, "Заменить своими шрифтами", hasOverride ? "Оверрайд активен" : ""));
+        if (hasOverride) {
+            items.add(UItem.asButton(ID_CLEAR_FONTS, "Убрать свои шрифты", ""));
         }
     }
 
