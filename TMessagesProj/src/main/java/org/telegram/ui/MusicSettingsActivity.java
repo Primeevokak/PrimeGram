@@ -24,6 +24,7 @@ public class MusicSettingsActivity extends UniversalFragment {
     private static final int ID_LASTFM_KEY = 201;
     private static final int ID_YANDEX_API_URL = 202;
     private static final int ID_COBALT_API_URL = 203;
+    private static final int ID_YTM_LOGIN = 204;
     private static final int ID_FONT_BASE = 300; // + index into FONT_FAMILIES
     private static final int ID_DOWNLOAD_FONTS = 400;
     private static final int ID_CLEAR_FONTS = 401;
@@ -63,6 +64,10 @@ public class MusicSettingsActivity extends UniversalFragment {
             if (selected == MusicPlatform.YANDEX_MUSIC) {
                 String apiUrl = MusicSettingsStore.getYandexCustomApiUrl();
                 items.add(UItem.asButton(ID_YANDEX_API_URL, "Свой API-хост (необязательно)", apiUrl.isEmpty() ? "По умолчанию" : apiUrl));
+            }
+            if (selected == MusicPlatform.YOUTUBE_MUSIC) {
+                items.add(UItem.asButton(ID_YTM_LOGIN, "Войти через браузер", "получить cookie автоматически"));
+                items.add(UItem.asShadow("Откроется обычный вход в аккаунт Google внутри приложения — cookie сессии YouTube Music сохранится и подставится сюда сама. Пароль или код нигде не сохраняются, только cookie сессии, как в браузере."));
             }
         }
 
@@ -104,6 +109,8 @@ public class MusicSettingsActivity extends UniversalFragment {
                 return "Показывает то, что сейчас играет прямо в Telegram — отдельная настройка не нужна.";
             case LASTFM:
                 return "Нужны юзернейм Last.fm и свой API-ключ. Скачивание аудио недоступно.";
+            case YOUTUBE_MUSIC:
+                return "Нужен cookie сессии YouTube Music — войдите через браузер ниже. Показывает последний трек из истории прослушиваний (у YouTube Music нет публичного API «играет прямо сейчас»). Скачивание аудио недоступно.";
             default:
                 return "Выберите платформу, с которой брать текущий трек.";
         }
@@ -121,6 +128,8 @@ public class MusicSettingsActivity extends UniversalFragment {
                 return "Access token VK";
             case LASTFM:
                 return "Юзернейм Last.fm";
+            case YOUTUBE_MUSIC:
+                return "Cookie YouTube Music";
             default:
                 return "Значение";
         }
@@ -168,6 +177,11 @@ public class MusicSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_CLEAR_FONTS) {
             MusicResources.clearResources();
             listView.adapter.update(true);
+        } else if (item.id == ID_YTM_LOGIN) {
+            presentFragment(new MusicYtmLoginActivity(cookie -> {
+                MusicSettingsStore.setPlatformValue(MusicPlatform.YOUTUBE_MUSIC, cookie);
+                if (listView != null && listView.adapter != null) listView.adapter.update(true);
+            }));
         }
     }
 

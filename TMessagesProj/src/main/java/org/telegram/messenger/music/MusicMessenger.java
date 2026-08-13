@@ -79,6 +79,80 @@ public class MusicMessenger {
         }
     }
 
+    /** Progress while a card goes out to several chats at once - matches reSwaga's "Share
+     *  with..." (its own {@code send_to_bottom_sheet}), which reports "Sent to X of Y" as it
+     *  works through a picked chat list rather than going quiet until the very end. */
+    public interface MultiCallback {
+        /** Called on the UI thread after each attempted send, {@code dialogId} being the one
+         *  just finished (success or not) - lets the caller show a running "X of Y" count. */
+        void onProgress(long dialogId, boolean success, int done, int total);
+
+        /** Called on the UI thread once every chat has been attempted. */
+        void onFinished(int succeeded, int total);
+    }
+
+    /** Renders the card once, then sends the same file to every chat in {@code dialogIds} in
+     *  turn - one render, many sends, rather than re-rendering per chat. */
+    public void sendCardToMultiple(java.util.List<Long> dialogIds, Track track, MultiCallback callback) {
+        if (dialogIds == null || dialogIds.isEmpty()) {
+            if (callback != null) {
+                AndroidUtilities.runOnUIThread(() -> callback.onFinished(0, 0));
+            }
+            return;
+        }
+        try {
+            Bitmap card = MusicCardRenderer.renderHorizontalCard(track, cardStyle);
+            if (card == null) {
+                AndroidUtilities.runOnUIThread(() -> callback.onFinished(0, dialogIds.size()));
+                return;
+            }
+            File file = new File(getTempDir(), "now_playing_" + System.currentTimeMillis() + ".png");
+            try (FileOutputStream fos = new FileOutputStream(file)) {
+                card.compress(Bitmap.CompressFormat.PNG, 100, fos);
+            }
+            if (!file.exists() || file.length() == 0) {
+                AndroidUtilities.runOnUIThread(() -> callback.onFinished(0, dialogIds.size()));
+                return;
+            }
+
+            final CharSequence caption = buildCaption(track, false);
+            final AccountInstance accountInstance = AccountInstance.getInstance(account);
+            final String path = file.getAbsolutePath();
+            final int total = dialogIds.size();
+            AndroidUtilities.runOnUIThread(() -> {
+                int[] succeeded = {0};
+                int[] done = {0};
+                for (long dialogId : dialogIds) {
+                    boolean ok;
+                    try {
+                        SendMessagesHelper.prepareSendingPhoto(
+                                accountInstance, path, null, dialogId,
+                                null, null, null, caption, null, null, null, 0,
+                                null, true, 0, 0, null, 0
+                        );
+                        ok = true;
+                    } catch (Exception e) {
+                        FileLog.e("MusicMessenger.sendCardToMultiple", e);
+                        ok = false;
+                    }
+                    done[0]++;
+                    if (ok) succeeded[0]++;
+                    if (callback != null) {
+                        callback.onProgress(dialogId, ok, done[0], total);
+                    }
+                }
+                if (callback != null) {
+                    callback.onFinished(succeeded[0], total);
+                }
+            });
+        } catch (Exception e) {
+            FileLog.e("MusicMessenger.sendCardToMultiple", e);
+            if (callback != null) {
+                AndroidUtilities.runOnUIThread(() -> callback.onFinished(0, dialogIds.size()));
+            }
+        }
+    }
+
     public void sendText(long dialogId, Track track, Callback callback) {
         final String text = buildCaption(track, true).toString();
         AndroidUtilities.runOnUIThread(() -> {

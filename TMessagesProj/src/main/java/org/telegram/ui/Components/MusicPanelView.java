@@ -50,6 +50,7 @@ public class MusicPanelView extends LinearLayout {
     private final TextView cardButton;
     private final TextView audioButton;
     private final TextView textButton;
+    private final TextView shareButton;
 
     private Track lastTrack;
     private boolean polling;
@@ -121,7 +122,11 @@ public class MusicPanelView extends LinearLayout {
 
         textButton = makeButton(context, "Текст");
         textButton.setOnClickListener(v -> sendText());
-        actionsRow.addView(textButton, LayoutHelper.createLinear(0, 44, 1f, 4, 0, 0, 0));
+        actionsRow.addView(textButton, LayoutHelper.createLinear(0, 44, 1f, 4, 0, 4, 0));
+
+        shareButton = makeButton(context, "Поделиться");
+        shareButton.setOnClickListener(v -> sendShare());
+        actionsRow.addView(shareButton, LayoutHelper.createLinear(0, 44, 1f, 4, 0, 0, 0));
 
         addView(actionsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
     }
@@ -261,10 +266,12 @@ public class MusicPanelView extends LinearLayout {
         cardButton.setEnabled(enabled);
         audioButton.setEnabled(enabled);
         textButton.setEnabled(enabled);
+        shareButton.setEnabled(enabled);
         float alpha = enabled ? 1f : 0.6f;
         cardButton.setAlpha(alpha);
         audioButton.setAlpha(alpha);
         textButton.setAlpha(alpha);
+        shareButton.setAlpha(alpha);
     }
 
     private void sendCard() {
@@ -293,5 +300,41 @@ public class MusicPanelView extends LinearLayout {
         final long dialogId = dialogIdSupplier.getAsLong();
         new MusicMessenger(currentAccount, MusicSettingsStore.buildCardStyle())
                 .sendText(dialogId, track, (success, error) -> endSend(textButton, "Текст", success, error));
+    }
+
+    /** reSwaga's "Share with..." - pick several chats, send the card to all of them, reporting
+     *  progress instead of going quiet until the whole batch finishes. Reuses
+     *  {@link org.telegram.ui.UsersSelectActivity}, the same generic multi-chat picker the
+     *  folder-creation screens already use, rather than building a chat picker from scratch. */
+    private void sendShare() {
+        if (sending || lastTrack == null || !lastTrack.active || fragment == null || fragment.getParentActivity() == null) {
+            return;
+        }
+        final org.telegram.ui.UsersSelectActivity picker =
+                new org.telegram.ui.UsersSelectActivity(true, new java.util.ArrayList<>(), 0);
+        picker.noChatTypes = true;
+        picker.setDelegate((ids, flags) -> {
+            if (ids == null || ids.isEmpty()) {
+                return;
+            }
+            if (!beginSend(shareButton)) {
+                return;
+            }
+            final Track track = lastTrack;
+            final MusicMessenger messenger = new MusicMessenger(currentAccount, MusicSettingsStore.buildCardStyle());
+            executor.submit(() -> messenger.sendCardToMultiple(ids, track, new MusicMessenger.MultiCallback() {
+                @Override
+                public void onProgress(long dialogId, boolean success, int done, int total) {
+                    shareButton.setText(String.format(Locale.US, "%d / %d", done, total));
+                }
+
+                @Override
+                public void onFinished(int succeeded, int total) {
+                    endSend(shareButton, "Поделиться", succeeded > 0,
+                            succeeded == total ? null : String.format(Locale.US, "Отправлено %d из %d", succeeded, total));
+                }
+            }));
+        });
+        fragment.presentFragment(picker);
     }
 }

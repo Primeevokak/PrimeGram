@@ -7,7 +7,8 @@ public enum MusicPlatform {
     SOUNDCLOUD(3, "SoundCloud", "sc"),
     VK_MUSIC(4, "VK Музыка", null),
     TG_MUSIC(5, "Telegram", null),
-    LASTFM(6, "Last.fm", null);
+    LASTFM(6, "Last.fm", null),
+    YOUTUBE_MUSIC(7, "YouTube Music", null);
 
     public final int id;
     public final String displayName;

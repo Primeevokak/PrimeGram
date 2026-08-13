@@ -95,6 +95,8 @@ public class MusicSettingsStore {
                 return new TgMusicProvider();
             case LASTFM:
                 return new LastFmProvider(getPlatformValue(platform), getLastFmApiKey());
+            case YOUTUBE_MUSIC:
+                return new org.telegram.messenger.music.providers.YoutubeMusicProvider(getPlatformValue(platform));
             default:
                 return null;
         }
