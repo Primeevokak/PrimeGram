@@ -13978,7 +13978,14 @@ public class ChatActivity extends BaseFragment implements
         floatingTopicSeparator.setTranslationY(chatListView.getTranslationY() + chatListViewPaddingTop + floatingTopicViewOffset - dp(4) + dp(28));
         final float alpha = Utilities.clamp(AndroidUtilities.ilerp(floatingTopicViewOffset, -floatingTopicSeparator.getHeight(), 0f), 1f, 0f);
         floatingTopicSeparator.setAlpha(floatingTopicViewAlpha * alpha);
-        floatingTopicSeparator.setVisibility(floatingTopicViewAlpha * alpha > 0 ? View.VISIBLE : View.INVISIBLE);
+        // PrimeGram: this runs on every dispatchDraw of the chat list (updateMessagesVisiblePart
+        // calls it unconditionally while scrolling), and setVisibility() is not a cheap no-op even
+        // when passed the value the view already has (profiler caught it inside
+        // View.getAttachedActivity, called from setVisibility, on the worst frames of a scroll).
+        final int targetVisibility = floatingTopicViewAlpha * alpha > 0 ? View.VISIBLE : View.INVISIBLE;
+        if (floatingTopicSeparator.getVisibility() != targetVisibility) {
+            floatingTopicSeparator.setVisibility(targetVisibility);
+        }
         final float scale = lerp(0.5f, 1f, alpha);
         floatingTopicSeparator.setScaleX(scale);
         floatingTopicSeparator.setScaleY(scale);

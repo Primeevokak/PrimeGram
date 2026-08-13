@@ -37,6 +37,15 @@ public final class PrimePerfMonitor {
     private static final long JANK_THRESHOLD_NS = 16_700_000L;
     private static final int MAX_LOG_LINES = 500;
     private static final int STACK_DEPTH = 10;
+    /** How often the background sampler snapshots the main thread. See the class doc on
+     *  {@link #hotSpots} for why this exists alongside the single worst-frame stack below. */
+    private static final long HOTSPOT_SAMPLE_INTERVAL_MS = 6;
+    /** How many top frames go into a hot-spot bucket's key - deep enough to tell two different
+     *  call sites apart, shallow enough that the same call site always hashes the same way. */
+    private static final int HOTSPOT_KEY_DEPTH = 6;
+    /** Below this share of the window's samples, a bucket is noise, not a lead. */
+    private static final int HOTSPOT_MIN_PERCENT = 8;
+    private static final int HOTSPOT_MAX_REPORTED = 3;
 
     private static Boolean enabledCache;
 
@@ -152,6 +161,48 @@ public final class PrimePerfMonitor {
     private static String worstFrameScreen = "?";
     private static String worstFrameStack = "";
 
+    // ---- hot-spot sampling ----
+    //
+    // The single worst-frame stack above is a lottery ticket, not a profile: it's one asynchronous
+    // snapshot taken after the FrameMetrics callback fires, which lands some unknown, possibly
+    // large delay after the frame it's blamed on - on a screen with many bad frames in a row (a
+    // dragged animation, a busy chat) it's just as likely to catch the main thread mid-idle
+    // (Looper.loop, HardwareRenderer.nSyncAndDrawFrame) as it is to catch the actual expensive
+    // call, which is exactly the noise seen in real logs. A background thread that repeatedly
+    // samples the main thread's stack while monitoring runs turns that lottery into a real
+    // statistical profile: whichever call chain the thread is "caught in" most often across many
+    // samples is overwhelmingly likely to be where the time is actually going, the same principle
+    // every sampling profiler (including Android Studio's own CPU profiler) relies on - and it
+    // finds the offending call inside ANY file, including ones like ChatMessageCell that are too
+    // large and sensitive to instrument by hand one call site at a time.
+    private static Thread samplerThread;
+    private static volatile boolean samplerRunning;
+    private static final java.util.Map<String, Integer> hotSpots = new java.util.HashMap<>();
+    private static int hotSpotSamples;
+
+    private static void recordHotSpotSample() {
+        try {
+            final StackTraceElement[] trace = Looper.getMainLooper().getThread().getStackTrace();
+            if (trace.length == 0) {
+                return;
+            }
+            final int depth = Math.min(trace.length, HOTSPOT_KEY_DEPTH);
+            final StringBuilder key = new StringBuilder();
+            for (int i = 0; i < depth; i++) {
+                if (i > 0) {
+                    key.append(" < ");
+                }
+                key.append(trace[i].getClassName()).append('.').append(trace[i].getMethodName());
+            }
+            final String k = key.toString();
+            synchronized (PrimePerfMonitor.class) {
+                hotSpots.merge(k, 1, Integer::sum);
+                hotSpotSamples++;
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static final Runnable flushTick = new Runnable() {
         @Override
         public void run() {
@@ -213,6 +264,22 @@ public final class PrimePerfMonitor {
             listener = null;
             return;
         }
+        samplerRunning = true;
+        samplerThread = new Thread(() -> {
+            while (samplerRunning) {
+                try {
+                    Thread.sleep(HOTSPOT_SAMPLE_INTERVAL_MS);
+                } catch (InterruptedException e) {
+                    break;
+                }
+                if (samplerRunning) {
+                    recordHotSpotSample();
+                }
+            }
+        }, "PrimePerfMonitor-Sampler");
+        samplerThread.setDaemon(true);
+        samplerThread.start();
+
         appendLine(header("Мониторинг запущен"));
         uiHandler.removeCallbacks(flushTick);
         uiHandler.postDelayed(flushTick, SAMPLE_WINDOW_MS);
@@ -239,6 +306,11 @@ public final class PrimePerfMonitor {
             metricsThread.quitSafely();
             metricsThread = null;
         }
+        samplerRunning = false;
+        if (samplerThread != null) {
+            samplerThread.interrupt();
+            samplerThread = null;
+        }
     }
 
     private static void resetWindow() {
@@ -250,6 +322,8 @@ public final class PrimePerfMonitor {
         sumInputNs = sumAnimNs = sumLayoutNs = sumDrawNs = sumSyncNs = sumCmdNs = sumSwapNs = sumGpuNs = 0;
         worstFrameScreen = "?";
         worstFrameStack = "";
+        hotSpots.clear();
+        hotSpotSamples = 0;
     }
 
     private static synchronized void flush() {
@@ -293,8 +367,30 @@ public final class PrimePerfMonitor {
         if (!worstFrameStack.isEmpty() && worstMs > JANK_THRESHOLD_NS / 1_000_000.0) {
             appendLine("    худший кадр (" + worstFrameScreen + "): " + worstFrameStack);
         }
+        appendHotSpotLines();
 
         resetWindow();
+    }
+
+    /** The statistically meaningful counterpart to the single worst-frame line above - see the
+     *  class doc on {@link #hotSpots}. Reports the call chains the sampler caught the main thread
+     *  in most often this window, each as a share of all samples taken. */
+    private static void appendHotSpotLines() {
+        if (hotSpotSamples <= 0 || hotSpots.isEmpty()) {
+            return;
+        }
+        final java.util.List<java.util.Map.Entry<String, Integer>> sorted = new java.util.ArrayList<>(hotSpots.entrySet());
+        sorted.sort((a, b) -> b.getValue() - a.getValue());
+        final int reported = Math.min(HOTSPOT_MAX_REPORTED, sorted.size());
+        for (int i = 0; i < reported; i++) {
+            final java.util.Map.Entry<String, Integer> entry = sorted.get(i);
+            final int pct = Math.round(100f * entry.getValue() / hotSpotSamples);
+            if (pct < HOTSPOT_MIN_PERCENT) {
+                break; // sorted descending - nothing after this clears the bar either
+            }
+            appendLine(String.format(Locale.US, "    горячая точка %d%% (%d/%d сэмплов): %s",
+                    pct, entry.getValue(), hotSpotSamples, entry.getKey()));
+        }
     }
 
     /** Top of the main thread's stack at the moment of the worst frame this window - the actual

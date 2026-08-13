@@ -1863,7 +1863,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_PLUGINS) {
             presentFragment(new PrimePluginsActivity());
         } else if (item.id == ID_BLOCKS) {
-            presentFragment(new PrimeBlocksActivity());
+            org.telegram.ui.Components.BulletinFactory.of(this).createEmojiBulletin("😢", "Функция ещё в разработке").show();
         } else if (item.id == ID_TGWS_SETTINGS) {
             presentFragment(new PrimeTgWsActivity());
         } else if (item.id == ID_ICON_PACKS) {

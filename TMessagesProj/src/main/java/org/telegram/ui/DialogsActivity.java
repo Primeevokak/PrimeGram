@@ -2621,6 +2621,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                         parentPage.updateList(true);
                     } else {
                         int added = getMessagesController().addDialogToFolder(dialog.id, folderId == 0 ? 1 : 0, -1, 0);
+                        if (folderId != 0) {
+                            primeRemoveFromAllArchiveFolders(dialog.id);
+                        }
                         if (added != 2 || position != 0) {
                             parentPage.dialogsItemAnimator.prepareForRemove();
                             parentPage.updateList(true);
@@ -2695,6 +2698,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                                     }
                                 });
                             }
+                        } else {
+                            // PrimeGram: unarchiving FROM inside Archive (folderId != 0) skips
+                            // this whole if-branch, which was the ONLY place that ever reset
+                            // dialogsListFrozen back to false (via checkAnimationFinished(), a
+                            // couple of screens up). Without this, the list stayed frozen forever
+                            // after the very first swipe-to-unarchive inside Archive, and every
+                            // later dialogsNeedReload update got silently swallowed
+                            // (`if (dialogsListFrozen) return;`) - i.e. every subsequent attempt
+                            // to unarchive/interact with the list appeared to do nothing.
+                            checkAnimationFinished();
                         }
                         if (folderId != 0 && frozenDialogsList.isEmpty()) {
                             parentPage.listView.setEmptyView(null);
@@ -3205,33 +3218,48 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
     }
 
-    /** PrimeGram: one-field name dialog for a new local archive folder, then adds {@code dialogId} to it. */
+    /** PrimeGram: a chat leaving Archive should also leave every local archive folder it was a
+     *  member of - otherwise stale dialog ids pile up in {@link org.telegram.messenger.PrimeArchiveFolders}
+     *  forever. Call this from every place that actually unarchives a dialog (moves it out of
+     *  folderId 1 back to 0). */
+    private void primeRemoveFromAllArchiveFolders(long dialogId) {
+        final org.telegram.messenger.PrimeArchiveFolders instance = org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount);
+        for (org.telegram.messenger.PrimeArchiveFolders.Folder folder : instance.getFolders()) {
+            if (folder.dialogIds.contains(dialogId)) {
+                instance.removeDialog(folder.id, dialogId);
+            }
+        }
+    }
+
+    /** PrimeGram: confirm-then-delete for a local archive folder, reached from the archive tab
+     *  strip's long-press menu (both the popup's "Delete" item and FilterTabsView's own
+     *  tap-to-delete-in-edit-mode gesture funnel here via onDeletePressed). */
+    private void primeShowDeleteArchiveFolderAlert(int folderId, String name) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
+        builder.setTitle(LocaleController.getString(R.string.Delete));
+        builder.setMessage("Папка «" + name + "» будет удалена. Чаты останутся в архиве.");
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        builder.setPositiveButton(LocaleController.getString(R.string.Delete), (dialog, which) ->
+                org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).deleteFolder(folderId));
+        final AlertDialog alertDialog = builder.create();
+        showDialog(alertDialog);
+        final TextView button = (TextView) alertDialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(getThemedColor(Theme.key_text_RedBold));
+        }
+    }
+
+    /** PrimeGram: opens the full create-folder screen pre-seeded with {@code dialogId}. */
     private void primeShowCreateArchiveFolderDialog(long dialogId) {
         if (getParentActivity() == null) {
             return;
         }
-        final org.telegram.ui.Components.EditTextBoldCursor field = new org.telegram.ui.Components.EditTextBoldCursor(getParentActivity());
-        field.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16);
-        field.setTextColor(getThemedColor(Theme.key_dialogTextBlack));
-        field.setHint("Название папки");
-        field.setSingleLine(true);
-        final int pad = dp(21);
-        field.setPadding(pad, dp(6), pad, 0);
-
-        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
-        builder.setTitle("Новая папка");
-        builder.setView(field);
-        builder.setPositiveButton(LocaleController.getString(R.string.Create), (dialog, which) -> {
-            final String name = field.getText().toString().trim();
-            if (name.isEmpty()) {
-                return;
-            }
-            final org.telegram.messenger.PrimeArchiveFolders.Folder folder =
-                    org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).createFolder(name);
-            org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).addDialog(folder.id, dialogId);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        builder.show();
+        final ArrayList<Long> seed = new ArrayList<>();
+        seed.add(dialogId);
+        presentFragment(new PrimeArchiveFolderCreateActivity(seed));
     }
 
     /** PrimeGram: multi-select counterpart to primeShowCreateArchiveFolderDialog - the action-mode
@@ -3242,64 +3270,35 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             return;
         }
         final ArrayList<Long> dialogIds = new ArrayList<>(selectedDialogs);
-        final java.util.List<org.telegram.messenger.PrimeArchiveFolders.Folder> folders =
-                org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolders();
-
-        final CharSequence[] items = new CharSequence[folders.size() + 1];
-        for (int i = 0; i < folders.size(); i++) {
-            items[i] = folders.get(i).name;
-        }
-        items[folders.size()] = LocaleController.getString(R.string.Create);
-
-        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
-        builder.setTitle("Добавить в папку");
-        builder.setItems(items, (dialog, which) -> {
-            if (which == folders.size()) {
+        final org.telegram.ui.Components.PrimeArchiveFolderListBottomSheet sheet =
+                new org.telegram.ui.Components.PrimeArchiveFolderListBottomSheet(this, dialogIds);
+        sheet.setDelegate((folder, checked) -> {
+            if (folder == null) {
                 primeShowCreateArchiveFolderDialogForMany(dialogIds);
-            } else {
-                final org.telegram.messenger.PrimeArchiveFolders.Folder folder = folders.get(which);
-                final org.telegram.messenger.PrimeArchiveFolders instance = org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount);
-                for (int i = 0; i < dialogIds.size(); i++) {
-                    instance.addDialog(folder.id, dialogIds.get(i));
-                }
-                hideActionMode(true);
+                return;
             }
+            final org.telegram.messenger.PrimeArchiveFolders instance = org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount);
+            for (int i = 0; i < dialogIds.size(); i++) {
+                final long id = dialogIds.get(i);
+                if (checked) {
+                    instance.removeDialog(folder.id, id);
+                } else {
+                    instance.addDialog(folder.id, id);
+                }
+            }
+            hideActionMode(true);
         });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        builder.show();
+        showDialog(sheet);
     }
 
-    /** New-folder variant of primeShowCreateArchiveFolderDialog that adds every id in dialogIds
+    /** New-folder variant of primeShowCreateArchiveFolderDialog that seeds every id in dialogIds
      *  instead of just one, for the multi-select entry point above. */
     private void primeShowCreateArchiveFolderDialogForMany(ArrayList<Long> dialogIds) {
         if (getParentActivity() == null) {
             return;
         }
-        final org.telegram.ui.Components.EditTextBoldCursor field = new org.telegram.ui.Components.EditTextBoldCursor(getParentActivity());
-        field.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16);
-        field.setTextColor(getThemedColor(Theme.key_dialogTextBlack));
-        field.setHint("Название папки");
-        field.setSingleLine(true);
-        final int pad = dp(21);
-        field.setPadding(pad, dp(6), pad, 0);
-
-        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
-        builder.setTitle("Новая папка");
-        builder.setView(field);
-        builder.setPositiveButton(LocaleController.getString(R.string.Create), (dialog, which) -> {
-            final String name = field.getText().toString().trim();
-            if (name.isEmpty()) {
-                return;
-            }
-            final org.telegram.messenger.PrimeArchiveFolders instance = org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount);
-            final org.telegram.messenger.PrimeArchiveFolders.Folder folder = instance.createFolder(name);
-            for (int i = 0; i < dialogIds.size(); i++) {
-                instance.addDialog(folder.id, dialogIds.get(i));
-            }
-            hideActionMode(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        builder.show();
+        presentFragment(new PrimeArchiveFolderCreateActivity(new ArrayList<>(dialogIds)));
+        hideActionMode(true);
     }
 
     public void updateStatus(TLRPC.User user, boolean animated) {
@@ -4183,16 +4182,39 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
                 @Override
                 public boolean didSelectTab(FilterTabsView.TabView tabView, boolean selected) {
-                    return false;
+                    final int tabId = tabView.getId();
+                    final org.telegram.messenger.PrimeArchiveFolders.Folder folder =
+                            org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolder(tabId);
+                    if (folder == null) {
+                        // the "Все" tab (id 0) has no local folder to edit/delete
+                        return false;
+                    }
+                    filterOptions = ItemOptions.makeOptions(DialogsActivity.this, tabView)
+                            .add(R.drawable.msg_edit, LocaleController.getString(R.string.Edit), () -> {
+                                presentFragment(new PrimeArchiveFolderCreateActivity(tabId));
+                            })
+                            .add(R.drawable.msg_delete, LocaleController.getString(R.string.Delete), true, () -> {
+                                primeShowDeleteArchiveFolderAlert(tabId, folder.name);
+                            })
+                            .setDimAlpha(0x60)
+                            .setGravity(Gravity.LEFT)
+                            .translate(dp(-12), dp(-4))
+                            .show();
+                    return true;
                 }
 
                 @Override
                 public boolean isTabMenuVisible() {
-                    return false;
+                    return filterOptions != null && filterOptions.isShown();
                 }
 
                 @Override
                 public void onDeletePressed(int id) {
+                    final org.telegram.messenger.PrimeArchiveFolders.Folder folder =
+                            org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolder(id);
+                    if (folder != null) {
+                        primeShowDeleteArchiveFolderAlert(id, folder.name);
+                    }
                 }
 
                 @Override
@@ -4344,6 +4366,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     });
                     showDialog(sheet);
                 } else if (id == remove_from_folder) {
+                    if (isArchive()) {
+                        // PrimeGram: never reachable via the menu item itself (see the
+                        // cantRemoveFromFolder guard above) but kept as a hard stop here too -
+                        // this indexes real cloud DialogFilters by viewPages[0].selectedType,
+                        // which archive-local folder tab selection never updates.
+                        return;
+                    }
                     MessagesController.DialogFilter filter = getMessagesController().getDialogFilters().get(viewPages[0].selectedType);
                     ArrayList<Long> neverShow = FiltersListBottomSheet.getDialogsCount(DialogsActivity.this, filter, selectedDialogs, false, false);
 
@@ -5705,7 +5734,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         };
         dialogStoriesCell.setActionBar(actionBar);
-        dialogStoriesCell.setMenuItemsOffset(isArchive() || org.telegram.messenger.DrawerHelper.isEnabled() ? dp(68) : dpf2(16.66f));
+        // PrimeGram: every other DrawerHelper.isEnabled() check that reserves room for the
+        // hamburger button also gates on !hasMainTabs (see the back-button-image swap and the
+        // action-bar click handler above) - this one didn't, so the stories row kept reserving
+        // space for a hamburger that isn't shown whenever tabs mode is also active.
+        dialogStoriesCell.setMenuItemsOffset(isArchive() || !hasMainTabs && org.telegram.messenger.DrawerHelper.isEnabled() ? dp(68) : dpf2(16.66f));
         dialogStoriesCell.allowGlobalUpdates = false;
         dialogStoriesCell.setVisibility(View.GONE);
         animateToHasStories = false;
@@ -9154,7 +9187,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 final boolean contains = folder.dialogIds.contains(dialogId);
                 final ActionBarMenuSubItem folderItem = new ActionBarMenuSubItem(getParentActivity(), 2, false, false, null);
                 folderItem.setChecked(contains);
-                folderItem.setTextAndIcon(folder.name, R.drawable.msg_folders);
+                folderItem.setTextAndIcon(folder.name, 0, new FolderDrawable(getContext(), R.drawable.msg_folders, Math.abs(folder.id) % Theme.keys_avatar_nameInMessage.length));
                 folderItem.setMinimumWidth(160);
                 folderItem.setOnClickListener(e -> {
                     if (contains) {
@@ -9772,6 +9805,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         if (action == archive || action == archive2) {
             ArrayList<Long> copy = new ArrayList<>(selectedDialogs);
             getMessagesController().addDialogToFolder(copy, canUnarchiveCount == 0 ? 1 : 0, -1, null, 0);
+            if (canUnarchiveCount != 0) {
+                for (int a = 0, N = copy.size(); a < N; a++) {
+                    primeRemoveFromAllArchiveFolders(copy.get(a));
+                }
+            }
             if (canUnarchiveCount == 0) {
                 SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                 boolean hintShowed = preferences.getBoolean("archivehint_l", false) || SharedConfig.archiveHidden;
@@ -10537,7 +10575,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
         if (removeFromFolderItem != null) {
-            boolean cantRemoveFromFolder = filterTabsView == null || filterTabsView.getVisibility() != View.VISIBLE || filterTabsView.currentTabIsDefault();
+            // PrimeGram: Archive's filterTabsView is the local-only folder strip (see
+            // primeRebuildArchiveFolderTabs), not real DialogFilter tabs - "visible and not the
+            // default tab" is now also true there, but this item's handler indexes
+            // getDialogFilters().get(viewPages[0].selectedType), which archive tab selection
+            // never updates. Without this guard it would silently edit whatever real cloud
+            // folder happens to sit at that stale index instead of the local archive folder.
+            boolean cantRemoveFromFolder = isArchive() || filterTabsView == null || filterTabsView.getVisibility() != View.VISIBLE || filterTabsView.currentTabIsDefault();
             if (!cantRemoveFromFolder) {
                 try {
                     final int dialogsCount = getDialogsArray(currentAccount, viewPages[0].dialogsAdapter.getDialogsType(), folderId, dialogsListFrozen).size();

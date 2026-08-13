@@ -1485,7 +1485,16 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             }
         }
         if (checkStatusBar) {
-            getWindow().setStatusBarColor(0);
+            // PrimeGram: checkSystemBarColors() runs on every animation frame during a tab-swipe
+            // (see ViewPagerActivity.onTabAnimationUpdate) - Window.setStatusBarColor() is not a
+            // cheap no-op even when the color is unchanged, since on this OS version it also
+            // pushes a fresh TaskDescription over a Binder call (profiler: setStatusBarColor ->
+            // Activity$1.updateStatusBarColor -> setTaskDescription was showing up on the worst
+            // frames of every tab swipe). The value here is always 0, so this almost never needs
+            // to actually run past the first call.
+            if (getWindow().getStatusBarColor() != 0) {
+                getWindow().setStatusBarColor(0);
+            }
         }
     }
 
@@ -1545,6 +1554,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         }
         updateCurrentConnectionState(currentAccount);
         org.telegram.messenger.DrawerHelper.notifyDataChanged();
+        // PrimeGram: the classic drawer above already refreshes itself via notifyDataChanged() -
+        // this fork's own sidebar (createPrimeSidebar, a singleton view built once at launch) has
+        // no such hook and was left showing the previous account's header/account-list until the
+        // app restarted.
+        updateSidebarProfileHeader();
+        updateSidebarAccounts();
 
         switchingAccount = false;
     }
@@ -9816,6 +9831,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     }
 
     /** Avatar + name + (privacy-masked) phone, tapping opens the account's own profile. */
+    private BackupImageView sidebarAvatarImageView;
+    private TextView sidebarNameView;
+    private TextView sidebarPhoneView;
+
     private View createSidebarProfileHeader(Context context) {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -9829,36 +9848,47 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             setSidebarOpen(false, true);
         });
 
-        BackupImageView avatarImageView = new BackupImageView(context);
-        avatarImageView.setRoundRadius(AndroidUtilities.dp(28));
-        TLRPC.User user = UserConfig.getInstance(currentAccount).getCurrentUser();
-        AvatarDrawable avatarDrawable = new AvatarDrawable();
-        avatarDrawable.setInfo(user);
-        avatarImageView.setForUserOrChat(user, avatarDrawable);
-        header.addView(avatarImageView, LayoutHelper.createLinear(56, 56, Gravity.CENTER_VERTICAL, 0, 0, 14, 0));
+        sidebarAvatarImageView = new BackupImageView(context);
+        sidebarAvatarImageView.setRoundRadius(AndroidUtilities.dp(28));
+        header.addView(sidebarAvatarImageView, LayoutHelper.createLinear(56, 56, Gravity.CENTER_VERTICAL, 0, 0, 14, 0));
 
         LinearLayout texts = new LinearLayout(context);
         texts.setOrientation(LinearLayout.VERTICAL);
 
-        TextView nameView = new TextView(context);
-        nameView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
-        nameView.setTypeface(AndroidUtilities.bold());
-        nameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
-        nameView.setSingleLine();
-        nameView.setEllipsize(TextUtils.TruncateAt.END);
-        nameView.setText(user != null ? UserObject.getUserName(user) : "");
-        texts.addView(nameView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 0, 2));
+        sidebarNameView = new TextView(context);
+        sidebarNameView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+        sidebarNameView.setTypeface(AndroidUtilities.bold());
+        sidebarNameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        sidebarNameView.setSingleLine();
+        sidebarNameView.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(sidebarNameView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 0, 2));
 
-        TextView phoneView = new TextView(context);
-        phoneView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-        phoneView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
-        phoneView.setSingleLine();
-        String formattedPhone = user != null && !TextUtils.isEmpty(user.phone) ? PhoneFormat.getInstance().format("+" + user.phone) : "";
-        phoneView.setText(org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(formattedPhone, true));
-        texts.addView(phoneView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        sidebarPhoneView = new TextView(context);
+        sidebarPhoneView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+        sidebarPhoneView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        sidebarPhoneView.setSingleLine();
+        texts.addView(sidebarPhoneView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
 
         header.addView(texts, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
+        updateSidebarProfileHeader();
         return header;
+    }
+
+    /** PrimeGram: (re)binds the sidebar header to whatever account is active right now. Split out
+     *  of {@link #createSidebarProfileHeader} (which only ever runs once, at sidebar construction)
+     *  so {@link #switchToAccount} can call it too - without this, switching or adding an account
+     *  left the sidebar showing the previous account's avatar/name/phone until the app restarted. */
+    private void updateSidebarProfileHeader() {
+        if (sidebarAvatarImageView == null) {
+            return;
+        }
+        final TLRPC.User user = UserConfig.getInstance(currentAccount).getCurrentUser();
+        final AvatarDrawable avatarDrawable = new AvatarDrawable();
+        avatarDrawable.setInfo(user);
+        sidebarAvatarImageView.setForUserOrChat(user, avatarDrawable);
+        sidebarNameView.setText(user != null ? UserObject.getUserName(user) : "");
+        final String formattedPhone = user != null && !TextUtils.isEmpty(user.phone) ? PhoneFormat.getInstance().format("+" + user.phone) : "";
+        sidebarPhoneView.setText(org.telegram.messenger.PrimeGramPrivacy.maskPhoneForDisplay(formattedPhone, true));
     }
 
     /**

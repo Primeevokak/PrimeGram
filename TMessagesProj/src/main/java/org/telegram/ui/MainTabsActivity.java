@@ -1094,7 +1094,15 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
 
         fadeView.setAlpha(alpha);
         fadeView.setTranslationY(isProfile * dp(48));
-        fadeView.setVisibility(alpha > 0 ? View.VISIBLE : View.GONE);
+        // PrimeGram: this runs on every animation frame while dragging between tabs (see
+        // onViewPagerTabAnimationUpdate) - setVisibility() is not a cheap no-op when called with
+        // the value it already has (it still walks the accessibility/focus bookkeeping each time),
+        // so calling it unconditionally here was measurable frame-time cost during a swipe
+        // (profiler: MainTabsActivity.checkUi_fadeView -> View.setVisibility on the worst frames).
+        final int targetVisibility = alpha > 0 ? View.VISIBLE : View.GONE;
+        if (fadeView.getVisibility() != targetVisibility) {
+            fadeView.setVisibility(targetVisibility);
+        }
     }
 
     private void checkUi_tabsPosition() {
