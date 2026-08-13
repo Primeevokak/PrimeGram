@@ -16228,6 +16228,13 @@ public class ChatActivity extends BaseFragment implements
 
         boolean checkPremiumFloodWait = !UserConfig.getInstance(currentAccount).isPremium();
 
+        // PrimeGram: checkUnviewedDownloads() was called for every visible cell on every scroll
+        // frame regardless of whether there was anything to check - unviewedDownloads is almost
+        // always empty (it only holds messages that finished downloading while the user wasn't
+        // looking), so this skips a guaranteed-no-op SparseArray lookup per cell per frame in the
+        // overwhelmingly common case.
+        final boolean hasUnviewedDownloads = getDownloadController().hasUnviewedDownloads();
+
         for (int a = 0; a < count; a++) {
             View view = chatListView.getChildAt(a);
             MessageObject messageObject = null;
@@ -16389,7 +16396,9 @@ public class ChatActivity extends BaseFragment implements
                     }
                     updateReactionsMentionButton(true);
                 }
-                getDownloadController().checkUnviewedDownloads(messageCell.getId(), dialog_id);
+                if (hasUnviewedDownloads) {
+                    getDownloadController().checkUnviewedDownloads(messageCell.getId(), dialog_id);
+                }
                 boolean allowPlayEffect = messageObject.getEffect() != null || ((messageObject.messageOwner.media != null && !messageObject.messageOwner.media.nopremium) || (messageObject.isAnimatedEmojiStickerSingle() && dialog_id > 0));
                 if ((chatListItemAnimator == null || !chatListItemAnimator.isRunning()) && (!messageObject.isOutOwner() || messageObject.forcePlayEffect) && allowPlayEffect && !messageObject.messageOwner.premiumEffectWasPlayed && (messageObject.isPremiumSticker() || messageCell.getEffect() != null || messageObject.isAnimatedEmojiStickerSingle()) && emojiAnimationsOverlay.isIdle() && emojiAnimationsOverlay.checkPosition(messageCell, chatListViewPaddingTop, chatListView.getMeasuredHeight() - blurredViewBottomOffset)) {
                     emojiAnimationsOverlay.onTapItem(messageCell, ChatActivity.this, false);

@@ -18,12 +18,24 @@ public class ChatMessagesMetadataController {
     ArrayList<Integer> reactionsRequests = new ArrayList<>();
     ArrayList<Integer> extendedMediaRequests = new ArrayList<>();
 
+    // PrimeGram: this used to rescan the ~20-40 visible messages on every single call - i.e.
+    // every scroll frame - even though each message's own reaction/extended-media/story check is
+    // already time-gated 15s-5min apart, so the overwhelming majority of those frame-rate rescans
+    // find nothing due and discard their work. Throttling the scan itself to a fraction of that
+    // granularity costs nothing real (nothing here needs frame-accurate timing) and skips it on
+    // most scroll frames instead of every one.
+    private static final long CHECK_THROTTLE_MS = 200L;
+    private long lastCheckTime;
 
     public ChatMessagesMetadataController(ChatActivity chatActivity) {
         this.chatActivity = chatActivity;
     }
 
     public void checkMessages(ChatActivity.ChatActivityAdapter chatAdapter, int maxAdapterPosition, int minAdapterPosition, long currentTime) {
+        if (currentTime - lastCheckTime < CHECK_THROTTLE_MS) {
+            return;
+        }
+        lastCheckTime = currentTime;
         ArrayList<MessageObject> messages = chatAdapter.getMessages();
         if (!chatActivity.isInScheduleMode() && maxAdapterPosition >= 0 && minAdapterPosition >= 0) {
             int from = minAdapterPosition - chatAdapter.messagesStartRow - 10;
