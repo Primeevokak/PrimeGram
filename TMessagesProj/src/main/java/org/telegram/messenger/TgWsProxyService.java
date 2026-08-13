@@ -1975,12 +1975,32 @@ public class TgWsProxyService extends Service {
         out.flush();
     }
 
+    /** Per upstream tg-ws-proxy's own fix (PR #1187, "raw_websocket.py: continuation фреймы 0x0
+     *  просто выбрасывались... длина фрейма шла в readexactly без лимита"): same 16 MiB cap on any
+     *  single frame's declared length, defends against a malformed/hostile length field forcing a
+     *  huge allocation before any of it is even read. */
+    private static final long MAX_WS_FRAME_LEN = 16L * 1024 * 1024;
+    /** Cap on a REASSEMBLED (continuation-joined) message, independent of the per-frame cap above -
+     *  many small frames chained together could otherwise still grow unbounded. Generous margin
+     *  above anything Telegram actually chunks through this tunnel. */
+    private static final long MAX_WS_MESSAGE_LEN = 64L * 1024 * 1024;
+
     private byte[] recvWsFrame(InputStream in, OutputStream wsOut) throws IOException {
+        // PrimeGram: frames were being returned to the caller one at a time regardless of the FIN
+        // bit (which wasn't even being read) - a message the remote fragmented across multiple WS
+        // frames (routine for anything past a small chat message; media/file transfers routinely
+        // fragment) came back to the relay bridge as several separate, incomplete chunks instead of
+        // one reassembled payload, corrupting/truncating exactly the kind of transfer a user would
+        // describe as "text works, media doesn't load." Upstream tg-ws-proxy hit and fixed the same
+        // bug in its own Python implementation (continuation frames discarded outright there,
+        // rather than mishandled like here) five hours before this fix, in raw_websocket.py.
+        java.io.ByteArrayOutputStream assembled = null;
         while (true) {
             int b1 = in.read();
             int b2 = in.read();
             if (b1 < 0 || b2 < 0) return null;
 
+            boolean fin = (b1 & 0x80) != 0;
             int opcode = b1 & 0x0F;
             long payloadLen = b2 & 0x7F;
             if (payloadLen == 126) {
@@ -1988,6 +2008,9 @@ public class TgWsProxyService extends Service {
             } else if (payloadLen == 127) {
                 payloadLen = 0;
                 for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | (in.read() & 0xFFL);
+            }
+            if (payloadLen < 0 || payloadLen > MAX_WS_FRAME_LEN) {
+                throw new IOException("WS frame declared an unreasonable length: " + payloadLen);
             }
 
             boolean masked = (b2 & 0x80) != 0;
@@ -2046,7 +2069,25 @@ public class TgWsProxyService extends Service {
                 return null;
             }
 
-            return payload; // Binary/Text frame data
+            // Data frame (0x0 continuation, 0x1 text, 0x2 binary) - control frames (PING/PONG/CLOSE
+            // above) never fragment and are handled/consumed before reaching here, per RFC 6455,
+            // even mid-message, so they don't disturb assembly across loop iterations.
+            if (assembled == null && fin) {
+                // The overwhelmingly common case: one frame, not fragmented - skip the extra copy
+                // through a ByteArrayOutputStream entirely.
+                return payload;
+            }
+            if (assembled == null) {
+                assembled = new java.io.ByteArrayOutputStream();
+            }
+            if (assembled.size() + payload.length > MAX_WS_MESSAGE_LEN) {
+                throw new IOException("WS reassembled message exceeded " + MAX_WS_MESSAGE_LEN + " bytes");
+            }
+            assembled.write(payload);
+            if (fin) {
+                return assembled.toByteArray();
+            }
+            // else: more continuation frames still to come - loop back around for the next one.
         }
     }
 
