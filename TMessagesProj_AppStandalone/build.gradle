@@ -96,6 +96,12 @@ android {
             ndk.debugSymbolLevel = 'FULL'
         }
         release {
+            // Deliberately true, not a leftover from debugging the session-drop issue: without a
+            // Play Store signature, Google Play Protect flags a non-debuggable sideloaded APK much
+            // more aggressively ("this app may be harmful"-style warnings on install/launch). This
+            // is a real tradeoff (a debuggable release build can be attached to and its process
+            // memory read), accepted knowingly because there is no Play Store signing key for this
+            // build and there isn't expected to be one.
             debuggable true
             jniDebuggable false
             signingConfig signingConfigs.release

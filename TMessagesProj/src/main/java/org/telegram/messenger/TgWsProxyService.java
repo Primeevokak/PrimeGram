@@ -50,6 +50,8 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SNIHostName;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLSession;
@@ -156,7 +158,7 @@ public class TgWsProxyService extends Service {
                 }
             }
             final SSLSocketFactory factory = service != null && service.sslSocketFactory != null
-                    ? service.sslSocketFactory : buildTrustAllSslFactory();
+                    ? service.sslSocketFactory : buildDefaultSslFactory();
             socket = (SSLSocket) factory.createSocket();
             socket.connect(new java.net.InetSocketAddress(host, 443), 2500);
             socket.setSoTimeout(2500);
@@ -533,7 +535,7 @@ public class TgWsProxyService extends Service {
                 r.run();
             }, "tgws-proxy")
         );
-        sslSocketFactory = buildTrustAllSslFactory();
+        sslSocketFactory = buildDefaultSslFactory();
         primeWatchForeground();
 
         ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -2392,24 +2394,27 @@ public class TgWsProxyService extends Service {
     }
 
     /**
-     * SSL factory без проверки сертификата (как в backend.py _ssl_ctx).
+     * The platform's normal, validating SSL factory - every socket this service opens connects to
+     * genuine Telegram infrastructure (kwsN.web.telegram.org), fronting SNI included (see {@link
+     * #createTlsSocketWithSni}), so there is no reason any of them should skip certificate/hostname
+     * validation. This used to build a factory with a no-op {@link X509TrustManager} (accepting any
+     * certificate for any host, on every connection this service makes, not just the fronted ones -
+     * a genuine on-path MITM gap with no upside, since the direct path talks to a real host with a
+     * real cert and the fronted path can validate against the real host too, see below).
      */
-    private static SSLSocketFactory buildTrustAllSslFactory() {
-        try {
-            TrustManager[] trustAll = new TrustManager[]{
-                new X509TrustManager() {
-                    public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
-                    public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
-                    public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }
-                }
-            };
-            SSLContext sc = SSLContext.getInstance("TLS");
-            sc.init(null, trustAll, new SecureRandom());
-            return sc.getSocketFactory();
-        } catch (Exception e) {
-            FileLog.e(TAG + ": SSL factory error", e);
-            return (SSLSocketFactory) SSLSocketFactory.getDefault();
-        }
+    private static SSLSocketFactory buildDefaultSslFactory() {
+        return (SSLSocketFactory) SSLSocketFactory.getDefault();
+    }
+
+    /** Turns on the hostname check {@link SSLSocket} does not do by default - a validating {@link
+     *  TrustManager} alone only checks the certificate chain, not that the certificate actually
+     *  names the host being connected to. Validates against whatever host the socket was created
+     *  with ({@code peerHost}), which callers must make sure is the *real* target host - see
+     *  {@link #createTlsSocketWithSni} for why that is not always the same as the wire SNI. */
+    private static void enableHostnameVerification(SSLSocket socket) {
+        SSLParameters params = socket.getSSLParameters();
+        params.setEndpointIdentificationAlgorithm("HTTPS");
+        socket.setSSLParameters(params);
     }
 
     private void createNotificationChannel() {
@@ -2647,6 +2652,7 @@ public class TgWsProxyService extends Service {
         SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, host, port, true);
         tlsSocket.setUseClientMode(true);
         tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
+        enableHostnameVerification(tlsSocket);
         tlsSocket.setTcpNoDelay(true);
         tlsSocket.setSoTimeout(timeoutMs);
         return tlsSocket;
@@ -2658,14 +2664,23 @@ public class TgWsProxyService extends Service {
 
     private SSLSocket createTlsSocketWithSni(String targetHost, String sniHost, int port, int timeoutMs) throws IOException {
         Socket plainSocket = connectWithIpv4Preference(targetHost, port, timeoutMs);
-        SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, sniHost, port, true);
+        // `targetHost`, not `sniHost`, drives both the socket's peerHost (what
+        // enableHostnameVerification below checks the certificate against) and the *default* SNI -
+        // the fake sniHost is applied afterwards, as an explicit ClientHello override, so the two
+        // are decoupled: the wire lies about which host this is, but the certificate check still
+        // validates against the real one, which is what the server will actually present.
+        SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, targetHost, port, true);
         tlsSocket.setUseClientMode(true);
+        SSLParameters params = tlsSocket.getSSLParameters();
+        params.setServerNames(java.util.Collections.singletonList(new SNIHostName(sniHost)));
+        tlsSocket.setSSLParameters(params);
         // TLS 1.2 sends the server's Certificate message in the clear during the handshake - since
         // the socket actually talks to Telegram's own IP, that certificate names *.web.telegram.org,
         // not the sniHost we're pretending to be. Any DPI that inspects the handshake beyond just the
         // SNI field would see that mismatch in plaintext. TLS 1.3 encrypts the Certificate message,
         // so restricting to 1.3-only here is what actually keeps the fronting SNI's lie intact.
         tlsSocket.setEnabledProtocols(new String[]{"TLSv1.3"});
+        enableHostnameVerification(tlsSocket);
         tlsSocket.setTcpNoDelay(true);
         tlsSocket.setSoTimeout(timeoutMs);
         return tlsSocket;
