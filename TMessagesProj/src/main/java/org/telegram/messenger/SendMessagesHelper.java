@@ -10590,6 +10590,60 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
 
     @UiThread
     public static void prepareSendingMedia(AccountInstance accountInstance, ArrayList<SendingMediaInfo> media, long dialogId, MessageObject replyToMsg, MessageObject replyToTopMsg, TL_stories.StoryItem storyItem, ChatActivity.ReplyQuote quote, boolean forceDocument, boolean groupMedia, MessageObject editingMessageObject, TLRPC.TL_inputPollAnswer pollToAddOptionMessageObject, boolean notify, int scheduleDate, int scheduleRepeatPeriod, int mode, boolean updateStikcersOrder, InputContentInfoCompat inputContent, String quickReplyShortcut, int quickReplyShortcutId, long effectId, boolean invertMedia, long payStars, long monoForumPeerId, MessageSuggestionParams suggestionParams, PollSendParams pollSendParams, boolean forcedPollDoNotSendFinal) {
+        // Every prepareSendingMedia/prepareSendingPhoto overload funnels down to this one - the
+        // single choke point where a send-translate check covers every photo/video-with-caption
+        // entry point in the app at once, instead of duplicating the check at each ChatActivity
+        // call site (send-translate previously only ever touched the plain-text send path in
+        // ChatActivityEnterView, never captions - a caption sent alongside media went out in the
+        // original language regardless of the chat's translate-before-send setting).
+        primeMaybeTranslateMediaCaptionsThenRun(dialogId, media, () -> prepareSendingMediaInternal(accountInstance, media, dialogId, replyToMsg, replyToTopMsg, storyItem, quote, forceDocument, groupMedia, editingMessageObject, pollToAddOptionMessageObject, notify, scheduleDate, scheduleRepeatPeriod, mode, updateStikcersOrder, inputContent, quickReplyShortcut, quickReplyShortcutId, effectId, invertMedia, payStars, monoForumPeerId, suggestionParams, pollSendParams, forcedPollDoNotSendFinal));
+    }
+
+    /** If {@code dialogId} has send-translation on ({@link org.telegram.messenger.PrimeSendTranslate}),
+     *  replaces every non-empty caption in {@code media} with its translation before running
+     *  {@code continuation} - in practice only the first item in an album ever carries a caption
+     *  (Telegram's own UI attaches it to the whole group), but every one found is translated to be
+     *  safe. Runs the continuation immediately, synchronously, when translation is off or there's
+     *  nothing to translate - the common case, and the same behavior as before this existed. */
+    private static void primeMaybeTranslateMediaCaptionsThenRun(long dialogId, ArrayList<SendingMediaInfo> media, Runnable continuation) {
+        if (!org.telegram.messenger.PrimeSendTranslate.isEnabled(dialogId)) {
+            continuation.run();
+            return;
+        }
+        final ArrayList<Integer> indexes = new ArrayList<>();
+        final ArrayList<TLRPC.TL_textWithEntities> texts = new ArrayList<>();
+        for (int i = 0; i < media.size(); i++) {
+            final String caption = media.get(i).caption;
+            if (caption != null && !caption.isEmpty()) {
+                final TLRPC.TL_textWithEntities t = new TLRPC.TL_textWithEntities();
+                t.text = caption;
+                texts.add(t);
+                indexes.add(i);
+            }
+        }
+        if (texts.isEmpty()) {
+            continuation.run();
+            return;
+        }
+        final String lang = org.telegram.messenger.PrimeSendTranslate.getLanguage(dialogId);
+        org.telegram.messenger.PrimeTranslator.translate(texts, lang, (response, error) -> {
+            if (response instanceof TLRPC.TL_messages_translateResult) {
+                final TLRPC.TL_messages_translateResult result = (TLRPC.TL_messages_translateResult) response;
+                for (int j = 0; j < indexes.size() && j < result.result.size(); j++) {
+                    final String translated = result.result.get(j).text;
+                    if (translated != null && !translated.isEmpty()) {
+                        media.get(indexes.get(j)).caption = translated;
+                    }
+                }
+            }
+            // On failure the caption is left as-is (original language) rather than blocking the
+            // send - same "send anyway" fallback ChatActivityEnterView's own translate-before-send
+            // uses, just without a fragment handle here to show a bulletin from a static helper.
+            continuation.run();
+        });
+    }
+
+    private static void prepareSendingMediaInternal(AccountInstance accountInstance, ArrayList<SendingMediaInfo> media, long dialogId, MessageObject replyToMsg, MessageObject replyToTopMsg, TL_stories.StoryItem storyItem, ChatActivity.ReplyQuote quote, boolean forceDocument, boolean groupMedia, MessageObject editingMessageObject, TLRPC.TL_inputPollAnswer pollToAddOptionMessageObject, boolean notify, int scheduleDate, int scheduleRepeatPeriod, int mode, boolean updateStikcersOrder, InputContentInfoCompat inputContent, String quickReplyShortcut, int quickReplyShortcutId, long effectId, boolean invertMedia, long payStars, long monoForumPeerId, MessageSuggestionParams suggestionParams, PollSendParams pollSendParams, boolean forcedPollDoNotSendFinal) {
         if (media.isEmpty()) {
             return;
         }
@@ -11817,6 +11871,39 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
     }
 
     public static void prepareSendingVideo(AccountInstance accountInstance, String videoPath, VideoEditedInfo info, String coverPath, TLRPC.Photo coverPhoto, long dialogId, MessageObject replyToMsg, MessageObject replyToTopMsg, TL_stories.StoryItem storyItem, ChatActivity.ReplyQuote quote, ArrayList<TLRPC.MessageEntity> entities, int ttl, MessageObject editingMessageObject, boolean notify, int scheduleDate, int scheduleRepeatPeriod, boolean forceDocument, boolean hasMediaSpoilers, CharSequence caption, String quickReplyShortcut, int quickReplyShortcutId, long effectId, long stars, long monoForumPeerId, MessageSuggestionParams suggestionParams, boolean invertMedia) {
+        // Video doesn't funnel through prepareSendingMedia (it has its own, separate encoding
+        // pipeline below) - see primeMaybeTranslateMediaCaptionsThenRun's javadoc for why this
+        // needs covering here too.
+        primeMaybeTranslateCaptionThenRun(dialogId, caption, translatedCaption -> prepareSendingVideoInternal(accountInstance, videoPath, info, coverPath, coverPhoto, dialogId, replyToMsg, replyToTopMsg, storyItem, quote, entities, ttl, editingMessageObject, notify, scheduleDate, scheduleRepeatPeriod, forceDocument, hasMediaSpoilers, translatedCaption, quickReplyShortcut, quickReplyShortcutId, effectId, stars, monoForumPeerId, suggestionParams, invertMedia));
+    }
+
+    /** If {@code dialogId} has send-translation on, replaces {@code caption} with its translation
+     *  before running {@code continuation} - the single-caption counterpart of {@link
+     *  #primeMaybeTranslateMediaCaptionsThenRun}, for entry points that take one caption directly
+     *  rather than a {@link SendingMediaInfo} list. */
+    private static void primeMaybeTranslateCaptionThenRun(long dialogId, CharSequence caption, java.util.function.Consumer<CharSequence> continuation) {
+        if (caption == null || caption.length() == 0 || !org.telegram.messenger.PrimeSendTranslate.isEnabled(dialogId)) {
+            continuation.accept(caption);
+            return;
+        }
+        final String lang = org.telegram.messenger.PrimeSendTranslate.getLanguage(dialogId);
+        final ArrayList<TLRPC.TL_textWithEntities> texts = new ArrayList<>();
+        final TLRPC.TL_textWithEntities t = new TLRPC.TL_textWithEntities();
+        t.text = caption.toString();
+        texts.add(t);
+        org.telegram.messenger.PrimeTranslator.translate(texts, lang, (response, error) -> {
+            CharSequence result = caption;
+            if (response instanceof TLRPC.TL_messages_translateResult) {
+                final TLRPC.TL_messages_translateResult r = (TLRPC.TL_messages_translateResult) response;
+                if (!r.result.isEmpty() && r.result.get(0).text != null && !r.result.get(0).text.isEmpty()) {
+                    result = r.result.get(0).text;
+                }
+            }
+            continuation.accept(result);
+        });
+    }
+
+    private static void prepareSendingVideoInternal(AccountInstance accountInstance, String videoPath, VideoEditedInfo info, String coverPath, TLRPC.Photo coverPhoto, long dialogId, MessageObject replyToMsg, MessageObject replyToTopMsg, TL_stories.StoryItem storyItem, ChatActivity.ReplyQuote quote, ArrayList<TLRPC.MessageEntity> entities, int ttl, MessageObject editingMessageObject, boolean notify, int scheduleDate, int scheduleRepeatPeriod, boolean forceDocument, boolean hasMediaSpoilers, CharSequence caption, String quickReplyShortcut, int quickReplyShortcutId, long effectId, long stars, long monoForumPeerId, MessageSuggestionParams suggestionParams, boolean invertMedia) {
         if (videoPath == null || videoPath.length() == 0) {
             return;
         }

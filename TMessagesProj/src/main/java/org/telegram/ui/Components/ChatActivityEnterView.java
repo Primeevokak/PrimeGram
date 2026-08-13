@@ -7346,6 +7346,13 @@ public class ChatActivityEnterView extends FrameLayout implements
     }
 
     private boolean primeTranslatingBeforeSend;
+    /** Set only around the recursive {@link #sendMessageInternal} call inside the translate
+     *  callback below - distinguishes "our own call, translation is done, actually send now" from
+     *  "the user tapped Send again while the translation was still in flight", which both saw
+     *  {@code primeTranslatingBeforeSend == true} and neither was blocked from falling straight
+     *  through to a real send - shipping the not-yet-translated text as an extra message, then the
+     *  translated one landing right after it. */
+    private boolean primeSendCompletingTranslation;
 
     private String primePendingOriginalText;
 
@@ -7381,13 +7388,24 @@ public class ChatActivityEnterView extends FrameLayout implements
                 BulletinFactory.of(parentFragment).createErrorBulletin(
                         "Не удалось перевести сообщение, отправлено как есть").show();
             }
+            primeSendCompletingTranslation = true;
             sendMessageInternal(notify, scheduleDate, scheduleRepeatPeriod, payStars, allowConfirm);
+            primeSendCompletingTranslation = false;
             primeTranslatingBeforeSend = false;
         });
     }
 
     protected boolean sendMessageInternal(boolean notify, int scheduleDate, int scheduleRepeatPeriod, long payStars, boolean allowConfirm) {
-        if (!primeTranslatingBeforeSend && dialog_id != 0 && org.telegram.messenger.PrimeSendTranslate.isEnabled(dialog_id)
+        if (primeTranslatingBeforeSend) {
+            if (!primeSendCompletingTranslation) {
+                // A translation for this exact send is already in flight - the box doesn't clear
+                // until it comes back, so an impatient second tap on Send used to fall straight
+                // through to a real send with whatever untranslated text was still sitting in the
+                // field, then the translated version sent again right behind it once the response
+                // arrived. Swallow the extra tap instead.
+                return true;
+            }
+        } else if (dialog_id != 0 && org.telegram.messenger.PrimeSendTranslate.isEnabled(dialog_id)
                 && messageEditText != null && !TextUtils.isEmpty(messageEditText.getText())) {
             primeTranslateBeforeSend(notify, scheduleDate, scheduleRepeatPeriod, payStars, allowConfirm);
             return true;

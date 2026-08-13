@@ -21971,7 +21971,12 @@ public class ChatActivity extends BaseFragment implements
                 }
             }
         }
-        if (messages.isEmpty() && currentEncryptedChat == null && currentUser != null && currentUser.bot && botUser == null && !UserObject.isBotForum(currentUser)) {
+        // !isUserSelf(currentUser): a real Telegram account can never be its own bot, so this
+        // combination used to be structurally impossible - a session logged in as a bot
+        // (BotLoginActivity) makes it possible to open the bot's own self-chat, and without this
+        // guard it read as "a bot I haven't started yet" (empty state + "Запустить бота" button)
+        // instead of the normal empty-Saved-Messages state, since a bot cannot start itself.
+        if (messages.isEmpty() && currentEncryptedChat == null && currentUser != null && currentUser.bot && !UserObject.isUserSelf(currentUser) && botUser == null && !UserObject.isBotForum(currentUser)) {
             botUser = "";
             updateBottomOverlay();
         }

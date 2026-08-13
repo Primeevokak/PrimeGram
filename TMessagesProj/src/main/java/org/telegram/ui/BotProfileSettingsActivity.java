@@ -64,8 +64,8 @@ public class BotProfileSettingsActivity extends UniversalFragment {
         req.flags = 0;
         req.lang_code = "";
         ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            if (response instanceof TL_bots.BotInfo) {
-                description = ((TL_bots.BotInfo) response).description;
+            if (response instanceof TL_bots.BotInfoResult) {
+                description = ((TL_bots.BotInfoResult) response).description;
                 if (description == null) description = "";
             }
             loaded = true;

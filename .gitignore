@@ -24,3 +24,9 @@ TMessagesProj_AppHuawei/afat/
 __pycache__/
 *.py[cod]
 
+# A separate, unrelated git checkout (its own .git, its own remote: Flowseal/tg-ws-proxy) kept
+# here only as a local reference for the desktop counterpart of TgWsProxyService — not part of
+# this repo's history, not a submodule. Without this line it shows up as one big untracked entry
+# in git status, and some autosave hook was independently committing inside it too.
+/tg-ws-proxy-repo/
+

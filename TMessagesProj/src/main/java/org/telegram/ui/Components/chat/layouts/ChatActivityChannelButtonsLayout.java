@@ -424,18 +424,44 @@ public class ChatActivityChannelButtonsLayout extends FrameLayout implements Fac
         final float wrapping = animatorWrappingButton.getFloatValue();
         if (wrapping > 0 && getMeasuredWidth() > 0) {
             float left = getMeasuredWidth(), right = 0;
+            // PrimeGram: child.getLeft()/getRight() are relative to getContainer() (their direct
+            // parent), but totalWidthLeft/Right - and everything downstream that consumes them
+            // (computeContainerRect(), checkContainerPaddings()) - operate in THIS view's own
+            // coordinate space (getMeasuredWidth() below is this view's width, not container's).
+            // container itself gets offset from this view's left edge as soon as
+            // checkContainerPaddings() applies a non-zero leftMargin to it - which happens on the
+            // very first wrap pass. Every pass after that must add container's current offset back
+            // in, or it mistakes the button's already-shrunk, already-offset LOCAL position for a
+            // fresh global one: totalWidthLeft collapses toward 0 while totalWidthRight balloons
+            // toward the full view width, pinning the pill (and the centered button inside it)
+            // hard against the left edge - a self-reinforcing feedback loop, not a timing race,
+            // which is why it reproduced 100% of the time on every bot-start button.
+            final int containerLeft = getContainer().getLeft();
             for (int i = 0; i < getContainer().getChildCount(); ++i) {
                 final View child = getContainer().getChildAt(i);
                 if (wrapContentButtons.contains(child)) {
-                    left  = Math.min(left, child.getLeft());
-                    right = Math.max(right, child.getRight());
+                    left  = Math.min(left, containerLeft + child.getLeft());
+                    right = Math.max(right, containerLeft + child.getRight());
                 }
             }
             if (left > right) {
                 left = right = (left + right) / 2f;
             }
-            totalWidthLeft = lerp(totalWidthLeft, left - dp(3.33f), wrapping);
-            totalWidthRight = lerp(totalWidthRight, getMeasuredWidth() - right - dp(17.66f), wrapping);
+            // Same inset on both sides deliberately, and NOT just "both dp(3.33f)" - that was a
+            // first attempt that broke worse than the original bug. computeContainerRect() below
+            // builds container's width as (right - left) from these two totals plus a fixed
+            // dp(7) inset on each side; the original dp(3.33f)/dp(17.66f) pair summed to ~21dp,
+            // 7dp more than the 2*dp(7)=14dp being subtracted back out - the container ended up
+            // ~7dp WIDER than the button, comfortable padding, just asymmetric (off-center).
+            // Setting both sides to dp(3.33f) dropped that sum to ~6.66dp, LESS than the 14dp
+            // being subtracted - the container became narrower than the button it contains, and
+            // since checkButtonsPositionsAndVisibility() re-reads the button's own (now-squeezed)
+            // bounds on its very next call within the same pass, that shrink compounded on itself
+            // every call - the button visibly squashing, and on some layout passes collapsing
+            // away entirely. Splitting the ORIGINAL total (~21dp) evenly keeps the same ~7dp of
+            // real breathing room this pill always had, just centered instead of lopsided.
+            totalWidthLeft = lerp(totalWidthLeft, left - dp(10.5f), wrapping);
+            totalWidthRight = lerp(totalWidthRight, getMeasuredWidth() - right - dp(10.5f), wrapping);
         }
 
         if (onButtonsTotalWidthChanged != null) {

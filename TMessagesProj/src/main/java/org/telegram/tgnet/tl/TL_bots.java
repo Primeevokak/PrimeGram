@@ -227,8 +227,15 @@ public class TL_bots {
         public TLRPC.InputUser bot;
         public String lang_code;
 
+        // Returns the distinct, non-abstract `bots.BotInfo` type (constructor botInfo#e8a775b0:
+        // name/about/description, modeled below as BotInfoResult - "botInfo" collides case-
+        // insensitively with the unrelated abstract BotInfo type on a case-insensitive filesystem)
+        // - NOT that unrelated abstract `BotInfo` type (constructor botInfo#4d8a0299, used for a
+        // bot's info as attached to messages.getFullChat/UserFull). Deserializing against the
+        // wrong one throws TLParseException "can't parse magic e8a775b0" - confirmed against
+        // Telegram's published schema (core.telegram.org/method/bots.getBotInfo), not guessed.
         public TLObject deserializeResponse(InputSerializedData stream, int constructor, boolean exception) {
-            return BotInfo.TLdeserialize(stream, constructor, exception);
+            return BotInfoResult.TLdeserialize(stream, constructor, exception);
         }
 
         public void serializeToStream(OutputSerializedData stream) {
@@ -238,6 +245,38 @@ public class TL_bots {
                 bot.serializeToStream(stream);
             }
             stream.writeString(lang_code);
+        }
+    }
+
+    /** {@code bots.botInfo#e8a775b0 name:string about:string description:string = bots.BotInfo}
+     *  - the response of {@link #getBotInfo}. Single non-abstract constructor, same pattern as
+     *  {@link #popularAppBots} below. Named {@code BotInfoResult} rather than {@code botInfo}
+     *  (the literal TL constructor name) because that collides case-insensitively with the
+     *  unrelated {@link BotInfo} class on a case-insensitive filesystem (Windows/NTFS) - both
+     *  compile fine, but R8 silently loses one of the two same-named .class files. */
+    public static class BotInfoResult extends TLObject {
+        public static final int constructor = 0xe8a775b0;
+
+        public String name;
+        public String about;
+        public String description;
+
+        public static BotInfoResult TLdeserialize(InputSerializedData stream, int constructor, boolean exception) {
+            final BotInfoResult result = BotInfoResult.constructor != constructor ? null : new BotInfoResult();
+            return TLdeserialize(BotInfoResult.class, result, stream, constructor, exception);
+        }
+
+        public void readParams(InputSerializedData stream, boolean exception) {
+            name = stream.readString(exception);
+            about = stream.readString(exception);
+            description = stream.readString(exception);
+        }
+
+        public void serializeToStream(OutputSerializedData stream) {
+            stream.writeInt32(constructor);
+            stream.writeString(name);
+            stream.writeString(about);
+            stream.writeString(description);
         }
     }
 
