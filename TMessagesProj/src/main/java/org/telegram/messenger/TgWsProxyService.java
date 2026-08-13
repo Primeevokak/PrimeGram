@@ -2025,7 +2025,24 @@ public class TgWsProxyService extends Service {
                 continue;
             }
             if (opcode == 0x8) { // CLOSE -> end stream
-                logInfo("Received WS CLOSE frame");
+                // RFC 6455 5.5.1: the first two bytes of a CLOSE frame's payload are a big-endian
+                // status code, optionally followed by a UTF-8 reason string - both were being
+                // silently discarded, which is exactly the information needed to tell "the remote
+                // is rate-limiting us" (1008/4xxx-ish app codes) apart from "the remote crashed"
+                // (1011) or an ordinary close (1000) instead of guessing from connection timing.
+                if (payload.length >= 2) {
+                    final int code = ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
+                    String reason = "";
+                    if (payload.length > 2) {
+                        try {
+                            reason = new String(payload, 2, payload.length - 2, "UTF-8");
+                        } catch (Exception ignore) {
+                        }
+                    }
+                    logInfo("Received WS CLOSE frame, code=" + code + (reason.isEmpty() ? "" : ", reason=" + reason));
+                } else {
+                    logInfo("Received WS CLOSE frame (no status code)");
+                }
                 return null;
             }
 
