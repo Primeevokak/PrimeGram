@@ -10450,6 +10450,14 @@ public class ChatActivity extends BaseFragment implements
 
         contentView.addView(topicsTabs, index, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : -dp(5), 0, 0));
         topicsTabs.updateSidemenuPosition();
+        // Inserted at a fixed index (right after chatActivityFadeView) rather than appended, so
+        // whatever gets added to contentView afterward - e.g. the loading/placeholder layer that
+        // hosts FirstViewPage - lands above it in z-order and can paint over the side avatar rail
+        // (MonoForum sender switcher / Forum topics) even though its own content draws correctly
+        // within itself. Every other full-screen overlay added to this contentView (mentionContainer
+        // right below, starReactionsOverlay, actionsButtonsLayout) already calls bringToFront() for
+        // exactly this reason - topicsTabs was the one overlay that didn't.
+        topicsTabs.bringToFront();
         if (mentionContainer != null) {
             mentionContainer.bringToFront();
         }

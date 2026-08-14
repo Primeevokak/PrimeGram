@@ -41,6 +41,7 @@ public class PrimeTgWsActivity extends UniversalFragment {
     private static final int ID_WORKERS_ENABLED = 5;
     private static final int ID_WORKER_ADD = 6;
     private static final int ID_WORKER_HELP = 7;
+    private static final int ID_MODE_SWITCH = 8;
     private static final int ID_DOMAIN_AUTO = 100;
     private static final int ID_DOMAIN_BASE = 200;
     private static final int ID_WORKER_BASE = 300;
@@ -49,6 +50,7 @@ public class PrimeTgWsActivity extends UniversalFragment {
     private final HashMap<String, Long> latencies = new HashMap<>();
     private final HashMap<Integer, PrimeTgWsDomainCell> cells = new HashMap<>();
     private PrimeTgWsStatusCell statusCell;
+    private org.telegram.ui.Components.PrimeSegmentedSwitch modeSwitch;
 
     private boolean measuring;
     /** Ticks the status card while the screen is open, so "работает" is never a stale claim. */
@@ -96,6 +98,10 @@ public class PrimeTgWsActivity extends UniversalFragment {
         items.add(UItem.asButton(ID_PORT, "Порт", String.valueOf(TgWsProxyService.configuredPort())));
         items.add(UItem.asShadow("Локальный SOCKS5-сервер, через который приложение ходит в сеть. Порт занят другой программой — сервер сам возьмёт следующий свободный."));
 
+        items.add(UItem.asHeader("Режим работы"));
+        items.add(UItem.asCustom(ID_MODE_SWITCH, modeSwitchCell(context)));
+        items.add(UItem.asShadow(modeHint(TgWsProxyService.proxyMode())));
+
         items.add(UItem.asHeader("Домен подключения"));
         items.add(domainRow(ID_DOMAIN_AUTO, context, null));
         for (int i = 0; i < domains.length; i++) {
@@ -119,6 +125,47 @@ public class PrimeTgWsActivity extends UniversalFragment {
 
         items.add(UItem.asButton(ID_LOG, "Журнал сервера"));
         items.add(UItem.asShadow("Последние 200 строк: выбор домена, переподключения, ошибки."));
+    }
+
+    private static String modeHint(int mode) {
+        switch (mode) {
+            case TgWsProxyService.PROXY_MODE_ECONOMY:
+                return "Экономный: меньше запасных соединений и потоков — легче для батареи, но при обрыве домена туннель восстанавливается не так быстро.";
+            case TgWsProxyService.PROXY_MODE_TURBO:
+                return "Турбо: ещё больше запасных соединений и потоков, чем в стандартном — туннель переживает обрывы доменов максимально быстро, ценой заметно большего расхода батареи.";
+            default:
+                return "Стандартный: держит больше запасных соединений наготове — расходует больше батареи, зато переживает обрывы доменов быстрее и надёжнее.";
+        }
+    }
+
+    /** Cached the same way {@link #domainRow} caches its cells - a fresh view on every list
+     *  rebuild would restart the slide animation whenever anything else on the screen changes. */
+    private View modeSwitchCell(Context context) {
+        if (modeSwitch == null) {
+            modeSwitch = new org.telegram.ui.Components.PrimeSegmentedSwitch(context);
+            modeSwitch.setResourcesProvider(getResourceProvider());
+            modeSwitch.setLabels("Экономный", "Стандартный", "Турбо");
+            modeSwitch.setSelected(TgWsProxyService.proxyMode(), false);
+            modeSwitch.setOnSelectionChangedListener(mode -> {
+                TgWsProxyService.setProxyMode(mode);
+                if (listView != null && listView.adapter != null) {
+                    listView.adapter.update(true);
+                }
+                // The semaphore/thread-pool ceilings this controls are only read when the
+                // service (re)starts - a running service keeps its old numbers otherwise.
+                if (TgWsProxyService.isRunning()) {
+                    TgWsProxyService.stopService(getParentActivity());
+                    AndroidUtilities.runOnUIThread(() ->
+                            TgWsProxyService.startService(getParentActivity()), 300);
+                }
+            });
+            final android.widget.FrameLayout container = new android.widget.FrameLayout(context);
+            container.addView(modeSwitch, org.telegram.ui.Components.LayoutHelper.createFrame(
+                    org.telegram.ui.Components.LayoutHelper.MATCH_PARENT, 44,
+                    android.view.Gravity.CENTER_VERTICAL, 16, 8, 16, 8));
+            return container;
+        }
+        return (View) modeSwitch.getParent();
     }
 
     /**

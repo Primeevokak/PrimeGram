@@ -643,16 +643,27 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
 
     private long currentTopicId;
     private void updateTabs() {
+        updateTabs(true);
+    }
+
+    /** {@code animated}=true runs {@code adapter.update(true)}'s DiffUtil-style path - fine for
+     *  genuine list changes (reorder, add/remove), but it compares {@link UItem}s and skips
+     *  re-binding ones it considers unchanged, which meant a MonoForum sender tab whose backing
+     *  {@code TL_forumTopic}/UItem reference never changed - only the {@link TLRPC.User} it points
+     *  at going from "not cached yet" to "loaded" - never got {@code setMf()} called on it again,
+     *  even though {@link #didReceivedNotification} was correctly firing on the load. {@code
+     *  animated}=false forces {@code notifyDataSetChanged()}, an unconditional full re-bind. */
+    private void updateTabs(boolean animated) {
         checkTopicsVisibility(true);
 
         boolean wasOnLeft = !topTabs.canScrollHorizontally(-1);
-        topTabs.adapter.update(true);
+        topTabs.adapter.update(animated);
         if (wasOnLeft) {
             topTabs.scrollToPosition(0);
         }
 
         boolean wasOnTop = !sideTabs.canScrollVertically(-1);
-        sideTabs.adapter.update(true);
+        sideTabs.adapter.update(animated);
         if (wasOnTop) {
             sideTabs.scrollToPosition(0);
         }
@@ -674,6 +685,15 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             if (/*!mono &&*/ (mask & MessagesController.UPDATE_MASK_SELECT_DIALOG) > 0) {
                 MessagesController.getInstance(currentAccount).getTopicsController().sortTopics(-dialogId, false);
                 updateTabs();
+            } else if (mono && (mask & (MessagesController.UPDATE_MASK_AVATAR | MessagesController.UPDATE_MASK_NAME)) > 0) {
+                // A MonoForum sender who wasn't locally cached yet renders this rail's tab with a
+                // blank/placeholder avatar and name at first (see VerticalTabView.setMf, which
+                // kicks off a reloadUser() for exactly this case) - only a long-press (which
+                // re-queries fresh data directly, a separate path) happened to show it correctly.
+                // animated=false: the DiffUtil path in the default updateTabs() considers this
+                // tab's UItem unchanged (same TL_forumTopic reference) and skips re-binding it -
+                // see updateTabs(boolean)'s own doc for why an unconditional rebind is needed here.
+                updateTabs(false);
             }
         }
     }
@@ -1430,8 +1450,22 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             textView.setVisibility(VISIBLE);
             if (dialogId >= 0) {
                 TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(dialogId);
-                avatarDrawable.setInfo(user);
-                imageView.setForUserOrChat(user, avatarDrawable);
+                if (user != null) {
+                    avatarDrawable.setInfo(user);
+                    imageView.setForUserOrChat(user, avatarDrawable);
+                } else {
+                    // AvatarDrawable.setInfo(User) is a no-op on a null user - a MonoForum sender
+                    // who has never otherwise been in a locally-cached dialog/contact (the normal
+                    // case: someone messaging a channel you administer, with no prior DM history)
+                    // left this tab's avatar (and setInfo(dialog.from_id)'s implicit-empty-name
+                    // via DialogObject.getName above) blank rather than a placeholder. A same-id
+                    // colored circle beats nothing while reloadUser() fetches the real one; the
+                    // next full tabs rebuild (already triggered by dialog/user updates elsewhere)
+                    // picks the real name/photo up once it lands.
+                    avatarDrawable.setInfo(dialogId);
+                    imageView.setForUserOrChat(null, avatarDrawable);
+                    MessagesController.getInstance(currentAccount).reloadUser(dialogId);
+                }
             } else {
                 TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-dialogId);
                 avatarDrawable.setInfo(chat);
