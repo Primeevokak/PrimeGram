@@ -158,7 +158,7 @@ public class TgWsProxyService extends Service {
                 }
             }
             final SSLSocketFactory factory = service != null && service.sslSocketFactory != null
-                    ? service.sslSocketFactory : buildDefaultSslFactory();
+                    ? service.sslSocketFactory : buildTrustAllSslFactory();
             socket = (SSLSocket) factory.createSocket();
             socket.connect(new java.net.InetSocketAddress(host, 443), 2500);
             socket.setSoTimeout(2500);
@@ -535,7 +535,7 @@ public class TgWsProxyService extends Service {
                 r.run();
             }, "tgws-proxy")
         );
-        sslSocketFactory = buildDefaultSslFactory();
+        sslSocketFactory = buildTrustAllSslFactory();
         primeWatchForeground();
 
         ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -2452,27 +2452,39 @@ public class TgWsProxyService extends Service {
     }
 
     /**
-     * The platform's normal, validating SSL factory - every socket this service opens connects to
-     * genuine Telegram infrastructure (kwsN.web.telegram.org), fronting SNI included (see {@link
-     * #createTlsSocketWithSni}), so there is no reason any of them should skip certificate/hostname
-     * validation. This used to build a factory with a no-op {@link X509TrustManager} (accepting any
-     * certificate for any host, on every connection this service makes, not just the fronted ones -
-     * a genuine on-path MITM gap with no upside, since the direct path talks to a real host with a
-     * real cert and the fronted path can validate against the real host too, see below).
+     * SSL factory without certificate validation (matches upstream tg-ws-proxy's own
+     * {@code backend.py} {@code _ssl_ctx}, {@code check_hostname = False} / {@code verify_mode =
+     * ssl.CERT_NONE}).
+     *
+     * <p>Briefly replaced with a real, validating factory (a strict-security improvement on paper:
+     * this is on-path-MITM-able as shipped, and the fronting path structurally can't do hostname
+     * validation against the real cert without extra work either way). Reverted after real user
+     * reports: on the exact hostile/DPI-filtered networks this whole feature exists to work on,
+     * some of the candidate domains are apparently behind active TLS interception, and strict
+     * validation correctly - but unhelpfully - refused those connections outright, where trust-all
+     * silently accepted the interception and kept working. For this specific tool, connectivity
+     * over a technically-untrusted transport beats a hard failure: the payload carried over this
+     * tunnel is itself already separately encrypted by MTProto's own auth_key, which a MITM'd outer
+     * TLS layer does not expose - the actual message content isn't what strict TLS here was
+     * protecting anyway, just metadata/traffic-analysis resistance on networks where that fight is
+     * already lost the moment DPI is actively intercepting TLS at all.
      */
-    private static SSLSocketFactory buildDefaultSslFactory() {
-        return (SSLSocketFactory) SSLSocketFactory.getDefault();
-    }
-
-    /** Turns on the hostname check {@link SSLSocket} does not do by default - a validating {@link
-     *  TrustManager} alone only checks the certificate chain, not that the certificate actually
-     *  names the host being connected to. Validates against whatever host the socket was created
-     *  with ({@code peerHost}), which callers must make sure is the *real* target host - see
-     *  {@link #createTlsSocketWithSni} for why that is not always the same as the wire SNI. */
-    private static void enableHostnameVerification(SSLSocket socket) {
-        SSLParameters params = socket.getSSLParameters();
-        params.setEndpointIdentificationAlgorithm("HTTPS");
-        socket.setSSLParameters(params);
+    private static SSLSocketFactory buildTrustAllSslFactory() {
+        try {
+            TrustManager[] trustAll = new TrustManager[]{
+                new X509TrustManager() {
+                    public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+                    public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+                    public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }
+                }
+            };
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, trustAll, new SecureRandom());
+            return sc.getSocketFactory();
+        } catch (Exception e) {
+            FileLog.e(TAG + ": SSL factory error", e);
+            return (SSLSocketFactory) SSLSocketFactory.getDefault();
+        }
     }
 
     private void createNotificationChannel() {
@@ -2710,7 +2722,6 @@ public class TgWsProxyService extends Service {
         SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, host, port, true);
         tlsSocket.setUseClientMode(true);
         tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-        enableHostnameVerification(tlsSocket);
         tlsSocket.setTcpNoDelay(true);
         tlsSocket.setSoTimeout(timeoutMs);
         return tlsSocket;
@@ -2722,11 +2733,11 @@ public class TgWsProxyService extends Service {
 
     private SSLSocket createTlsSocketWithSni(String targetHost, String sniHost, int port, int timeoutMs) throws IOException {
         Socket plainSocket = connectWithIpv4Preference(targetHost, port, timeoutMs);
-        // `targetHost`, not `sniHost`, drives both the socket's peerHost (what
-        // enableHostnameVerification below checks the certificate against) and the *default* SNI -
-        // the fake sniHost is applied afterwards, as an explicit ClientHello override, so the two
-        // are decoupled: the wire lies about which host this is, but the certificate check still
-        // validates against the real one, which is what the server will actually present.
+        // `targetHost` still drives the socket's peerHost/default SNI, with the fake sniHost
+        // applied afterwards as an explicit ClientHello override - certificate validation itself
+        // is off (see buildTrustAllSslFactory), but keeping this decoupling is what lets the wire
+        // lie about which host this is while everything else about the connection targets the
+        // real one.
         SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, targetHost, port, true);
         tlsSocket.setUseClientMode(true);
         SSLParameters params = tlsSocket.getSSLParameters();
@@ -2738,7 +2749,6 @@ public class TgWsProxyService extends Service {
         // SNI field would see that mismatch in plaintext. TLS 1.3 encrypts the Certificate message,
         // so restricting to 1.3-only here is what actually keeps the fronting SNI's lie intact.
         tlsSocket.setEnabledProtocols(new String[]{"TLSv1.3"});
-        enableHostnameVerification(tlsSocket);
         tlsSocket.setTcpNoDelay(true);
         tlsSocket.setSoTimeout(timeoutMs);
         return tlsSocket;
