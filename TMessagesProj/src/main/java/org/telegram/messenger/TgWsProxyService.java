@@ -195,7 +195,13 @@ public class TgWsProxyService extends Service {
     private static final Object domainLock = new Object();
 
     public static void addLog(String line) {
-        final String formatted = String.format("[%tT] %s", System.currentTimeMillis(), line);
+        // Millisecond precision + thread name: several distinct events routinely land in the same
+        // second (a pool refill burst, several SOCKS5 accepts back to back), and without either of
+        // these there was no way to tell their actual order or which of several concurrent
+        // sessions/threads a given line even belonged to - exactly the ambiguity that made it
+        // impossible to confirm (rather than guess) that a "Socket closed" was the same session as
+        // the "WsPool refilled" burst three lines above it.
+        final String formatted = String.format("[%tT.%<tL][%s] %s", System.currentTimeMillis(), Thread.currentThread().getName(), line);
         final LogListener listener;
         synchronized (logLock) {
             logBuffer.add(formatted);
@@ -576,6 +582,16 @@ public class TgWsProxyService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private ServerSocket serverSocket;
     private ExecutorService executor;
+    // Pool warm-up (refillWsPoolAsync) used to run on the same bounded `executor` as live client
+    // sessions. A warm-up burst - e.g. warmupActiveDcs() firing for several recently-active DCs
+    // at once - occupies several of those threads for seconds each (a sequential run of TLS
+    // handshakes), and a real log showed this exact thing: "WsPool refilled ... pool size: 8"
+    // repeated back to back, immediately followed by "Unsupported SOCKS5 command: -1" / "Broken
+    // pipe" on brand-new local SOCKS5 connections - tgnet's own connect had queued behind the
+    // warm-up work long enough that it gave up before handleClient ever got a thread to read its
+    // first byte. Warm-up is background housekeeping, never something a real session should wait
+    // behind, so it gets its own small, separate pool.
+    private ExecutorService poolWarmExecutor;
     private SSLSocketFactory sslSocketFactory;
     private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.Semaphore> dcSemaphores = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, Long> ipFailUntil = new java.util.concurrent.ConcurrentHashMap<>();
@@ -710,7 +726,11 @@ public class TgWsProxyService extends Service {
     }
 
     private void startWatchdog() {
-        executor.submit(() -> {
+        // Background housekeeping, not client-facing traffic - runs on poolWarmExecutor rather
+        // than the live-session `executor` for the same reason refillWsPoolAsync moved there: this
+        // loop sleeps and wakes forever for the service's whole lifetime, which would otherwise
+        // permanently pin one of the bounded executor's few core threads to nothing but sleeping.
+        poolWarmExecutor.submit(() -> {
             while (running.get()) {
                 try {
                     Thread.sleep(15_000); // Check every 15 seconds
@@ -718,6 +738,15 @@ public class TgWsProxyService extends Service {
                         if (serverSocket == null || serverSocket.isClosed() || !serverSocket.isBound()) {
                             logInfo("Watchdog detected server socket is closed/unbound! Restarting server socket...");
                             restartProxySockets();
+                        }
+                        // Cheap snapshot every 15s so a thread-starvation episode shows up in the
+                        // log even when nothing else happened to trip an event-based log line -
+                        // queued > 0 or active at the ceiling is worth seeing even in isolation.
+                        if (executor instanceof java.util.concurrent.ThreadPoolExecutor) {
+                            java.util.concurrent.ThreadPoolExecutor tpe = (java.util.concurrent.ThreadPoolExecutor) executor;
+                            if (tpe.getQueue().size() > 0 || tpe.getActiveCount() >= tpe.getMaximumPoolSize()) {
+                                logInfo("Watchdog: client executor under pressure - " + executorStats());
+                            }
                         }
                         maintainWsPool();
                         // The only thing still running when the app is swiped away, so this is
@@ -775,9 +804,27 @@ public class TgWsProxyService extends Service {
         // (see maxConcurrentPerDc()) - a cap tighter than what the per-DC semaphores can actually
         // hand out would silently throttle standard mode's higher connection count right back
         // down, defeating the whole point of the mode switch.
+        //
+        // PrimeGram: corePoolSize used to be a fixed 4, independent of maxThreads. A real log
+        // (executorStats() added specifically to check this) showed active=4/120, poolSize=4,
+        // queued=1-3 held constant for the entire session, no matter how much concurrent load
+        // there was - java.util.concurrent.ThreadPoolExecutor only ever grows PAST corePoolSize
+        // once the queue is completely full (a `LinkedBlockingQueue(128)` almost never fills from
+        // just 1-3 queued items), so the other 116 threads of headroom this pool was sized for
+        // were never actually reachable. Every new SOCKS5 connection was queuing behind whatever
+        // 4 tasks (some of them LONG-LIVED - a live relay session pins its handling thread for the
+        // session's entire lifetime) already had the 4 core threads, with real observed dispatch
+        // delays of 4-25 SECONDS before a thread ever picked it up - long past tgnet's own
+        // patience, which is the direct, confirmed (not guessed) cause of the "Unsupported SOCKS5
+        // command: -1" / "Broken pipe" pattern: the client had already given up and closed before
+        // a thread ever read its first byte. Making corePoolSize == maximumPoolSize makes the
+        // executor actually create a new thread for every task up to the real ceiling before it
+        // ever queues, which is the scale-up behavior this pool was already sized and paying
+        // memory for but never receiving; allowCoreThreadTimeOut still reclaims idle capacity
+        // after 60s so this doesn't cost anything at rest.
         final int maxThreads = Math.max(24, maxConcurrentPerDc() * 3);
         executor = new java.util.concurrent.ThreadPoolExecutor(
-            4, maxThreads, 60L, java.util.concurrent.TimeUnit.SECONDS,
+            maxThreads, maxThreads, 60L, java.util.concurrent.TimeUnit.SECONDS,
             new java.util.concurrent.LinkedBlockingQueue<>(128),
             r -> new Thread(() -> {
                 // Deliberately not THREAD_PRIORITY_BACKGROUND: that moves the thread into the
@@ -790,6 +837,13 @@ public class TgWsProxyService extends Service {
                 r.run();
             }, "tgws-proxy")
         );
+        ((java.util.concurrent.ThreadPoolExecutor) executor).allowCoreThreadTimeOut(true);
+        poolWarmExecutor = java.util.concurrent.Executors.newFixedThreadPool(2, r -> new Thread(() -> {
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT + 4);
+            } catch (Throwable ignore) {}
+            r.run();
+        }, "tgws-pool-warm"));
         sslSocketFactory = buildTrustAllSslFactory();
         primeWatchForeground();
 
@@ -879,6 +933,7 @@ public class TgWsProxyService extends Service {
         clearWsPool();
         restartProxySockets();
         if (executor != null) executor.shutdown();
+        if (poolWarmExecutor != null) poolWarmExecutor.shutdown();
         
         AndroidUtilities.runOnUIThread(() -> {
             try {
@@ -1034,13 +1089,15 @@ public class TgWsProxyService extends Service {
                             try { client.close(); } catch (IOException ignored) {}
                             continue;
                         }
+                        final long acceptedAt = System.currentTimeMillis();
                         try {
-                            executor.submit(() -> handleClient(client));
+                            executor.submit(() -> handleClient(client, acceptedAt));
                         } catch (java.util.concurrent.RejectedExecutionException saturated) {
                             // The bounded pool/queue (see executor's construction above) is
                             // completely full - a real overload, not a socket problem. Drop this
                             // one connection instead of falsely marking the server socket unbound,
                             // which would otherwise trigger a pointless rebind.
+                            logError("Client executor saturated (" + executorStats() + "), dropping accepted connection", null);
                             try { client.close(); } catch (IOException ignored) {}
                         }
                     } catch (IOException e) {
@@ -1739,7 +1796,7 @@ public class TgWsProxyService extends Service {
         String key = dcId + "_" + isMedia;
         java.util.concurrent.atomic.AtomicBoolean refilling = wsPoolRefilling.computeIfAbsent(key, k -> new java.util.concurrent.atomic.AtomicBoolean(false));
         if (refilling.compareAndSet(false, true)) {
-            executor.submit(() -> {
+            poolWarmExecutor.submit(() -> {
                 try {
                     java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
                     while (q.size() < poolTargetFor(isMedia)) {
@@ -1868,6 +1925,7 @@ public class TgWsProxyService extends Service {
 
     private SSLSocket createTlsSocketToFixedIp(String ip, String sniHost, int port, int timeoutMs) throws IOException {
         Socket plainSocket = new Socket();
+        tuneTunnelSocketBuffers(plainSocket);
         plainSocket.connect(new java.net.InetSocketAddress(InetAddress.getByName(ip), port), timeoutMs);
         SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, sniHost, port, true);
         tlsSocket.setUseClientMode(true);
@@ -1888,25 +1946,31 @@ public class TgWsProxyService extends Service {
             return null;
         }
 
-        // Subscriber-submitted Cloudflare Workers tried first, the shared dc-redirect IP second:
-        // real logs from the exact same evening showed 149.154.167.220 repeatedly closing
-        // sessions instantly (code=1000/"404") under load while every worker attempt in the same
-        // window connected cleanly - it is shared, capacity-limited infrastructure just like the
-        // .co.uk balancer turned out to be, just healthier on average. The worker pool spreads
-        // load across many independent Cloudflare accounts instead of funneling everyone through
-        // one, so it is the more resilient default while that pool stays small relative to this
-        // app's userbase; revisit this ordering if/when the worker pool itself gets saturated.
+        // Reverted back to dc-redirect first, worker second (the original ordering from before
+        // workers existed, which is what stayed stable for every user at 12.9.0.6). The brief
+        // window where workers were tried first was based on one evening's logs showing
+        // 149.154.167.220 failing under a client-side connect burst that the pacer/backoff added
+        // since then now smooths out. What logs since then actually show is the opposite problem:
+        // individual free-tier Workers self-terminate an established session after roughly
+        // 15-30s (a WS CLOSE frame with no status code, from many different worker accounts, not
+        // just one) - almost certainly a Cloudflare Workers free-plan connection-duration limit,
+        // not anything this app's code controls. A worker session dying mid-relay is what tears
+        // down tgnet's own connection through the local SOCKS proxy and shows "Connecting to
+        // proxy" on screen, over and over. The direct IP is real Telegram infrastructure with no
+        // such lifetime cap, so it goes back to being the primary path; workers remain in the
+        // spare pool (refillWsPoolAsync's alternation) and as the fallback here if the direct IP
+        // is blocked outright.
+        WsConnection viaRedirect = tryDcRedirectConnect(dcId, isMedia);
+        if (viaRedirect != null) {
+            return viaRedirect;
+        }
+
         String dcDst = DC_DEFAULT_IPS.get(dcId);
         if (dcDst != null) {
             WsConnection viaWorker = connectThroughWorker(dcId, isMedia, dcDst);
             if (viaWorker != null) {
                 return viaWorker;
             }
-        }
-
-        WsConnection viaRedirect = tryDcRedirectConnect(dcId, isMedia);
-        if (viaRedirect != null) {
-            return viaRedirect;
         }
 
         SSLSocket tlsSocket = null;
@@ -2098,7 +2162,23 @@ public class TgWsProxyService extends Service {
         }
     }
 
-    private void handleClient(Socket client) {
+    /** Every log line for one client session carries this so the several lines it produces can be
+     *  told apart from a concurrent session's interleaved lines, and correlated end to end - which
+     *  domain it connected through, whether it died fast, how many bytes actually moved - by
+     *  grepping one number instead of guessing from timestamps and DC/media alone. */
+    private static final java.util.concurrent.atomic.AtomicLong sessionIdCounter = new java.util.concurrent.atomic.AtomicLong();
+
+    private String executorStats() {
+        if (!(executor instanceof java.util.concurrent.ThreadPoolExecutor)) {
+            return "n/a";
+        }
+        java.util.concurrent.ThreadPoolExecutor tpe = (java.util.concurrent.ThreadPoolExecutor) executor;
+        return "active=" + tpe.getActiveCount() + "/" + tpe.getMaximumPoolSize()
+                + ", queued=" + tpe.getQueue().size() + ", poolSize=" + tpe.getPoolSize();
+    }
+
+    private void handleClient(Socket client, long acceptedAt) {
+        final long sid = sessionIdCounter.incrementAndGet();
         addClientSocket(client);
         boolean semaphoreAcquired = false;
         int dcId = -1;
@@ -2111,7 +2191,15 @@ public class TgWsProxyService extends Service {
             InputStream in = client.getInputStream();
             OutputStream out = client.getOutputStream();
 
-            logInfo("New SOCKS5 connection from " + client.getRemoteSocketAddress());
+            // dispatchDelay is the time this connection sat accepted-but-unhandled, waiting for an
+            // executor thread. A real log showed brand-new local SOCKS5 connections failing with
+            // "Unsupported SOCKS5 command: -1" (i.e. read() got EOF before a single real byte)
+            // right after a burst of pool-warming work - this number, plus the executor's own
+            // queue/active-thread snapshot, is what actually confirms or rules out "tgnet gave up
+            // waiting for a thread" instead of guessing from proximity in the log.
+            long dispatchDelay = System.currentTimeMillis() - acceptedAt;
+            logInfo("[s" + sid + "] New SOCKS5 connection from " + client.getRemoteSocketAddress()
+                    + (dispatchDelay > 20 ? " (dispatch delay " + dispatchDelay + "ms, executor: " + executorStats() + ")" : ""));
 
             // SOCKS5 handshake: [ver=5, nmethods, methods...]
             int ver = in.read();
@@ -2135,7 +2223,8 @@ public class TgWsProxyService extends Service {
             int atyp   = in.read();
 
             if (reqVer != 5 || cmd != 1) { // cmd=1 = CONNECT
-                logInfo("Unsupported SOCKS5 command: " + cmd);
+                logInfo("[s" + sid + "] Unsupported SOCKS5 command: " + cmd + " (reqVer=" + reqVer
+                        + ", waited " + (System.currentTimeMillis() - acceptedAt) + "ms since accept)");
                 out.write(new byte[]{0x05, 0x07, 0x00, 0x01, 0,0,0,0, 0,0});
                 out.flush();
                 client.close();
@@ -2173,7 +2262,7 @@ public class TgWsProxyService extends Service {
                 return;
             }
 
-            logInfo("SOCKS5 Request to " + destIp + ":" + destPort);
+            logInfo("[s" + sid + "] SOCKS5 Request to " + destIp + ":" + destPort);
 
             // Определяем DC
             int[] dcInfo = null;
@@ -2226,7 +2315,7 @@ public class TgWsProxyService extends Service {
             // Нормализуем DC203 -> DC2
             if (dcId == 203) dcId = 2;
 
-            logInfo("Matched DC" + dcId + " (media=" + isMedia + ")");
+            logInfo("[s" + sid + "] Matched DC" + dcId + " (media=" + isMedia + ")");
 
             // SOCKS5 ответ: успех
             out.write(new byte[]{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0});
@@ -2246,19 +2335,27 @@ public class TgWsProxyService extends Service {
 
             // Получаем готовое WebSocket-соединение из пула (или создаем на лету)
             java.util.concurrent.Semaphore sem = getSemaphoreForDc(dcId, isMedia);
+            long semWaitStart = System.currentTimeMillis();
             try {
                 if (!sem.tryAcquire(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                    logInfo("Timeout waiting for connection semaphore for DC" + dcId + " (media=" + isMedia + "), rejecting duplicate connection");
+                    logInfo("[s" + sid + "] Timeout waiting for connection semaphore for DC" + dcId
+                            + " (media=" + isMedia + ", " + sem.getQueueLength() + " others also waiting), rejecting duplicate connection");
                     client.close();
                     return;
                 }
                 semaphoreAcquired = true;
+                long semWait = System.currentTimeMillis() - semWaitStart;
+                if (semWait > 50) {
+                    logInfo("[s" + sid + "] Waited " + semWait + "ms for DC" + dcId + " (media=" + isMedia + ") connection semaphore");
+                }
             } catch (InterruptedException e) {
-                logInfo("Interrupted waiting for connection semaphore for DC" + dcId);
+                logInfo("[s" + sid + "] Interrupted waiting for connection semaphore for DC" + dcId);
                 return;
             }
 
+            long wsConnectStart = System.currentTimeMillis();
             WsConnection wsConn = getPooledWsConnection(dcId, isMedia);
+            boolean fromPool = wsConn != null;
             if (wsConn == null) {
                 wsConn = connectToWebSocket(dcId, isMedia);
             }
@@ -2339,7 +2436,7 @@ public class TgWsProxyService extends Service {
                 return;
             }
 
-            InputStream wsIn = new BufferedInputStream(tlsSocket.getInputStream(), 65536);
+            InputStream wsIn = new BufferedInputStream(tlsSocket.getInputStream(), TUNNEL_SOCKET_BUFFER_BYTES);
             OutputStream wsOut = tlsSocket.getOutputStream();
 
             // Отправляем relay init в WebSocket бинарном фрейме
@@ -2352,10 +2449,11 @@ public class TgWsProxyService extends Service {
             tlsSocket.setSoTimeout(120_000); // 2 minutes read timeout
 
             primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " session established");
-            logInfo("Session established, entering active relay bridge...");
+            logInfo("[s" + sid + "] Session established via " + chosenDomain + " (" + (fromPool ? "from pool" : "fresh connect, " + (System.currentTimeMillis() - wsConnectStart) + "ms")
+                    + "), entering active relay bridge...");
 
             // Запускаем двунаправленный мост с ре-шифрованием
-            bridgeConnections(client, in, out, tlsSocket, wsIn, wsOut, cryptoCtx, splitter, dcId, isMedia, chosenDomain);
+            bridgeConnections(client, in, out, tlsSocket, wsIn, wsOut, cryptoCtx, splitter, dcId, isMedia, chosenDomain, sid);
 
         } catch (Exception e) {
             logError("handleClient error", e);
@@ -2407,6 +2505,7 @@ public class TgWsProxyService extends Service {
         Socket tcpSocket = null;
         try {
             tcpSocket = new Socket();
+            tuneTunnelSocketBuffers(tcpSocket);
             tcpSocket.connect(new java.net.InetSocketAddress(InetAddress.getByName(realIp), 443), 8_000);
             tcpSocket.setTcpNoDelay(true);
 
@@ -2961,12 +3060,19 @@ public class TgWsProxyService extends Service {
     private void bridgeConnections(Socket client, InputStream in, OutputStream out,
                                    SSLSocket tlsSocket, InputStream wsIn, OutputStream wsOut,
                                    CryptoCtx ctx, MsgSplitter splitter, int dcId, boolean isMedia,
-                                   String connectedDomain) {
+                                   String connectedDomain, long sid) {
         AtomicBoolean closed = new AtomicBoolean(false);
         MsgSplitter wsSplitter = new MsgSplitter(PROTO_INTERMEDIATE_INT);
         final SessionActivity activity = new SessionActivity(dcId, isMedia, System.currentTimeMillis(), connectedDomain, client, tlsSocket);
         liveSessions.add(activity);
         ensureStallWatcher();
+        // Bytes actually moved in each direction - without this, "Socket closed" told you a
+        // session died but not whether it ever carried anything at all. A session that dies at
+        // 0 bytes-from-ws is a connect that never should have been called "established"; one that
+        // died after megabytes clearly was a healthy transfer that got cut, and those two point at
+        // completely different causes.
+        final java.util.concurrent.atomic.AtomicLong bytesToWs = new java.util.concurrent.atomic.AtomicLong();
+        final java.util.concurrent.atomic.AtomicLong bytesFromWs = new java.util.concurrent.atomic.AtomicLong();
 
         // Reset read timeouts to 0 (infinite) during active relay bridge,
         // relying on TCP keepalive.
@@ -3017,12 +3123,13 @@ public class TgWsProxyService extends Service {
                             synchronized (wsOut) {
                                 sendWsFrame(wsOut, encBuf, 0, encLen);
                             }
+                            bytesToWs.addAndGet(encLen);
                             activity.lastClientSend = System.currentTimeMillis();
                         }
                     }
                 }
             } catch (Exception e) {
-                logError("Error in client-to-ws thread", e);
+                logError("[s" + sid + "] Error in client-to-ws thread (sent " + bytesToWs.get() + " bytes total)", e);
             } finally {
                 closed.set(true);
                 try { tlsSocket.close(); } catch (IOException ignored) {}
@@ -3037,8 +3144,9 @@ public class TgWsProxyService extends Service {
         try {
             byte[] decBuf = new byte[65536 + 64];
             while (!closed.get()) {
-                String closePrefix = "DC" + dcId + (isMedia ? "m" : "") + " via " + connectedDomain
-                        + " (age=" + (System.currentTimeMillis() - sessionStartTime) + "ms, thread=" + Thread.currentThread().getName() + "): ";
+                String closePrefix = "[s" + sid + "] DC" + dcId + (isMedia ? "m" : "") + " via " + connectedDomain
+                        + " (age=" + (System.currentTimeMillis() - sessionStartTime) + "ms, thread=" + Thread.currentThread().getName()
+                        + ", toWs=" + bytesToWs.get() + "B, fromWs=" + bytesFromWs.get() + "B): ";
                 byte[] frame = recvWsFrame(wsIn, wsOut, closePrefix);
                 if (frame == null) break;
 
@@ -3081,11 +3189,14 @@ public class TgWsProxyService extends Service {
                     
                     ctx.cltEnc.update(abridged, 0, abridged.length, abridged, 0);
                     out.write(abridged);
+                    bytesFromWs.addAndGet(abridged.length);
                 }
                 out.flush();
             }
         } catch (Exception e) {
-            logError("Error in ws-to-client thread", e);
+            logError("[s" + sid + "] Error in ws-to-client thread (via " + connectedDomain + ", age="
+                    + (System.currentTimeMillis() - sessionStartTime) + "ms, toWs=" + bytesToWs.get()
+                    + "B, fromWs=" + bytesFromWs.get() + "B)", e);
         } finally {
             closed.set(true);
             liveSessions.remove(activity);
@@ -3093,11 +3204,18 @@ public class TgWsProxyService extends Service {
 
             // Every ending is recorded, not just the quick ones: a session that dies at forty
             // seconds is exactly the case the old threshold could not see.
+            long sessionAge = System.currentTimeMillis() - sessionStartTime;
             primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " session ended after "
-                    + (System.currentTimeMillis() - sessionStartTime) + " ms"
+                    + sessionAge + " ms"
+                    + (firstFrame ? ", no server frame ever arrived" : ""));
+            // Visible in the on-screen log too (primeTraceConnect isn't) - a zero-byte-either-way
+            // ending is a connect that never should have counted as "established"; megabytes-then-
+            // cut is a healthy transfer interrupted. Same "Socket closed" line meant either before.
+            logInfo("[s" + sid + "] Session ended: DC" + dcId + (isMedia ? "m" : "") + " via " + connectedDomain
+                    + ", age=" + sessionAge + "ms, toWs=" + bytesToWs.get() + "B, fromWs=" + bytesFromWs.get() + "B"
                     + (firstFrame ? ", no server frame ever arrived" : ""));
 
-            if (System.currentTimeMillis() - sessionStartTime < 5000) {
+            if (sessionAge < 5000) {
                 if (noteFastSessionFailure(connectedDomain, dcId, isMedia)) {
                     // The breaker just tripped for this (dc, media) - any sockets already sitting
                     // in the pool were dialed during the same bad window and would otherwise be
@@ -3120,6 +3238,31 @@ public class TgWsProxyService extends Service {
     }
 
     // ─── Utilities ─────────────────────────────────────────────────────────
+
+    /** Throughput over any path with real latency is capped by window-size / RTT, and this tunnel
+     *  adds a real extra hop's worth of RTT (client -> Cloudflare edge/Worker -> Telegram) on top
+     *  of an unproxied connection's own. Android/Linux auto-tunes TCP buffers reasonably well by
+     *  default, but its ceiling on some devices/kernels still lands well under what a 200-300ms
+     *  round trip to a Worker can actually use - a media download sitting well below the link's
+     *  real bandwidth despite a healthy, unbroken WS session (as opposed to a session that keeps
+     *  dying, which is a completely different problem this does nothing for) is exactly that
+     *  ceiling. Setting an explicit floor removes it as a variable; it costs a fixed amount of
+     *  memory per open tunnel (2 x 256 KiB), trivial next to what one media transfer already
+     *  allocates in buffers elsewhere in this same class. Must be called before connect() - the
+     *  send buffer size in particular is part of what the OS uses to size the TCP window during
+     *  the handshake, and setting it after connecting only affects some platforms' interpretation.
+     */
+    private static final int TUNNEL_SOCKET_BUFFER_BYTES = 256 * 1024;
+
+    private static void tuneTunnelSocketBuffers(Socket socket) {
+        try {
+            socket.setReceiveBufferSize(TUNNEL_SOCKET_BUFFER_BYTES);
+            socket.setSendBufferSize(TUNNEL_SOCKET_BUFFER_BYTES);
+        } catch (Exception ignored) {
+            // Some platforms reject this on an unconnected socket, or cap it silently - either
+            // way, falling back to the OS default is fine, not fatal.
+        }
+    }
 
     private static void readFully(InputStream in, byte[] buf, int off, int len) throws IOException {
         int total = 0;
@@ -3392,6 +3535,7 @@ public class TgWsProxyService extends Service {
         IOException lastEx = null;
         for (InetAddress addr : prioritized) {
             Socket socket = new Socket();
+            tuneTunnelSocketBuffers(socket);
             try {
                 logInfo("Connecting to resolved address " + addr + " for host " + host);
                 final long tcpStart = System.currentTimeMillis();

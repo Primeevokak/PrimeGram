@@ -60,6 +60,8 @@ public final class PrimeCfWorkers {
             "yellow-bread-af76.luna-f94.workers.dev",
             "yellow-flower-a227.alekspolejaev13.workers.dev",
             "young-grass-fd67.klukvamorsov.workers.dev",
+            "broken-math-a86c.swet302003.workers.dev",
+            "wandering-dawn-9800.artem-ponkratov-2000.workers.dev",
     };
 
     /** How long a worker that just failed sits out before being tried again - short, because a
