@@ -42,6 +42,9 @@ public class ShareActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setTheme(R.style.Theme_TMessages_Transparent);
         super.onCreate(savedInstanceState);
+        if (org.telegram.messenger.PrimePinSession.guardAfterSuper(this)) {
+            return;
+        }
         setContentView(new View(this), new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         Intent intent = getIntent();

@@ -423,6 +423,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // PrimeGram PIN gate: checked before anything else in this method runs. Mirrors the
+        // existing super.onCreate()+finish()+return pattern a few lines below (the
+        // SEND/SEND_MULTIPLE branch for a not-yet-activated account) rather than inventing a
+        // new one - that precedent already proves this shape is safe in this exact method.
+        if (org.telegram.messenger.PrimePinSession.isEnabled() && !org.telegram.messenger.PrimePinSession.isUnlocked()) {
+            super.onCreate(savedInstanceState);
+            try {
+                getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+            } catch (Throwable ignored) {
+            }
+            org.telegram.messenger.PrimePinSession.redirectToGate(this);
+            finish();
+            return;
+        }
         org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity.onCreate begin");
         isActive = true;
         activeInstanceCount++;
@@ -7034,10 +7048,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     public void onUserInteraction() {
         super.onUserInteraction();
         voipLaunchedInBackground = false;
+        org.telegram.messenger.PrimePinSession.noteUserInteraction();
     }
 
     @Override
     protected void onPause() {
+        org.telegram.messenger.PrimePinSession.scheduleBackgroundLock();
         super.onPause();
         isResumed = false;
         org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("pause");
@@ -7273,6 +7289,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onResume() {
         super.onResume();
+        org.telegram.messenger.PrimePinSession.cancelBackgroundLock();
+        if (org.telegram.messenger.PrimePinSession.isEnabled() && !org.telegram.messenger.PrimePinSession.isUnlocked()) {
+            org.telegram.messenger.PrimePinSession.redirectToGate(this);
+            return;
+        }
         updateSidebarVisibility();
         isResumed = true;
         org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("resume");

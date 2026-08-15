@@ -512,12 +512,20 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 presentFragment(new PrimeVpnServersActivity());
             } else if (position == tgwsProxyRow) {
                 SharedPreferences mainconfig = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
-                boolean enabled = mainconfig.getBoolean("primegram_tgws_enabled", true);
-                mainconfig.edit().putBoolean("primegram_tgws_enabled", !enabled).apply();
-                if (org.telegram.messenger.TgWsProxyService.isRunning()) {
-                    org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
-                } else {
+                // Act on what the switch now says, not on whether the service happens to be up -
+                // those disagree whenever the service was restarted from elsewhere (crash
+                // recovery, network-change churn), and keying off isRunning() here meant this
+                // toggle could silently do the opposite of what was just asked: write
+                // enabled=false to prefs and then, because the service happened to be down at
+                // that exact instant for an unrelated reason, immediately start it right back up.
+                // Same bug already fixed with this exact comment in PrimeTgWsActivity and
+                // PrimeGramSettingsActivity - this was the one site that never got the fix.
+                boolean enabled = !mainconfig.getBoolean("primegram_tgws_enabled", true);
+                mainconfig.edit().putBoolean("primegram_tgws_enabled", enabled).apply();
+                if (enabled) {
                     org.telegram.messenger.TgWsProxyService.startService(getParentActivity());
+                } else {
+                    org.telegram.messenger.TgWsProxyService.stopService(getParentActivity());
                 }
                 if (listAdapter != null) {
                     listAdapter.notifyItemChanged(tgwsProxyRow);

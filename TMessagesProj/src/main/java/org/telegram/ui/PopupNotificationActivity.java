@@ -159,6 +159,9 @@ public class PopupNotificationActivity extends Activity implements NotificationC
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (org.telegram.messenger.PrimePinSession.guardAfterSuper(this)) {
+            return;
+        }
         Theme.createDialogsResources(this);
         Theme.createChatResources(this, false);
 

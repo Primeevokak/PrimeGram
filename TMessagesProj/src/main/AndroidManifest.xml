@@ -420,6 +420,12 @@
 				  android:taskAffinity="${applicationId}.voip_feedback"
                   android:excludeFromRecents="true"
                 android:theme="@style/Theme.TMessages.TransparentWithAlerts"/>
+        <activity
+            android:name="org.telegram.ui.PrimePinGateActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode|smallestScreenSize|screenLayout"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:exported="false"/>
 
         <receiver
             android:name=".AutoMessageHeardReceiver"

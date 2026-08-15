@@ -372,10 +372,17 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     final long did = DialogObject.getPeerDialogId(messageObject.messageOwner.from_id);
                     if (did >= 0) {
                         final TLRPC.User user = MessagesController.getInstance(messageObject.currentAccount).getUser(did);
+                        // Written back to the class field, not just used locally: userInfoDidLoad
+                        // (above) and the tap/long-press avatar handlers all branch on currentUser,
+                        // and with it left null here they silently believed no sender had ever been
+                        // resolved - the async avatar load had nothing to invalidate the cell with,
+                        // so it only ever showed up after something else (a touch) forced a rebind.
+                        currentUser = user;
                         avatarDrawable.setInfo(currentAccount, user);
                         avatarImage.setForUserOrChat(user, avatarDrawable);
                     } else {
                         final TLRPC.Chat chat = MessagesController.getInstance(messageObject.currentAccount).getChat(-did);
+                        currentChat = chat;
                         avatarDrawable.setInfo(currentAccount, chat);
                         avatarImage.setForUserOrChat(chat, avatarDrawable);
                     }

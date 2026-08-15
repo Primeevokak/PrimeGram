@@ -192,6 +192,13 @@ public class ApplicationLoader extends Application {
         if (applicationInited || applicationContext == null) {
             return;
         }
+        // PrimeGram PIN gate: deliberately checked before applicationInited is set, not after -
+        // a locked launch must be able to retry this same call once the gate clears, not be
+        // permanently short-circuited by the flag this method sets for itself on a real run.
+        // Nothing past this point (controllers, DB, network) starts until the gate is cleared.
+        if (!PrimePinSession.isUnlocked()) {
+            return;
+        }
         applicationInited = true;
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
         PrimeStartupTrace.mark("postInitApplication: native libs");

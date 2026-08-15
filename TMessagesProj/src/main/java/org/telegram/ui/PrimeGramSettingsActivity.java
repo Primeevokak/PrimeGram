@@ -173,6 +173,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_GUIDE = 108;
     private static final int ID_BIGFILE = 109;
     private static final int ID_BIGFILE_EXPERIMENTAL = 110;
+    private static final int ID_PIN_ENABLE = 160;
+    private static final int ID_PIN_LOCK_POLICY = 161;
+    private static final int ID_PIN_DISABLE = 162;
+    private static final int ID_PIN_EMERGENCY = 163;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1496,6 +1500,20 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_PRIVACY) {
+            boolean pinEnrolled = org.telegram.messenger.PrimePinSession.isEnabled();
+            row(check(ID_PIN_ENABLE, IconBackgroundColors.BLUE, R.drawable.msg_pin_code,
+                    "PIN-код при запуске", pinEnrolled));
+            if (pinEnrolled) {
+                row(button(ID_PIN_LOCK_POLICY, IconBackgroundColors.CYAN, R.drawable.msg_recent,
+                        "Когда запрашивать", primePinPolicyLabel()));
+                row(button(ID_PIN_EMERGENCY, IconBackgroundColors.RED, R.drawable.msg_delete,
+                        "Аварийный PIN-код", "Настроить"));
+                row(button(ID_PIN_DISABLE, IconBackgroundColors.GRAY, R.drawable.msg_block,
+                        "Отключить PIN-код", null));
+            }
+            endCard(items);
+            items.add(UItem.asShadow("PIN защищает вход в приложение — никто не увидит, сколько цифр вы ввели. Отдельно от системного код-пароля Telegram. Не шифрует базу данных на устройстве, только закрывает интерфейс."));
+
             String fake = org.telegram.messenger.PrimeGramPrivacy.getFakePhone();
             row(check(ID_HIDE_PHONE, IconBackgroundColors.RED, R.drawable.msg_secret,
                     "Скрывать свой номер в профиле",
@@ -2298,6 +2316,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             AndroidUtilities.requestIgnoreBatteryOptimizations(getParentActivity());
         } else if (item.id == ID_MUSIC_SETTINGS) {
             presentFragment(new MusicSettingsActivity());
+        } else if (item.id == ID_PIN_ENABLE) {
+            if (org.telegram.messenger.PrimePinSession.isEnabled()) {
+                launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_PIN);
+            } else {
+                launchPinGate(null);
+            }
+        } else if (item.id == ID_PIN_LOCK_POLICY) {
+            showPinLockPolicyDialog();
+        } else if (item.id == ID_PIN_DISABLE) {
+            launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_PIN);
+        } else if (item.id == ID_PIN_EMERGENCY) {
+            launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_SETUP_EMERGENCY);
         } else if (item.id == ID_HIDE_PHONE) {
             org.telegram.messenger.PrimeGramPrivacy.setHidePhoneEnabled(!org.telegram.messenger.PrimeGramPrivacy.isHidePhoneEnabled());
             listView.adapter.update(true);
@@ -3537,6 +3567,62 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
             org.telegram.messenger.browser.PrimeDns.setCustomEndpoint(value);
             org.telegram.messenger.browser.PrimeDns.setPreset(org.telegram.messenger.browser.PrimeDns.PRESET_CUSTOM);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void launchPinGate(String extra) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        android.content.Intent intent = new android.content.Intent(getParentActivity(), org.telegram.ui.PrimePinGateActivity.class);
+        if (extra != null) {
+            intent.putExtra(extra, true);
+        }
+        getParentActivity().startActivity(intent);
+    }
+
+    private String primePinPolicyLabel() {
+        switch (org.telegram.messenger.PrimePinSession.getLockPolicy()) {
+            case ON_MINIMIZE:
+                return "При каждом сворачивании";
+            case INACTIVITY_10M:
+                return "После 10 минут бездействия";
+            case INACTIVITY_60M:
+                return "После 60 минут бездействия";
+            case ON_START:
+                return "Только при запуске приложения";
+            case ON_SCREEN_LOCK:
+            default:
+                return "При блокировке экрана";
+        }
+    }
+
+    private void showPinLockPolicyDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final org.telegram.messenger.PrimePinLockPolicy[] policies = {
+                org.telegram.messenger.PrimePinLockPolicy.ON_MINIMIZE,
+                org.telegram.messenger.PrimePinLockPolicy.ON_SCREEN_LOCK,
+                org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_10M,
+                org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_60M,
+                org.telegram.messenger.PrimePinLockPolicy.ON_START,
+        };
+        final String[] labels = {
+                "При каждом сворачивании",
+                "При блокировке экрана",
+                "После 10 минут бездействия",
+                "После 60 минут бездействия",
+                "Только при запуске приложения",
+        };
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Когда запрашивать PIN-код");
+        builder.setItems(labels, (dialog, which) -> {
+            org.telegram.messenger.PrimePinSession.setLockPolicy(policies[which]);
+            org.telegram.messenger.PrimePinSession.applyPolicyChange();
             listView.adapter.update(true);
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
