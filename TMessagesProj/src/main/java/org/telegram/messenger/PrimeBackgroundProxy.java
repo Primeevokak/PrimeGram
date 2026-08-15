@@ -37,14 +37,16 @@ public final class PrimeBackgroundProxy {
     };
 
     public static boolean isBackgroundWorkDisabled() {
-        // Defaults to true: this toggle's whole cost/benefit case only pays off if a typical user
-        // actually gets it, and "off by default, buried on a Connection sub-screen" meant almost
-        // nobody did - the proxy ran as an unkillable foreground service with a held wakelock and
-        // a 15s watchdog loop indefinitely, on every account, whether the app was ever backgrounded
-        // or not. Nothing about connection quality regresses from this: the tunnel is still always
-        // up while the app is actually in use, and push delivery never depended on it (FCM is
-        // independent, see the class doc above) - only the background-idle tail gets shorter.
-        return prefs().getBoolean(KEY, true);
+        // Off by default (matches the class doc). A prior version of this comment argued for
+        // defaulting to true so the battery win reached typical users automatically - but that
+        // default also makes shouldSkipColdStart() skip TgWsProxyService's cold-start autostart on
+        // EVERY fresh install/launch (mainInterfacePaused is true until LaunchActivity.onResume(),
+        // which runs after postInitApplication() already tried ConnectionsManager.init() with no
+        // proxy configured yet). For users whose network blocks Telegram's real DC IPs at the
+        // DPI/IP level, that is not a battery tradeoff - it is the app failing to connect at all
+        // until something else (a resume, a network change) happens to start the proxy late. This
+        // toggle must stay opt-in.
+        return prefs().getBoolean(KEY, false);
     }
 
     public static void setBackgroundWorkDisabled(boolean disabled) {

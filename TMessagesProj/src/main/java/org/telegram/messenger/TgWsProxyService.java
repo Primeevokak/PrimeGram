@@ -1522,20 +1522,66 @@ public class TgWsProxyService extends Service {
     private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> dcFastFailureStreak = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.ConcurrentHashMap<String, Long> dcBackoffUntil = new java.util.concurrent.ConcurrentHashMap<>();
     private static final int DC_FAST_FAILURE_THRESHOLD = 3;
-    private static final long DC_BACKOFF_MS = 20_000L;
+    // Was 20s - the reference Python client's equivalent (a session that connected but failed
+    // fast, not a bare connect timeout - see DC_CONNECT_FAIL_BACKOFF_MS below for that case)
+    // backs off for 60s (tg_ws_proxy.py's DC_FAIL_COOLDOWN). 20s meant this path got retried
+    // 3x more often than the reference design intended against infrastructure just shown to be
+    // failing sessions fast.
+    private static final long DC_BACKOFF_MS = 60_000L;
 
-    private static String dcKey(int dcId, boolean isMedia) {
-        return dcId + "_" + isMedia;
+    /**
+     * A gap the fast-failure breaker above never covered: it only reacts to a session that
+     * ESTABLISHED and then died fast - a connect attempt that never establishes at all (TLS
+     * handshake times out, connection refused) went through tryDcRedirectConnect()'s per-domain
+     * try/catch completely unrecorded, no streak, no backoff, ever. On a network where the fixed
+     * dc-redirect IP is blocked outright by DPI, every single new SOCKS5 session then pays a full
+     * connect timeout (6s x 2 domains tried against the same blocked IP = up to 12s) before ever
+     * reaching the Worker fallback - forever, since nothing here ever remembered the path was bad.
+     * That is a much better match for "hangs/stuck on every action" than the fast-failure breaker
+     * was ever going to catch, since a hard-blocked IP never gets far enough to establish a
+     * session in the first place. The reference Python client (tg_ws_proxy.py) treats exactly
+     * this signal - a WS connect timing out - as strong evidence to stop trying that path for a
+     * full hour, not retry it fresh on the very next connection a few seconds later; this is a
+     * shorter, still-substantial version of the same idea, not a literal port of the hour figure
+     * (mobile networks/IPs change more than the desktop client's target environment). */
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> dcConnectFailStreak = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int DC_CONNECT_FAIL_THRESHOLD = 2;
+    private static final long DC_CONNECT_FAIL_BACKOFF_MS = 5 * 60_000L;
+
+    private static void noteDcConnectOutcome(int dcId, boolean isMedia, boolean viaWorker, boolean failed) {
+        String key = dcKey(dcId, isMedia, viaWorker);
+        if (!failed) {
+            dcConnectFailStreak.remove(key);
+            return;
+        }
+        int streak = dcConnectFailStreak.computeIfAbsent(key, k -> new java.util.concurrent.atomic.AtomicInteger()).incrementAndGet();
+        if (streak >= DC_CONNECT_FAIL_THRESHOLD) {
+            dcConnectFailStreak.remove(key);
+            dcBackoffUntil.put(key, System.currentTimeMillis() + DC_CONNECT_FAIL_BACKOFF_MS);
+            logInfo("DC" + dcId + " (media=" + isMedia + ", viaWorker=" + viaWorker + ") failed to even connect across "
+                    + DC_CONNECT_FAIL_THRESHOLD + " attempts - backing off for " + (DC_CONNECT_FAIL_BACKOFF_MS / 1000)
+                    + "s (path looks blocked outright, not a transient hiccup)");
+        }
     }
 
-    private static boolean isDcInBackoff(int dcId, boolean isMedia) {
-        Long until = dcBackoffUntil.get(dcKey(dcId, isMedia));
+    /** Path is folded into the key on purpose: the Worker pool (third-party, unverified
+     *  workers.dev relays) and the direct dc-redirect path have no shared infrastructure and can
+     *  fail completely independently. Before this, a burst of fast Worker failures tripped the
+     *  SAME (dcId, isMedia) breaker that gated the direct path too, blocking a perfectly healthy
+     *  direct connection for DC_BACKOFF_MS just because an unrelated Worker was having a bad
+     *  moment - direct-IP is what 0.6 ran on exclusively with no such cross-talk possible. */
+    private static String dcKey(int dcId, boolean isMedia, boolean viaWorker) {
+        return dcId + "_" + isMedia + "_" + (viaWorker ? "w" : "d");
+    }
+
+    private static boolean isDcInBackoff(int dcId, boolean isMedia, boolean viaWorker) {
+        Long until = dcBackoffUntil.get(dcKey(dcId, isMedia, viaWorker));
         return until != null && until > System.currentTimeMillis();
     }
 
     /** @return true iff this call just tripped the breaker (streak crossed the threshold). */
-    private static boolean noteDcSessionOutcome(int dcId, boolean isMedia, boolean fastFailure) {
-        String key = dcKey(dcId, isMedia);
+    private static boolean noteDcSessionOutcome(int dcId, boolean isMedia, boolean viaWorker, boolean fastFailure) {
+        String key = dcKey(dcId, isMedia, viaWorker);
         if (!fastFailure) {
             dcFastFailureStreak.remove(key);
             return false;
@@ -1554,7 +1600,7 @@ public class TgWsProxyService extends Service {
      *  any already-pooled sockets for that (dc, media), since they were dialed during the same
      *  bad window and would otherwise be handed to the next client only to die instantly too. */
     private static boolean noteFastSessionFailure(String connectedDomain, int dcId, boolean isMedia) {
-        boolean trippedBreaker = noteDcSessionOutcome(dcId, isMedia, true);
+        boolean trippedBreaker = noteDcSessionOutcome(dcId, isMedia, PrimeCfWorkers.isKnownDomain(connectedDomain), true);
         if (fastFailureCount.incrementAndGet() < FAST_FAILURE_THRESHOLD) {
             return trippedBreaker;
         }
@@ -1663,7 +1709,7 @@ public class TgWsProxyService extends Service {
                 // a socket the edge already closed gets evicted (and refilled) proactively during
                 // this periodic sweep, rather than only being discovered the next time something
                 // actually tries to use it.
-                if (now - conn.createdAt > 100_000 || conn.tlsSocket.isClosed() || !isPooledConnectionAlive(conn.tlsSocket)) {
+                if (now - conn.createdAt > poolAgeLimitMs() || conn.tlsSocket.isClosed() || !isPooledConnectionAlive(conn.tlsSocket)) {
                     try { conn.tlsSocket.close(); } catch (Exception ignored) {}
                     it.remove();
                 }
@@ -1698,6 +1744,34 @@ public class TgWsProxyService extends Service {
      * (immediately throws {@link java.net.SocketTimeoutException}, the expected/good case) and
      * catches a dead one (EOF or any other IO error) before it does any damage.
      */
+    /**
+     * Was 20s/60s/120s (economy/standard/turbo), plus an entirely separate, unsynced 100s
+     * ceiling in maintainWsPool()'s own sweep - both well past reality. A real device log showed
+     * the actual failure mode this was supposed to prevent, happening anyway: "WsPool hit for
+     * DC2 (media=true), age=57889ms" (well inside the old 60s standard-mode ceiling) followed
+     * 100ms later by "Session ended... age=154ms, toWs=1136B, fromWs=5B" - a message went into a
+     * connection the pool had just certified as fine, and the far end was already gone. The same
+     * log shows session lifetimes clustering at 20-30s across EVERY path this service uses -
+     * bundled Workers, user-added Workers, and the "direct" dc-redirect IP alike (149.154.167.220
+     * itself sits behind the same shared edge - see tryDcRedirectConnect's own doc) - so a ceiling
+     * anywhere near 60s isn't "generous," it's handing out sockets from well past the point
+     * they're likely already dead. isPooledConnectionAlive()'s 1ms peek only catches a clean
+     * close (EOF already sitting in the read buffer); it cannot catch - and per that log, does
+     * not catch - a silent black-hole death with no FIN/RST/WS-close ever sent, which is exactly
+     * what "shared, capacity-limited edge infrastructure under load" does. Age is the only real
+     * backstop for that failure mode, so it has to actually sit BELOW the observed kill window,
+     * not near or above it. The proxy-mode split stays - Turbo still keeps more spares via a
+     * deeper poolTargetFor(), not older ones; there is no reason for any mode to hold a socket
+     * past the point real ones keep dying at.
+     */
+    private static long poolAgeLimitMs() {
+        switch (proxyMode()) {
+            case PROXY_MODE_ECONOMY: return 8_000L;
+            case PROXY_MODE_TURBO: return 15_000L;
+            default: return 12_000L;
+        }
+    }
+
     private static boolean isPooledConnectionAlive(SSLSocket socket) {
         try {
             socket.setSoTimeout(1);
@@ -1732,19 +1806,7 @@ public class TgWsProxyService extends Service {
             // those out is what turned a single failure into a domain-hopping loop: it dies
             // immediately, which looks like the new domain failing too.
             boolean wrongDomain = activeDomain != null && conn.domain != null && !conn.domain.endsWith(activeDomain);
-            // Idle WebSockets get closed by the edge well before the old 100s ceiling, so a
-            // "fresh" pooled socket could already be dead on arrival - isPooledConnectionAlive
-            // verifies liveness directly rather than only guessing from age, so the age ceiling
-            // itself is just a backstop and can afford to follow the proxy mode: each step up
-            // keeps idle sockets around longer, matching its bigger pool - more warm spares ready
-            // rather than torn down and reconnected on every use.
-            final long ageLimit;
-            switch (proxyMode()) {
-                case PROXY_MODE_ECONOMY: ageLimit = 20_000; break;
-                case PROXY_MODE_TURBO: ageLimit = 120_000; break;
-                default: ageLimit = 60_000; break;
-            }
-            if (age > ageLimit || wrongDomain || conn.tlsSocket.isClosed() || !isPooledConnectionAlive(conn.tlsSocket)) {
+            if (age > poolAgeLimitMs() || wrongDomain || conn.tlsSocket.isClosed() || !isPooledConnectionAlive(conn.tlsSocket)) {
                 try { conn.tlsSocket.close(); } catch (Exception ignored) {}
                 continue;
             }
@@ -1926,6 +1988,7 @@ public class TgWsProxyService extends Service {
                 wsHandshake(tlsSocket, domain, dcId, false);
                 logInfo("DC redirect: connected to " + fixedIp + " as " + domain + " (DC" + dcId + ") in "
                         + (System.currentTimeMillis() - startedAt) + "ms");
+                noteDcConnectOutcome(dcId, isMedia, false, false);
                 return new WsConnection(tlsSocket, domain);
             } catch (Exception e) {
                 logError("DC redirect via " + fixedIp + " as " + domain + " failed", e);
@@ -1934,6 +1997,7 @@ public class TgWsProxyService extends Service {
                 }
             }
         }
+        noteDcConnectOutcome(dcId, isMedia, false, true);
         return null;
     }
 
@@ -1950,37 +2014,30 @@ public class TgWsProxyService extends Service {
     }
 
     private WsConnection connectToWebSocket(int dcId, boolean isMedia) {
-        // Checked before EITHER path now: the DC-redirect fixed IP turned out to be shared
-        // public infrastructure too (same "Server: cloudflare" as the .co.uk balancer) - under
-        // sustained load it starts closing every session instantly with the same 1000/"404"
-        // signature, and without this check first, that path bypassed the breaker entirely and
-        // kept hammering a dead endpoint in a tight loop instead of backing off.
-        if (isDcInBackoff(dcId, isMedia)) {
-            logInfo("DC" + dcId + " (media=" + isMedia + ") is in backoff after repeated fast failures, skipping connect attempt");
-            return null;
+        // Checked per-path now, not once for both: the DC-redirect fixed IP turned out to be
+        // shared public infrastructure too (same "Server: cloudflare" as the .co.uk balancer) -
+        // under sustained load it starts closing every session instantly with the same 1000/"404"
+        // signature, and without a check first, that path bypassed the breaker entirely and kept
+        // hammering a dead endpoint in a tight loop instead of backing off. But the two real paths
+        // below (direct dc-redirect vs. third-party Worker relay) share no infrastructure and can
+        // fail completely independently - see dcKey()'s doc - so each gets its own backoff check
+        // right before its own attempt, instead of one shared check blocking both whenever either
+        // one is having a bad moment.
+        //
+        // Ordering matches 12.9.0.6 (dc-redirect first, worker second) - Workers didn't exist yet
+        // at that version, and direct IP is what every user's connection ran on exclusively then.
+        WsConnection viaRedirect = null;
+        if (!isDcInBackoff(dcId, isMedia, false)) {
+            viaRedirect = tryDcRedirectConnect(dcId, isMedia);
+        } else {
+            logInfo("DC" + dcId + " (media=" + isMedia + ") direct path is in backoff after repeated fast failures, skipping");
         }
-
-        // Reverted back to dc-redirect first, worker second (the original ordering from before
-        // workers existed, which is what stayed stable for every user at 12.9.0.6). The brief
-        // window where workers were tried first was based on one evening's logs showing
-        // 149.154.167.220 failing under a client-side connect burst that the pacer/backoff added
-        // since then now smooths out. What logs since then actually show is the opposite problem:
-        // individual free-tier Workers self-terminate an established session after roughly
-        // 15-30s (a WS CLOSE frame with no status code, from many different worker accounts, not
-        // just one) - almost certainly a Cloudflare Workers free-plan connection-duration limit,
-        // not anything this app's code controls. A worker session dying mid-relay is what tears
-        // down tgnet's own connection through the local SOCKS proxy and shows "Connecting to
-        // proxy" on screen, over and over. The direct IP is real Telegram infrastructure with no
-        // such lifetime cap, so it goes back to being the primary path; workers remain in the
-        // spare pool (refillWsPoolAsync's alternation) and as the fallback here if the direct IP
-        // is blocked outright.
-        WsConnection viaRedirect = tryDcRedirectConnect(dcId, isMedia);
         if (viaRedirect != null) {
             return viaRedirect;
         }
 
         String dcDst = DC_DEFAULT_IPS.get(dcId);
-        if (dcDst != null) {
+        if (dcDst != null && !isDcInBackoff(dcId, isMedia, true)) {
             WsConnection viaWorker = connectThroughWorker(dcId, isMedia, dcDst);
             if (viaWorker != null) {
                 return viaWorker;
@@ -3116,43 +3173,35 @@ public class TgWsProxyService extends Service {
                     }
 
                     List<byte[]> packets = splitter.split(decBuf, 0, decLen);
-                    // PrimeGram: every packet in this batch used to become its own WS frame - a
-                    // burst of several small MTProto messages in one client read (routine: acks,
-                    // pings, a request-plus-its-ack) meant that many separate `message` events on
-                    // the far end. The Cloudflare Worker relaying this (see docs/CfWorker.md) pays
-                    // CPU-time budget per event, not just per byte, and that budget is exactly what
-                    // was found to be capping how long a session survives (see the "Socket closed"
-                    // investigation) - fewer, larger frames for the same bytes is strictly cheaper
-                    // there, and it's also fewer local write()/flush() syscalls either way. AES-CTR
-                    // is a running keystream, so encrypting the whole batch in one update() call
-                    // produces byte-for-byte the same ciphertext as encrypting each piece
-                    // separately in sequence - concatenating first changes nothing about the crypto,
-                    // only how many times sendWsFrame is called for the same data.
-                    int batchLen = 0;
+                    // PrimeGram: reverted to one WS frame per MTProto packet, matching 12.9.0.6 (the
+                    // last version confirmed stable end to end) exactly. The batched-frame version
+                    // this replaced was reasoned about purely from a CPU-time-per-event theory for
+                    // the Cloudflare Worker path, but a real device log on the batched version showed
+                    // an ACTIVE session - not an idle/pooled one, 41s in and having already carried
+                    // 58KB up / 244KB down without issue - abruptly get a clean WS CLOSE with
+                    // reason "404" from kws2.web.telegram.org itself (Telegram's own domain, not one
+                    // of the Worker relays the CPU-budget theory was about). Batching several MTProto
+                    // packets into one WS frame is the one change in this exact data path that has no
+                    // equivalent in 12.9.0.6, so it's the first thing to rule out by removing it
+                    // entirely, not something to keep on a theory that log evidence has already cast
+                    // doubt on.
                     for (byte[] plain : packets) {
+                        // Repackage Abridged -> Intermediate for the Server
                         int headerLen = (plain[0] == 0x7F) ? 4 : 1;
-                        batchLen += 4 + (plain.length - headerLen);
-                    }
-                    if (batchLen > 0) {
-                        byte[] batch = new byte[batchLen];
-                        int pos = 0;
-                        for (byte[] plain : packets) {
-                            // Repackage Abridged -> Intermediate for the Server
-                            int headerLen = (plain[0] == 0x7F) ? 4 : 1;
-                            int payloadLen = plain.length - headerLen;
-                            batch[pos] = (byte) (payloadLen & 0xFF);
-                            batch[pos + 1] = (byte) ((payloadLen >> 8) & 0xFF);
-                            batch[pos + 2] = (byte) ((payloadLen >> 16) & 0xFF);
-                            batch[pos + 3] = (byte) ((payloadLen >> 24) & 0xFF);
-                            System.arraycopy(plain, headerLen, batch, pos + 4, payloadLen);
-                            pos += 4 + payloadLen;
+                        int payloadLen = plain.length - headerLen;
+
+                        byte[] intermediate = new byte[4 + payloadLen];
+                        intermediate[0] = (byte) (payloadLen & 0xFF);
+                        intermediate[1] = (byte) ((payloadLen >> 8) & 0xFF);
+                        intermediate[2] = (byte) ((payloadLen >> 16) & 0xFF);
+                        intermediate[3] = (byte) ((payloadLen >> 24) & 0xFF);
+                        System.arraycopy(plain, headerLen, intermediate, 4, payloadLen);
+
+                        if (encBuf.length < intermediate.length + 64) {
+                            encBuf = new byte[Math.max(encBuf.length * 2, intermediate.length + 64)];
                         }
 
-                        if (encBuf.length < batch.length + 64) {
-                            encBuf = new byte[Math.max(encBuf.length * 2, batch.length + 64)];
-                        }
-
-                        int encLen = ctx.tgEnc.update(batch, 0, batch.length, encBuf, 0);
+                        int encLen = ctx.tgEnc.update(intermediate, 0, intermediate.length, encBuf, 0);
                         if (encLen > 0) {
                             synchronized (wsOut) {
                                 sendWsFrame(wsOut, encBuf, 0, encLen);
@@ -3266,7 +3315,7 @@ public class TgWsProxyService extends Service {
                 // A session that lasted means the domain (and this DC/media pair on it) is fine;
                 // forget earlier stumbles so unrelated failures spread over time never add up to a failover.
                 fastFailureCount.set(0);
-                noteDcSessionOutcome(dcId, isMedia, false);
+                noteDcSessionOutcome(dcId, isMedia, PrimeCfWorkers.isKnownDomain(connectedDomain), false);
             }
         }
     }

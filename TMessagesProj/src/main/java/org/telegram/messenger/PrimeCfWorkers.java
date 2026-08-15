@@ -131,6 +131,21 @@ public final class PrimeCfWorkers {
         return pool;
     }
 
+    /** Whether {@code domain} is a Worker relay (bundled or user-added), as opposed to one of
+     *  TgWsProxyService's own direct/dc-redirect domains - used to keep the two paths' failure
+     *  tracking from being lumped into the same (dcId, isMedia) breaker key. */
+    public static boolean isKnownDomain(String domain) {
+        if (domain == null) {
+            return false;
+        }
+        for (String d : BUNDLED_DOMAINS) {
+            if (d.equals(domain)) {
+                return true;
+            }
+        }
+        return getDomains().contains(domain);
+    }
+
     public static void markSick(String domain) {
         sickUntil.put(domain, System.currentTimeMillis() + SICK_COOLDOWN_MS);
     }

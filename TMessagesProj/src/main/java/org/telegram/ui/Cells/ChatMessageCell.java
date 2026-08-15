@@ -373,6 +373,19 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                         // resolved - the async avatar load had nothing to invalidate the cell with,
                         // so it only ever showed up after something else (a touch) forced a rebind.
                         currentUser = user;
+                        if (user == null) {
+                            // getUser() above is a pure in-memory lookup with no fetch of its own -
+                            // a signature-profile signer who isn't a "known" peer (never DMed, not a
+                            // recently active admin) simply isn't in MessagesController's cache, and
+                            // nothing was ever asking the server for them. The cell stayed blank
+                            // forever, not just until the next touch - the touch handler's rebind
+                            // only ever "fixed" it when some UNRELATED action (opening the sender's
+                            // profile, viewing admins) happened to warm the cache first. Resolve the
+                            // signer proactively via channels.getParticipant (works without an
+                            // access_hash - the channel membership itself is the authorization), then
+                            // cache it and re-run this same bind for whichever cell asked.
+                            requestSignatureProfileUser(messageObject.currentAccount, currentChat, did, messageObject);
+                        }
                         // Was unconditionally the CHANNEL's photo (set above, before this branch even
                         // ran) - isUserDataChanged() compares this against the signer's own photo on
                         // every rebind and never stopped seeing a "change", which is exactly the kind
@@ -421,6 +434,32 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         } else {
             currentPhoto = null;
         }
+    }
+
+    /** Signers who aren't already a known peer never get looked up on their own - see the call
+     *  site in setAvatar() above. One in-flight request per (account, userId) at a time; the
+     *  cache write on success fixes every other on-screen cell for the same signer too, not just
+     *  the one that triggered the fetch. */
+    private static final java.util.Set<Long> signatureProfileFetchInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private void requestSignatureProfileUser(int account, TLRPC.Chat chat, long userId, MessageObject forMessageObject) {
+        if (chat == null || !signatureProfileFetchInFlight.add(userId)) {
+            return;
+        }
+        final TLRPC.TL_channels_getParticipant req = new TLRPC.TL_channels_getParticipant();
+        req.channel = MessagesController.getInstance(account).getInputChannel(chat);
+        req.participant = MessagesController.getInstance(account).getInputPeer(userId);
+        ConnectionsManager.getInstance(account).sendRequestTyped(req, AndroidUtilities::runOnUIThread, (res, err) -> {
+            signatureProfileFetchInFlight.remove(userId);
+            if (res == null) {
+                return;
+            }
+            MessagesController.getInstance(account).putUsers(res.users, false);
+            MessagesController.getInstance(account).putChats(res.chats, false);
+            if (currentMessageObject == forMessageObject) {
+                setAvatar(forMessageObject);
+            }
+        });
     }
 
     public void setSpoilersSuppressed(boolean s) {
