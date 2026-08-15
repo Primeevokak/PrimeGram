@@ -1789,7 +1789,21 @@ public class TgWsProxyService extends Service {
         // real mechanism behind "sending a lot at once breaks the proxy". A deeper pool means
         // more of that burst gets served from an already-warm socket instantly instead of
         // adding to the concurrent-connect spike.
-        return isMedia ? 8 : 5;
+        //
+        // Media specifically scales further with proxy mode: individual Worker-relayed sessions
+        // now have a confirmed, real ceiling on how long they last (Cloudflare's own CPU-time
+        // budget per session - see TgWsProxyService's connectToWebSocket ordering comment), so a
+        // burst of parallel file/thumbnail requests needs a deeper standing pool to keep pulling
+        // fresh warm sockets rather than queuing behind connects. Turbo asks for exactly this
+        // trade (more standing connections, more battery) explicitly; Economy stays put.
+        if (isMedia) {
+            switch (proxyMode()) {
+                case PROXY_MODE_ECONOMY: return 6;
+                case PROXY_MODE_TURBO: return 12;
+                default: return 8;
+            }
+        }
+        return 5;
     }
 
     private void refillWsPoolAsync(int dcId, boolean isMedia) {
@@ -3102,23 +3116,43 @@ public class TgWsProxyService extends Service {
                     }
 
                     List<byte[]> packets = splitter.split(decBuf, 0, decLen);
+                    // PrimeGram: every packet in this batch used to become its own WS frame - a
+                    // burst of several small MTProto messages in one client read (routine: acks,
+                    // pings, a request-plus-its-ack) meant that many separate `message` events on
+                    // the far end. The Cloudflare Worker relaying this (see docs/CfWorker.md) pays
+                    // CPU-time budget per event, not just per byte, and that budget is exactly what
+                    // was found to be capping how long a session survives (see the "Socket closed"
+                    // investigation) - fewer, larger frames for the same bytes is strictly cheaper
+                    // there, and it's also fewer local write()/flush() syscalls either way. AES-CTR
+                    // is a running keystream, so encrypting the whole batch in one update() call
+                    // produces byte-for-byte the same ciphertext as encrypting each piece
+                    // separately in sequence - concatenating first changes nothing about the crypto,
+                    // only how many times sendWsFrame is called for the same data.
+                    int batchLen = 0;
                     for (byte[] plain : packets) {
-                        // Repackage Abridged -> Intermediate for the Server
                         int headerLen = (plain[0] == 0x7F) ? 4 : 1;
-                        int payloadLen = plain.length - headerLen;
-                        
-                        byte[] intermediate = new byte[4 + payloadLen];
-                        intermediate[0] = (byte) (payloadLen & 0xFF);
-                        intermediate[1] = (byte) ((payloadLen >> 8) & 0xFF);
-                        intermediate[2] = (byte) ((payloadLen >> 16) & 0xFF);
-                        intermediate[3] = (byte) ((payloadLen >> 24) & 0xFF);
-                        System.arraycopy(plain, headerLen, intermediate, 4, payloadLen);
-
-                        if (encBuf.length < intermediate.length + 64) {
-                            encBuf = new byte[Math.max(encBuf.length * 2, intermediate.length + 64)];
+                        batchLen += 4 + (plain.length - headerLen);
+                    }
+                    if (batchLen > 0) {
+                        byte[] batch = new byte[batchLen];
+                        int pos = 0;
+                        for (byte[] plain : packets) {
+                            // Repackage Abridged -> Intermediate for the Server
+                            int headerLen = (plain[0] == 0x7F) ? 4 : 1;
+                            int payloadLen = plain.length - headerLen;
+                            batch[pos] = (byte) (payloadLen & 0xFF);
+                            batch[pos + 1] = (byte) ((payloadLen >> 8) & 0xFF);
+                            batch[pos + 2] = (byte) ((payloadLen >> 16) & 0xFF);
+                            batch[pos + 3] = (byte) ((payloadLen >> 24) & 0xFF);
+                            System.arraycopy(plain, headerLen, batch, pos + 4, payloadLen);
+                            pos += 4 + payloadLen;
                         }
 
-                        int encLen = ctx.tgEnc.update(intermediate, 0, intermediate.length, encBuf, 0);
+                        if (encBuf.length < batch.length + 64) {
+                            encBuf = new byte[Math.max(encBuf.length * 2, batch.length + 64)];
+                        }
+
+                        int encLen = ctx.tgEnc.update(batch, 0, batch.length, encBuf, 0);
                         if (encLen > 0) {
                             synchronized (wsOut) {
                                 sendWsFrame(wsOut, encBuf, 0, encLen);
