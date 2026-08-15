@@ -51,7 +51,8 @@ public final class PrimeBackgroundProxy {
         prefs().edit().putBoolean(KEY, disabled).apply();
         if (!disabled) {
             handler.removeCallbacks(stopRunnable);
-            if (!ApplicationLoader.mainInterfacePaused) {
+            boolean userEnabled = prefs().getBoolean("primegram_tgws_enabled", true);
+            if (userEnabled && !ApplicationLoader.mainInterfacePaused) {
                 TgWsProxyService.startService(ApplicationLoader.applicationContext);
             }
         }
@@ -73,7 +74,18 @@ public final class PrimeBackgroundProxy {
     /** Call from LaunchActivity.onResume(). */
     public static void onAppResumed() {
         handler.removeCallbacks(stopRunnable);
-        if (isBackgroundWorkDisabled() && !TgWsProxyService.isRunning()) {
+        // PrimeGram: this used to restart the service purely because it wasn't running, with no
+        // regard for WHY - including the user having just turned the proxy off entirely
+        // (primegram_tgws_enabled=false). That toggle write and this resume call race on every
+        // "flip the switch off, background the app for a second, come back" sequence, and this
+        // side lost: the service came right back up, foreground notification and all, looking
+        // exactly like the switch had silently reverted itself. This class exists to save
+        // battery on an already-running proxy's idle tail, not to override the user's own
+        // on/off choice - it must never be the thing that turns the proxy back on.
+        boolean userEnabled = ApplicationLoader.applicationContext
+                .getSharedPreferences("mainconfig", Context.MODE_PRIVATE)
+                .getBoolean("primegram_tgws_enabled", true);
+        if (userEnabled && isBackgroundWorkDisabled() && !TgWsProxyService.isRunning()) {
             TgWsProxyService.startService(ApplicationLoader.applicationContext);
         }
     }

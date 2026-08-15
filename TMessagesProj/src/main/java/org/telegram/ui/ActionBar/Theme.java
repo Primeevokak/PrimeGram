@@ -6459,6 +6459,10 @@ public class Theme {
         if (themeInfo == null) {
             return;
         }
+        // PrimeGram: cached here, not derived later from currentTheme - this is the one call
+        // every theme switch (day, night, manual) funnels through, and the cache only needs to
+        // be right by the NEXT cold start, not synchronously with anything else this method does.
+        org.telegram.messenger.PrimeLaunchTheme.cacheDark(themeInfo.isDark());
         ThemeEditorView editorView = ThemeEditorView.getInstance();
         if (editorView != null) {
             editorView.destroy();

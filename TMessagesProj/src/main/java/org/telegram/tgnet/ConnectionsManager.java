@@ -391,6 +391,27 @@ public class ConnectionsManager extends BaseController {
 
     public int sendRequest(final TLObject object, final RequestDelegate onComplete, final RequestDelegateTimestamp onCompleteTimestamp, final QuickAckDelegate onQuickAck, final WriteToSocketDelegate onWriteToSocket, final int flags, final int datacenterId, final int connectionType, final boolean immediate) {
         final int requestToken = lastRequestToken.getAndIncrement();
+        // PrimeGram: decoy mode's entire safety guarantee ("zero real MTProto traffic while
+        // active") lives here, not in native code - this is the single Java-side point every
+        // outgoing request converges on (sendRequestSync also reaches sendRequestInternal
+        // directly, but that path is not used for ordinary UI-triggered requests). Checked before
+        // the plugin hook below on purpose: a decoy session should not run plugin code against
+        // real user config/keys at all, even indirectly.
+        if (org.telegram.messenger.PrimeDecoyState.isActive()) {
+            final org.telegram.messenger.PrimeDecoyServer.TLObjectOrNull answer = org.telegram.messenger.PrimeDecoyServer.answer(object);
+            if (answer != null) {
+                Utilities.stageQueue.postRunnable(() -> {
+                    if (onComplete != null) {
+                        onComplete.run(answer.value, null);
+                    } else if (onCompleteTimestamp != null) {
+                        onCompleteTimestamp.run(answer.value, null, 0);
+                    }
+                });
+            }
+            // Anything PrimeDecoyServer doesn't recognise is dropped silently (no callback at
+            // all) rather than errored - see PrimeDecoyServer's own doc for why.
+            return requestToken;
+        }
         // PrimeGram: plugins see the request before it is serialised, and may replace or refuse it.
         // Here rather than in sendRequestInternal because that one is also reached from
         // sendRequestSync, and both paths should offer the same thing.
@@ -664,6 +685,20 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void init(int version, int layer, int apiId, String deviceModel, String systemVersion, String appVersion, String langCode, String systemLangCode, String configPath, String logPath, String regId, String cFingerprint, int timezoneOffset, long userId, boolean userPremium, boolean enablePushConnection) {
+        // PrimeGram: native_init below is what actually opens real sockets to Telegram's own
+        // datacenters - a signed-in-looking account (which decoy mode's fake UserConfig
+        // deliberately presents) would otherwise make this run exactly as it does for a genuine
+        // login, independent of the sendRequest-level gate above (that gate stops account DATA
+        // from ever going out, but a raw DC handshake with no request queued yet is still real
+        // traffic to Telegram's own IPs - observable to anyone watching the network even though
+        // it carries nothing account-identifying). Skipping native_init entirely is the only way
+        // to also guarantee that transport-level silence. The rest of this class already has to
+        // tolerate being called before init() ever ran (that is exactly the state of every fresh
+        // install before first login), so nothing here is a new kind of "uninitialized" it hasn't
+        // already had to handle.
+        if (org.telegram.messenger.PrimeDecoyState.isActive()) {
+            return;
+        }
         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
         String proxyAddress = preferences.getString("proxy_ip", "");
         String proxyUsername = preferences.getString("proxy_user", "");

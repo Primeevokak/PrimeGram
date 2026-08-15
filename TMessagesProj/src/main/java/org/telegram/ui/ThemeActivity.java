@@ -661,7 +661,20 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
             newThemeInfoRow = rowCount++;
             themeHeaderRow = rowCount++;
 
-            themeListRow2 = rowCount++;
+            // PrimeGram: the day/night/built-in accent-theme browsing ribbon used to live here
+            // (themeListRow2, a ThemesHorizontalListCell) - removed at the user's own request:
+            // it visually looked like "the" place to create/edit a theme, and its own "create"
+            // tile led into an entirely different, unrelated accent-color editor
+            // (THEME_TYPE_THEMES_BROWSER's createNewTheme()/editTheme()), one screen removed from
+            // where PrimeCustomThemeActivity (pattern + gradient) actually lives. Reusing
+            // editThemeRow/createNewThemeRow here - fields THEME_TYPE_BASIC never otherwise
+            // touches, since that pair is exclusively a THEME_TYPE_THEMES_BROWSER thing - keeps
+            // this on the same TYPE_TEXT_PREFERENCE row/bind path backgroundRow already uses,
+            // rather than inventing new row plumbing for what is visually identical.
+            if (primeHasCustomTheme()) {
+                editThemeRow = rowCount++;
+            }
+            createNewThemeRow = rowCount++;
             themeInfoRow = rowCount++;
 
             bubbleRadiusHeaderRow = rowCount++;
@@ -1482,9 +1495,20 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
             } else if (position == scheduleUpdateLocationRow) {
                 updateSunTime(null, true);
             } else if (position == createNewThemeRow) {
-                createNewTheme();
+                if (currentType == THEME_TYPE_BASIC) {
+                    presentFragment(new PrimeCustomThemeActivity(null, null));
+                } else {
+                    createNewTheme();
+                }
             } else if (position == editThemeRow) {
-                editTheme();
+                if (currentType == THEME_TYPE_BASIC) {
+                    org.telegram.messenger.PrimeCustomWallpapers.Entry latest = primeLatestCustomTheme();
+                    if (latest != null) {
+                        presentFragment(new PrimeCustomThemeActivity(null, latest));
+                    }
+                } else {
+                    editTheme();
+                }
             } else if (position == stickersRow) {
                 presentFragment(new StickersActivity(MediaDataController.TYPE_IMAGE, null));
             } else if (position == liteModeRow) {
@@ -1527,6 +1551,24 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
         Theme.ThemeInfo currentTheme = Theme.getCurrentTheme();
         Theme.ThemeAccent accent = currentTheme.getAccent(false);
         presentFragment(new ThemePreviewActivity(currentTheme, false, ThemePreviewActivity.SCREEN_TYPE_ACCENT_COLOR, accent.id >= 100, currentType == THEME_TYPE_NIGHT));
+    }
+
+    private boolean primeHasCustomTheme() {
+        return !org.telegram.messenger.PrimeCustomWallpapers.list().isEmpty();
+    }
+
+    /** "Edit theme" only ever targets one theme, so this is the singular, unambiguous choice for
+     *  it: whichever was made most recently. Anything else (a picker of your own custom themes)
+     *  already exists - it's the "Мои темы" section of the wallpaper list itself. */
+    private org.telegram.messenger.PrimeCustomWallpapers.Entry primeLatestCustomTheme() {
+        java.util.List<org.telegram.messenger.PrimeCustomWallpapers.Entry> all = org.telegram.messenger.PrimeCustomWallpapers.list();
+        org.telegram.messenger.PrimeCustomWallpapers.Entry latest = null;
+        for (org.telegram.messenger.PrimeCustomWallpapers.Entry e : all) {
+            if (latest == null || e.createdAt > latest.createdAt) {
+                latest = e;
+            }
+        }
+        return latest;
     }
 
     private void createNewTheme() {
@@ -2676,11 +2718,19 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                     } else if (position == editThemeRow) {
                         cell.setSubtitle(null);
                         cell.setColors(Theme.key_windowBackgroundWhiteBlueText4, Theme.key_windowBackgroundWhiteBlueText4);
-                        cell.setTextAndIcon(getString(R.string.EditCurrentTheme), R.drawable.msg_theme, true);
+                        if (currentType == THEME_TYPE_BASIC) {
+                            cell.setTextAndIcon("Изменить тему", R.drawable.msg_theme, true);
+                        } else {
+                            cell.setTextAndIcon(getString(R.string.EditCurrentTheme), R.drawable.msg_theme, true);
+                        }
                     } else if (position == createNewThemeRow) {
                         cell.setSubtitle(null);
                         cell.setColors(Theme.key_windowBackgroundWhiteBlueText4, Theme.key_windowBackgroundWhiteBlueText4);
-                        cell.setTextAndIcon(getString(R.string.CreateNewTheme), R.drawable.msg_colors, false);
+                        if (currentType == THEME_TYPE_BASIC) {
+                            cell.setTextAndIcon("Создать тему", R.drawable.msg_colors, false);
+                        } else {
+                            cell.setTextAndIcon(getString(R.string.CreateNewTheme), R.drawable.msg_colors, false);
+                        }
                     } else if (position == liteModeRow) {
                         cell.setColors(Theme.key_dialogIcon, Theme.key_windowBackgroundWhiteBlackText);
                         cell.setTextAndIcon(getString(R.string.LiteMode), R.drawable.msg2_animations, true);

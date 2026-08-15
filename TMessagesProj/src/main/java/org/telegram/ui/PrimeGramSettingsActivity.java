@@ -2327,7 +2327,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_PIN_DISABLE) {
             launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_PIN);
         } else if (item.id == ID_PIN_EMERGENCY) {
-            launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_SETUP_EMERGENCY);
+            showEmergencyPinWarning();
         } else if (item.id == ID_HIDE_PHONE) {
             org.telegram.messenger.PrimeGramPrivacy.setHidePhoneEnabled(!org.telegram.messenger.PrimeGramPrivacy.isHidePhoneEnabled());
             listView.adapter.update(true);
@@ -3569,6 +3569,19 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             org.telegram.messenger.browser.PrimeDns.setPreset(org.telegram.messenger.browser.PrimeDns.PRESET_CUSTOM);
             listView.adapter.update(true);
         });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showEmergencyPinWarning() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Аварийный PIN-код");
+        builder.setMessage("Ввод этого PIN-кода вместо основного необратимо сотрёт данные аккаунта на этом устройстве и покажет вместо них безобидную заглушку. Отменить это будет нельзя. Продолжить настройку?");
+        builder.setPositiveButton("Продолжить", (dialog, which) ->
+                launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_SETUP_EMERGENCY));
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
         showDialog(builder.create());
     }

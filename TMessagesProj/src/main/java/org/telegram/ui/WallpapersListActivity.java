@@ -90,6 +90,7 @@ public class WallpapersListActivity extends BaseFragment implements Notification
     @Keep
     private int uploadImageRow;
     private int setColorRow;
+    private int createThemeRow;
     private int sectionRow;
     private int wallPaperStartRow;
     private int totalWallpaperRows;
@@ -300,6 +301,14 @@ public class WallpapersListActivity extends BaseFragment implements Notification
         public boolean isGradient;
         public TLRPC.WallPaper parentWallpaper;
         public Bitmap defaultCache;
+
+        // PrimeGram: marks an entry built by PrimeCustomThemeActivity rather than anything
+        // server-synced or stock-local - the only entries this screen's long-press-to-delete
+        // path is allowed to touch. primeId round-trips to PrimeCustomWallpapers' own id so a
+        // delete here can find and remove the exact same persisted entry.
+        public boolean isPrimeCustom;
+        public String primeId;
+        public String primeName;
 
         public String getHash() {
             String string = String.valueOf(color) +
@@ -740,6 +749,8 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                 WallpapersListActivity activity = new WallpapersListActivity(TYPE_COLOR);
                 activity.patterns = patterns;
                 presentFragment(activity);
+            } else if (position == createThemeRow) {
+                presentFragment(new PrimeCustomThemeActivity(patterns, null));
             } else if (position == resetRow) {
                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
                 builder.setTitle(LocaleController.getString(R.string.ResetChatBackgroundsAlertTitle));
@@ -885,6 +896,13 @@ public class WallpapersListActivity extends BaseFragment implements Notification
         if (currentType == TYPE_CHANNEL_PATTERNS || currentType == TYPE_CHANNEL_CUSTOM) {
             return false;
         }
+        // PrimeGram: only ever reachable for entries this screen itself inserted
+        // (insertPrimeCustomThemes) - every stock/server wallpaper's long-press behavior below
+        // is completely untouched.
+        if (object instanceof ColorWallpaper && ((ColorWallpaper) object).isPrimeCustom) {
+            showDeletePrimeThemeDialog((ColorWallpaper) object);
+            return true;
+        }
         Object originalObject = object;
         if (object instanceof ColorWallpaper) {
             ColorWallpaper colorWallpaper = (ColorWallpaper) object;
@@ -911,6 +929,28 @@ public class WallpapersListActivity extends BaseFragment implements Notification
         actionBar.showActionMode();
         view.setChecked(index, true, true);
         return true;
+    }
+
+    private void showDeletePrimeThemeDialog(ColorWallpaper wallpaper) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(wallpaper.primeName != null ? wallpaper.primeName : "Своя тема");
+        builder.setMessage("Удалить эту тему? Отменить будет нельзя.");
+        builder.setPositiveButton("Удалить", (dialog, which) -> {
+            org.telegram.messenger.PrimeCustomWallpapers.delete(wallpaper.primeId);
+            wallPapers.remove(wallpaper);
+            primeCustomInserted.remove(wallpaper);
+            updateRows();
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        AlertDialog dialog = builder.create();
+        showDialog(dialog);
+        TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(Theme.getColor(Theme.key_text_RedBold));
+        }
     }
 
     private void onItemClick(WallpaperCell view, Object object, int index) {
@@ -1349,7 +1389,39 @@ public class WallpapersListActivity extends BaseFragment implements Notification
         } else {
             wallPapers.add(1, catsWallpaper);
         }
+        insertPrimeCustomThemes();
         updateRows();
+    }
+
+    // PrimeGram: user-authored themes from PrimeCustomThemeActivity, prepended the same way
+    // this method already prepends the "cats"/currently-selected entries above - same grid,
+    // same WallpaperCell rendering, no new section-header row math to get wrong. Re-removes its
+    // own previous insertions first since onResume() (this method's only caller) runs on every
+    // return to this screen, including right after saving a new one.
+    private final ArrayList<ColorWallpaper> primeCustomInserted = new ArrayList<>();
+
+    private void insertPrimeCustomThemes() {
+        if (currentType != TYPE_ALL) {
+            return;
+        }
+        wallPapers.removeAll(primeCustomInserted);
+        primeCustomInserted.clear();
+        for (org.telegram.messenger.PrimeCustomWallpapers.Entry entry : org.telegram.messenger.PrimeCustomWallpapers.list()) {
+            ColorWallpaper cw = new ColorWallpaper(null, entry.color1, entry.color2, entry.color3, 0, entry.rotation, entry.intensity,
+                    false, entry.patternKind == org.telegram.messenger.PrimeCustomWallpapers.PATTERN_CUSTOM_IMAGE && entry.patternRef != null ? new File(entry.patternRef) : null);
+            cw.isGradient = entry.color2 != 0;
+            cw.isPrimeCustom = true;
+            cw.primeId = entry.id;
+            cw.primeName = entry.name;
+            if (entry.patternKind == org.telegram.messenger.PrimeCustomWallpapers.PATTERN_BUILTIN && entry.patternRef != null && allWallPapersDict != null) {
+                Object p = allWallPapersDict.get(entry.patternRef);
+                if (p instanceof TLRPC.TL_wallPaper) {
+                    cw.pattern = (TLRPC.TL_wallPaper) p;
+                }
+            }
+            primeCustomInserted.add(cw);
+        }
+        wallPapers.addAll(0, primeCustomInserted);
     }
 
     private void updateRows() {
@@ -1357,18 +1429,21 @@ public class WallpapersListActivity extends BaseFragment implements Notification
         if (currentType == TYPE_ALL) {
             uploadImageRow = rowCount++;
             setColorRow = rowCount++;
+            createThemeRow = rowCount++;
             sectionRow = rowCount++;
             galleryRow = -1;
             galleryHintRow = -1;
         } else if (currentType == TYPE_CHANNEL_PATTERNS) {
             uploadImageRow = -1;
             setColorRow = -1;
+            createThemeRow = -1;
             sectionRow = -1;
             galleryRow = rowCount++;
             galleryHintRow = rowCount++;
         } else {
             uploadImageRow = -1;
             setColorRow = -1;
+            createThemeRow = -1;
             sectionRow = -1;
             galleryRow = -1;
             galleryHintRow = -1;
@@ -1859,6 +1934,8 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                         textCell.setTextAndIcon(LocaleController.getString(R.string.SelectFromGallery), R.drawable.msg_photos, true);
                     } else if (position == setColorRow) {
                         textCell.setTextAndIcon(LocaleController.getString(R.string.SetColor), R.drawable.msg_palette, true);
+                    } else if (position == createThemeRow) {
+                        textCell.setTextAndIcon("Создать свою тему", R.drawable.msg_colors, true);
                     } else if (position == resetRow) {
                         textCell.setText(LocaleController.getString(R.string.ResetChatBackgrounds), false);
                     } else if (position == galleryRow) {
@@ -1947,7 +2024,7 @@ public class WallpapersListActivity extends BaseFragment implements Notification
 
         @Override
         public int getItemViewType(int position) {
-            if (position == uploadImageRow || position == galleryRow || position == setColorRow || position == resetRow) {
+            if (position == uploadImageRow || position == galleryRow || position == setColorRow || position == createThemeRow || position == resetRow) {
                 return 0;
             } else if (position == sectionRow || position == resetSectionRow) {
                 return 1;

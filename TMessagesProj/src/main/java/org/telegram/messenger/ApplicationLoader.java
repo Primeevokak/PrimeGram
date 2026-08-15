@@ -392,6 +392,11 @@ public class ApplicationLoader extends Application {
 
         }
 
+        // Before super.onCreate() and everything else: this decides which of the two
+        // Theme.TMessages.Start style variants the very first (pre-UI) window paints with, and
+        // that decision has to land before any window for this process gets requested.
+        PrimeLaunchTheme.applyEarly();
+
         super.onCreate();
         PrimeStartupTrace.mark("Application.onCreate");
 
