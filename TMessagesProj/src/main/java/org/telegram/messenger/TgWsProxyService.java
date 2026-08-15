@@ -597,49 +597,6 @@ public class TgWsProxyService extends Service {
     private final java.util.concurrent.ConcurrentHashMap<String, Long> ipFailUntil = new java.util.concurrent.ConcurrentHashMap<>();
 
 
-    /**
-     * PrimeGram: each active proxied connection holds up to 2 OS threads for its whole lifetime
-     * (the executor thread running handleClient/bridgeConnections plus the dedicated toWs relay
-     * thread) - a real phone has no business running hundreds of them. With up to ~5 DCs and a
-     * media/non-media variant each, the old cap of 20 per bucket allowed a theoretical 200
-     * concurrent connections (400 threads); a real session needs a small handful per DC at once.
-     *
-     * <p>Tightening this (economy mode) genuinely helped battery/thread count, but on the exact
-     * hostile/DPI-filtered networks this whole feature exists for, real users reported it also
-     * meant the tunnel no longer kept enough spare connections warm to survive a domain hiccup -
-     * see {@link #proxyMode()}. Standard restores the original, generous cap; Turbo goes further
-     * still for anyone who wants the tunnel to win every race it can, battery be damned.
-     */
-    private static final int MAX_CONCURRENT_PER_DC_ECONOMY = 6;
-    private static final int MAX_CONCURRENT_PER_DC_STANDARD = 20;
-    private static final int MAX_CONCURRENT_PER_DC_TURBO = 40;
-
-    public static final int PROXY_MODE_ECONOMY = 0;
-    public static final int PROXY_MODE_STANDARD = 1;
-    public static final int PROXY_MODE_TURBO = 2;
-
-    private static final String PREF_PROXY_MODE = "primegram_tgws_proxy_mode";
-
-    /** Standard (generous, old behavior) by default: users on the networks this tunnel is for
-     *  said plainly they'd rather it eat battery than drop connections. Economy and Turbo are
-     *  both opt-in, in opposite directions from that default. */
-    public static int proxyMode() {
-        final int mode = settings().getInt(PREF_PROXY_MODE, PROXY_MODE_STANDARD);
-        return mode == PROXY_MODE_ECONOMY || mode == PROXY_MODE_TURBO ? mode : PROXY_MODE_STANDARD;
-    }
-
-    public static void setProxyMode(int mode) {
-        settings().edit().putInt(PREF_PROXY_MODE, mode).apply();
-    }
-
-    private static int maxConcurrentPerDc() {
-        switch (proxyMode()) {
-            case PROXY_MODE_ECONOMY: return MAX_CONCURRENT_PER_DC_ECONOMY;
-            case PROXY_MODE_TURBO: return MAX_CONCURRENT_PER_DC_TURBO;
-            default: return MAX_CONCURRENT_PER_DC_STANDARD;
-        }
-    }
-
     private java.util.concurrent.Semaphore getSemaphoreForDc(int dcId, boolean isMedia) {
         String key = dcId + "_" + isMedia;
         java.util.concurrent.Semaphore sem = dcSemaphores.get(key);
@@ -647,7 +604,7 @@ public class TgWsProxyService extends Service {
             synchronized (dcSemaphores) {
                 sem = dcSemaphores.get(key);
                 if (sem == null) {
-                    sem = new java.util.concurrent.Semaphore(maxConcurrentPerDc());
+                    sem = new java.util.concurrent.Semaphore(20); // matches 12.9.0.6
                     dcSemaphores.put(key, sem);
                 }
             }
@@ -793,51 +750,21 @@ public class TgWsProxyService extends Service {
         // of connection attempts competes with scrolling and shows up as stutter. Nothing in this
         // pool is ever more urgent than the next frame.
         //
-        // PrimeGram: this used to be Executors.newCachedThreadPool() - genuinely unbounded, a new
-        // OS thread for every accepted local SOCKS5 connection before the per-DC semaphore (see
-        // getSemaphoreForDc) even gets a chance to queue it. A reconnect burst could spin up
-        // dozens of these, each blocking on sem.acquire() rather than doing anything, and cached
-        // pools only reclaim threads that are actually IDLE - a thread parked in acquire() never
-        // qualifies, so nothing ever gave them back. A bounded pool turns "unlimited threads
-        // waiting on a semaphore" into "a bounded queue waiting on the same semaphore" - same
-        // ordering, a fixed thread cost. The ceiling itself still follows economy/standard mode
-        // (see maxConcurrentPerDc()) - a cap tighter than what the per-DC semaphores can actually
-        // hand out would silently throttle standard mode's higher connection count right back
-        // down, defeating the whole point of the mode switch.
-        //
-        // PrimeGram: corePoolSize used to be a fixed 4, independent of maxThreads. A real log
-        // (executorStats() added specifically to check this) showed active=4/120, poolSize=4,
-        // queued=1-3 held constant for the entire session, no matter how much concurrent load
-        // there was - java.util.concurrent.ThreadPoolExecutor only ever grows PAST corePoolSize
-        // once the queue is completely full (a `LinkedBlockingQueue(128)` almost never fills from
-        // just 1-3 queued items), so the other 116 threads of headroom this pool was sized for
-        // were never actually reachable. Every new SOCKS5 connection was queuing behind whatever
-        // 4 tasks (some of them LONG-LIVED - a live relay session pins its handling thread for the
-        // session's entire lifetime) already had the 4 core threads, with real observed dispatch
-        // delays of 4-25 SECONDS before a thread ever picked it up - long past tgnet's own
-        // patience, which is the direct, confirmed (not guessed) cause of the "Unsupported SOCKS5
-        // command: -1" / "Broken pipe" pattern: the client had already given up and closed before
-        // a thread ever read its first byte. Making corePoolSize == maximumPoolSize makes the
-        // executor actually create a new thread for every task up to the real ceiling before it
-        // ever queues, which is the scale-up behavior this pool was already sized and paying
-        // memory for but never receiving; allowCoreThreadTimeOut still reclaims idle capacity
-        // after 60s so this doesn't cost anything at rest.
-        final int maxThreads = Math.max(24, maxConcurrentPerDc() * 3);
-        executor = new java.util.concurrent.ThreadPoolExecutor(
-            maxThreads, maxThreads, 60L, java.util.concurrent.TimeUnit.SECONDS,
-            new java.util.concurrent.LinkedBlockingQueue<>(128),
-            r -> new Thread(() -> {
-                // Deliberately not THREAD_PRIORITY_BACKGROUND: that moves the thread into the
-                // background cgroup, which caps the whole group at a few percent of one core and
-                // would throttle the tunnel every message goes through. This is just below default -
-                // the UI wins a tie, the proxy still gets the CPU it asks for.
-                try {
-                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT + 4);
-                } catch (Throwable ignore) {}
-                r.run();
-            }, "tgws-proxy")
-        );
-        ((java.util.concurrent.ThreadPoolExecutor) executor).allowCoreThreadTimeOut(true);
+        // PrimeGram: matches 12.9.0.6 exactly - a plain unbounded cached pool, one thread per
+        // accepted connection, reclaimed once idle. Several bounded variants were tried in between
+        // (fixed corePoolSize, corePoolSize==maximumPoolSize) chasing a dispatch-delay bug that
+        // bounding itself introduced; going back to the unbounded original removes that whole class
+        // of failure rather than continuing to retune it.
+        executor = java.util.concurrent.Executors.newCachedThreadPool(r -> new Thread(() -> {
+            // Deliberately not THREAD_PRIORITY_BACKGROUND: that moves the thread into the
+            // background cgroup, which caps the whole group at a few percent of one core and
+            // would throttle the tunnel every message goes through. This is just below default -
+            // the UI wins a tie, the proxy still gets the CPU it asks for.
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT + 4);
+            } catch (Throwable ignore) {}
+            r.run();
+        }, "tgws-proxy"));
         poolWarmExecutor = java.util.concurrent.Executors.newFixedThreadPool(2, r -> new Thread(() -> {
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT + 4);
@@ -1765,11 +1692,7 @@ public class TgWsProxyService extends Service {
      * past the point real ones keep dying at.
      */
     private static long poolAgeLimitMs() {
-        switch (proxyMode()) {
-            case PROXY_MODE_ECONOMY: return 8_000L;
-            case PROXY_MODE_TURBO: return 15_000L;
-            default: return 12_000L;
-        }
+        return 30_000L; // matches 12.9.0.6
     }
 
     private static boolean isPooledConnectionAlive(SSLSocket socket) {
@@ -1841,31 +1764,13 @@ public class TgWsProxyService extends Service {
      * pool of two covers a conversation; it does not cover a burst.
      */
     private static int poolTargetFor(boolean isMedia) {
-        if (!PrimeTweaks.optimizations()) {
-            return 2;
-        }
-        // Bumped from 2/4: a burst of new SOCKS5 connections (e.g. everything tgnet opens
-        // around one big outgoing message) mostly missed this pool at the old size and went
-        // to a live connect instead - which is exactly what synchronously hammers the
-        // capacity-limited shared backends (149.154.167.220, the .co.uk balancer) and is the
-        // real mechanism behind "sending a lot at once breaks the proxy". A deeper pool means
-        // more of that burst gets served from an already-warm socket instantly instead of
-        // adding to the concurrent-connect spike.
-        //
-        // Media specifically scales further with proxy mode: individual Worker-relayed sessions
-        // now have a confirmed, real ceiling on how long they last (Cloudflare's own CPU-time
-        // budget per session - see TgWsProxyService's connectToWebSocket ordering comment), so a
-        // burst of parallel file/thumbnail requests needs a deeper standing pool to keep pulling
-        // fresh warm sockets rather than queuing behind connects. Turbo asks for exactly this
-        // trade (more standing connections, more battery) explicitly; Economy stays put.
-        if (isMedia) {
-            switch (proxyMode()) {
-                case PROXY_MODE_ECONOMY: return 6;
-                case PROXY_MODE_TURBO: return 12;
-                default: return 8;
-            }
-        }
-        return 5;
+        // Matches 12.9.0.6 exactly. A deeper pool was tried (up to 5/12 depending on mode) on the
+        // theory that more standing connections would absorb request bursts better - but every one
+        // of those spares is itself another connection competing for the same capacity-limited
+        // shared backends (149.154.167.220, the .co.uk balancer) that this whole investigation
+        // found rejecting connections outright under load. Reverting the pool depth back to what
+        // 0.6 actually ran removes this app's own contribution to that pressure.
+        return isMedia ? 4 : 2;
     }
 
     private void refillWsPoolAsync(int dcId, boolean isMedia) {
@@ -1886,8 +1791,23 @@ public class TgWsProxyService extends Service {
                         // on the worker pool - an unrelated Cloudflare account - even while the
                         // primary path is perfectly healthy, instead of only diversifying once
                         // something has already broken.
+                        // Was a 50/50 alternation, but connectToWebSocket() itself ALWAYS tries the
+                        // direct dc-redirect IP first internally before falling back to a worker -
+                        // so on every refill where workerFirst was false, 149.154.167.220 still got
+                        // an attempt as the primary path. Combined, direct-IP was being probed on
+                        // very close to every single refill cycle, not every other one. DC2 and DC4
+                        // both funnel through that one shared IP (see DC_REDIRECTS) - it is Telegram's
+                        // own shared load-balancer for just those two DCs, not infrastructure this
+                        // app controls, and a device log showed it rejecting connections outright in
+                        // bursts (instant WS CLOSE, code=1000/reason=404, zero bytes exchanged - the
+                        // same signature this file's own isDcInBackoff doc already attributes to
+                        // sustained overload). Skewing refills toward the worker pool most of the
+                        // time - 20+ distinct Cloudflare accounts to spread load across, versus one
+                        // fixed shared IP every PrimeGram install (and everyone else routed through
+                        // Telegram's own kws2/kws4 balancer) competes for - is the one lever actually
+                        // inside this app's control for reducing pressure on that shared resource.
                         String dst = DC_DEFAULT_IPS.get(dcId);
-                        boolean workerFirst = dst != null && (q.size() % 2 == 1);
+                        boolean workerFirst = dst != null && (q.size() % 3 != 0);
                         WsConnection conn = workerFirst ? connectThroughWorker(dcId, isMedia, dst) : connectToWebSocket(dcId, isMedia);
                         if (conn == null) {
                             conn = workerFirst ? connectToWebSocket(dcId, isMedia)
@@ -2014,18 +1934,27 @@ public class TgWsProxyService extends Service {
     }
 
     private WsConnection connectToWebSocket(int dcId, boolean isMedia) {
-        // Checked per-path now, not once for both: the DC-redirect fixed IP turned out to be
-        // shared public infrastructure too (same "Server: cloudflare" as the .co.uk balancer) -
-        // under sustained load it starts closing every session instantly with the same 1000/"404"
+        // PrimeGram: ordering restored to 12.9.0.6's actual primary path - domain rotation
+        // (kws{dc}.<one of the .co.uk pool>) first. Direct dc-redirect to the fixed
+        // 149.154.167.220 IP and the Worker relay are BOTH later additions with no equivalent in
+        // 0.6 at all (confirmed: that IP appears nowhere as a connect target in 0.6, only once in
+        // an unrelated reverse-lookup table) - 0.6 ran exclusively on domain rotation and never
+        // depended on that one fixed IP staying healthy. This investigation's failures (instant
+        // WS CLOSE code=1000/reason=404, connect timeouts) clustered specifically on that IP, so
+        // it goes back to being what 0.6 always treated it as: a fallback, not the first attempt.
+        WsConnection viaRotation = tryDomainRotationConnect(dcId, isMedia);
+        if (viaRotation != null) {
+            return viaRotation;
+        }
+
+        // Checked per-path, not once for both: the DC-redirect fixed IP turned out to be shared
+        // public infrastructure too (same "Server: cloudflare" as the .co.uk balancer) - under
+        // sustained load it starts closing every session instantly with the same 1000/"404"
         // signature, and without a check first, that path bypassed the breaker entirely and kept
-        // hammering a dead endpoint in a tight loop instead of backing off. But the two real paths
-        // below (direct dc-redirect vs. third-party Worker relay) share no infrastructure and can
-        // fail completely independently - see dcKey()'s doc - so each gets its own backoff check
-        // right before its own attempt, instead of one shared check blocking both whenever either
-        // one is having a bad moment.
-        //
-        // Ordering matches 12.9.0.6 (dc-redirect first, worker second) - Workers didn't exist yet
-        // at that version, and direct IP is what every user's connection ran on exclusively then.
+        // hammering a dead endpoint in a tight loop instead of backing off. The two paths below
+        // (direct dc-redirect vs. third-party Worker relay) share no infrastructure and can fail
+        // completely independently - see dcKey()'s doc - so each gets its own backoff check right
+        // before its own attempt, instead of one shared check blocking both.
         WsConnection viaRedirect = null;
         if (!isDcInBackoff(dcId, isMedia, false)) {
             viaRedirect = tryDcRedirectConnect(dcId, isMedia);
@@ -2043,7 +1972,14 @@ public class TgWsProxyService extends Service {
                 return viaWorker;
             }
         }
+        return null;
+    }
 
+    /** 12.9.0.6's original (and, until this investigation, ONLY) connection path: pick/rotate a
+     *  base domain from the .co.uk pool by latency, connect to kws{dc}.&lt;domain&gt;. No fixed
+     *  IP, no third-party Worker - the base domain list itself (~10-20 candidates) is the only
+     *  shared resource, and losing one candidate just narrows the pool rather than failing outright. */
+    private WsConnection tryDomainRotationConnect(int dcId, boolean isMedia) {
         SSLSocket tlsSocket = null;
         String chosenDomain = null;
 
