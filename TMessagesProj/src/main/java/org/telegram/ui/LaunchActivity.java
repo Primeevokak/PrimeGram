@@ -853,6 +853,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // PrimeUiInspectorOverlay's own visibility handling) unless explicitly turned on from
         // Settings, so it costs nothing while off.
         frameLayout.addView(new org.telegram.ui.Components.PrimeUiInspectorOverlay(this), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        // PrimeGram: "Логи" overlay - same idea and same z-order slot as the inspector above (on
+        // top of everything, costs nothing while its own toggle is off).
+        frameLayout.addView(new org.telegram.ui.Components.PrimeLogOverlay(this), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         setupActionBarLayout();
         drawerLayoutContainer.setParentActionBarLayout(actionBarLayout);
         actionBarLayout.setDrawerLayoutContainer(drawerLayoutContainer);

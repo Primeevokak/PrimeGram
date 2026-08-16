@@ -183,6 +183,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_STRIP_METADATA = 167;
     private static final int ID_PIN_EMERGENCY_DISABLE = 168;
     private static final int ID_HIDE_NOTIFICATION_TEXT = 169;
+    private static final int ID_LOG_OVERLAY = 170;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1818,6 +1819,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Состояние уведомлений", primePushSummary()));
             row(check(ID_UI_INSPECTOR, IconBackgroundColors.RED, R.drawable.msg_pin_code,
                     "Инспектор элементов UI", org.telegram.messenger.PrimeUiInspector.isEnabled()));
+            row(check(ID_LOG_OVERLAY, IconBackgroundColors.GREEN, R.drawable.msg_log,
+                    "Оверлей логов на экране", org.telegram.messenger.PrimeLogOverlayState.isEnabled()));
             row(check(ID_PERF_MONITOR, IconBackgroundColors.PURPLE, R.drawable.msg_speed,
                     "Мониторинг нагрузки", org.telegram.messenger.PrimePerfMonitor.isEnabled()));
             row(button(ID_PERF_MONITOR_LOG, IconBackgroundColors.PURPLE, R.drawable.msg_log,
@@ -1833,6 +1836,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(info(24, "Инспектор элементов UI",
                     "Обводит каждый View на экране зелёной рамкой с его именем.",
                     "Поверх всего интерфейса рисуется зелёная рамка вокруг каждого элемента (View), который сейчас реально лежит на экране, а рядом с рамкой — имя его класса и id, если он есть.\n\nНужно, когда на экране виден лишний фон/обводка/призрачный элемент, но непонятно, какой именно View его рисует — рамки и подписи позволяют ткнуть в нужное место и прочитать точное имя, вместо того чтобы гадать по скриншоту.\n\nРамок много и они мешают пользоваться приложением, поэтому включайте только на время диагностики конкретной проблемы и выключайте сразу после."));
+            items.add(info(28, "Оверлей логов на экране",
+                    "Живой logcat поверх интерфейса — без компьютера и ADB.",
+                    "Пока включено, поверх всего интерфейса (на любом экране) висит зелёная плашка «Логи (N)» — это то же самое, что видно через «adb logcat» с компьютера, только прямо на телефоне.\n\nНажмите на плашку, чтобы развернуть панель с последними строками лога, кнопками «Очистить» и «Копировать» — скопированное можно сразу вставить в чат для разбора бага.\n\nПолезно, когда баг нужно разобрать, а компьютера под рукой нет. Как и «Инспектор элементов UI», включайте только на время диагностики — постоянно работающий сбор лога занимает фоновый поток и память."));
             items.add(info(26, "Скопировать элементы экрана",
                     "Синяя кнопка поверх интерфейса, пока инспектор включён.",
                     "Когда «Инспектор элементов UI» включён, поверх всего интерфейса (на любом экране, не только здесь, в настройках) появляется синяя кнопка «Скопировать элементы». Нажмите её прямо на том экране, где виден баг.\n\nОна копирует в буфер обмена ПОЛНЫЙ список: каждый View дерева (с отступом по вложенности) и каждую canvas-отрисовку вроде containerDrawable, у каждого — точные координаты на экране.\n\nВместо того чтобы описывать словами или присылать скриншот и гадать вместе, какой блок лишний, — вставьте этот список в чат целиком. По координатам и порядку в дереве видно ровно, какой элемент где рисуется и что перекрывает что."));
@@ -2029,6 +2035,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             presentFragment(new org.telegram.ui.ReactionsDoubleTapManageActivity());
         } else if (item.id == ID_UI_INSPECTOR) {
             org.telegram.messenger.PrimeUiInspector.setEnabled(!org.telegram.messenger.PrimeUiInspector.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_LOG_OVERLAY) {
+            org.telegram.messenger.PrimeLogOverlayState.setEnabled(!org.telegram.messenger.PrimeLogOverlayState.isEnabled());
             listView.adapter.update(true);
         } else if (item.id == ID_PERF_MONITOR) {
             org.telegram.messenger.PrimePerfMonitor.setEnabled(!org.telegram.messenger.PrimePerfMonitor.isEnabled());
