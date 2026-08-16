@@ -24,6 +24,7 @@ public class MusicSettingsActivity extends UniversalFragment {
     private static final int ID_LASTFM_KEY = 201;
     private static final int ID_YANDEX_API_URL = 202;
     private static final int ID_COBALT_API_URL = 203;
+    private static final int ID_SEND_CAPTION = 205;
     private static final int ID_YTM_LOGIN = 204;
     private static final int ID_FONT_BASE = 300; // + index into FONT_FAMILIES
     private static final int ID_DOWNLOAD_FONTS = 400;
@@ -75,6 +76,12 @@ public class MusicSettingsActivity extends UniversalFragment {
             items.add(UItem.asHeader("Скачивание аудио"));
             items.add(UItem.asButton(ID_COBALT_API_URL, "Cobalt API", MusicSettingsStore.getCobaltApiUrl()));
             items.add(UItem.asShadow("Используется для скачивания аудиофайла трека при отправке «Аудио»."));
+
+            items.add(UItem.asHeader("Отправка"));
+            UItem captionItem = UItem.asCheck(ID_SEND_CAPTION, "Подпись «🎵 Трек — Исполнитель»");
+            captionItem.checked = MusicSettingsStore.isSendCaptionEnabled();
+            items.add(captionItem);
+            items.add(UItem.asShadow("Добавляется к карточке и аудиофайлу при отправке трека. Не влияет на «Отправить как текст» — там это и есть всё сообщение."));
         }
 
         items.add(UItem.asHeader("Оформление карточки"));
@@ -143,6 +150,9 @@ public class MusicSettingsActivity extends UniversalFragment {
     protected void onClick(UItem item, android.view.View view, int position, float x, float y) {
         if (item.id == ID_TAB_ENABLED) {
             MusicSettingsStore.setTabEnabled(!MusicSettingsStore.isTabEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_SEND_CAPTION) {
+            MusicSettingsStore.setSendCaptionEnabled(!MusicSettingsStore.isSendCaptionEnabled());
             listView.adapter.update(true);
         } else if (item.id >= ID_PLATFORM_BASE && item.id < ID_PLATFORM_BASE + 100) {
             MusicPlatform platform = MusicPlatform.fromId(item.id - ID_PLATFORM_BASE);

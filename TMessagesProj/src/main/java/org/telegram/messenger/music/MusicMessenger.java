@@ -57,7 +57,7 @@ public class MusicMessenger {
                 return;
             }
 
-            final CharSequence caption = buildCaption(track, false);
+            final CharSequence caption = buildAttachmentCaption(track, false);
             final AccountInstance accountInstance = AccountInstance.getInstance(account);
             final String path = file.getAbsolutePath();
             AndroidUtilities.runOnUIThread(() -> {
@@ -115,7 +115,7 @@ public class MusicMessenger {
                 return;
             }
 
-            final CharSequence caption = buildCaption(track, false);
+            final CharSequence caption = buildAttachmentCaption(track, false);
             final AccountInstance accountInstance = AccountInstance.getInstance(account);
             final String path = file.getAbsolutePath();
             final int total = dialogIds.size();
@@ -220,7 +220,7 @@ public class MusicMessenger {
             }
 
             final String mime = audioFile.getName().endsWith(".opus") ? "audio/opus" : "audio/mpeg";
-            final String caption = buildCaption(track, true).toString();
+            final String caption = buildAttachmentCaption(track, true).toString();
             final AccountInstance accountInstance = AccountInstance.getInstance(account);
             final String path = audioFile.getAbsolutePath();
             AndroidUtilities.runOnUIThread(() -> {
@@ -264,6 +264,38 @@ public class MusicMessenger {
         return null;
     }
 
+    /** Saves the track's cover art (as reported by the provider, {@link Track#thumbUrl}) into the
+     *  device's own Downloads/Telegram folder as a real file - separate from the "Карточка" image
+     *  (a rendered now-playing card), this is just the raw artwork the platform itself serves. */
+    public void downloadArtwork(Track track, Callback callback) {
+        if (track == null || track.thumbUrl == null || track.thumbUrl.isEmpty()) {
+            finish(callback, false, "У трека нет обложки");
+            return;
+        }
+        try {
+            File dir = getTempDir();
+            String ext = guessExtension(track.thumbUrl);
+            File dest = new File(dir, "artwork_" + System.currentTimeMillis() + ext);
+            if (!MusicHttp.downloadToFile(track.thumbUrl, dest)) {
+                finish(callback, false, "Не удалось скачать обложку");
+                return;
+            }
+            final String mime = ext.equals(".png") ? "image/png" : "image/jpeg";
+            final String displayName = safeFileName(track.title == null ? "cover" : track.title) + ext;
+            AndroidUtilities.runOnUIThread(() -> MediaController.saveFile(
+                    dest.getAbsolutePath(), org.telegram.messenger.ApplicationLoader.applicationContext,
+                    2, displayName, mime,
+                    uri -> {
+                        if (callback != null) {
+                            callback.onResult(uri != null, uri != null ? null : "Не удалось сохранить файл");
+                        }
+                    }));
+        } catch (Exception e) {
+            FileLog.e("MusicMessenger.downloadArtwork", e);
+            finish(callback, false, String.valueOf(e.getMessage()));
+        }
+    }
+
     private void finish(Callback callback, boolean success, String error) {
         if (callback != null) {
             AndroidUtilities.runOnUIThread(() -> callback.onResult(success, error));
@@ -299,6 +331,17 @@ public class MusicMessenger {
             FileLog.e("MusicMessenger.resolveViaSonglink", e);
             return null;
         }
+    }
+
+    /** Used by sendCard/sendAudio, where the caption is incidental metadata riding along with the
+     *  actual attachment - respects the "attach caption" setting. sendText's own explicit action
+     *  IS the text, so it calls {@link #buildCaption(Track, boolean)} directly, unaffected by
+     *  that toggle - turning it off would leave "send as text" sending nothing at all. */
+    private CharSequence buildAttachmentCaption(Track track, boolean withLink) {
+        if (!org.telegram.messenger.music.MusicSettingsStore.isSendCaptionEnabled()) {
+            return "";
+        }
+        return buildCaption(track, withLink);
     }
 
     private CharSequence buildCaption(Track track, boolean withLink) {

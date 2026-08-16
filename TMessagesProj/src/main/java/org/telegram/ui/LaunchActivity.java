@@ -408,6 +408,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private FlagSecureReason flagSecureReason;
     private final LiteMode.BatteryReceiver batteryReceiver = new LiteMode.BatteryReceiver();
+    // PrimeGram: the PIN gate's early-return in onCreate() (see below) can finish() this activity
+    // before the registerReceiver() call further down ever runs - onDestroy() still runs
+    // unconditionally either way, and unregistering a receiver that was never registered throws
+    // "Receiver not registered", crashing every single locked cold start once a PIN is enabled.
+    private boolean batteryReceiverRegistered;
     private WindowAnimatedInsetsProvider rootAnimatedInsetsListener;
 
     public static LaunchActivity instance;
@@ -472,6 +477,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
         registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        batteryReceiverRegistered = true;
         if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
             Intent intent = getIntent();
             boolean isProxy = false;
@@ -7179,7 +7185,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     protected void onDestroy() {
         isActive = false;
         activeInstanceCount--;
-        unregisterReceiver(batteryReceiver);
+        if (batteryReceiverRegistered) {
+            unregisterReceiver(batteryReceiver);
+        }
         org.telegram.messenger.PrimePerfMonitor.unbind(this);
 
         if (activeInstanceCount == 0) {

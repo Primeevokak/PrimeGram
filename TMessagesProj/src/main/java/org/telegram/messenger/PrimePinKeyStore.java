@@ -96,6 +96,18 @@ public final class PrimePinKeyStore {
                 return new KeyMaterial(key, inspectSecurityLevel(key));
             } catch (StrongBoxUnavailableException ignored) {
                 deleteQuietly();
+            } catch (Exception e) {
+                // Real devices: a StrongBox HAL that's present but broken/misconfigured routinely
+                // throws a plain ProviderException (or another undocumented subclass) instead of
+                // the one type this API contract promises, StrongBoxUnavailableException - caught
+                // narrowly above, this device's actual failure fell straight through it and killed
+                // enrollment outright ("что-то пошло не так") rather than falling back to the TEE
+                // like it was supposed to. Any failure at this stage means "StrongBox didn't work
+                // on this device," full stop - the TEE fallback below is what StrongBoxUnavailable
+                // was already routing to, so widening the catch just makes that same fallback
+                // reachable for every real-world failure shape, not only the documented one.
+                FileLog.e(e);
+                deleteQuietly();
             }
         }
         SecretKey key = generate(false);

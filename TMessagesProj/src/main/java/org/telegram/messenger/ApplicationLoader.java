@@ -81,6 +81,13 @@ public class ApplicationLoader extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+        // PrimeGram: was only called from onCreate() - too late on some OEM launchers/API levels,
+        // where the very first Activity window (and on API 31+, the SplashScreen-API preview) can
+        // already be resolving its theme/background off the process's Configuration before
+        // Application.onCreate() ever runs. attachBaseContext() is the earliest hook this class
+        // gets called at all, so this is the earliest point our own dark/light preference can
+        // possibly beat the OS's own uiMode default to that resolution.
+        PrimeLaunchTheme.applyEarly();
     }
 
     public static ILocationServiceProvider getLocationServiceProvider() {
@@ -315,6 +322,7 @@ public class ApplicationLoader extends Application {
         }
         PrimeStartupTrace.mark("postInitApplication: user configs read");
         initAccountStack(primaryAccount);
+        PrimeAutoDelete.ensureRegistered();
         PrimeStartupTrace.mark("postInitApplication: account stack built");
         SharedConfig.pushStringStatus = "__FIREBASE_GENERATING_SINCE_" + ConnectionsManager.getInstance(primaryAccount).getCurrentTime() + "__";
         PrimeStartupTrace.mark("postInitApplication: account " + primaryAccount + " ready, " + deferredAccounts.size() + " deferred");
@@ -392,11 +400,8 @@ public class ApplicationLoader extends Application {
 
         }
 
-        // Before super.onCreate() and everything else: this decides which of the two
-        // Theme.TMessages.Start style variants the very first (pre-UI) window paints with, and
-        // that decision has to land before any window for this process gets requested.
-        PrimeLaunchTheme.applyEarly();
-
+        // Already applied in attachBaseContext(), the earliest hook available - kept out of here
+        // now, not duplicated.
         super.onCreate();
         PrimeStartupTrace.mark("Application.onCreate");
 

@@ -2562,7 +2562,7 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
         if (r <= 0 || radius[1] != r || radius[2] != r || radius[3] != r) {
             return radius;
         }
-        if (!(placeholder instanceof org.telegram.ui.Components.AvatarDrawable)) {
+        if (!isAvatarReceiver) {
             return radius;
         }
         final int size = (int) width;

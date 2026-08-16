@@ -1439,7 +1439,7 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             imageView.invalidate();
         }
 
-        public void setMf(TLRPC.TL_forumTopic dialog, boolean selected) {
+        public void setMf(long chatDialogId, TLRPC.TL_forumTopic dialog, boolean selected) {
             setLayout(true);
             this.isAdd = false;
             this.staticImage = false;
@@ -1458,13 +1458,20 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                     // who has never otherwise been in a locally-cached dialog/contact (the normal
                     // case: someone messaging a channel you administer, with no prior DM history)
                     // left this tab's avatar (and setInfo(dialog.from_id)'s implicit-empty-name
-                    // via DialogObject.getName above) blank rather than a placeholder. A same-id
-                    // colored circle beats nothing while reloadUser() fetches the real one; the
-                    // next full tabs rebuild (already triggered by dialog/user updates elsewhere)
-                    // picks the real name/photo up once it lands.
+                    // via DialogObject.getName above) blank rather than a placeholder, PERMANENTLY -
+                    // not just until reloadUser() below landed, because reloadUser(long) builds its
+                    // request from getInputUser(getUser(id)), and getUser(id) is null for exactly
+                    // this case: MessagesController.getInputUser(null) returns TL_inputUserEmpty()
+                    // (a real, non-null object with no user_id in it at all), not null - so
+                    // reloadUser's own `if (inputPeer == null) return;` guard never caught it, and
+                    // the request it sent could never have identified this user to the server in
+                    // the first place. Resolving through the channel's own participant list instead
+                    // (works without an access_hash - the channel membership is the authorization)
+                    // is the same fix already applied to ChatMessageCell's signature-profile avatar
+                    // for the identical underlying bug.
                     avatarDrawable.setInfo(dialogId);
                     imageView.setForUserOrChat(null, avatarDrawable);
-                    MessagesController.getInstance(currentAccount).reloadUser(dialogId);
+                    resolveMonoForumSender(currentAccount, chatDialogId, dialogId);
                 }
             } else {
                 TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-dialogId);
@@ -1483,6 +1490,30 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                 animated
             );
             setPinned(false, animated);
+        }
+
+        /** One in-flight request per (account, userId) - a fast scroll through several tabs for
+         *  the same never-cached sender would otherwise fire one channels.getParticipant call per
+         *  tab bind. Success is picked up automatically: putUsers() below fires the same
+         *  updateInterfaces(UPDATE_MASK_AVATAR|UPDATE_MASK_NAME) notification TopicsTabsView
+         *  already listens for and forces an unconditional rebind on (see its own doc). */
+        private static final java.util.Set<Long> monoForumSenderFetchInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+        private static void resolveMonoForumSender(int account, long chatDialogId, long userId) {
+            if (chatDialogId >= 0 || !monoForumSenderFetchInFlight.add(userId)) {
+                return;
+            }
+            final TLRPC.TL_channels_getParticipant req = new TLRPC.TL_channels_getParticipant();
+            req.channel = MessagesController.getInstance(account).getInputChannel(MessagesController.getInstance(account).getChat(-chatDialogId));
+            req.participant = MessagesController.getInstance(account).getInputPeer(userId);
+            ConnectionsManager.getInstance(account).sendRequestTyped(req, AndroidUtilities::runOnUIThread, (res, err) -> {
+                monoForumSenderFetchInFlight.remove(userId);
+                if (res == null) {
+                    return;
+                }
+                MessagesController.getInstance(account).putUsers(res.users, false);
+                MessagesController.getInstance(account).putChats(res.chats, false);
+            });
         }
 
         private float selectT;
@@ -1548,7 +1579,7 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                     }
                 } else if (item.object instanceof TLRPC.TL_forumTopic) {
                     if (!item.withUsername) {
-                        cell.setMf((TLRPC.TL_forumTopic) item.object, item.checked);
+                        cell.setMf(item.dialogId, (TLRPC.TL_forumTopic) item.object, item.checked);
                     } else {
                         cell.set(item.dialogId, (TLRPC.TL_forumTopic) item.object, item.checked);
                     }
@@ -1866,6 +1897,11 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                 sb.append("x  ");
                 avatarSpan.setObject(object);
                 sb.setSpan(avatarSpan, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } else if (dialogId >= 0) {
+                // Same never-cached-MonoForum-sender gap as VerticalTabView.setMf - here the tab
+                // doesn't even get a placeholder avatar, just no icon at all, since there was no
+                // fetch attempt of any kind. See VerticalTabView.resolveMonoForumSender's own doc.
+                VerticalTabView.resolveMonoForumSender(currentAccount, chatDialogId, dialogId);
             }
             sb.append(DialogObject.getName(dialogId));
             textView.setText(TextUtils.ellipsize(sb, textView.getPaint(), dp(150), TextUtils.TruncateAt.END));

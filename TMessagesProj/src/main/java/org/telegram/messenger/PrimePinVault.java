@@ -14,7 +14,6 @@ import java.io.FileOutputStream;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
-import java.security.SecureRandom;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
@@ -43,6 +42,22 @@ public final class PrimePinVault {
     private static final Object PROCESS_LOCK = new Object();
 
     private final Context context;
+
+    /** Set by enroll()/enrollEmergency()/verify() on the Throwable branch, read right after by
+     *  the UI to show something more useful than a bare "something went wrong" - this vault has
+     *  never been exercised on real hardware before, and the Android Keystore/StrongBox surface
+     *  is exactly the kind of thing that fails in ways that are easy to guess wrong about without
+     *  seeing the actual exception from the actual device it happened on. */
+    private static volatile String lastError;
+
+    public static String lastError() {
+        return lastError;
+    }
+
+    private static void recordError(Throwable t) {
+        lastError = t.getClass().getSimpleName() + (t.getMessage() != null ? ": " + t.getMessage() : "");
+        FileLog.e(t);
+    }
 
     public PrimePinVault(Context context) {
         this.context = context.getApplicationContext() != null ? context.getApplicationContext() : context;
@@ -134,7 +149,7 @@ public final class PrimePinVault {
                 PrimePinLockout.Evaluation eval = PrimePinLockout.evaluate(lockState, android.os.SystemClock.elapsedRealtime(), readBootCount(context));
                 return new VaultInspection(VaultState.ENROLLED, eval.remainingMillis, state.protectionLevel);
             } catch (Exception e) {
-                FileLog.e(e);
+                recordError(e);
                 return new VaultInspection(VaultState.UNAVAILABLE, 0L, PrimePinKeyStore.ProtectionLevel.UNKNOWN);
             }
         }
@@ -168,7 +183,7 @@ public final class PrimePinVault {
                 writeState(state, keyMaterial.key);
                 return EnrollmentResult.ENROLLED;
             } catch (Exception e) {
-                FileLog.e(e);
+                recordError(e);
                 return EnrollmentResult.UNAVAILABLE;
             }
         }
@@ -204,7 +219,7 @@ public final class PrimePinVault {
                 writeState(state, PrimePinKeyStore.load());
                 return EmergencyStatus.SET;
             } catch (Exception e) {
-                FileLog.e(e);
+                recordError(e);
                 return EmergencyStatus.UNAVAILABLE;
             }
         }
@@ -263,7 +278,7 @@ public final class PrimePinVault {
                 PrimePinLockout.Evaluation postFailure = PrimePinLockout.evaluate(failed, android.os.SystemClock.elapsedRealtime(), bootCount);
                 return new VerificationResult(VerificationStatus.REJECTED, postFailure.remainingMillis, state.failedAttempts, state.protectionLevel);
             } catch (Exception e) {
-                FileLog.e(e);
+                recordError(e);
                 return new VerificationResult(VerificationStatus.UNAVAILABLE, 0L, 0, PrimePinKeyStore.ProtectionLevel.UNKNOWN);
             }
         }
@@ -362,7 +377,7 @@ public final class PrimePinVault {
         } catch (EOFException eof) {
             return null; // truncated file - treat as corrupt, not "retry forever"
         } catch (Exception e) {
-            FileLog.e(e);
+            recordError(e);
             return null;
         }
     }
@@ -390,10 +405,22 @@ public final class PrimePinVault {
             throw new IllegalStateException("PIN state too large");
         }
 
-        byte[] iv = new byte[GCM_IV_LEN];
-        new SecureRandom().nextBytes(iv);
+        // PrimeGram: was cipher.init(ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, ourIv)) -
+        // AndroidKeyStore keys default to setRandomizedEncryptionRequired(true) (PrimePinKeyStore
+        // never turns that off), and under that setting the Keystore itself owns IV generation
+        // for ENCRYPT_MODE and rejects a caller-supplied one outright: the exact
+        // "InvalidAlgorithmParameterException: caller-provided IV not permitted" a real device hit
+        // here. DECRYPT_MODE has no such restriction (the caller telling the Keystore which IV to
+        // use to decrypt is the whole point), so readState() below is unaffected and unchanged.
+        // The Keystore-generated IV is read back via cipher.getIV() AFTER init - it doesn't exist
+        // before that call - and that is the one actually stored/needed to decrypt later, not one
+        // generated here.
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_BITS, iv));
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+        byte[] iv = cipher.getIV();
+        if (iv == null || iv.length != GCM_IV_LEN) {
+            throw new IllegalStateException("Keystore returned an unusable IV (len=" + (iv == null ? -1 : iv.length) + ")");
+        }
         cipher.updateAAD(AAD);
         byte[] cipherText = cipher.doFinal(plain);
 

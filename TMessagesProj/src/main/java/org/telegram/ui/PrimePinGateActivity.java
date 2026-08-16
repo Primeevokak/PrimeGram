@@ -482,7 +482,7 @@ public class PrimePinGateActivity extends Activity {
                     showSoftwareWarning(pin);
                 } else {
                     showFirstEnrollment();
-                    flashError(STR_GENERIC_ERROR);
+                    flashError(genericErrorWithDetail(result.name()));
                 }
             });
         });
@@ -502,7 +502,7 @@ public class PrimePinGateActivity extends Activity {
                     flashError(STR_EMERGENCY_SAME_AS_PRIMARY);
                 } else {
                     showEmergencyFirst();
-                    flashError(STR_GENERIC_ERROR);
+                    flashError(genericErrorWithDetail(status.name()));
                 }
             });
         });
@@ -624,6 +624,17 @@ public class PrimePinGateActivity extends Activity {
         };
         setBusy(false);
         countdownRunnable.run();
+    }
+
+    /** Was a bare "something went wrong, try again" - useless for a feature that's never run on
+     *  real hardware before and fails in whatever OEM-specific Keystore/StrongBox way that
+     *  hardware fails in. {@code resultName} (the enum constant, e.g. "UNAVAILABLE") plus
+     *  {@link PrimePinVault#lastError()} (the actual exception class+message the vault's own
+     *  catch block just recorded) turns a bug report into something actionable instead of a
+     *  screenshot of six words. */
+    private static String genericErrorWithDetail(String resultName) {
+        String detail = PrimePinVault.lastError();
+        return STR_GENERIC_ERROR + " (" + resultName + (detail != null ? ": " + detail : "") + ")";
     }
 
     private void flashError(String message) {

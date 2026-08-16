@@ -166,6 +166,14 @@ public class PrimeUpdateProgressDialog {
             dialog.dismiss();
         }
         dialog = builder.create();
+        // PrimeGram: was dismissable by tapping outside it, same as no answer at all - the update
+        // was already downloaded at this point, but nothing in this class (or the caller that
+        // re-triggers a full re-download the next time "Обновить" is pressed) knew that, so a
+        // stray tap outside this dialog silently threw the finished download away and the user
+        // had to sit through the whole download again just to see this same dialog once more.
+        // Forcing an explicit choice ("Установить" / "Позже") is cheap and makes that state
+        // unreachable, without needing to also fix the caller's re-download logic.
+        dialog.setCancelable(false);
         dialog.show();
     }
 

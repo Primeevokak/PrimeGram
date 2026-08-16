@@ -177,6 +177,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_PIN_LOCK_POLICY = 161;
     private static final int ID_PIN_DISABLE = 162;
     private static final int ID_PIN_EMERGENCY = 163;
+    private static final int ID_AUTO_DELETE_ENABLE = 164;
+    private static final int ID_AUTO_DELETE_PERIOD = 165;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1529,6 +1531,16 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 endCard(items);
                 items.add(UItem.asShadow("Функции, снимающие ограничения собеседника, и режим призрака. Разработчик их не одобряет — используются на ваш страх и риск."));
             }
+
+            boolean autoDeleteEnabled = org.telegram.messenger.PrimeAutoDelete.isGloballyEnabled();
+            row(check(ID_AUTO_DELETE_ENABLE, IconBackgroundColors.GRAY, R.drawable.msg_delete,
+                    "Автоудаление своих сообщений", autoDeleteEnabled));
+            if (autoDeleteEnabled) {
+                row(button(ID_AUTO_DELETE_PERIOD, IconBackgroundColors.CYAN, R.drawable.msg_recent,
+                        "Удалять через", primeAutoDeletePeriodLabel()));
+            }
+            endCard(items);
+            items.add(UItem.asShadow("Собственные сообщения (не пересланные, без медиа-само­уничтожения) в обычных чатах удаляются сами через заданное время после отправки. На секретные чаты не влияет — там уже есть свой таймер. Можно включить/выключить отдельно для конкретного чата в его меню."));
         }
 
         if (section == SECTION_TOOLS) {
@@ -2335,6 +2347,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showPhoneInputDialog();
         } else if (item.id == ID_GREY_ZONE) {
             presentFragment(new GreyZoneActivity());
+        } else if (item.id == ID_AUTO_DELETE_ENABLE) {
+            org.telegram.messenger.PrimeAutoDelete.setGloballyEnabled(!org.telegram.messenger.PrimeAutoDelete.isGloballyEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_AUTO_DELETE_PERIOD) {
+            showAutoDeletePeriodDialog();
         } else if (item.id == ID_MESSAGE_TAGS) {
             presentFragment(new MessageTagsActivity());
         } else if (item.id == ID_TEXT_TOOLBAR) {
@@ -3611,6 +3628,29 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             default:
                 return "При блокировке экрана";
         }
+    }
+
+    private String primeAutoDeletePeriodLabel() {
+        return LocaleController.formatTTLString(org.telegram.messenger.PrimeAutoDelete.getPeriodHours() * 3600);
+    }
+
+    private void showAutoDeletePeriodDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final int[] hoursOptions = org.telegram.messenger.PrimeAutoDelete.PERIOD_OPTIONS_HOURS;
+        final String[] labels = new String[hoursOptions.length];
+        for (int i = 0; i < hoursOptions.length; i++) {
+            labels[i] = LocaleController.formatTTLString(hoursOptions[i] * 3600);
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Удалять через");
+        builder.setItems(labels, (dialog, which) -> {
+            org.telegram.messenger.PrimeAutoDelete.setPeriodHours(hoursOptions[which]);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
     }
 
     private void showPinLockPolicyDialog() {
