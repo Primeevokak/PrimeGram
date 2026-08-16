@@ -44,6 +44,7 @@ public class PrimePinGateActivity extends Activity {
 
     public static final String EXTRA_SETUP_EMERGENCY = "primegram.setup_emergency";
     public static final String EXTRA_DISABLE_PIN = "primegram.disable_pin";
+    public static final String EXTRA_DISABLE_EMERGENCY = "primegram.disable_emergency";
 
     private static final int BACKGROUND_COLOR = Color.rgb(23, 33, 43);
     private static final int PANEL_COLOR = Color.rgb(30, 42, 54);
@@ -119,7 +120,7 @@ public class PrimePinGateActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (isEmergencySetupRequested() || isDisableRequested()) {
+        if (isEmergencySetupRequested() || isDisableRequested() || isDisableEmergencyRequested()) {
             super.onBackPressed();
         }
         // Main gate is undismissable otherwise.
@@ -131,6 +132,10 @@ public class PrimePinGateActivity extends Activity {
 
     private boolean isDisableRequested() {
         return getIntent() != null && getIntent().getBooleanExtra(EXTRA_DISABLE_PIN, false);
+    }
+
+    private boolean isDisableEmergencyRequested() {
+        return getIntent() != null && getIntent().getBooleanExtra(EXTRA_DISABLE_EMERGENCY, false);
     }
 
     // ─── layout ─────────────────────────────────────────────────────────────
@@ -292,14 +297,14 @@ public class PrimePinGateActivity extends Activity {
 
     private void onInspected(PrimePinVault.VaultInspection inspection) {
         if (inspection.state == PrimePinVault.VaultState.NOT_ENROLLED) {
-            if (isEmergencySetupRequested() || isDisableRequested()) {
+            if (isEmergencySetupRequested() || isDisableRequested() || isDisableEmergencyRequested()) {
                 // Nothing to set up/disable without a primary PIN.
                 completeGate();
                 return;
             }
             showFirstEnrollment();
         } else if (inspection.state == PrimePinVault.VaultState.ENROLLED) {
-            if (isEmergencySetupRequested()) {
+            if (isEmergencySetupRequested() || isDisableEmergencyRequested()) {
                 showEmergencyVerify();
             } else if (isDisableRequested()) {
                 showDisableVerify();
@@ -495,7 +500,7 @@ public class PrimePinGateActivity extends Activity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 setBusy(false);
-                if (status == PrimePinVault.EmergencyStatus.SET) {
+                if (status == PrimePinVault.EmergencyStatus.SET || status == PrimePinVault.EmergencyStatus.REMOVED) {
                     completeGate();
                 } else if (status == PrimePinVault.EmergencyStatus.SAME_AS_PRIMARY) {
                     showEmergencyFirst();
@@ -516,7 +521,9 @@ public class PrimePinGateActivity extends Activity {
                 if (isFinishing() || isDestroyed()) return;
                 switch (result.status) {
                     case ACCEPTED:
-                        if (emergencySetupFlow) {
+                        if (emergencySetupFlow && isDisableEmergencyRequested()) {
+                            finishEmergencyEnrollment(null);
+                        } else if (emergencySetupFlow) {
                             showEmergencyFirst();
                         } else {
                             completeGate();

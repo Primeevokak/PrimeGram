@@ -14,9 +14,27 @@ public class PrimeGramPrivacy {
 
     private static final String KEY_HIDE_PHONE = "primegram_hide_own_phone";
     private static final String KEY_FAKE_PHONE = "primegram_fake_phone";
+    private static final String KEY_HIDE_NOTIFICATION_TEXT = "primegram_hide_notification_text";
 
     private static SharedPreferences prefs() {
         return MessagesController.getGlobalMainSettings();
+    }
+
+    /** Phase 6: local-only "hide notification content." Rather than reinventing
+     *  {@link NotificationsController#getStringForMessage}'s message-building logic, this just
+     *  forces its own existing {@code dialogPreviewEnabled} gate off - the exact same fallback
+     *  Telegram's own "message preview" setting already uses (sender/chat name shown, no message
+     *  text, no media, no button labels), so there's no separate string-building path to keep in
+     *  sync with upstream. Server-side {@code show_previews} sync is intentionally not touched
+     *  here - a genuine cross-device preview preference could otherwise get silently overwritten
+     *  by our own suppressed value bouncing back from the server, which needs its own 3-state
+     *  marker to do safely and is a separate piece of work. */
+    public static boolean isHideNotificationTextEnabled() {
+        return prefs().getBoolean(KEY_HIDE_NOTIFICATION_TEXT, false);
+    }
+
+    public static void setHideNotificationTextEnabled(boolean enabled) {
+        prefs().edit().putBoolean(KEY_HIDE_NOTIFICATION_TEXT, enabled).apply();
     }
 
     public static boolean isHidePhoneEnabled() {

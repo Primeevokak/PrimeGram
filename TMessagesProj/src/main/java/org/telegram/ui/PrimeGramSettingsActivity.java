@@ -181,6 +181,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_AUTO_DELETE_PERIOD = 165;
     private static final int ID_ANON_FILENAMES = 166;
     private static final int ID_STRIP_METADATA = 167;
+    private static final int ID_PIN_EMERGENCY_DISABLE = 168;
+    private static final int ID_HIDE_NOTIFICATION_TEXT = 169;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1508,10 +1510,15 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             row(check(ID_PIN_ENABLE, IconBackgroundColors.BLUE, R.drawable.msg_pin_code,
                     "PIN-код при запуске", pinEnrolled));
             if (pinEnrolled) {
+                boolean hasEmergency = org.telegram.messenger.PrimePinSession.hasEmergencyPin();
                 row(button(ID_PIN_LOCK_POLICY, IconBackgroundColors.CYAN, R.drawable.msg_recent,
                         "Когда запрашивать", primePinPolicyLabel()));
                 row(button(ID_PIN_EMERGENCY, IconBackgroundColors.RED, R.drawable.msg_delete,
-                        "Аварийный PIN-код", "Настроить"));
+                        "Аварийный PIN-код", hasEmergency ? "Изменить" : "Настроить"));
+                if (hasEmergency) {
+                    row(button(ID_PIN_EMERGENCY_DISABLE, IconBackgroundColors.GRAY, R.drawable.msg_block,
+                            "Отключить аварийный PIN-код", null));
+                }
                 row(button(ID_PIN_DISABLE, IconBackgroundColors.GRAY, R.drawable.msg_block,
                         "Отключить PIN-код", null));
             }
@@ -1543,6 +1550,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
             endCard(items);
             items.add(UItem.asShadow("Собственные сообщения (не пересланные, без медиа-само­уничтожения) в обычных чатах удаляются сами через заданное время после отправки. На секретные чаты не влияет — там уже есть свой таймер. Можно включить/выключить отдельно для конкретного чата в его меню."));
+
+            row(check(ID_HIDE_NOTIFICATION_TEXT, IconBackgroundColors.GRAY, R.drawable.msg_secret,
+                    "Скрывать текст в уведомлениях", org.telegram.messenger.PrimeGramPrivacy.isHideNotificationTextEnabled()));
+            endCard(items);
+            items.add(UItem.asShadow("В пуш-уведомлениях будет видно только имя отправителя/чата — без текста сообщения, медиа и подписей кнопок. Открыв само уведомление или приложение, вы всё равно увидите сообщение целиком; в самом приложении текст скрывается только на экране блокировки/шторке."));
 
             row(check(ID_ANON_FILENAMES, IconBackgroundColors.GRAY, R.drawable.msg_secret,
                     "Обезличивать имена скачанных файлов", org.telegram.messenger.PrimeFileNames.isEnabled()));
@@ -2349,6 +2361,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_PIN);
         } else if (item.id == ID_PIN_EMERGENCY) {
             showEmergencyPinWarning();
+        } else if (item.id == ID_PIN_EMERGENCY_DISABLE) {
+            launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_EMERGENCY);
+        } else if (item.id == ID_HIDE_NOTIFICATION_TEXT) {
+            org.telegram.messenger.PrimeGramPrivacy.setHideNotificationTextEnabled(!org.telegram.messenger.PrimeGramPrivacy.isHideNotificationTextEnabled());
+            listView.adapter.update(true);
         } else if (item.id == ID_HIDE_PHONE) {
             org.telegram.messenger.PrimeGramPrivacy.setHidePhoneEnabled(!org.telegram.messenger.PrimeGramPrivacy.isHidePhoneEnabled());
             listView.adapter.update(true);

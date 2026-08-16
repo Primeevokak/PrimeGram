@@ -1790,6 +1790,9 @@ public class NotificationsController extends BaseController implements Notificat
         }
         SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
         boolean dialogPreviewEnabled = preferences.getBoolean("content_preview_" + dialogId, true);
+        if (PrimeGramPrivacy.isHideNotificationTextEnabled()) {
+            dialogPreviewEnabled = false;
+        }
         if (messageObject.isFcmMessage()) {
             if (chat_id == 0 && fromId != 0) {
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O_MR1) {
@@ -2483,6 +2486,9 @@ public class NotificationsController extends BaseController implements Notificat
         }
         SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
         boolean dialogPreviewEnabled = preferences.getBoolean("content_preview_" + dialogId, true);
+        if (PrimeGramPrivacy.isHideNotificationTextEnabled()) {
+            dialogPreviewEnabled = false;
+        }
         if (messageObject.isFcmMessage()) {
             if (chatId == 0 && fromId != 0) {
                 if (!dialogPreviewEnabled || !preferences.getBoolean("EnablePreviewAll", true)) {

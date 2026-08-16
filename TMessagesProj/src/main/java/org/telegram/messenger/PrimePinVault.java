@@ -75,11 +75,17 @@ public final class PrimePinVault {
         public final VaultState state;
         public final long retryAfterMillis;
         public final PrimePinKeyStore.ProtectionLevel protectionLevel;
+        public final boolean hasEmergency;
 
         VaultInspection(VaultState state, long retryAfterMillis, PrimePinKeyStore.ProtectionLevel protectionLevel) {
+            this(state, retryAfterMillis, protectionLevel, false);
+        }
+
+        VaultInspection(VaultState state, long retryAfterMillis, PrimePinKeyStore.ProtectionLevel protectionLevel, boolean hasEmergency) {
             this.state = state;
             this.retryAfterMillis = retryAfterMillis;
             this.protectionLevel = protectionLevel;
+            this.hasEmergency = hasEmergency;
         }
     }
 
@@ -109,6 +115,21 @@ public final class PrimePinVault {
         boolean hasEmergency;
         byte[] emergencySalt;
         byte[] emergencyVerifier;
+    }
+
+    private static void joinUninterruptibly(Thread t) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                t.join();
+                break;
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private File dir() {
@@ -147,7 +168,7 @@ public final class PrimePinVault {
                 }
                 PrimePinLockout.State lockState = toLockoutState(state);
                 PrimePinLockout.Evaluation eval = PrimePinLockout.evaluate(lockState, android.os.SystemClock.elapsedRealtime(), readBootCount(context));
-                return new VaultInspection(VaultState.ENROLLED, eval.remainingMillis, state.protectionLevel);
+                return new VaultInspection(VaultState.ENROLLED, eval.remainingMillis, state.protectionLevel, state.hasEmergency);
             } catch (Exception e) {
                 recordError(e);
                 return new VaultInspection(VaultState.UNAVAILABLE, 0L, PrimePinKeyStore.ProtectionLevel.UNKNOWN);
@@ -247,7 +268,37 @@ public final class PrimePinVault {
                     applyLockoutState(state, eval.state);
                 }
 
-                if (state.hasEmergency && PrimePinKdf.verify(pin, state.emergencySalt, state.kdfIterations, state.emergencyVerifier)) {
+                // PrimeGram: the emergency and primary PBKDF2 checks below are independent of
+                // each other - each one alone is ~600k HMAC-SHA256 iterations, deliberately slow
+                // (that is the entire point of a KDF), and running them one after another made a
+                // normal unlock with an emergency PIN configured take roughly twice as long as it
+                // needs to (the emergency check is mandatory and must run every time, unlocked or
+                // not - see this method's own class doc on why it can't be skipped or reordered
+                // after the lockout gate). Running both on separate threads and joining costs
+                // wall-clock time equal to the SLOWER of the two, not their sum, without changing
+                // which check is allowed to observe first or altering any decision this method
+                // makes - only the "am I done yet" moment for each is decoupled from the other.
+                final boolean pinPlausible = PrimePinContract.isValidPin(pin);
+                final boolean[] emergencyMatch = {false};
+                Thread emergencyThread = null;
+                if (state.hasEmergency) {
+                    emergencyThread = new Thread(() -> emergencyMatch[0] = PrimePinKdf.verify(pin, state.emergencySalt, state.kdfIterations, state.emergencyVerifier), "PrimePinVault-emergency");
+                    emergencyThread.start();
+                }
+                final boolean[] primaryMatch = {false};
+                Thread primaryThread = null;
+                if (pinPlausible) {
+                    primaryThread = new Thread(() -> primaryMatch[0] = PrimePinKdf.verify(pin, state.salt, state.kdfIterations, state.verifier), "PrimePinVault-primary");
+                    primaryThread.start();
+                }
+                if (emergencyThread != null) {
+                    joinUninterruptibly(emergencyThread);
+                }
+                if (primaryThread != null) {
+                    joinUninterruptibly(primaryThread);
+                }
+
+                if (state.hasEmergency && emergencyMatch[0]) {
                     if (eval.stateChanged) {
                         writeState(state, PrimePinKeyStore.load());
                     }
@@ -261,11 +312,11 @@ public final class PrimePinVault {
                     return new VerificationResult(VerificationStatus.LOCKED, eval.remainingMillis, state.failedAttempts, state.protectionLevel);
                 }
 
-                if (!PrimePinContract.isValidPin(pin)) {
+                if (!pinPlausible) {
                     return new VerificationResult(VerificationStatus.INVALID_PIN, 0L, state.failedAttempts, state.protectionLevel);
                 }
 
-                if (PrimePinKdf.verify(pin, state.salt, state.kdfIterations, state.verifier)) {
+                if (primaryMatch[0]) {
                     PrimePinLockout.State cleared = PrimePinLockout.afterSuccess(bootCount);
                     applyLockoutState(state, cleared);
                     writeState(state, PrimePinKeyStore.load());

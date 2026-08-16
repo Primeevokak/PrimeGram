@@ -37,7 +37,7 @@ public final class PrimeFileNames {
     }
 
     public static boolean isEnabled() {
-        return prefs().getBoolean(KEY_ENABLED, true);
+        return prefs().getBoolean(KEY_ENABLED, false);
     }
 
     public static void setEnabled(boolean enabled) {

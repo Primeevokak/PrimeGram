@@ -40,6 +40,21 @@ public final class PrimePinSession {
         prefs().edit().putBoolean("pin_enabled", enabled).apply();
     }
 
+    /** Settings-screen query only - does real file I/O (opens and decrypts the vault state), so
+     *  callers should not use this on a hot path. */
+    public static boolean hasEmergencyPin() {
+        if (!isEnabled()) {
+            return false;
+        }
+        try {
+            PrimePinVault vault = new PrimePinVault(ApplicationLoader.applicationContext);
+            PrimePinVault.VaultInspection inspection = vault.inspect();
+            return inspection.state == PrimePinVault.VaultState.ENROLLED && inspection.hasEmergency;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static PrimePinLockPolicy getLockPolicy() {
         return PrimePinLockPolicy.fromStorageKey(prefs().getString("pin_lock_policy", null), PrimePinLockPolicy.getDefault());
     }

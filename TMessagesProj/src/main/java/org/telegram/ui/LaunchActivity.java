@@ -600,6 +600,17 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 super.requestDisallowInterceptTouchEvent(disallow);
             }
 
+            @Override
+            public void openDrawer(boolean fast) {
+                // PrimeGram: a purely local display setting (e.g. "hide my phone number") has no
+                // server-side change to react to, so nothing else ever tells this already-built
+                // header to redraw - it otherwise stayed stale until the app restarted and
+                // rebuilt the sidebar from scratch. Refreshing right as the drawer opens is cheap
+                // (just re-reads already-cached local state) and needs no new notification.
+                updateSidebarProfileHeader();
+                super.openDrawer(fast);
+            }
+
             /**
              * PrimeGram: claims a strip of the left edge back from the system back gesture.
              *

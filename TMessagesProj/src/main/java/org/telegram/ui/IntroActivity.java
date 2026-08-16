@@ -19,28 +19,18 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.database.DataSetObserver;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
-import android.graphics.PorterDuffXfermode;
-import android.graphics.SurfaceTexture;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
+import android.graphics.RadialGradient;
+import android.graphics.Shader;
 import android.graphics.drawable.GradientDrawable;
-import android.opengl.GLES20;
-import android.opengl.GLUtils;
-import android.os.Looper;
 import android.os.Parcelable;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
-import android.text.style.ImageSpan;
 import android.util.TypedValue;
-import android.view.Display;
 import android.view.Gravity;
-import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -56,11 +46,7 @@ import androidx.viewpager.widget.ViewPager;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.BuildVars;
-import org.telegram.messenger.DispatchQueue;
-import org.telegram.messenger.EmuDetector;
 import org.telegram.messenger.FileLog;
-import org.telegram.messenger.GenericProvider;
-import org.telegram.messenger.Intro;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
@@ -84,13 +70,6 @@ import org.telegram.ui.Components.voip.CellFlickerDrawable;
 
 import java.util.ArrayList;
 
-import javax.microedition.khronos.egl.EGL10;
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.egl.EGLContext;
-import javax.microedition.khronos.egl.EGLDisplay;
-import javax.microedition.khronos.egl.EGLSurface;
-import javax.microedition.khronos.opengles.GL10;
-
 public class IntroActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
     private final static int ICON_WIDTH_DP = 200, ICON_HEIGHT_DP = 150;
 
@@ -112,12 +91,11 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
     private int lastPage = 0;
     private boolean justCreated = false;
     private boolean startPressed = false;
-    private Drawable logoDrawable;
     private CharSequence[] titles;
     private String[] messages;
     private int currentViewPagerPage;
-    private EGLThread eglThread;
-    private long currentDate;
+    private IntroIconView[] iconViews;
+    private int currentIconIndex;
     private boolean justEndDragging;
     private boolean dragging;
     private int startDragX;
@@ -153,11 +131,7 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
 
     @Override
     public View createView(Context context) {
-        logoDrawable = context.getResources().getDrawable(R.drawable.telegram_logo).mutate();
-        logoDrawable.setBounds(0, dp(8.666f), dp(115), dp(35));
-        SpannableStringBuilder ssb = new SpannableStringBuilder(LocaleController.getString(R.string.Page1Title));
-        ssb.setSpan(new ImageSpan(logoDrawable), 0, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        titles[0] = ssb;
+        titles[0] = LocaleController.getString(R.string.Page1Title);
 
 
         actionBar.setAddToContainer(false);
@@ -247,50 +221,16 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
         frameLayout2 = new FrameLayout(context);
         frameContainerView.addView(frameLayout2, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 0, 78, 0, 0));
 
-        TextureView textureView = new TextureView(context);
-        frameLayout2.addView(textureView, LayoutHelper.createFrame(ICON_WIDTH_DP, ICON_HEIGHT_DP, Gravity.CENTER));
-        textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            @Override
-            public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
-                if (eglThread == null && surface != null) {
-                    eglThread = new EGLThread(surface);
-                    eglThread.setSurfaceTextureSize(width, height);
-                    eglThread.postRunnable(()->{
-                        float time = (System.currentTimeMillis() - currentDate) / 1000.0f;
-                        Intro.setPage(currentViewPagerPage);
-                        Intro.setDate(time);
-                        Intro.onDrawFrame(0);
-                        if (eglThread != null && eglThread.isAlive() && eglThread.eglDisplay != null && eglThread.eglSurface != null) {
-                            try {
-                                eglThread.egl10.eglSwapBuffers(eglThread.eglDisplay, eglThread.eglSurface);
-                            } catch (Exception ignored) {} // If display or surface already destroyed
-                        }
-                    });
-                    eglThread.postRunnable(eglThread.drawRunnable);
-                }
-            }
-
-            @Override
-            public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, final int width, final int height) {
-                if (eglThread != null) {
-                    eglThread.setSurfaceTextureSize(width, height);
-                }
-            }
-
-            @Override
-            public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
-                if (eglThread != null) {
-                    eglThread.shutdown();
-                    eglThread = null;
-                }
-                return true;
-            }
-
-            @Override
-            public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
-
-            }
-        });
+        // PrimeGram: order matches titles[]/messages[] exactly - Brand, Fast, Free, Powerful,
+        // Secure, Cloud - so pageIndex from the pager can index straight into this array.
+        iconViews = new IntroIconView[]{
+                new AtomIconView(context), new FastIconView(context), new FreeIconView(context),
+                new PowerfulIconView(context), new SecureIconView(context), new CloudIconView(context)
+        };
+        for (int i = 0; i < iconViews.length; i++) {
+            iconViews[i].setAlpha(i == 0 ? 1f : 0f);
+            frameLayout2.addView(iconViews[i], LayoutHelper.createFrame(ICON_WIDTH_DP, ICON_HEIGHT_DP, Gravity.CENTER));
+        }
 
         viewPager = new ViewPager(context);
         viewPager.setAdapter(new IntroAdapter());
@@ -301,18 +241,12 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
             @Override
             public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
                 bottomPages.setPageOffset(position, positionOffset);
-
-                float width = viewPager.getMeasuredWidth();
-                if (width == 0) {
-                    return;
-                }
-                float offset = (position * width + positionOffsetPixels - currentViewPagerPage * width) / width;
-                Intro.setScrollOffset(offset);
             }
 
             @Override
             public void onPageSelected(int i) {
                 currentViewPagerPage = i;
+                crossfadeIconTo(i);
             }
 
             @Override
@@ -486,6 +420,24 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
         MessagesController.getGlobalMainSettings().edit().putLong("intro_crashed_time", 0).apply();
     }
 
+    /** Crossfades the icon area from whichever page was showing to {@code index} - a discrete
+     *  per-page swap rather than a continuous scroll-linked morph, since each page's icon is now
+     *  its own distinct animation (a plane, a shield, a cloud...) rather than one shared scene a
+     *  single canvas could blend between. */
+    private void crossfadeIconTo(int index) {
+        if (iconViews == null || index == currentIconIndex || index < 0 || index >= iconViews.length) {
+            return;
+        }
+        IntroIconView from = iconViews[currentIconIndex];
+        IntroIconView to = iconViews[index];
+        currentIconIndex = index;
+        from.animate().cancel();
+        to.animate().cancel();
+        from.animate().alpha(0f).setDuration(260).start();
+        to.setAlpha(0f);
+        to.animate().alpha(1f).setDuration(260).start();
+    }
+
     private void checkContinueText() {
         LocaleController.LocaleInfo englishInfo = null;
         LocaleController.LocaleInfo systemInfo = null;
@@ -652,315 +604,423 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
         }
     }
 
-    public class EGLThread extends DispatchQueue {
+    /** PrimeGram: base for the intro's six per-page animated icons, replacing the original
+     *  OpenGL-rendered scenes (paper plane, bubble, lock...) which lived entirely in native C++
+     *  code and aren't something this fork can meaningfully re-theme.
+     *
+     *  <p>Driven by a continuously-growing elapsed-time clock ({@code t}, seconds since attach),
+     *  never a bounded/repeating {@link ValueAnimator} - a repeating animator that resets its
+     *  value to 0 on every lap is only seamless if every motion it drives happens to complete a
+     *  whole number of cycles by then, and any orbit/oscillation whose speed isn't an exact
+     *  integer multiple visibly snaps at that reset. Feeding sin/cos (themselves perfectly
+     *  periodic) with an ever-increasing {@code t} instead has no such seam to hit - there is
+     *  simply no "restart" moment for a viewer to notice. */
+    private static abstract class IntroIconView extends View {
 
-        private final static int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
-        private final static int EGL_OPENGL_ES2_BIT = 4;
-        private SurfaceTexture surfaceTexture;
-        private EGL10 egl10;
-        private EGLDisplay eglDisplay;
-        private EGLConfig eglConfig;
-        private EGLContext eglContext;
-        private EGLSurface eglSurface;
-        private boolean initied;
-        private final int[] textures = new int[24];
+        private long startNanos;
+        private boolean running;
+        private final Runnable frameTick = this::onFrameTick;
 
-        private float maxRefreshRate;
-        private long lastDrawFrame;
+        protected int accent;
+        protected int accentBright;
+        protected int accentSoft;
+        protected int accentFaint;
 
-        private final GenericProvider<Void, Bitmap> telegramMaskProvider = v -> {
-            int size = dp(ICON_HEIGHT_DP);
-            Bitmap bm = Bitmap.createBitmap(dp(ICON_WIDTH_DP), size, Bitmap.Config.ARGB_8888);
-            Canvas c = new Canvas(bm);
-            c.drawColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-            c.drawCircle(bm.getWidth() / 2f, bm.getHeight() / 2f, size / 2f, paint);
-            return bm;
-        };
-
-        public EGLThread(SurfaceTexture surface) {
-            super("EGLThread");
-            surfaceTexture = surface;
+        IntroIconView(Context context) {
+            super(context);
+            // Deliberately NOT calling updateColors() here - it dispatches to the subclass's
+            // overridden onColorsUpdated(), which touches Paint fields the subclass constructor
+            // hasn't initialized yet at this point (Java runs the superclass constructor, including
+            // any virtual call it makes, before the subclass's own field initializers). Each
+            // subclass calls updateColors() itself once its fields are actually built.
         }
 
-        private boolean initGL() {
-            egl10 = (EGL10) EGLContext.getEGL();
-
-            eglDisplay = egl10.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
-            if (eglDisplay == EGL10.EGL_NO_DISPLAY) {
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.e("eglGetDisplay failed " + GLUtils.getEGLErrorString(egl10.eglGetError()));
-                }
-                finish();
-                return false;
-            }
-
-            int[] version = new int[2];
-            if (!egl10.eglInitialize(eglDisplay, version)) {
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.e("eglInitialize failed " + GLUtils.getEGLErrorString(egl10.eglGetError()));
-                }
-                finish();
-                return false;
-            }
-
-            int[] configsCount = new int[1];
-            EGLConfig[] configs = new EGLConfig[1];
-            int[] configSpec;
-            if (EmuDetector.with(getParentActivity()).detect()) {
-                configSpec = new int[] {
-                        EGL10.EGL_RED_SIZE, 8,
-                        EGL10.EGL_GREEN_SIZE, 8,
-                        EGL10.EGL_BLUE_SIZE, 8,
-                        EGL10.EGL_ALPHA_SIZE, 8,
-                        EGL10.EGL_DEPTH_SIZE, 24,
-                        EGL10.EGL_NONE
-                };
-            } else {
-                configSpec = new int[] {
-                        EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                        EGL10.EGL_RED_SIZE, 8,
-                        EGL10.EGL_GREEN_SIZE, 8,
-                        EGL10.EGL_BLUE_SIZE, 8,
-                        EGL10.EGL_ALPHA_SIZE, 8,
-                        EGL10.EGL_DEPTH_SIZE, 24,
-                        EGL10.EGL_STENCIL_SIZE, 0,
-                        EGL10.EGL_SAMPLE_BUFFERS, 1,
-                        EGL10.EGL_SAMPLES, 2,
-                        EGL10.EGL_NONE
-                };
-            }
-            if (!egl10.eglChooseConfig(eglDisplay, configSpec, configs, 1, configsCount)) {
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.e("eglChooseConfig failed " + GLUtils.getEGLErrorString(egl10.eglGetError()));
-                }
-                finish();
-                return false;
-            } else if (configsCount[0] > 0) {
-                eglConfig = configs[0];
-            } else {
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.e("eglConfig not initialized");
-                }
-                finish();
-                return false;
-            }
-
-            int[] attrib_list = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL10.EGL_NONE };
-            eglContext = egl10.eglCreateContext(eglDisplay, eglConfig, EGL10.EGL_NO_CONTEXT, attrib_list);
-            if (eglContext == null) {
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.e("eglCreateContext failed " + GLUtils.getEGLErrorString(egl10.eglGetError()));
-                }
-                finish();
-                return false;
-            }
-
-            if (surfaceTexture instanceof SurfaceTexture) {
-                eglSurface = egl10.eglCreateWindowSurface(eglDisplay, eglConfig, surfaceTexture, null);
-            } else {
-                finish();
-                return false;
-            }
-
-            if (eglSurface == null || eglSurface == EGL10.EGL_NO_SURFACE) {
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.e("createWindowSurface failed " + GLUtils.getEGLErrorString(egl10.eglGetError()));
-                }
-                finish();
-                return false;
-            }
-            if (!egl10.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.e("eglMakeCurrent failed " + GLUtils.getEGLErrorString(egl10.eglGetError()));
-                }
-                finish();
-                return false;
-            }
-
-            GLES20.glGenTextures(23, textures, 0);
-            loadTexture(R.drawable.intro_fast_arrow_shadow, 0);
-            loadTexture(R.drawable.intro_fast_arrow, 1);
-            loadTexture(R.drawable.intro_fast_body, 2);
-            loadTexture(R.drawable.intro_fast_spiral, 3);
-            loadTexture(R.drawable.intro_ic_bubble_dot, 4);
-            loadTexture(R.drawable.intro_ic_bubble, 5);
-            loadTexture(R.drawable.intro_ic_cam_lens, 6);
-            loadTexture(R.drawable.intro_ic_cam, 7);
-            loadTexture(R.drawable.intro_ic_pencil, 8);
-            loadTexture(R.drawable.intro_ic_pin, 9);
-            loadTexture(R.drawable.intro_ic_smile_eye, 10);
-            loadTexture(R.drawable.intro_ic_smile, 11);
-            loadTexture(R.drawable.intro_ic_videocam, 12);
-            loadTexture(R.drawable.intro_knot_down, 13);
-            loadTexture(R.drawable.intro_knot_up, 14);
-            loadTexture(R.drawable.intro_powerful_infinity_white, 15);
-            loadTexture(R.drawable.intro_powerful_infinity, 16);
-            loadTexture(R.drawable.intro_powerful_mask, 17, Theme.getColor(Theme.key_windowBackgroundWhite), false);
-            loadTexture(R.drawable.intro_powerful_star, 18);
-            loadTexture(R.drawable.intro_private_door, 19);
-            loadTexture(R.drawable.intro_private_screw, 20);
-            loadTexture(R.drawable.intro_tg_plane, 21);
-            loadTexture(v -> {
-                Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-                paint.setColor(ThemeColors.TELEGRAM_COLOR); // It's logo color, it should not be colored by the theme
-                int size = dp(ICON_HEIGHT_DP);
-                Bitmap bm = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-                Canvas c = new Canvas(bm);
-                c.drawCircle(size / 2f, size / 2f, size / 2f, paint);
-                return bm;
-            }, 22);
-            loadTexture(telegramMaskProvider, 23);
-
-            updateTelegramTextures();
-            updatePowerfulTextures();
-            Intro.setPrivateTextures(textures[19], textures[20]);
-            Intro.setFreeTextures(textures[14], textures[13]);
-            Intro.setFastTextures(textures[2], textures[3], textures[1], textures[0]);
-            Intro.setIcTextures(textures[4], textures[5], textures[6], textures[7], textures[8], textures[9], textures[10], textures[11], textures[12]);
-            Intro.onSurfaceCreated();
-            currentDate = System.currentTimeMillis() - 1000;
-
-            return true;
+        void updateColors() {
+            accent = Theme.getColor(Theme.key_featuredStickers_addButton);
+            accentBright = ColorUtils.blendARGB(accent, Color.WHITE, 0.55f);
+            accentSoft = ColorUtils.setAlphaComponent(accent, 150);
+            accentFaint = ColorUtils.setAlphaComponent(accent, 60);
+            onColorsUpdated();
+            invalidate();
         }
 
-        public void updateTelegramTextures() {
-            Intro.setTelegramTextures(textures[22], textures[21], textures[23]);
-        }
-
-        public void updatePowerfulTextures() {
-            Intro.setPowerfulTextures(textures[17], textures[18], textures[16], textures[15]);
-        }
-
-        public void finish() {
-            if (eglSurface != null) {
-                egl10.eglMakeCurrent(eglDisplay, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
-                egl10.eglDestroySurface(eglDisplay, eglSurface);
-                eglSurface = null;
-            }
-            if (eglContext != null) {
-                egl10.eglDestroyContext(eglDisplay, eglContext);
-                eglContext = null;
-            }
-            if (eglDisplay != null) {
-                egl10.eglTerminate(eglDisplay);
-                eglDisplay = null;
-            }
-        }
-
-        private Runnable drawRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (!initied) {
-                    return;
-                }
-
-                long current = System.currentTimeMillis();
-                if (!eglContext.equals(egl10.eglGetCurrentContext()) || !eglSurface.equals(egl10.eglGetCurrentSurface(EGL10.EGL_DRAW))) {
-                    if (!egl10.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
-                        if (BuildVars.LOGS_ENABLED) {
-                            FileLog.e("eglMakeCurrent failed " + GLUtils.getEGLErrorString(egl10.eglGetError()));
-                        }
-                        return;
-                    }
-                }
-                int deltaDrawMs = (int) Math.min(current - lastDrawFrame, 16);
-                float time = (current - currentDate) / 1000.0f;
-                Intro.setPage(currentViewPagerPage);
-                Intro.setDate(time);
-                Intro.onDrawFrame(deltaDrawMs);
-                egl10.eglSwapBuffers(eglDisplay, eglSurface);
-                lastDrawFrame = current;
-
-                if (maxRefreshRate == 0) {
-                    WindowManager wm = (WindowManager) ApplicationLoader.applicationContext.getSystemService(Context.WINDOW_SERVICE);
-                    Display display = wm.getDefaultDisplay();
-                    float[] rates = display.getSupportedRefreshRates();
-                    float maxRate = 0;
-                    for (float rate : rates) {
-                        if (rate > maxRate) {
-                            maxRate = rate;
-                        }
-                    }
-                    maxRefreshRate = maxRate;
-                }
-
-                long drawMs = System.currentTimeMillis() - current;
-                postRunnable(drawRunnable, Math.max((long) (1000 / maxRefreshRate) - drawMs, 0));
-            }
-        };
-
-        private void loadTexture(GenericProvider<Void, Bitmap> bitmapProvider, int index) {
-            loadTexture(bitmapProvider, index, false);
-        }
-
-        private void loadTexture(GenericProvider<Void, Bitmap> bitmapProvider, int index, boolean rebind) {
-            if (rebind) {
-                GLES20.glDeleteTextures(1, textures, index);
-                GLES20.glGenTextures(1, textures, index);
-            }
-            Bitmap bm = bitmapProvider.provide(null);
-            GLES20.glBindTexture(GL10.GL_TEXTURE_2D, textures[index]);
-            GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_LINEAR);
-            GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_LINEAR);
-            GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_S, GL10.GL_CLAMP_TO_EDGE);
-            GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_CLAMP_TO_EDGE);
-            GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, bm, 0);
-            bm.recycle();
-        }
-
-        private void loadTexture(int resId, int index) {
-            loadTexture(resId, index, 0, false);
-        }
-
-        private void loadTexture(int resId, int index, int tintColor, boolean rebind) {
-            Drawable drawable = getParentActivity().getResources().getDrawable(resId);
-            if (drawable instanceof BitmapDrawable) {
-                if (rebind) {
-                    GLES20.glDeleteTextures(1, textures, index);
-                    GLES20.glGenTextures(1, textures, index);
-                }
-
-                Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
-                GLES20.glBindTexture(GL10.GL_TEXTURE_2D, textures[index]);
-                GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_LINEAR);
-                GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_LINEAR);
-                GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_S, GL10.GL_CLAMP_TO_EDGE);
-                GLES20.glTexParameteri(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_CLAMP_TO_EDGE);
-
-                if (tintColor != 0) {
-                    Bitmap tempBitmap = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
-                    Canvas canvas = new Canvas(tempBitmap);
-                    Paint tempPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
-                    tempPaint.setColorFilter(new PorterDuffColorFilter(tintColor, PorterDuff.Mode.SRC_IN));
-                    canvas.drawBitmap(bitmap, 0, 0, tempPaint);
-                    GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, tempBitmap, 0);
-                    tempBitmap.recycle();
-                } else {
-                    GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, bitmap, 0);
-                }
-            }
-        }
-
-        public void shutdown() {
-            postRunnable(() -> {
-                finish();
-                Looper looper = Looper.myLooper();
-                if (looper != null) {
-                    looper.quit();
-                }
-            });
-        }
-
-        public void setSurfaceTextureSize(int width, int height) {
-            Intro.onSurfaceChanged(width, height, Math.min(width / 150.0f, height / 150.0f), 0);
+        protected void onColorsUpdated() {
         }
 
         @Override
-        public void run() {
-            initied = initGL();
-            super.run();
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (!running) {
+                running = true;
+                startNanos = System.nanoTime();
+                postOnAnimation(frameTick);
+            }
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            running = false;
+            removeCallbacks(frameTick);
+        }
+
+        private void onFrameTick() {
+            if (!running) {
+                return;
+            }
+            invalidate();
+            postOnAnimation(frameTick);
+        }
+
+        @Override
+        protected final void onDraw(Canvas canvas) {
+            float t = (System.nanoTime() - startNanos) / 1_000_000_000f;
+            drawIcon(canvas, getWidth() / 2f, getHeight() / 2f, t);
+        }
+
+        /** @param t seconds since this view was attached, monotonically increasing forever -
+         *  build all motion from it via sin/cos/mod, never from a value that gets reset. */
+        protected abstract void drawIcon(Canvas canvas, float cx, float cy, float t);
+    }
+
+    /** Page 1 (brand): a nucleus with three electrons on tilted elliptical orbits, each at its
+     *  own constant angular speed - the classic "atom" silhouette, standing in for the brand mark
+     *  itself rather than any one feature. */
+    private static class AtomIconView extends IntroIconView {
+        private final Paint nucleusPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint nucleusGlowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint orbitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint electronPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint electronGlowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        private static final float[] ORBIT_TILT_DEG = {-24f, 0f, 24f};
+        private static final float[] ORBIT_SPEED = {0.62f, -0.47f, 0.38f};
+        private static final float[] ORBIT_PHASE = {0f, 2.05f, 4.35f};
+
+        AtomIconView(Context context) {
+            super(context);
+            orbitPaint.setStyle(Paint.Style.STROKE);
+            orbitPaint.setStrokeWidth(dpf2(1.33f));
+            updateColors();
+        }
+
+        @Override
+        protected void onColorsUpdated() {
+            nucleusPaint.setShader(new RadialGradient(0, 0, dpf2(11), Color.WHITE, accent, Shader.TileMode.CLAMP));
+            nucleusGlowPaint.setColor(accentFaint);
+            orbitPaint.setColor(accentSoft);
+            electronPaint.setShader(new RadialGradient(0, 0, dpf2(4.4f), Color.WHITE, accent, Shader.TileMode.CLAMP));
+            electronGlowPaint.setColor(accentSoft);
+        }
+
+        @Override
+        protected void drawIcon(Canvas canvas, float cx, float cy, float t) {
+            float orbitA = Math.min(getWidth() * 0.42f, dp(78));
+            float orbitB = orbitA * 0.42f;
+            float breathe = 1f + 0.06f * (float) Math.sin(t * 1.6);
+
+            canvas.save();
+            canvas.translate(cx, cy);
+
+            for (int i = 0; i < ORBIT_TILT_DEG.length; i++) {
+                canvas.save();
+                canvas.rotate(ORBIT_TILT_DEG[i]);
+                canvas.drawOval(-orbitA, -orbitB, orbitA, orbitB, orbitPaint);
+
+                float angle = ORBIT_PHASE[i] + t * ORBIT_SPEED[i] * (float) (Math.PI * 2);
+                float ex = orbitA * (float) Math.cos(angle);
+                float ey = orbitB * (float) Math.sin(angle);
+
+                canvas.save();
+                canvas.translate(ex, ey);
+                canvas.drawCircle(0, 0, dpf2(7.5f), electronGlowPaint);
+                canvas.drawCircle(0, 0, dpf2(4.4f), electronPaint);
+                canvas.restore();
+                canvas.restore();
+            }
+
+            canvas.scale(breathe, breathe);
+            canvas.drawCircle(0, 0, dpf2(17f), nucleusGlowPaint);
+            canvas.drawCircle(0, 0, dpf2(11f), nucleusPaint);
+            canvas.restore();
+        }
+    }
+
+    /** Page 2 ("Fast"): a paper plane gliding left to right with a fading speed trail, wrapping
+     *  back to the start well off-canvas so the wrap itself is never on screen to look abrupt. */
+    private static class FastIconView extends IntroIconView {
+        private final Paint planePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint trailPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path planePath = new Path();
+
+        FastIconView(Context context) {
+            super(context);
+            planePaint.setStyle(Paint.Style.FILL);
+            trailPaint.setStyle(Paint.Style.STROKE);
+            trailPaint.setStrokeWidth(dpf2(2.6f));
+            trailPaint.setStrokeCap(Paint.Cap.ROUND);
+            updateColors();
+        }
+
+        @Override
+        protected void onColorsUpdated() {
+            planePaint.setColor(accentBright);
+            trailPaint.setColor(accent);
+        }
+
+        @Override
+        protected void drawIcon(Canvas canvas, float cx, float cy, float t) {
+            float w = getWidth();
+            float span = w + dp(120);
+            float speed = dp(58); // px/sec
+            float progress = (t * speed) % span;
+            float x = -dp(60) + progress;
+            float y = cy + (float) Math.sin(t * 1.3) * dp(10);
+
+            canvas.save();
+            canvas.translate(x, y);
+            canvas.rotate(-8 + (float) Math.sin(t * 1.3) * 4f);
+
+            float trailX = -dp(14);
+            for (int i = 0; i < 4; i++) {
+                float len = dp(16) - i * dp(3.2f);
+                int alpha = 140 - i * 32;
+                trailPaint.setAlpha(Math.max(0, alpha));
+                canvas.drawLine(trailX - i * dp(11), 0, trailX - i * dp(11) - len, 0, trailPaint);
+            }
+
+            float s = dp(15);
+            planePath.reset();
+            planePath.moveTo(s, 0);
+            planePath.lineTo(-s, s * 0.62f);
+            planePath.lineTo(-s * 0.35f, 0);
+            planePath.lineTo(-s, -s * 0.62f);
+            planePath.close();
+            canvas.drawPath(planePath, planePaint);
+            canvas.restore();
+        }
+    }
+
+    /** Page 3 ("Free"): an infinity ribbon (lemniscate of Bernoulli) with a glowing dot and
+     *  fading comet-tail travelling around it - trig-parametric, so it is exactly periodic with
+     *  no seam to hide. */
+    private static class FreeIconView extends IntroIconView {
+        private final Paint ribbonPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path ribbonPath = new Path();
+
+        FreeIconView(Context context) {
+            super(context);
+            ribbonPaint.setStyle(Paint.Style.STROKE);
+            ribbonPaint.setStrokeWidth(dpf2(2.6f));
+            ribbonPaint.setStrokeCap(Paint.Cap.ROUND);
+            dotPaint.setStyle(Paint.Style.FILL);
+            updateColors();
+        }
+
+        @Override
+        protected void onColorsUpdated() {
+            ribbonPaint.setColor(accentFaint);
+            dotPaint.setColor(accentBright);
+        }
+
+        private float lemX(float a, float angle) {
+            float s = (float) Math.sin(angle);
+            return (float) (a * Math.cos(angle) / (1 + s * s));
+        }
+
+        private float lemY(float a, float angle) {
+            float s = (float) Math.sin(angle);
+            return (float) (a * Math.sin(angle) * Math.cos(angle) / (1 + s * s));
+        }
+
+        @Override
+        protected void drawIcon(Canvas canvas, float cx, float cy, float t) {
+            float a = Math.min(getWidth() * 0.44f, dp(80));
+
+            ribbonPath.reset();
+            int steps = 96;
+            for (int i = 0; i <= steps; i++) {
+                float angle = (float) (i * Math.PI * 2 / steps);
+                float x = cx + lemX(a, angle);
+                float y = cy + lemY(a, angle);
+                if (i == 0) ribbonPath.moveTo(x, y); else ribbonPath.lineTo(x, y);
+            }
+            canvas.drawPath(ribbonPath, ribbonPaint);
+
+            float speed = 1.1f;
+            for (int i = 6; i >= 0; i--) {
+                float angle = t * speed - i * 0.09f;
+                float x = cx + lemX(a, angle);
+                float y = cy + lemY(a, angle);
+                dotPaint.setAlpha(i == 0 ? 255 : Math.max(0, 140 - i * 22));
+                canvas.drawCircle(x, y, i == 0 ? dpf2(6.2f) : dpf2(6.2f) - i * dpf2(0.6f), dotPaint);
+            }
+        }
+    }
+
+    /** Page 4 ("Powerful"): a slowly-rotating energy burst whose rays pulse in length with their
+     *  own phase offsets, so the whole shape never freezes into a static star. */
+    private static class PowerfulIconView extends IntroIconView {
+        private final Paint rayPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint corePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private static final int RAY_COUNT = 10;
+
+        PowerfulIconView(Context context) {
+            super(context);
+            rayPaint.setStyle(Paint.Style.STROKE);
+            rayPaint.setStrokeWidth(dpf2(3f));
+            rayPaint.setStrokeCap(Paint.Cap.ROUND);
+            updateColors();
+        }
+
+        @Override
+        protected void onColorsUpdated() {
+            rayPaint.setColor(accentSoft);
+            corePaint.setShader(new RadialGradient(0, 0, dpf2(14), Color.WHITE, accent, Shader.TileMode.CLAMP));
+        }
+
+        @Override
+        protected void drawIcon(Canvas canvas, float cx, float cy, float t) {
+            float baseLen = dp(30);
+            float amp = dp(14);
+            float rotation = t * 14f; // deg/sec, slow drift
+
+            canvas.save();
+            canvas.translate(cx, cy);
+            canvas.rotate(rotation);
+            for (int i = 0; i < RAY_COUNT; i++) {
+                float angle = (float) (i * Math.PI * 2 / RAY_COUNT);
+                float pulse = 0.5f + 0.5f * (float) Math.sin(t * 2.4 + i * 0.9);
+                float len = baseLen + amp * pulse;
+                float innerR = dp(15);
+                float dx = (float) Math.cos(angle), dy = (float) Math.sin(angle);
+                rayPaint.setAlpha((int) (110 + 130 * pulse));
+                canvas.drawLine(dx * innerR, dy * innerR, dx * (innerR + len), dy * (innerR + len), rayPaint);
+            }
+            float coreScale = 1f + 0.08f * (float) Math.sin(t * 2.4);
+            canvas.scale(coreScale, coreScale);
+            canvas.drawCircle(0, 0, dpf2(14f), corePaint);
+            canvas.restore();
+        }
+    }
+
+    /** Page 5 ("Secure"): a shield outline with a checkmark that materialises and dematerialises
+     *  in a smooth, endless breathing cycle (a sine-shaped envelope driving how much of the
+     *  checkmark's path is stroked in), plus a soft pulsing ring. */
+    private static class SecureIconView extends IntroIconView {
+        private final Paint shieldPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint checkPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path shieldPath = new Path();
+        private final Path checkPath = new Path();
+        private final Path checkSegment = new Path();
+        private final android.graphics.PathMeasure checkMeasure = new android.graphics.PathMeasure();
+        private float checkLength;
+
+        SecureIconView(Context context) {
+            super(context);
+            shieldPaint.setStyle(Paint.Style.STROKE);
+            shieldPaint.setStrokeWidth(dpf2(2.6f));
+            shieldPaint.setStrokeJoin(Paint.Join.ROUND);
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setStrokeWidth(dpf2(1.6f));
+            checkPaint.setStyle(Paint.Style.STROKE);
+            checkPaint.setStrokeWidth(dpf2(3.2f));
+            checkPaint.setStrokeCap(Paint.Cap.ROUND);
+            checkPaint.setStrokeJoin(Paint.Join.ROUND);
+            updateColors();
+        }
+
+        @Override
+        protected void onColorsUpdated() {
+            shieldPaint.setColor(accentSoft);
+            ringPaint.setColor(accentFaint);
+            checkPaint.setColor(accentBright);
+        }
+
+        @Override
+        protected void drawIcon(Canvas canvas, float cx, float cy, float t) {
+            float w = dp(46), h = dp(56);
+            shieldPath.reset();
+            shieldPath.moveTo(0, -h / 2f);
+            shieldPath.cubicTo(w * 0.55f, -h * 0.42f, w / 2f, -h * 0.15f, w / 2f, h * 0.05f);
+            shieldPath.cubicTo(w / 2f, h * 0.38f, w * 0.22f, h * 0.46f, 0, h / 2f);
+            shieldPath.cubicTo(-w * 0.22f, h * 0.46f, -w / 2f, h * 0.38f, -w / 2f, h * 0.05f);
+            shieldPath.cubicTo(-w / 2f, -h * 0.15f, -w * 0.55f, -h * 0.42f, 0, -h / 2f);
+            shieldPath.close();
+
+            checkPath.reset();
+            checkPath.moveTo(-w * 0.24f, 0);
+            checkPath.lineTo(-w * 0.06f, h * 0.16f);
+            checkPath.lineTo(w * 0.28f, -h * 0.14f);
+            checkMeasure.setPath(checkPath, false);
+            checkLength = checkMeasure.getLength();
+
+            float envelope = 0.5f + 0.5f * (float) Math.sin(t * 1.15 - Math.PI / 2);
+            float ringPulse = 0.5f + 0.5f * (float) Math.sin(t * 1.15);
+
+            canvas.save();
+            canvas.translate(cx, cy);
+
+            ringPaint.setAlpha((int) (90 * (1f - ringPulse) + 20));
+            float ringR = dp(34) + ringPulse * dp(14);
+            canvas.drawCircle(0, 0, ringR, ringPaint);
+
+            canvas.drawPath(shieldPath, shieldPaint);
+
+            checkSegment.reset();
+            checkMeasure.getSegment(0, checkLength * envelope, checkSegment, true);
+            canvas.drawPath(checkSegment, checkPaint);
+
+            canvas.restore();
+        }
+    }
+
+    /** Page 6 ("Cloud-based"): a cloud silhouette bobbing gently, with small sync chevrons
+     *  flowing upward through it - a quiet, continuous loop rather than a one-shot upload icon. */
+    private static class CloudIconView extends IntroIconView {
+        private final Paint cloudPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint chevronPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        CloudIconView(Context context) {
+            super(context);
+            cloudPaint.setStyle(Paint.Style.FILL);
+            chevronPaint.setStyle(Paint.Style.STROKE);
+            chevronPaint.setStrokeWidth(dpf2(2.6f));
+            chevronPaint.setStrokeCap(Paint.Cap.ROUND);
+            chevronPaint.setStrokeJoin(Paint.Join.ROUND);
+            updateColors();
+        }
+
+        @Override
+        protected void onColorsUpdated() {
+            cloudPaint.setColor(accentFaint);
+            chevronPaint.setColor(accentBright);
+        }
+
+        @Override
+        protected void drawIcon(Canvas canvas, float cx, float cy, float t) {
+            float bob = (float) Math.sin(t * 1.1) * dp(4);
+            canvas.save();
+            canvas.translate(cx, cy + bob);
+
+            canvas.drawCircle(-dp(22), dp(4), dp(16), cloudPaint);
+            canvas.drawCircle(dp(2), -dp(6), dp(20), cloudPaint);
+            canvas.drawCircle(dp(24), dp(6), dp(15), cloudPaint);
+            canvas.drawRoundRect(-dp(30), dp(0), dp(34), dp(20), dp(14), dp(14), cloudPaint);
+
+            for (int i = 0; i < 2; i++) {
+                float phase = ((t * 0.6f + i * 0.5f) % 1f);
+                float y = dp(2) - phase * dp(34);
+                float alpha = phase < 0.15f ? phase / 0.15f : phase > 0.8f ? (1f - phase) / 0.2f : 1f;
+                chevronPaint.setAlpha((int) (220 * Math.max(0f, Math.min(1f, alpha))));
+                float cx2 = i == 0 ? -dp(6) : dp(10);
+                canvas.drawLine(cx2 - dp(6), y + dp(6), cx2, y, chevronPaint);
+                canvas.drawLine(cx2 + dp(6), y + dp(6), cx2, y, chevronPaint);
+            }
+
+            canvas.restore();
         }
     }
 
@@ -973,25 +1033,18 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
 
     private void updateColors(boolean fromTheme) {
         startMessagingButtonBackground.setColors(new int[]{getThemedColor(Theme.key_featuredStickers_addButton), getThemedColor(Theme.key_featuredStickers_addButton2)});
-        logoDrawable.setColorFilter(Theme.multAlpha(getThemedColor(Theme.key_actionBarDefaultTitle), 0.9f), PorterDuff.Mode.MULTIPLY);
         fragmentView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
         switchLanguageTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
         startMessagingButton.setTextColor(Theme.getColor(Theme.key_featuredStickers_buttonText));
         startMessagingButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(dp(24), Color.TRANSPARENT, Theme.getColor(Theme.key_featuredStickers_addButtonPressed)));
         darkThemeDrawable.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_featuredStickers_addButton), PorterDuff.Mode.SRC_IN));
         bottomPages.invalidate();
-        if (fromTheme) {
-            if (eglThread != null) {
-                eglThread.postRunnable(()->{
-                    eglThread.loadTexture(R.drawable.intro_powerful_mask, 17, Theme.getColor(Theme.key_windowBackgroundWhite), true);
-                    eglThread.updatePowerfulTextures();
-
-                    eglThread.loadTexture(eglThread.telegramMaskProvider, 23, true);
-                    eglThread.updateTelegramTextures();
-
-                    Intro.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-                });
+        if (iconViews != null) {
+            for (IntroIconView iconView : iconViews) {
+                iconView.updateColors();
             }
+        }
+        if (fromTheme) {
             for (int i = 0; i < viewPager.getChildCount(); i++) {
                 View ch = viewPager.getChildAt(i);
                 TextView headerTextView = ch.findViewWithTag(pagerHeaderTag);
@@ -999,7 +1052,7 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
                 TextView messageTextView = ch.findViewWithTag(pagerMessageTag);
                 messageTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
             }
-        } else Intro.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+        }
     }
 
     @Override

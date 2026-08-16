@@ -16,6 +16,7 @@ import android.text.TextPaint;
 import android.view.animation.DecelerateInterpolator;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.Utilities;
 import org.telegram.ui.ActionBar.Theme;
 
 public class MediaActionDrawable extends Drawable {
@@ -69,8 +70,19 @@ public class MediaActionDrawable extends Drawable {
     private float animatedDownloadProgress;
     private float downloadProgressAnimationStart;
     private float downloadProgressTime;
+    private float downloadProgressAnimationDuration = PRIME_PROGRESS_ANIM_MAX_DURATION;
 
     private final static float EPS = 0.001f;
+
+    // PrimeGram: a real progress update's size (how much actually downloaded/uploaded since the
+    // last update) is a decent proxy for current transfer speed - a tiny jump means data is
+    // trickling in, a huge jump means a burst just landed. Scaling the catch-up animation's
+    // duration by that jump keeps the ring visually honest: a fixed duration either races ahead
+    // of a slow trickle and then visibly stalls waiting for the next update, or lags behind a
+    // fast burst. Small jump -> slow (long) animation; big jump -> fast (short) animation.
+    private final static float PRIME_PROGRESS_ANIM_MIN_DURATION = 120f;
+    private final static float PRIME_PROGRESS_ANIM_MAX_DURATION = 900f;
+    private final static float PRIME_PROGRESS_ANIM_REFERENCE_DIFF = 0.05f;
 
     private final static float DOWNLOAD_TO_CANCEL_STAGE1 = 0.5f;
     private final static float DOWNLOAD_TO_CANCEL_STAGE2 = 0.2f;
@@ -221,6 +233,12 @@ public class MediaActionDrawable extends Drawable {
         }
         downloadProgress = value;
         downloadProgressTime = 0;
+        final float diff = Math.abs(value - downloadProgressAnimationStart);
+        if (diff > 0) {
+            downloadProgressAnimationDuration = Utilities.clamp(
+                    PRIME_PROGRESS_ANIM_MAX_DURATION / (1f + diff / PRIME_PROGRESS_ANIM_REFERENCE_DIFF),
+                    PRIME_PROGRESS_ANIM_MAX_DURATION, PRIME_PROGRESS_ANIM_MIN_DURATION);
+        }
         invalidateSelf();
     }
 
@@ -870,12 +888,12 @@ public class MediaActionDrawable extends Drawable {
                 float progressDiff = downloadProgress - downloadProgressAnimationStart;
                 if (progressDiff > 0) {
                     downloadProgressTime += dt;
-                    if (downloadProgressTime >= 200.0f) {
+                    if (downloadProgressTime >= downloadProgressAnimationDuration) {
                         animatedDownloadProgress = downloadProgress;
                         downloadProgressAnimationStart = downloadProgress;
                         downloadProgressTime = 0;
                     } else {
-                        animatedDownloadProgress = downloadProgressAnimationStart + progressDiff * interpolator.getInterpolation(downloadProgressTime / 200.0f);
+                        animatedDownloadProgress = downloadProgressAnimationStart + progressDiff * interpolator.getInterpolation(downloadProgressTime / downloadProgressAnimationDuration);
                     }
                 }
             }

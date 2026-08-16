@@ -115,7 +115,7 @@ public final class PrimeDecoyServer {
         TLRPC.TL_messages_dialogs r = new TLRPC.TL_messages_dialogs();
         r.dialogs.addAll(p.dialogs);
         r.messages.addAll(latestPerDialog(p));
-        r.chats.add(p.group);
+        r.chats.addAll(p.groups);
         r.chats.add(p.channel);
         r.users.addAll(p.contacts);
         r.users.add(p.self);
@@ -145,7 +145,12 @@ public final class PrimeDecoyServer {
                 r.messages.add(m);
             }
         }
-        r.chats.add(p.group);
+        // PrimeGram: messages.getHistory's real contract is newest-first (that's what pagination
+        // via offset_id assumes) - allMessages built each thread oldest-first, so without this
+        // reverse the chat UI received "history" running backwards and rendered it looking
+        // shuffled.
+        java.util.Collections.reverse(r.messages);
+        r.chats.addAll(p.groups);
         r.chats.add(p.channel);
         r.users.addAll(p.contacts);
         r.users.add(p.self);

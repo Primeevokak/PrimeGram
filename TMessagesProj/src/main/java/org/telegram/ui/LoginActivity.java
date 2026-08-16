@@ -2486,24 +2486,20 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             }
 
             final boolean allowTestBackend = (BuildVars.DEBUG_VERSION || TEST_BACKEND_IN_STORE && !BuildConfig.BUNDLE) || getConnectionsManager().isTestBackend();
+            // PrimeGram: this used to be the stock "test backend" debug toggle. Repurposed as the
+            // placeholder for an opt-in Max messenger login path (a separate, planned build flavor
+            // alongside the normal Telegram one) - not wired up yet, so it only explains itself
+            // rather than doing anything when tapped.
             if (allowTestBackend && activityMode == MODE_LOGIN) {
                 testBackendCheckBox = new CheckBoxCell(context, 2);
-                testBackendCheckBox.setText(getString(R.string.DebugTestBackend), "", testBackend = getConnectionsManager().isTestBackend(), false);
+                testBackendCheckBox.setText("Вход в Max вместо Telegram", "Функция в разработке, пока недоступна", false, false);
                 addView(testBackendCheckBox, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP, 16, 0, 16 + (LocaleController.isRTL && AndroidUtilities.isSmallScreen() ? 56 : 0), 0));
                 bottomMargin -= 24;
                 testBackendCheckBox.setOnClickListener(v -> {
                     if (getParentActivity() == null) {
                         return;
                     }
-                    CheckBoxCell cell = (CheckBoxCell) v;
-                    testBackend = !testBackend;
-                    cell.setChecked(testBackend, true);
-
-                    boolean testBackend = allowTestBackend && getConnectionsManager().isTestBackend();
-                    if (testBackend != LoginActivity.this.testBackend) {
-                        getConnectionsManager().switchBackend(false);
-                    }
-                    loadCountries();
+                    BulletinFactory.of(slideViewsContainer, null).createSimpleBulletin(R.raw.info, "Вход через Max ещё в разработке и пока недоступен").show();
                 });
             }
 

@@ -661,6 +661,15 @@ public class ConnectionsManager extends BaseController {
     }
 
     public int getConnectionState() {
+        // PrimeGram: native_init() is skipped entirely in decoy mode (see init() below), so the
+        // native connection state never advances past its uninitialized default - every screen
+        // that shows a "Connecting..."/"Waiting for network" banner off this value would sit on
+        // it forever, which is a dead giveaway that nothing real is happening underneath. A
+        // functioning decoy has to look connected the same way logging into a real signed-in
+        // client would.
+        if (org.telegram.messenger.PrimeDecoyState.isActive()) {
+            return ConnectionStateConnected;
+        }
         if (connectionState == ConnectionStateConnected && isUpdating) {
             return ConnectionStateUpdating;
         }
@@ -697,6 +706,13 @@ public class ConnectionsManager extends BaseController {
         // install before first login), so nothing here is a new kind of "uninitialized" it hasn't
         // already had to handle.
         if (org.telegram.messenger.PrimeDecoyState.isActive()) {
+            // getConnectionState() already reports Connected while decoy mode is active, but
+            // nothing ever prompts already-built UI (action bar subtitles, etc.) to re-read it,
+            // since that normally only happens off a real native connection-state callback - one
+            // that, by design, never fires here. Post it once, right where the real init would
+            // have started connecting, so the very first frame already looks connected instead of
+            // however many seconds it'd otherwise sit on "Connecting...".
+            AccountInstance.getInstance(currentAccount).getNotificationCenter().postNotificationName(NotificationCenter.didUpdateConnectionState);
             return;
         }
         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);

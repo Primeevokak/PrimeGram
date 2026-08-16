@@ -1152,6 +1152,13 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
 
                 @Override
                 protected void dispatchDraw(@NonNull Canvas canvas) {
+                    if (primeDrawLogCount.getAndIncrement() < 60) {
+                        android.util.Log.d("PrimeMonoAvatar", "imageLayoutView.dispatchDraw topicId=" + topicId
+                                + " w=" + getWidth() + " h=" + getHeight()
+                                + " imgW=" + imageView.getWidth() + " imgH=" + imageView.getHeight()
+                                + " imgAlpha=" + imageView.getAlpha() + " imgVis=" + imageView.getVisibility()
+                                + " hasDrawable=" + (imageView.getImageReceiver().getDrawable() != null));
+                    }
                     final float counterAlpha = counterText.isNotEmpty();
                     final boolean counterVisible = counterAlpha > 0.0f;
                     final float counterScale = lerp(0.5f, 1.0f, counterAlpha) * countScale;
@@ -1188,6 +1195,12 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             layout.addView(imageLayoutView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER));
 
             imageView = new BackupImageView(context);
+            // setMf() often binds before this view is attached to the window (RecyclerView
+            // calls bindViewHolder before addView); with attach-gating on, that first
+            // setForUserOrChat() call - including the synchronous placeholder - is silently
+            // dropped and only replayed on a later onAttachedToWindow(), which never happens
+            // here since the view stays attached. Disable the gate so binds apply immediately.
+            imageView.getImageReceiver().setAllowLoadingOnAttachedOnly(false);
             imageLayoutView.addView(imageView, imageViewParams = LayoutHelper.createFrame(34, 34, Gravity.CENTER));
             avatarDrawable = new AvatarDrawable();
 
@@ -1206,6 +1219,24 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             addView(lineView, LayoutHelper.createFrame(6, LayoutHelper.MATCH_PARENT, Gravity.FILL_VERTICAL | Gravity.LEFT, -3, 3, 0, 3));
             lineView.setTranslationX(-dp(3));
             lineView.setVisibility(View.GONE);
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            // RecyclerView binds a freshly-created holder (via bindViewHolder) before it's
+            // actually added as a window-attached child, so setMf()'s ImageReceiver.invalidate()
+            // call (fired synchronously from setImage()) lands on a still-detached view and is a
+            // silent no-op - Android never schedules a real draw for it. Once this row genuinely
+            // attaches, nothing else naturally re-invalidates it (a newly addView()'d child gets
+            // measured/laid out but isn't guaranteed a fresh draw pass on its own), so the
+            // avatar/placeholder stayed visually blank forever despite already holding correct
+            // data - until something else (a long-press's manual view.draw() snapshot) forced it.
+            imageView.invalidate();
+            android.util.Log.d("PrimeMonoAvatar", "onAttachedToWindow topicId=" + topicId
+                    + " w=" + imageView.getWidth() + " h=" + imageView.getHeight()
+                    + " alpha=" + imageView.getAlpha() + " vis=" + imageView.getVisibility()
+                    + " hasDrawable=" + (imageView.getImageReceiver().getDrawable() != null));
         }
 
         private boolean mono = false;
@@ -1448,6 +1479,9 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             topicId = dialogId;
             textView.setText(DialogObject.getName(dialogId));
             textView.setVisibility(VISIBLE);
+            android.util.Log.d("PrimeMonoAvatar", "setMf dialogId=" + dialogId
+                    + " attached=" + isAttachedToWindow() + " w=" + imageView.getWidth() + " h=" + imageView.getHeight()
+                    + " name=" + textView.getText());
             if (dialogId >= 0) {
                 TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(dialogId);
                 if (user != null) {
@@ -1498,6 +1532,7 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
          *  updateInterfaces(UPDATE_MASK_AVATAR|UPDATE_MASK_NAME) notification TopicsTabsView
          *  already listens for and forces an unconditional rebind on (see its own doc). */
         private static final java.util.Set<Long> monoForumSenderFetchInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        private static final java.util.concurrent.atomic.AtomicInteger primeDrawLogCount = new java.util.concurrent.atomic.AtomicInteger();
 
         private static void resolveMonoForumSender(int account, long chatDialogId, long userId) {
             if (chatDialogId >= 0 || !monoForumSenderFetchInFlight.add(userId)) {
