@@ -35,6 +35,7 @@ public class GreyZoneActivity extends UniversalFragment {
     private static final int ID_GHOST_IMMEDIATE_OFFLINE = 61;
     private static final int ID_GHOST_SCHEDULE = 62;
     private static final int ID_GHOST_SCHEDULE_RANGE = 63;
+    private static final int ID_GHOST_READ_STRANGERS = 64;
 
     @Override
     protected CharSequence getTitle() {
@@ -63,6 +64,7 @@ public class GreyZoneActivity extends UniversalFragment {
 
         items.add(UItem.asHeader("Режим призрака"));
         items.add(check(ID_GHOST_READ, "Не отправлять прочтение", GreyZone.GHOST_DONT_READ));
+        items.add(check(ID_GHOST_READ_STRANGERS, "Невидимость для незнакомцев", GreyZone.GHOST_DONT_READ_STRANGERS));
         items.add(check(ID_GHOST_TYPING, "Не отправлять «печатает»", GreyZone.GHOST_DONT_TYPING));
         items.add(check(ID_GHOST_ONLINE, "Не показывать «в сети»", GreyZone.GHOST_DONT_ONLINE));
         items.add(check(ID_GHOST_STORIES, "Смотреть истории незаметно", GreyZone.GHOST_NO_READ_STORIES));
@@ -123,6 +125,8 @@ public class GreyZoneActivity extends UniversalFragment {
             toggle(GreyZone.BYPASS_NOFORWARDS);
         } else if (item.id == ID_GHOST_READ) {
             toggle(GreyZone.GHOST_DONT_READ);
+        } else if (item.id == ID_GHOST_READ_STRANGERS) {
+            toggle(GreyZone.GHOST_DONT_READ_STRANGERS);
         } else if (item.id == ID_GHOST_TYPING) {
             toggle(GreyZone.GHOST_DONT_TYPING);
         } else if (item.id == ID_GHOST_ONLINE) {

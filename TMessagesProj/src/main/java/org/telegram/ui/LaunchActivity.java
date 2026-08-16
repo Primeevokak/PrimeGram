@@ -408,6 +408,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     private FlagSecureReason flagSecureReason;
     private final LiteMode.BatteryReceiver batteryReceiver = new LiteMode.BatteryReceiver();
+    // PrimeGram: the PIN gate's early-return in onCreate() (see below) can finish() this activity
+    // before the registerReceiver() call further down ever runs - onDestroy() still runs
+    // unconditionally either way, and unregistering a receiver that was never registered throws
+    // "Receiver not registered", crashing every single locked cold start once a PIN is enabled.
+    private boolean batteryReceiverRegistered;
     private WindowAnimatedInsetsProvider rootAnimatedInsetsListener;
 
     public static LaunchActivity instance;
@@ -423,6 +428,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // PrimeGram PIN gate: checked before anything else in this method runs. Mirrors the
+        // existing super.onCreate()+finish()+return pattern a few lines below (the
+        // SEND/SEND_MULTIPLE branch for a not-yet-activated account) rather than inventing a
+        // new one - that precedent already proves this shape is safe in this exact method.
+        if (org.telegram.messenger.PrimePinSession.isEnabled() && !org.telegram.messenger.PrimePinSession.isUnlocked()) {
+            super.onCreate(savedInstanceState);
+            try {
+                getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+            } catch (Throwable ignored) {
+            }
+            org.telegram.messenger.PrimePinSession.redirectToGate(this);
+            finish();
+            return;
+        }
         org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity.onCreate begin");
         isActive = true;
         activeInstanceCount++;
@@ -458,6 +477,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
         registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        batteryReceiverRegistered = true;
         if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
             Intent intent = getIntent();
             boolean isProxy = false;
@@ -578,6 +598,17 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     return;
                 }
                 super.requestDisallowInterceptTouchEvent(disallow);
+            }
+
+            @Override
+            public void openDrawer(boolean fast) {
+                // PrimeGram: a purely local display setting (e.g. "hide my phone number") has no
+                // server-side change to react to, so nothing else ever tells this already-built
+                // header to redraw - it otherwise stayed stale until the app restarted and
+                // rebuilt the sidebar from scratch. Refreshing right as the drawer opens is cheap
+                // (just re-reads already-cached local state) and needs no new notification.
+                updateSidebarProfileHeader();
+                super.openDrawer(fast);
             }
 
             /**
@@ -822,6 +853,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         // PrimeUiInspectorOverlay's own visibility handling) unless explicitly turned on from
         // Settings, so it costs nothing while off.
         frameLayout.addView(new org.telegram.ui.Components.PrimeUiInspectorOverlay(this), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        // PrimeGram: "Логи" overlay - same idea and same z-order slot as the inspector above (on
+        // top of everything, costs nothing while its own toggle is off).
+        frameLayout.addView(new org.telegram.ui.Components.PrimeLogOverlay(this), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         setupActionBarLayout();
         drawerLayoutContainer.setParentActionBarLayout(actionBarLayout);
         actionBarLayout.setDrawerLayoutContainer(drawerLayoutContainer);
@@ -7034,10 +7068,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     public void onUserInteraction() {
         super.onUserInteraction();
         voipLaunchedInBackground = false;
+        org.telegram.messenger.PrimePinSession.noteUserInteraction();
     }
 
     @Override
     protected void onPause() {
+        org.telegram.messenger.PrimePinSession.scheduleBackgroundLock();
         super.onPause();
         isResumed = false;
         org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("pause");
@@ -7163,7 +7199,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     protected void onDestroy() {
         isActive = false;
         activeInstanceCount--;
-        unregisterReceiver(batteryReceiver);
+        if (batteryReceiverRegistered) {
+            unregisterReceiver(batteryReceiver);
+        }
         org.telegram.messenger.PrimePerfMonitor.unbind(this);
 
         if (activeInstanceCount == 0) {
@@ -7273,6 +7311,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onResume() {
         super.onResume();
+        org.telegram.messenger.PrimePinSession.cancelBackgroundLock();
+        if (org.telegram.messenger.PrimePinSession.isEnabled() && !org.telegram.messenger.PrimePinSession.isUnlocked()) {
+            org.telegram.messenger.PrimePinSession.redirectToGate(this);
+            return;
+        }
         updateSidebarVisibility();
         isResumed = true;
         org.telegram.messenger.plugins.PrimePluginHooks.onAppEvent("resume");

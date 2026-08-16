@@ -73,6 +73,16 @@ public class MusicSettingsStore {
         prefs().edit().putString("music_font_family", family).apply();
     }
 
+    /** Whether the "🎵 Title — Artist" (+ link) text gets attached when sending a track. On by
+     *  default - matches the behavior every existing install already has. */
+    public static boolean isSendCaptionEnabled() {
+        return prefs().getBoolean("music_send_caption_enabled", true);
+    }
+
+    public static void setSendCaptionEnabled(boolean enabled) {
+        prefs().edit().putBoolean("music_send_caption_enabled", enabled).apply();
+    }
+
     public static MusicCardRenderer.Style buildCardStyle() {
         MusicCardRenderer.Style style = new MusicCardRenderer.Style();
         style.fontFamily = getFontFamily();

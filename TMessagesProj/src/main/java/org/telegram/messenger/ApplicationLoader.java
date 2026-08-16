@@ -81,6 +81,13 @@ public class ApplicationLoader extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+        // PrimeGram: was only called from onCreate() - too late on some OEM launchers/API levels,
+        // where the very first Activity window (and on API 31+, the SplashScreen-API preview) can
+        // already be resolving its theme/background off the process's Configuration before
+        // Application.onCreate() ever runs. attachBaseContext() is the earliest hook this class
+        // gets called at all, so this is the earliest point our own dark/light preference can
+        // possibly beat the OS's own uiMode default to that resolution.
+        PrimeLaunchTheme.applyEarly();
     }
 
     public static ILocationServiceProvider getLocationServiceProvider() {
@@ -190,6 +197,13 @@ public class ApplicationLoader extends Application {
 
     public static void postInitApplication() {
         if (applicationInited || applicationContext == null) {
+            return;
+        }
+        // PrimeGram PIN gate: deliberately checked before applicationInited is set, not after -
+        // a locked launch must be able to retry this same call once the gate clears, not be
+        // permanently short-circuited by the flag this method sets for itself on a real run.
+        // Nothing past this point (controllers, DB, network) starts until the gate is cleared.
+        if (!PrimePinSession.isUnlocked()) {
             return;
         }
         applicationInited = true;
@@ -308,6 +322,8 @@ public class ApplicationLoader extends Application {
         }
         PrimeStartupTrace.mark("postInitApplication: user configs read");
         initAccountStack(primaryAccount);
+        PrimeAutoDelete.ensureRegistered();
+        GreyZone.ensureStrangerAutoLiftRegistered();
         PrimeStartupTrace.mark("postInitApplication: account stack built");
         SharedConfig.pushStringStatus = "__FIREBASE_GENERATING_SINCE_" + ConnectionsManager.getInstance(primaryAccount).getCurrentTime() + "__";
         PrimeStartupTrace.mark("postInitApplication: account " + primaryAccount + " ready, " + deferredAccounts.size() + " deferred");
@@ -385,12 +401,17 @@ public class ApplicationLoader extends Application {
 
         }
 
+        // Already applied in attachBaseContext(), the earliest hook available - kept out of here
+        // now, not duplicated.
         super.onCreate();
         PrimeStartupTrace.mark("Application.onCreate");
 
         // As early as possible so it catches crashes from the rest of startup too, not just
         // ones that happen once the UI is up.
         PrimeCrashLog.install();
+        if (PrimeLogOverlayState.isEnabled()) {
+            PrimeLogCollector.start();
+        }
 
         // Must run before any GIF/round-video decoder is created this process,
         // so it can catch "hw_accel crashed last run" before the feature gets

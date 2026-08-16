@@ -964,7 +964,13 @@ public class FileLoader extends BaseController {
                             saveCustomPath = true;
                         }
                     } else if (!TextUtils.isEmpty(getDocumentFileName(document)) && canSaveAsFile(parentObject)) {
-                        storeFileName = getDocumentFileName(document);
+                        // PrimeGram: the real filename otherwise lands verbatim on disk under
+                        // Telegram's own files dir - visible to any gallery/backup/file-manager
+                        // app with storage access, and to anyone with physical access to the
+                        // device, independent of anything happening inside the app's own UI.
+                        storeFileName = PrimeFileNames.isEnabled()
+                                ? PrimeFileNames.anonymize(getDocumentFileName(document))
+                                : getDocumentFileName(document);
                         File newDir = getDirectory(MEDIA_DIR_FILES);
                         if (newDir != null) {
                             storeDir = newDir;

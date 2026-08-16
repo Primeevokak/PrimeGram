@@ -325,6 +325,15 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
     private boolean useRoundRadius = true;
     private final int[] roundRadius = new int[4];
     private final int[] primeAvatarRadius = new int[4];
+    // PrimeGram: set once, in setForUserOrChat(), and never cleared - this receiver represents an
+    // avatar for its whole life regardless of which branch of that method actually populated the
+    // image (a real photo's low-res "stripped" thumb decodes synchronously and is what nearly
+    // every avatar with a set profile picture actually shows, not the AvatarDrawable placeholder).
+    // primeAvatarRoundRadius() used to gate on "is the CURRENT thumb drawable an AvatarDrawable
+    // instance", which only that placeholder satisfies - so the avatar-shape slider only ever
+    // affected contacts with no profile picture at all, matching the exact bug report ("changes
+    // in the settings preview, never on a real avatar").
+    private boolean isAvatarReceiver;
     private int[] emptyRoundRadius;
     private boolean isRoundRect = true;
     private Object mark;
@@ -429,6 +438,7 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
         if (parentObject == null) {
             parentObject = object;
         }
+        isAvatarReceiver = true;
         setUseRoundForThumbDrawable(true);
         BitmapDrawable strippedBitmap = null;
         boolean hasStripped = false;
@@ -2552,7 +2562,7 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
         if (r <= 0 || radius[1] != r || radius[2] != r || radius[3] != r) {
             return radius;
         }
-        if (!(placeholder instanceof org.telegram.ui.Components.AvatarDrawable)) {
+        if (!isAvatarReceiver) {
             return radius;
         }
         final int size = (int) width;

@@ -2486,24 +2486,20 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             }
 
             final boolean allowTestBackend = (BuildVars.DEBUG_VERSION || TEST_BACKEND_IN_STORE && !BuildConfig.BUNDLE) || getConnectionsManager().isTestBackend();
+            // PrimeGram: this used to be the stock "test backend" debug toggle. Repurposed as the
+            // placeholder for an opt-in Max messenger login path (a separate, planned build flavor
+            // alongside the normal Telegram one) - not wired up yet, so it only explains itself
+            // rather than doing anything when tapped.
             if (allowTestBackend && activityMode == MODE_LOGIN) {
                 testBackendCheckBox = new CheckBoxCell(context, 2);
-                testBackendCheckBox.setText(getString(R.string.DebugTestBackend), "", testBackend = getConnectionsManager().isTestBackend(), false);
+                testBackendCheckBox.setText("Вход в Max вместо Telegram", "Функция в разработке, пока недоступна", false, false);
                 addView(testBackendCheckBox, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP, 16, 0, 16 + (LocaleController.isRTL && AndroidUtilities.isSmallScreen() ? 56 : 0), 0));
                 bottomMargin -= 24;
                 testBackendCheckBox.setOnClickListener(v -> {
                     if (getParentActivity() == null) {
                         return;
                     }
-                    CheckBoxCell cell = (CheckBoxCell) v;
-                    testBackend = !testBackend;
-                    cell.setChecked(testBackend, true);
-
-                    boolean testBackend = allowTestBackend && getConnectionsManager().isTestBackend();
-                    if (testBackend != LoginActivity.this.testBackend) {
-                        getConnectionsManager().switchBackend(false);
-                    }
-                    loadCountries();
+                    BulletinFactory.of(slideViewsContainer, null).createSimpleBulletin(R.raw.info, "Вход через Max ещё в разработке и пока недоступен").show();
                 });
             }
 
@@ -6236,6 +6232,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         private TextView signInWithGoogleView;
         private FrameLayout resendFrameLayout;
         private TextView resendCodeView;
+        private TextView resetDeviceCacheView;
         private FrameLayout cantAccessEmailFrameLayout;
         private TextView cantAccessEmailView;
         private TextView emailResetInView;
@@ -6481,6 +6478,58 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             });
             AndroidUtilities.updateViewVisibilityAnimated(resendCodeView, false, 1f, false);
 
+            // PrimeGram: not a guaranteed fix - see its own onClick doc below for what this
+            // actually can and can't influence about code delivery.
+            resetDeviceCacheView = new TextView(context);
+            resetDeviceCacheView.setGravity(Gravity.CENTER);
+            resetDeviceCacheView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+            resetDeviceCacheView.setSingleLine(true);
+            resetDeviceCacheView.setPadding(AndroidUtilities.dp(16), 0, AndroidUtilities.dp(16), AndroidUtilities.dp(10));
+            resetDeviceCacheView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText4));
+            resetDeviceCacheView.setText("Сбросить кэш входа на этом устройстве и попробовать снова");
+            resetDeviceCacheView.setOnClickListener(v -> {
+                if (resetDeviceCacheView.getVisibility() != View.VISIBLE || resetDeviceCacheView.getAlpha() != 1f) {
+                    return;
+                }
+                showResendCodeView(false);
+
+                // PrimeGram: auth.sendCode's codeSettings.logout_tokens is how this device tells
+                // the server "you've seen me log out of an account here before" (core.telegram.org
+                // /api/auth) - clearing it locally and sending a genuinely fresh auth.sendCode
+                // (not auth.resendCode, which carries no codeSettings at all and reuses the same
+                // phone_code_hash) makes this look like a device the server has never recognized.
+                // Whether that actually changes which SentCodeType the server picks (app vs SMS)
+                // is undocumented and unconfirmed - the one thing the docs do confirm this
+                // controls is a DIFFERENT shortcut (instant auto-login via a matching
+                // future_auth_token), not the delivery-channel decision itself. This exists as a
+                // cheap, safe thing to try for someone stuck on a stale "sent to another device"
+                // response, not a guaranteed fix.
+                AuthTokensHelper.clearLogInTokens();
+
+                TLRPC.TL_auth_sendCode req = new TLRPC.TL_auth_sendCode();
+                req.phone_number = requestPhone;
+                req.api_id = BuildVars.APP_ID;
+                req.api_hash = BuildVars.APP_HASH;
+                req.settings = new TLRPC.TL_codeSettings();
+                req.settings.allow_app_hash = req.settings.allow_firebase = PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices();
+
+                Bundle params = new Bundle();
+                params.putString("phone", phone);
+                params.putString("ephone", emailPhone);
+                params.putString("phoneFormated", requestPhone);
+
+                needShowProgress(0);
+                ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                    needHideProgress(false);
+                    if (response instanceof TLRPC.TL_auth_sentCode) {
+                        fillNextCodeParams(params, (TLRPC.TL_auth_sentCode) response);
+                    } else if (error != null && error.text != null) {
+                        AlertsCreator.processError(currentAccount, error, LoginActivity.this, req);
+                    }
+                }), ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+            });
+            AndroidUtilities.updateViewVisibilityAnimated(resetDeviceCacheView, false, 1f, false);
+
             loginOrView = new LoginOrView(context);
             VerticalPositionAutoAnimator.attach(loginOrView);
 
@@ -6499,7 +6548,11 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             errorViewSwitcher.setOutAnimation(anim);
 
             resendFrameLayout = new FrameLayout(context);
-            resendFrameLayout.addView(resendCodeView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER));
+            LinearLayout resendColumn = new LinearLayout(context);
+            resendColumn.setOrientation(LinearLayout.VERTICAL);
+            resendColumn.addView(resendCodeView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
+            resendColumn.addView(resetDeviceCacheView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
+            resendFrameLayout.addView(resendColumn, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER));
             errorViewSwitcher.addView(resendFrameLayout);
 
             wrongCodeView = new TextView(context);
@@ -6570,6 +6623,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             signInWithGoogleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
             loginOrView.updateColors();
             resendCodeView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
+            resetDeviceCacheView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText4));
             cantAccessEmailView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
             emailResetInView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText6));
             wrongCodeView.setTextColor(Theme.getColor(Theme.key_text_RedBold));
@@ -6586,6 +6640,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
 
         private void showResendCodeView(boolean show) {
             AndroidUtilities.updateViewVisibilityAnimated(resendCodeView, show);
+            AndroidUtilities.updateViewVisibilityAnimated(resetDeviceCacheView, show);
             AndroidUtilities.updateViewVisibilityAnimated(cantAccessEmailFrameLayout, !show && activityMode != MODE_CHANGE_LOGIN_EMAIL && !isSetup);
 
             if (loginOrView.getVisibility() != GONE) {

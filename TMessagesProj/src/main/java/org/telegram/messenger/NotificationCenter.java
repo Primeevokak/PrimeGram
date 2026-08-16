@@ -385,6 +385,7 @@ public class NotificationCenter {
     public static final int primeUserJoinedChat = totalEvents++;
     /** PrimeGram: the "Диагностика" UI-inspector overlay toggle changed - see PrimeUiInspector. */
     public static final int primeUiInspectorChanged = totalEvents++;
+    public static final int primeLogOverlayChanged = totalEvents++;
     /** PrimeGram: the "Диагностика" live performance monitor toggle changed - see PrimePerfMonitor. */
     public static final int primePerfMonitorChanged = totalEvents++;
 

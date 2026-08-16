@@ -1649,6 +1649,8 @@ public class ChatActivity extends BaseFragment implements
     private final static int prime_temp_sub = 901;
     /** PrimeGram: browse this chat's locally tagged messages. */
     private final static int prime_chat_tags = 902;
+    /** PrimeGram: per-chat override for PrimeAutoDelete (own outgoing messages only). */
+    private final static int prime_auto_delete_own = 903;
 
     /** PrimeGram: plugin items on the header ("...") menu. */
     private final org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter primeChatMenuRouter =
@@ -3873,6 +3875,14 @@ public class ChatActivity extends BaseFragment implements
                     showTempSubAlert();
                 } else if (id == prime_chat_tags) {
                     presentFragment(new MessageTagsActivity(dialog_id));
+                } else if (id == prime_auto_delete_own) {
+                    boolean nowOn = !org.telegram.messenger.PrimeAutoDelete.isEnabledForDialog(dialog_id);
+                    org.telegram.messenger.PrimeAutoDelete.setDialogOverride(dialog_id, nowOn);
+                    if (getParentActivity() != null) {
+                        BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.chats_infotip,
+                                nowOn ? "Автоудаление моих сообщений включено для этого чата"
+                                        : "Автоудаление моих сообщений выключено для этого чата").show();
+                    }
                 } else if (primeChatMenuRouter.owns(id)) {
                     primeChatMenuRouter.handle(id);
                 } else if (id == clear_history || id == delete_chat || id == auto_delete_timer) {
@@ -4499,6 +4509,14 @@ public class ChatActivity extends BaseFragment implements
             if (chatMode == 0 && canBulkDeleteHere()) {
                 headerItem.lazilyAddSubItem(prime_bulk_delete, R.drawable.msg_delete,
                     isTopic ? "Удалить все сообщения темы" : "Удалить все сообщения");
+            }
+            // PrimeGram: local, silent override of the global auto-delete-my-own-messages
+            // setting for just this chat - encrypted (secret) chats already run their own,
+            // separate TTL system, so this would be a second, redundant timer racing it.
+            if (chatMode == 0 && currentEncryptedChat == null && !isTopic) {
+                boolean primeAutoDeleteOn = org.telegram.messenger.PrimeAutoDelete.isEnabledForDialog(dialog_id);
+                headerItem.lazilyAddSubItem(prime_auto_delete_own, R.drawable.msg_autodelete,
+                    primeAutoDeleteOn ? "Автоудаление моих сообщений: вкл" : "Автоудаление моих сообщений: выкл");
             }
             // PrimeGram: only offered where leaving is actually possible — a channel or group
             // we are currently a member of and did not create.
@@ -10450,6 +10468,14 @@ public class ChatActivity extends BaseFragment implements
 
         contentView.addView(topicsTabs, index, LayoutHelper.createFrameMarginPx(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT, 0, org.telegram.messenger.NonIslandHelper.chatElements() ? 0 : -dp(5), 0, 0));
         topicsTabs.updateSidemenuPosition();
+        // Inserted at a fixed index (right after chatActivityFadeView) rather than appended, so
+        // whatever gets added to contentView afterward - e.g. the loading/placeholder layer that
+        // hosts FirstViewPage - lands above it in z-order and can paint over the side avatar rail
+        // (MonoForum sender switcher / Forum topics) even though its own content draws correctly
+        // within itself. Every other full-screen overlay added to this contentView (mentionContainer
+        // right below, starReactionsOverlay, actionsButtonsLayout) already calls bringToFront() for
+        // exactly this reason - topicsTabs was the one overlay that didn't.
+        topicsTabs.bringToFront();
         if (mentionContainer != null) {
             mentionContainer.bringToFront();
         }

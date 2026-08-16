@@ -76,6 +76,9 @@ public class BubbleActivity extends BasePermissionsActivity implements INavigati
         }
 
         super.onCreate(savedInstanceState);
+        if (org.telegram.messenger.PrimePinSession.guardAfterSuper(this)) {
+            return;
+        }
 
         if (!SharedConfig.passcodeHash.isEmpty() && SharedConfig.appLocked) {
             SharedConfig.lastPauseTime = (int) (SystemClock.elapsedRealtime() / 1000);

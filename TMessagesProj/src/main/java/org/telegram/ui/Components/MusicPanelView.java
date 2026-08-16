@@ -2,6 +2,7 @@ package org.telegram.ui.Components;
 
 import android.content.Context;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -12,6 +13,7 @@ import android.widget.Toast;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.R;
 import org.telegram.messenger.music.MusicMessenger;
 import org.telegram.messenger.music.MusicPlatform;
@@ -44,13 +46,15 @@ public class MusicPanelView extends LinearLayout {
     private final Theme.ResourcesProvider resourcesProvider;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
+    private final BackupImageView artworkView;
+    private final ImageView artworkDownloadBadge;
     private final TextView trackTitleView;
     private final TextView trackSubtitleView;
     private final LinearLayout actionsRow;
-    private final TextView cardButton;
-    private final TextView audioButton;
-    private final TextView textButton;
-    private final TextView shareButton;
+    private final ActionButton cardButton;
+    private final ActionButton audioButton;
+    private final ActionButton textButton;
+    private final ActionButton shareButton;
 
     private Track lastTrack;
     private boolean polling;
@@ -74,61 +78,142 @@ public class MusicPanelView extends LinearLayout {
         setOrientation(VERTICAL);
         setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(BOTTOM_INSET_DP));
 
+        // A single card holding everything - header, now-playing row, action row - rather than
+        // three loose blocks directly on the panel's own background. Gives the whole tab a
+        // deliberate shape instead of reading as an unstyled debug screen.
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(VERTICAL);
+        card.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(18),
+                Theme.getColor(Theme.key_windowBackgroundWhite, resourcesProvider)));
+        card.setPadding(AndroidUtilities.dp(14), AndroidUtilities.dp(14), AndroidUtilities.dp(14), AndroidUtilities.dp(14));
+        addView(card, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
         FrameLayout header = new FrameLayout(context);
         TextView headerTitle = new TextView(context);
         headerTitle.setText("Музыка");
-        headerTitle.setTextSize(18);
+        headerTitle.setTextSize(15);
         headerTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        headerTitle.setTextColor(Theme.getColor(Theme.key_chat_emojiPanelIcon, resourcesProvider));
+        headerTitle.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2, resourcesProvider));
         header.addView(headerTitle, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_VERTICAL | Gravity.LEFT));
 
         ImageView settingsButton = new ImageView(context);
         settingsButton.setImageResource(R.drawable.msg_settings_old);
-        settingsButton.setColorFilter(Theme.getColor(Theme.key_chat_emojiPanelIcon, resourcesProvider));
+        settingsButton.setColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2, resourcesProvider));
+        settingsButton.setScaleType(ImageView.ScaleType.CENTER);
+        settingsButton.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector, resourcesProvider), Theme.RIPPLE_MASK_CIRCLE_20DP));
         settingsButton.setOnClickListener(v -> {
             if (fragment != null) {
                 fragment.presentFragment(new MusicSettingsActivity());
             }
         });
-        header.addView(settingsButton, LayoutHelper.createFrame(28, 28, Gravity.CENTER_VERTICAL | Gravity.RIGHT));
-        addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 14));
+        header.addView(settingsButton, LayoutHelper.createFrame(32, 32, Gravity.CENTER_VERTICAL | Gravity.RIGHT));
+        card.addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 12));
 
+        // Now-playing row: artwork on the left (with its own small "save this image" badge in
+        // its corner), title/subtitle stacked to the right - the actual content, not just text.
+        FrameLayout nowPlayingRow = new FrameLayout(context);
+
+        FrameLayout artworkFrame = new FrameLayout(context);
+        artworkView = new BackupImageView(context);
+        artworkView.setRoundRadius(AndroidUtilities.dp(12));
+        GradientDrawable placeholder = new GradientDrawable();
+        placeholder.setShape(GradientDrawable.RECTANGLE);
+        placeholder.setCornerRadius(AndroidUtilities.dp(12));
+        placeholder.setColor(Theme.getColor(Theme.key_windowBackgroundGray, resourcesProvider));
+        artworkView.getImageReceiver().setImageBitmap(placeholder);
+        artworkFrame.addView(artworkView, LayoutHelper.createFrame(56, 56));
+
+        artworkDownloadBadge = new ImageView(context);
+        artworkDownloadBadge.setImageResource(R.drawable.msg_download);
+        artworkDownloadBadge.setScaleType(ImageView.ScaleType.CENTER);
+        artworkDownloadBadge.setColorFilter(0xFFFFFFFF);
+        artworkDownloadBadge.setPadding(AndroidUtilities.dp(3), AndroidUtilities.dp(3), AndroidUtilities.dp(3), AndroidUtilities.dp(3));
+        artworkDownloadBadge.setBackground(Theme.createCircleDrawable(AndroidUtilities.dp(18),
+                Theme.getColor(Theme.key_featuredStickers_addButton, resourcesProvider)));
+        artworkDownloadBadge.setVisibility(GONE);
+        artworkDownloadBadge.setOnClickListener(v -> downloadArtwork());
+        artworkFrame.addView(artworkDownloadBadge, LayoutHelper.createFrame(18, 18, Gravity.BOTTOM | Gravity.RIGHT, 0, 0, -3, -3));
+        nowPlayingRow.addView(artworkFrame, LayoutHelper.createFrame(56, 56, Gravity.CENTER_VERTICAL | Gravity.LEFT));
+
+        LinearLayout textColumn = new LinearLayout(context);
+        textColumn.setOrientation(VERTICAL);
         trackTitleView = new TextView(context);
         trackTitleView.setTextSize(16);
         trackTitleView.setTypeface(Typeface.DEFAULT_BOLD);
-        trackTitleView.setTextColor(Theme.getColor(Theme.key_chat_emojiPanelIcon, resourcesProvider));
+        trackTitleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText, resourcesProvider));
         trackTitleView.setSingleLine(true);
+        trackTitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         trackTitleView.setText("Проверяем, что играет…");
-        addView(trackTitleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        textColumn.addView(trackTitleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         trackSubtitleView = new TextView(context);
-        trackSubtitleView.setTextSize(14);
-        trackSubtitleView.setTextColor(Theme.getColor(Theme.key_chat_emojiPanelIcon, resourcesProvider));
-        trackSubtitleView.setAlpha(0.7f);
+        trackSubtitleView.setTextSize(13.5f);
+        trackSubtitleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2, resourcesProvider));
         trackSubtitleView.setSingleLine(true);
-        addView(trackSubtitleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 14));
+        trackSubtitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        textColumn.addView(trackSubtitleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 3, 0, 0));
+        nowPlayingRow.addView(textColumn, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_VERTICAL | Gravity.LEFT, 68, 0, 0, 0));
+
+        card.addView(nowPlayingRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56, 0, 0, 0, 14));
 
         actionsRow = new LinearLayout(context);
         actionsRow.setOrientation(HORIZONTAL);
         actionsRow.setVisibility(GONE);
+        actionsRow.setWeightSum(4f);
 
-        cardButton = makeButton(context, "Карточка");
+        cardButton = new ActionButton(context, R.drawable.msg_media, "Карточка");
         cardButton.setOnClickListener(v -> sendCard());
-        actionsRow.addView(cardButton, LayoutHelper.createLinear(0, 44, 1f, 0, 0, 4, 0));
+        actionsRow.addView(cardButton, LayoutHelper.createLinear(0, 62, 1f, 0, 0, 3, 0));
 
-        audioButton = makeButton(context, "Аудио");
+        audioButton = new ActionButton(context, R.drawable.files_music, "Аудио");
         audioButton.setOnClickListener(v -> sendAudio());
-        actionsRow.addView(audioButton, LayoutHelper.createLinear(0, 44, 1f, 4, 0, 4, 0));
+        actionsRow.addView(audioButton, LayoutHelper.createLinear(0, 62, 1f, 3, 0, 3, 0));
 
-        textButton = makeButton(context, "Текст");
+        textButton = new ActionButton(context, R.drawable.msg_message, "Текст");
         textButton.setOnClickListener(v -> sendText());
-        actionsRow.addView(textButton, LayoutHelper.createLinear(0, 44, 1f, 4, 0, 4, 0));
+        actionsRow.addView(textButton, LayoutHelper.createLinear(0, 62, 1f, 3, 0, 3, 0));
 
-        shareButton = makeButton(context, "Поделиться");
+        shareButton = new ActionButton(context, R.drawable.msg_share, "Поделиться");
         shareButton.setOnClickListener(v -> sendShare());
-        actionsRow.addView(shareButton, LayoutHelper.createLinear(0, 44, 1f, 4, 0, 0, 0));
+        actionsRow.addView(shareButton, LayoutHelper.createLinear(0, 62, 1f, 3, 0, 0, 0));
 
-        addView(actionsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44));
+        card.addView(actionsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 62));
+    }
+
+    /** Icon-over-label pill, sized and centered identically for all four actions - the old plain
+     *  {@code TextView} "buttons" had no shared layout contract, which is what let one of them
+     *  (the share button, whose label also changes to a "n / total" progress string mid-send)
+     *  drift out of alignment with the others instead of it being impossible by construction. */
+    private class ActionButton extends LinearLayout {
+        private final ImageView icon;
+        private final TextView label;
+
+        ActionButton(Context context, int iconRes, String text) {
+            super(context);
+            setOrientation(VERTICAL);
+            setGravity(Gravity.CENTER);
+            setBackground(Theme.createSelectorDrawable(
+                    Theme.getColor(Theme.key_listSelector, resourcesProvider),
+                    Theme.RIPPLE_MASK_ALL,
+                    AndroidUtilities.dp(14)));
+
+            icon = new ImageView(context);
+            icon.setImageResource(iconRes);
+            icon.setColorFilter(Theme.getColor(Theme.key_featuredStickers_addButton, resourcesProvider));
+            addView(icon, LayoutHelper.createLinear(22, 22, Gravity.CENTER_HORIZONTAL, 0, 0, 0, 4));
+
+            label = new TextView(context);
+            label.setText(text);
+            label.setGravity(Gravity.CENTER);
+            label.setSingleLine(true);
+            label.setTextSize(11.5f);
+            label.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText, resourcesProvider));
+            addView(label, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
+        }
+
+        void setLabel(String text) {
+            label.setText(text);
+        }
     }
 
     @Override
@@ -168,22 +253,13 @@ public class MusicPanelView extends LinearLayout {
         AndroidUtilities.cancelRunOnUIThread(pollRunnable);
     }
 
-    private TextView makeButton(Context context, String text) {
-        TextView button = new TextView(context);
-        button.setText(text);
-        button.setGravity(Gravity.CENTER);
-        button.setTextSize(14);
-        button.setTextColor(Theme.getColor(Theme.key_featuredStickers_buttonText, resourcesProvider));
-        button.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(8), Theme.getColor(Theme.key_featuredStickers_addButton, resourcesProvider)));
-        return button;
-    }
-
     private void refreshTrack() {
         final TrackProvider provider = MusicSettingsStore.createCurrentProvider();
         if (provider == null || !provider.isConfigured()) {
             trackTitleView.setText("Платформа не настроена");
             trackSubtitleView.setText("Откройте настройки (⚙) и выберите платформу");
             actionsRow.setVisibility(GONE);
+            artworkDownloadBadge.setVisibility(GONE);
             return;
         }
         executor.submit(() -> {
@@ -204,16 +280,28 @@ public class MusicPanelView extends LinearLayout {
         if (sending) {
             return;
         }
+        boolean sameTrack = lastTrack != null && track != null && java.util.Objects.equals(lastTrack.id, track.id) && track.id != null;
         lastTrack = track;
         if (track == null || !track.active) {
             trackTitleView.setText("Сейчас ничего не играет");
             trackSubtitleView.setText("");
             actionsRow.setVisibility(GONE);
+            artworkDownloadBadge.setVisibility(GONE);
+            artworkView.setImageDrawable(null);
             return;
         }
         trackTitleView.setText(track.title == null ? "" : track.title);
         trackSubtitleView.setText(buildSubtitle(track));
         actionsRow.setVisibility(VISIBLE);
+        if (!sameTrack) {
+            if (track.thumbUrl != null && !track.thumbUrl.isEmpty()) {
+                artworkView.setImage(ImageLocation.getForPath(track.thumbUrl), "100_100", (android.graphics.drawable.Drawable) null, null);
+                artworkDownloadBadge.setVisibility(VISIBLE);
+            } else {
+                artworkView.setImageDrawable(null);
+                artworkDownloadBadge.setVisibility(GONE);
+            }
+        }
     }
 
     private String buildSubtitle(Track track) {
@@ -243,20 +331,20 @@ public class MusicPanelView extends LinearLayout {
     }
 
     /** Blocks repeat taps and shows that something is happening. */
-    private boolean beginSend(TextView button) {
+    private boolean beginSend(ActionButton button) {
         if (sending || lastTrack == null || !lastTrack.active) {
             return false;
         }
         sending = true;
         setButtonsEnabled(false);
-        button.setText("Отправляем…");
+        button.setLabel("Отправляем…");
         return true;
     }
 
-    private void endSend(TextView button, String label, boolean success, String error) {
+    private void endSend(ActionButton button, String label, boolean success, String error) {
         sending = false;
         setButtonsEnabled(true);
-        button.setText(label);
+        button.setLabel(label);
         if (!success) {
             Toast.makeText(getContext(), error == null ? "Не удалось отправить" : error, Toast.LENGTH_LONG).show();
         }
@@ -325,7 +413,7 @@ public class MusicPanelView extends LinearLayout {
             executor.submit(() -> messenger.sendCardToMultiple(ids, track, new MusicMessenger.MultiCallback() {
                 @Override
                 public void onProgress(long dialogId, boolean success, int done, int total) {
-                    shareButton.setText(String.format(Locale.US, "%d / %d", done, total));
+                    shareButton.setLabel(String.format(Locale.US, "%d / %d", done, total));
                 }
 
                 @Override
@@ -336,5 +424,21 @@ public class MusicPanelView extends LinearLayout {
             }));
         });
         fragment.presentFragment(picker);
+    }
+
+    /** The little badge on the artwork itself - saves the platform's own cover art as a real
+     *  file (Downloads/Telegram), independent of "Карточка" which sends a rendered now-playing
+     *  card, not the raw artwork. */
+    private void downloadArtwork() {
+        if (lastTrack == null || !lastTrack.active) {
+            return;
+        }
+        final Track track = lastTrack;
+        artworkDownloadBadge.setEnabled(false);
+        final MusicMessenger messenger = new MusicMessenger(currentAccount, MusicSettingsStore.buildCardStyle());
+        executor.submit(() -> messenger.downloadArtwork(track, (success, error) -> {
+            artworkDownloadBadge.setEnabled(true);
+            Toast.makeText(getContext(), success ? "Обложка сохранена" : (error == null ? "Не удалось сохранить" : error), Toast.LENGTH_SHORT).show();
+        }));
     }
 }

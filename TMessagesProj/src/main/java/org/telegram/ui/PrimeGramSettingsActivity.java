@@ -173,6 +173,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_GUIDE = 108;
     private static final int ID_BIGFILE = 109;
     private static final int ID_BIGFILE_EXPERIMENTAL = 110;
+    private static final int ID_PIN_ENABLE = 160;
+    private static final int ID_PIN_LOCK_POLICY = 161;
+    private static final int ID_PIN_DISABLE = 162;
+    private static final int ID_PIN_EMERGENCY = 163;
+    private static final int ID_AUTO_DELETE_ENABLE = 164;
+    private static final int ID_AUTO_DELETE_PERIOD = 165;
+    private static final int ID_ANON_FILENAMES = 166;
+    private static final int ID_STRIP_METADATA = 167;
+    private static final int ID_PIN_EMERGENCY_DISABLE = 168;
+    private static final int ID_HIDE_NOTIFICATION_TEXT = 169;
+    private static final int ID_LOG_OVERLAY = 170;
+    private static final int ID_DOWNLOAD_BOOST = 171;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1496,6 +1508,25 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_PRIVACY) {
+            boolean pinEnrolled = org.telegram.messenger.PrimePinSession.isEnabled();
+            row(check(ID_PIN_ENABLE, IconBackgroundColors.BLUE, R.drawable.msg_pin_code,
+                    "PIN-код при запуске", pinEnrolled));
+            if (pinEnrolled) {
+                boolean hasEmergency = org.telegram.messenger.PrimePinSession.hasEmergencyPin();
+                row(button(ID_PIN_LOCK_POLICY, IconBackgroundColors.CYAN, R.drawable.msg_recent,
+                        "Когда запрашивать", primePinPolicyLabel()));
+                row(button(ID_PIN_EMERGENCY, IconBackgroundColors.RED, R.drawable.msg_delete,
+                        "Аварийный PIN-код", hasEmergency ? "Изменить" : "Настроить"));
+                if (hasEmergency) {
+                    row(button(ID_PIN_EMERGENCY_DISABLE, IconBackgroundColors.GRAY, R.drawable.msg_block,
+                            "Отключить аварийный PIN-код", null));
+                }
+                row(button(ID_PIN_DISABLE, IconBackgroundColors.GRAY, R.drawable.msg_block,
+                        "Отключить PIN-код", null));
+            }
+            endCard(items);
+            items.add(UItem.asShadow("PIN защищает вход в приложение — никто не увидит, сколько цифр вы ввели. Отдельно от системного код-пароля Telegram. Не шифрует базу данных на устройстве, только закрывает интерфейс."));
+
             String fake = org.telegram.messenger.PrimeGramPrivacy.getFakePhone();
             row(check(ID_HIDE_PHONE, IconBackgroundColors.RED, R.drawable.msg_secret,
                     "Скрывать свой номер в профиле",
@@ -1511,6 +1542,28 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 endCard(items);
                 items.add(UItem.asShadow("Функции, снимающие ограничения собеседника, и режим призрака. Разработчик их не одобряет — используются на ваш страх и риск."));
             }
+
+            boolean autoDeleteEnabled = org.telegram.messenger.PrimeAutoDelete.isGloballyEnabled();
+            row(check(ID_AUTO_DELETE_ENABLE, IconBackgroundColors.GRAY, R.drawable.msg_delete,
+                    "Автоудаление своих сообщений", autoDeleteEnabled));
+            if (autoDeleteEnabled) {
+                row(button(ID_AUTO_DELETE_PERIOD, IconBackgroundColors.CYAN, R.drawable.msg_recent,
+                        "Удалять через", primeAutoDeletePeriodLabel()));
+            }
+            endCard(items);
+            items.add(UItem.asShadow("Собственные сообщения (не пересланные, без медиа-само­уничтожения) в обычных чатах удаляются сами через заданное время после отправки. На секретные чаты не влияет — там уже есть свой таймер. Можно включить/выключить отдельно для конкретного чата в его меню."));
+
+            row(check(ID_HIDE_NOTIFICATION_TEXT, IconBackgroundColors.GRAY, R.drawable.msg_secret,
+                    "Скрывать текст в уведомлениях", org.telegram.messenger.PrimeGramPrivacy.isHideNotificationTextEnabled()));
+            endCard(items);
+            items.add(UItem.asShadow("В пуш-уведомлениях будет видно только имя отправителя/чата — без текста сообщения, медиа и подписей кнопок. Открыв само уведомление или приложение, вы всё равно увидите сообщение целиком; в самом приложении текст скрывается только на экране блокировки/шторке."));
+
+            row(check(ID_ANON_FILENAMES, IconBackgroundColors.GRAY, R.drawable.msg_secret,
+                    "Обезличивать имена скачанных файлов", org.telegram.messenger.PrimeFileNames.isEnabled()));
+            row(check(ID_STRIP_METADATA, IconBackgroundColors.GRAY, R.drawable.msg_secret,
+                    "Удалять EXIF/GPS из отправляемых файлов", org.telegram.messenger.PrimeOutgoingMetadata.isEnabled()));
+            endCard(items);
+            items.add(UItem.asShadow("Первое — файлы, скачанные внутри приложения, сохраняются на диск под случайным именем вместо исходного (не влияет на явное «Сохранить как»/в галерею). Второе — из фото и файлов, отправляемых как документ (не как «Фото» — там Telegram и так пересобирает картинку), вырезаются метаданные съёмки и координаты GPS перед загрузкой на сервер, без потери качества."));
         }
 
         if (section == SECTION_TOOLS) {
@@ -1697,6 +1750,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(info(5, "Качество и загрузка",
                     "Ограничение качества экономит трафик, а не только пиксели.",
                     "Качество видео ограничивает то, что скачивается, а не только то, что играет: скачивается ровно та дорожка, которую выбирает плеер. Если ни одна не помещается в лимит, берётся обычная — лимит не должен оставить видео непроигрываемым. Уже скачанное не перекачивается заново, даже если оно крупнее лимита. Настройка применяется к сообщениям, открытым после её изменения.\n\nВыключенная догрузка на мобильной сети переводит автозагрузку в режим «Свой» — иначе правка задела бы заодно Wi-Fi и роуминг, у которых с готовыми пресетами общий объект. Остальные значения при этом переносятся как были.\n\nКэш — только скачанное для просмотра. Файлы, которые вы сами сохранили в загрузки или галерею, кнопка не трогает."));
+
+            items.add(UItem.asHeader("Ускорение загрузки"));
+            items.add(UItem.asCustom(ID_DOWNLOAD_BOOST, downloadBoostSlider()));
+            endCard(items);
         }
 
         if (section == SECTION_MEDIA_CAMERA) {
@@ -1767,6 +1824,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Состояние уведомлений", primePushSummary()));
             row(check(ID_UI_INSPECTOR, IconBackgroundColors.RED, R.drawable.msg_pin_code,
                     "Инспектор элементов UI", org.telegram.messenger.PrimeUiInspector.isEnabled()));
+            row(check(ID_LOG_OVERLAY, IconBackgroundColors.GREEN, R.drawable.msg_log,
+                    "Оверлей логов на экране", org.telegram.messenger.PrimeLogOverlayState.isEnabled()));
             row(check(ID_PERF_MONITOR, IconBackgroundColors.PURPLE, R.drawable.msg_speed,
                     "Мониторинг нагрузки", org.telegram.messenger.PrimePerfMonitor.isEnabled()));
             row(button(ID_PERF_MONITOR_LOG, IconBackgroundColors.PURPLE, R.drawable.msg_log,
@@ -1782,6 +1841,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(info(24, "Инспектор элементов UI",
                     "Обводит каждый View на экране зелёной рамкой с его именем.",
                     "Поверх всего интерфейса рисуется зелёная рамка вокруг каждого элемента (View), который сейчас реально лежит на экране, а рядом с рамкой — имя его класса и id, если он есть.\n\nНужно, когда на экране виден лишний фон/обводка/призрачный элемент, но непонятно, какой именно View его рисует — рамки и подписи позволяют ткнуть в нужное место и прочитать точное имя, вместо того чтобы гадать по скриншоту.\n\nРамок много и они мешают пользоваться приложением, поэтому включайте только на время диагностики конкретной проблемы и выключайте сразу после."));
+            items.add(info(28, "Оверлей логов на экране",
+                    "Живой logcat поверх интерфейса — без компьютера и ADB.",
+                    "Пока включено, поверх всего интерфейса (на любом экране) висит зелёная плашка «Логи (N)» — это то же самое, что видно через «adb logcat» с компьютера, только прямо на телефоне.\n\nНажмите на плашку, чтобы развернуть панель с последними строками лога, кнопками «Очистить» и «Копировать» — скопированное можно сразу вставить в чат для разбора бага.\n\nПолезно, когда баг нужно разобрать, а компьютера под рукой нет. Как и «Инспектор элементов UI», включайте только на время диагностики — постоянно работающий сбор лога занимает фоновый поток и память."));
             items.add(info(26, "Скопировать элементы экрана",
                     "Синяя кнопка поверх интерфейса, пока инспектор включён.",
                     "Когда «Инспектор элементов UI» включён, поверх всего интерфейса (на любом экране, не только здесь, в настройках) появляется синяя кнопка «Скопировать элементы». Нажмите её прямо на том экране, где виден баг.\n\nОна копирует в буфер обмена ПОЛНЫЙ список: каждый View дерева (с отступом по вложенности) и каждую canvas-отрисовку вроде containerDrawable, у каждого — точные координаты на экране.\n\nВместо того чтобы описывать словами или присылать скриншот и гадать вместе, какой блок лишний, — вставьте этот список в чат целиком. По координатам и порядку в дереве видно ровно, какой элемент где рисуется и что перекрывает что."));
@@ -1978,6 +2040,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             presentFragment(new org.telegram.ui.ReactionsDoubleTapManageActivity());
         } else if (item.id == ID_UI_INSPECTOR) {
             org.telegram.messenger.PrimeUiInspector.setEnabled(!org.telegram.messenger.PrimeUiInspector.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_LOG_OVERLAY) {
+            org.telegram.messenger.PrimeLogOverlayState.setEnabled(!org.telegram.messenger.PrimeLogOverlayState.isEnabled());
             listView.adapter.update(true);
         } else if (item.id == ID_PERF_MONITOR) {
             org.telegram.messenger.PrimePerfMonitor.setEnabled(!org.telegram.messenger.PrimePerfMonitor.isEnabled());
@@ -2298,6 +2363,23 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             AndroidUtilities.requestIgnoreBatteryOptimizations(getParentActivity());
         } else if (item.id == ID_MUSIC_SETTINGS) {
             presentFragment(new MusicSettingsActivity());
+        } else if (item.id == ID_PIN_ENABLE) {
+            if (org.telegram.messenger.PrimePinSession.isEnabled()) {
+                launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_PIN);
+            } else {
+                launchPinGate(null);
+            }
+        } else if (item.id == ID_PIN_LOCK_POLICY) {
+            showPinLockPolicyDialog();
+        } else if (item.id == ID_PIN_DISABLE) {
+            launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_PIN);
+        } else if (item.id == ID_PIN_EMERGENCY) {
+            showEmergencyPinWarning();
+        } else if (item.id == ID_PIN_EMERGENCY_DISABLE) {
+            launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_EMERGENCY);
+        } else if (item.id == ID_HIDE_NOTIFICATION_TEXT) {
+            org.telegram.messenger.PrimeGramPrivacy.setHideNotificationTextEnabled(!org.telegram.messenger.PrimeGramPrivacy.isHideNotificationTextEnabled());
+            listView.adapter.update(true);
         } else if (item.id == ID_HIDE_PHONE) {
             org.telegram.messenger.PrimeGramPrivacy.setHidePhoneEnabled(!org.telegram.messenger.PrimeGramPrivacy.isHidePhoneEnabled());
             listView.adapter.update(true);
@@ -2305,6 +2387,17 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showPhoneInputDialog();
         } else if (item.id == ID_GREY_ZONE) {
             presentFragment(new GreyZoneActivity());
+        } else if (item.id == ID_AUTO_DELETE_ENABLE) {
+            org.telegram.messenger.PrimeAutoDelete.setGloballyEnabled(!org.telegram.messenger.PrimeAutoDelete.isGloballyEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_AUTO_DELETE_PERIOD) {
+            showAutoDeletePeriodDialog();
+        } else if (item.id == ID_ANON_FILENAMES) {
+            org.telegram.messenger.PrimeFileNames.setEnabled(!org.telegram.messenger.PrimeFileNames.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_STRIP_METADATA) {
+            org.telegram.messenger.PrimeOutgoingMetadata.setEnabled(!org.telegram.messenger.PrimeOutgoingMetadata.isEnabled());
+            listView.adapter.update(true);
         } else if (item.id == ID_MESSAGE_TAGS) {
             presentFragment(new MessageTagsActivity());
         } else if (item.id == ID_TEXT_TOOLBAR) {
@@ -3537,6 +3630,127 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
             org.telegram.messenger.browser.PrimeDns.setCustomEndpoint(value);
             org.telegram.messenger.browser.PrimeDns.setPreset(org.telegram.messenger.browser.PrimeDns.PRESET_CUSTOM);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showEmergencyPinWarning() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Аварийный PIN-код");
+        builder.setMessage("Ввод этого PIN-кода вместо основного необратимо сотрёт данные аккаунта на этом устройстве и покажет вместо них безобидную заглушку. Отменить это будет нельзя. Продолжить настройку?");
+        builder.setPositiveButton("Продолжить", (dialog, which) ->
+                launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_SETUP_EMERGENCY));
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void launchPinGate(String extra) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        android.content.Intent intent = new android.content.Intent(getParentActivity(), org.telegram.ui.PrimePinGateActivity.class);
+        if (extra != null) {
+            intent.putExtra(extra, true);
+        }
+        getParentActivity().startActivity(intent);
+    }
+
+    private String primePinPolicyLabel() {
+        switch (org.telegram.messenger.PrimePinSession.getLockPolicy()) {
+            case ON_MINIMIZE:
+                return "При каждом сворачивании";
+            case INACTIVITY_10M:
+                return "После 10 минут бездействия";
+            case INACTIVITY_60M:
+                return "После 60 минут бездействия";
+            case ON_START:
+                return "Только при запуске приложения";
+            case ON_SCREEN_LOCK:
+            default:
+                return "При блокировке экрана";
+        }
+    }
+
+    private String primeAutoDeletePeriodLabel() {
+        return LocaleController.formatTTLString(org.telegram.messenger.PrimeAutoDelete.getPeriodHours() * 3600);
+    }
+
+    private static String primeDownloadBoostModeLabel(int ordinal) {
+        switch (org.telegram.messenger.PrimeDownloadBoost.Mode.fromOrdinal(ordinal)) {
+            case FASTER:
+                return "Быстрее";
+            case HYPER:
+                return "Гипер";
+            case ULTRA:
+                return "Ультра";
+            case DYNAMIC:
+                return "Автоматически";
+            case OFF:
+            default:
+                return "Стандарт";
+        }
+    }
+
+    private org.telegram.ui.Cells.PrimeSliderCell downloadBoostSlider;
+
+    private org.telegram.ui.Cells.PrimeSliderCell downloadBoostSlider() {
+        if (downloadBoostSlider == null && getContext() != null) {
+            downloadBoostSlider = new org.telegram.ui.Cells.PrimeSliderCell(getContext(),
+                    "Ускорение загрузки", 0, 4, org.telegram.messenger.PrimeDownloadBoost.getMode().ordinal(), null);
+            downloadBoostSlider.setFormatter(PrimeGramSettingsActivity::primeDownloadBoostModeLabel);
+            downloadBoostSlider.setListener((value, stop) ->
+                    org.telegram.messenger.PrimeDownloadBoost.setMode(org.telegram.messenger.PrimeDownloadBoost.Mode.fromOrdinal(value)));
+        }
+        return downloadBoostSlider;
+    }
+
+    private void showAutoDeletePeriodDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final int[] hoursOptions = org.telegram.messenger.PrimeAutoDelete.PERIOD_OPTIONS_HOURS;
+        final String[] labels = new String[hoursOptions.length];
+        for (int i = 0; i < hoursOptions.length; i++) {
+            labels[i] = LocaleController.formatTTLString(hoursOptions[i] * 3600);
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Удалять через");
+        builder.setItems(labels, (dialog, which) -> {
+            org.telegram.messenger.PrimeAutoDelete.setPeriodHours(hoursOptions[which]);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void showPinLockPolicyDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final org.telegram.messenger.PrimePinLockPolicy[] policies = {
+                org.telegram.messenger.PrimePinLockPolicy.ON_MINIMIZE,
+                org.telegram.messenger.PrimePinLockPolicy.ON_SCREEN_LOCK,
+                org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_10M,
+                org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_60M,
+                org.telegram.messenger.PrimePinLockPolicy.ON_START,
+        };
+        final String[] labels = {
+                "При каждом сворачивании",
+                "При блокировке экрана",
+                "После 10 минут бездействия",
+                "После 60 минут бездействия",
+                "Только при запуске приложения",
+        };
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Когда запрашивать PIN-код");
+        builder.setItems(labels, (dialog, which) -> {
+            org.telegram.messenger.PrimePinSession.setLockPolicy(policies[which]);
+            org.telegram.messenger.PrimePinSession.applyPolicyChange();
             listView.adapter.update(true);
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);

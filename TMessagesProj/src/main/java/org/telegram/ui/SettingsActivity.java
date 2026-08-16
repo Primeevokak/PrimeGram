@@ -669,8 +669,12 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             items.add(UItem.asCustomShadow(topView, 200 - 12));
         }
 
-        items.add(SettingCell.Factory.of(51, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_channel, "О приложении PrimeGram", "Канал разработчика, обновления и поддержка"));
-        items.add(SettingCell.Factory.of(52, 0xFFB659FF, 0xFF617CFF, R.drawable.settings_premium, "Настройки PrimeGram", "Боковая панель, лимиты Premium и прочее"));
+        // PrimeGram: these two rows are exactly what a decoy session must not show - both name
+        // this fork by name, which a genuine stock Telegram settings screen never would.
+        if (!org.telegram.messenger.PrimeDecoyState.isActive()) {
+            items.add(SettingCell.Factory.of(51, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_channel, "О приложении PrimeGram", "Канал разработчика, обновления и поддержка"));
+            items.add(SettingCell.Factory.of(52, 0xFFB659FF, 0xFF617CFF, R.drawable.settings_premium, "Настройки PrimeGram", "Боковая панель, лимиты Premium и прочее"));
+        }
         if (getUserConfig().isBot()) {
             // Only reachable on a bot session (see BotLoginActivity) - name/about live in the
             // normal edit screens (routed to bots.setBotInfo there), everything Bot API exposes

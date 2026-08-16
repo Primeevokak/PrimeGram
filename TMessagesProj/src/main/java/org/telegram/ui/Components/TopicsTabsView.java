@@ -643,16 +643,27 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
 
     private long currentTopicId;
     private void updateTabs() {
+        updateTabs(true);
+    }
+
+    /** {@code animated}=true runs {@code adapter.update(true)}'s DiffUtil-style path - fine for
+     *  genuine list changes (reorder, add/remove), but it compares {@link UItem}s and skips
+     *  re-binding ones it considers unchanged, which meant a MonoForum sender tab whose backing
+     *  {@code TL_forumTopic}/UItem reference never changed - only the {@link TLRPC.User} it points
+     *  at going from "not cached yet" to "loaded" - never got {@code setMf()} called on it again,
+     *  even though {@link #didReceivedNotification} was correctly firing on the load. {@code
+     *  animated}=false forces {@code notifyDataSetChanged()}, an unconditional full re-bind. */
+    private void updateTabs(boolean animated) {
         checkTopicsVisibility(true);
 
         boolean wasOnLeft = !topTabs.canScrollHorizontally(-1);
-        topTabs.adapter.update(true);
+        topTabs.adapter.update(animated);
         if (wasOnLeft) {
             topTabs.scrollToPosition(0);
         }
 
         boolean wasOnTop = !sideTabs.canScrollVertically(-1);
-        sideTabs.adapter.update(true);
+        sideTabs.adapter.update(animated);
         if (wasOnTop) {
             sideTabs.scrollToPosition(0);
         }
@@ -674,6 +685,15 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             if (/*!mono &&*/ (mask & MessagesController.UPDATE_MASK_SELECT_DIALOG) > 0) {
                 MessagesController.getInstance(currentAccount).getTopicsController().sortTopics(-dialogId, false);
                 updateTabs();
+            } else if (mono && (mask & (MessagesController.UPDATE_MASK_AVATAR | MessagesController.UPDATE_MASK_NAME)) > 0) {
+                // A MonoForum sender who wasn't locally cached yet renders this rail's tab with a
+                // blank/placeholder avatar and name at first (see VerticalTabView.setMf, which
+                // kicks off a reloadUser() for exactly this case) - only a long-press (which
+                // re-queries fresh data directly, a separate path) happened to show it correctly.
+                // animated=false: the DiffUtil path in the default updateTabs() considers this
+                // tab's UItem unchanged (same TL_forumTopic reference) and skips re-binding it -
+                // see updateTabs(boolean)'s own doc for why an unconditional rebind is needed here.
+                updateTabs(false);
             }
         }
     }
@@ -1168,6 +1188,12 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             layout.addView(imageLayoutView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER));
 
             imageView = new BackupImageView(context);
+            // setMf() often binds before this view is attached to the window (RecyclerView
+            // calls bindViewHolder before addView); with attach-gating on, that first
+            // setForUserOrChat() call - including the synchronous placeholder - is silently
+            // dropped and only replayed on a later onAttachedToWindow(), which never happens
+            // here since the view stays attached. Disable the gate so binds apply immediately.
+            imageView.getImageReceiver().setAllowLoadingOnAttachedOnly(false);
             imageLayoutView.addView(imageView, imageViewParams = LayoutHelper.createFrame(34, 34, Gravity.CENTER));
             avatarDrawable = new AvatarDrawable();
 
@@ -1419,7 +1445,15 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             imageView.invalidate();
         }
 
-        public void setMf(TLRPC.TL_forumTopic dialog, boolean selected) {
+        public void setMf(long chatDialogId, TLRPC.TL_forumTopic dialog, boolean selected) {
+            // PrimeGram: forcing this row's own transient render state back to identity on every
+            // bind costs nothing and rules out a DefaultItemAnimator "add" fade left mid-flight by
+            // the unconditional notifyDataSetChanged() in updateTabs(false) (see its own doc).
+            setAlpha(1f);
+            setTranslationX(0f);
+            setTranslationY(0f);
+            setScaleX(1f);
+            setScaleY(1f);
             setLayout(true);
             this.isAdd = false;
             this.staticImage = false;
@@ -1430,8 +1464,29 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             textView.setVisibility(VISIBLE);
             if (dialogId >= 0) {
                 TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(dialogId);
-                avatarDrawable.setInfo(user);
-                imageView.setForUserOrChat(user, avatarDrawable);
+                if (user != null) {
+                    avatarDrawable.setInfo(user);
+                    imageView.setForUserOrChat(user, avatarDrawable);
+                } else {
+                    // AvatarDrawable.setInfo(User) is a no-op on a null user - a MonoForum sender
+                    // who has never otherwise been in a locally-cached dialog/contact (the normal
+                    // case: someone messaging a channel you administer, with no prior DM history)
+                    // left this tab's avatar (and setInfo(dialog.from_id)'s implicit-empty-name
+                    // via DialogObject.getName above) blank rather than a placeholder, PERMANENTLY -
+                    // not just until reloadUser() below landed, because reloadUser(long) builds its
+                    // request from getInputUser(getUser(id)), and getUser(id) is null for exactly
+                    // this case: MessagesController.getInputUser(null) returns TL_inputUserEmpty()
+                    // (a real, non-null object with no user_id in it at all), not null - so
+                    // reloadUser's own `if (inputPeer == null) return;` guard never caught it, and
+                    // the request it sent could never have identified this user to the server in
+                    // the first place. Resolving through the channel's own participant list instead
+                    // (works without an access_hash - the channel membership is the authorization)
+                    // is the same fix already applied to ChatMessageCell's signature-profile avatar
+                    // for the identical underlying bug.
+                    avatarDrawable.setInfo(dialogId);
+                    imageView.setForUserOrChat(null, avatarDrawable);
+                    resolveMonoForumSender(currentAccount, chatDialogId, dialogId);
+                }
             } else {
                 TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-dialogId);
                 avatarDrawable.setInfo(chat);
@@ -1449,6 +1504,43 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                 animated
             );
             setPinned(false, animated);
+        }
+
+        /** One in-flight request per (account, userId) - a fast scroll through several tabs for
+         *  the same never-cached sender would otherwise fire one channels.getParticipant call per
+         *  tab bind. Success is picked up automatically: putUsers() below fires the same
+         *  updateInterfaces(UPDATE_MASK_AVATAR|UPDATE_MASK_NAME) notification TopicsTabsView
+         *  already listens for and forces an unconditional rebind on (see its own doc). */
+        private static final java.util.Set<Long> monoForumSenderFetchInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+        private static void resolveMonoForumSender(int account, long chatDialogId, long userId) {
+            if (chatDialogId >= 0 || !monoForumSenderFetchInFlight.add(userId)) {
+                return;
+            }
+            final TLRPC.TL_channels_getParticipant req = new TLRPC.TL_channels_getParticipant();
+            req.channel = MessagesController.getInstance(account).getInputChannel(MessagesController.getInstance(account).getChat(-chatDialogId));
+            req.participant = MessagesController.getInstance(account).getInputPeer(userId);
+            ConnectionsManager.getInstance(account).sendRequestTyped(req, AndroidUtilities::runOnUIThread, (res, err) -> {
+                monoForumSenderFetchInFlight.remove(userId);
+                if (res == null) {
+                    return;
+                }
+                MessagesController.getInstance(account).putUsers(res.users, false);
+                MessagesController.getInstance(account).putChats(res.chats, false);
+                // PrimeGram: putUsers() alone does NOT post UPDATE_MASK_AVATAR/UPDATE_MASK_NAME -
+                // it only ever posts UPDATE_MASK_STATUS internally, for the online/offline dot.
+                // TopicsTabsView.didReceivedNotification's mono-branch listens specifically for
+                // AVATAR|NAME to trigger updateTabs(false) (the unconditional rebind this whole
+                // resolve exists to feed) - without this, the fetch above genuinely succeeds and
+                // the user object really does land in MessagesController's cache, but nothing
+                // ever tells this screen to look again, so the tab stayed blank forever anyway,
+                // just for a different reason than the original "never fetched at all" bug.
+                if (!res.users.isEmpty()) {
+                    NotificationCenter.getInstance(account).postNotificationName(
+                            NotificationCenter.updateInterfaces,
+                            MessagesController.UPDATE_MASK_AVATAR | MessagesController.UPDATE_MASK_NAME);
+                }
+            });
         }
 
         private float selectT;
@@ -1514,7 +1606,7 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                     }
                 } else if (item.object instanceof TLRPC.TL_forumTopic) {
                     if (!item.withUsername) {
-                        cell.setMf((TLRPC.TL_forumTopic) item.object, item.checked);
+                        cell.setMf(item.dialogId, (TLRPC.TL_forumTopic) item.object, item.checked);
                     } else {
                         cell.set(item.dialogId, (TLRPC.TL_forumTopic) item.object, item.checked);
                     }
@@ -1815,6 +1907,14 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
 
         private AvatarSpan avatarSpan;
         public void setMf(long chatDialogId, TLRPC.TL_forumTopic dialog, boolean selected) {
+            // PrimeGram: forcing this row's own transient render state back to identity on every
+            // bind costs nothing and rules out a DefaultItemAnimator "add" fade left mid-flight by
+            // the unconditional notifyDataSetChanged() in updateTabs(false) (see its own doc).
+            setAlpha(1f);
+            setTranslationX(0f);
+            setTranslationY(0f);
+            setScaleX(1f);
+            setScaleY(1f);
             setLayout(true);
             final long dialogId = DialogObject.getPeerDialogId(dialog.from_id);
             final boolean animated = this.topicId == dialogId;
@@ -1832,6 +1932,11 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                 sb.append("x  ");
                 avatarSpan.setObject(object);
                 sb.setSpan(avatarSpan, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } else if (dialogId >= 0) {
+                // Same never-cached-MonoForum-sender gap as VerticalTabView.setMf - here the tab
+                // doesn't even get a placeholder avatar, just no icon at all, since there was no
+                // fetch attempt of any kind. See VerticalTabView.resolveMonoForumSender's own doc.
+                VerticalTabView.resolveMonoForumSender(currentAccount, chatDialogId, dialogId);
             }
             sb.append(DialogObject.getName(dialogId));
             textView.setText(TextUtils.ellipsize(sb, textView.getPaint(), dp(150), TextUtils.TruncateAt.END));

@@ -241,14 +241,16 @@ public abstract class BlurredBackgroundDrawable extends Drawable {
             boundsWithPadding.set(bounds);
             boundsWithPadding.inset(padding, padding);
 
-            // PrimeGram: draw() below only ever reads `path` when radiiAreSame is false - the
-            // common case (a uniformly-rounded pill/panel) takes the canvas.drawRoundRect() fast
-            // path instead and never looks at it. Building this Path (rewind + addRoundRect +
-            // close) is pure waste in that case, and this runs on every onBoundsChange() - i.e.
-            // every single frame of any slide/resize animation on a BlurredBackgroundDrawable,
-            // several of which exist across the chat UI. getPath() has no other callers in the
-            // codebase, so nothing else can observe it going stale here.
-            if (!radiiAreSame) {
+            // PrimeGram: this WAS skipped whenever radiiAreSame (leaving `path` a permanently
+            // empty Path in the common uniformly-rounded case) on the theory that draw() is the
+            // only reader and it only looks at `path` for non-uniform radii. That's wrong -
+            // TopicsTabsView.drawChild() calls getPath() unconditionally on every draw of
+            // sideTabsContainer/topTabsContainer and passes it straight to canvas.clipPath(...).
+            // Clipping to a genuinely empty Path on a hardware-accelerated canvas is exactly the
+            // kind of thing that renders inconsistently depending on RenderNode/layer caching -
+            // matching the monoforum sidebar bug where avatars/names silently fail to render
+            // until something (a long-press) forces a layer rebuild. Always build the real path.
+            {
                 path.rewind();
                 path.addRoundRect(
                     boundsWithPadding.left,

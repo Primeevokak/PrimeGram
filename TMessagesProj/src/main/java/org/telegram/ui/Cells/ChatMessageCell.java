@@ -363,23 +363,62 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 avatarDrawable.setInfo(currentAccount, currentUser);
                 avatarImage.setForUserOrChat(currentUser, avatarDrawable, null, LiteMode.isEnabled(LiteMode.FLAGS_CHAT), VectorAvatarThumbDrawable.TYPE_SMALL, false);
             } else if (currentChat != null) {
-                if (currentChat.photo != null) {
-                    currentPhoto = currentChat.photo.photo_small;
-                } else {
-                    currentPhoto = null;
-                }
                 if (currentChat.signature_profiles && messageObject.getDialogId() != UserObject.REPLY_BOT) {
                     final long did = DialogObject.getPeerDialogId(messageObject.messageOwner.from_id);
                     if (did >= 0) {
                         final TLRPC.User user = MessagesController.getInstance(messageObject.currentAccount).getUser(did);
+                        // Written back to the class field, not just used locally: userInfoDidLoad
+                        // (above) and the tap/long-press avatar handlers all branch on currentUser,
+                        // and with it left null here they silently believed no sender had ever been
+                        // resolved - the async avatar load had nothing to invalidate the cell with,
+                        // so it only ever showed up after something else (a touch) forced a rebind.
+                        currentUser = user;
+                        if (user == null) {
+                            // getUser() above is a pure in-memory lookup with no fetch of its own -
+                            // a signature-profile signer who isn't a "known" peer (never DMed, not a
+                            // recently active admin) simply isn't in MessagesController's cache, and
+                            // nothing was ever asking the server for them. The cell stayed blank
+                            // forever, not just until the next touch - the touch handler's rebind
+                            // only ever "fixed" it when some UNRELATED action (opening the sender's
+                            // profile, viewing admins) happened to warm the cache first. Resolve the
+                            // signer proactively via channels.getParticipant (works without an
+                            // access_hash - the channel membership itself is the authorization), then
+                            // cache it and re-run this same bind for whichever cell asked.
+                            requestSignatureProfileUser(messageObject.currentAccount, currentChat, did, messageObject);
+                        }
+                        // Was unconditionally the CHANNEL's photo (set above, before this branch even
+                        // ran) - isUserDataChanged() compares this against the signer's own photo on
+                        // every rebind and never stopped seeing a "change", which is exactly the kind
+                        // of state that only resolves itself once something else (a touch) forces a
+                        // full rebind through a different path.
+                        currentPhoto = user != null && user.photo != null ? user.photo.photo_small : null;
                         avatarDrawable.setInfo(currentAccount, user);
                         avatarImage.setForUserOrChat(user, avatarDrawable);
                     } else {
                         final TLRPC.Chat chat = MessagesController.getInstance(messageObject.currentAccount).getChat(-did);
+                        currentChat = chat;
+                        currentPhoto = chat != null && chat.photo != null ? chat.photo.photo_small : null;
                         avatarDrawable.setInfo(currentAccount, chat);
                         avatarImage.setForUserOrChat(chat, avatarDrawable);
                     }
+                    // The actual pixels are painted by ChatActivity's overlay draw loop over
+                    // chatListView, not by this cell's own onDraw - ImageReceiver's own
+                    // post-decode invalidate() already reaches chatListView in the ordinary case,
+                    // but the signer resolved above is per-message state this cell didn't have
+                    // when it was originally bound (the channel's own currentChat/photo was set
+                    // instead), so nothing was scheduling a repaint for THIS specific new content
+                    // until an unrelated touch-driven invalidate happened to catch it. An explicit
+                    // nudge here removes that dependency on incidental redraws.
+                    invalidate();
+                    if (getParent() != null) {
+                        ((View) getParent()).invalidate();
+                    }
                 } else {
+                    if (currentChat.photo != null) {
+                        currentPhoto = currentChat.photo.photo_small;
+                    } else {
+                        currentPhoto = null;
+                    }
                     avatarDrawable.setInfo(currentAccount, currentChat);
                     avatarImage.setForUserOrChat(currentChat, avatarDrawable);
                 }
@@ -395,6 +434,32 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         } else {
             currentPhoto = null;
         }
+    }
+
+    /** Signers who aren't already a known peer never get looked up on their own - see the call
+     *  site in setAvatar() above. One in-flight request per (account, userId) at a time; the
+     *  cache write on success fixes every other on-screen cell for the same signer too, not just
+     *  the one that triggered the fetch. */
+    private static final java.util.Set<Long> signatureProfileFetchInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private void requestSignatureProfileUser(int account, TLRPC.Chat chat, long userId, MessageObject forMessageObject) {
+        if (chat == null || !signatureProfileFetchInFlight.add(userId)) {
+            return;
+        }
+        final TLRPC.TL_channels_getParticipant req = new TLRPC.TL_channels_getParticipant();
+        req.channel = MessagesController.getInstance(account).getInputChannel(chat);
+        req.participant = MessagesController.getInstance(account).getInputPeer(userId);
+        ConnectionsManager.getInstance(account).sendRequestTyped(req, AndroidUtilities::runOnUIThread, (res, err) -> {
+            signatureProfileFetchInFlight.remove(userId);
+            if (res == null) {
+                return;
+            }
+            MessagesController.getInstance(account).putUsers(res.users, false);
+            MessagesController.getInstance(account).putChats(res.chats, false);
+            if (currentMessageObject == forMessageObject) {
+                setAvatar(forMessageObject);
+            }
+        });
     }
 
     public void setSpoilersSuppressed(boolean s) {

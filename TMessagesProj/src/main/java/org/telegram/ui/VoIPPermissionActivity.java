@@ -19,6 +19,9 @@ public class VoIPPermissionActivity extends Activity {
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		if (org.telegram.messenger.PrimePinSession.guardAfterSuper(this)) {
+			return;
+		}
 
 		final VoIPService service = VoIPService.getSharedInstance();
 		final boolean isVideoCall = service != null ?

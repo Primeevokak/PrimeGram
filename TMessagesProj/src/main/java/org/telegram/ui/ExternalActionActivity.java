@@ -86,6 +86,9 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
         }
 
         super.onCreate(savedInstanceState);
+        if (org.telegram.messenger.PrimePinSession.guardAfterSuper(this)) {
+            return;
+        }
 
         if (!SharedConfig.passcodeHash.isEmpty() && SharedConfig.appLocked) {
             SharedConfig.lastPauseTime = (int) (SystemClock.elapsedRealtime() / 1000);

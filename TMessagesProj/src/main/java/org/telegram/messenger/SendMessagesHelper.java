@@ -9693,7 +9693,13 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
             uris.add(uri);
         }
         if (path != null) {
-            paths.add(path);
+            // PrimeGram: a file sent as a raw document (as opposed to a "Photo," which Telegram's
+            // own compression pipeline already re-encodes through a Bitmap and strips this from
+            // as a side effect) uploads the original bytes verbatim - EXIF GPS coordinates and
+            // all, if the source file has any. originalPath (used for the "already sent this
+            // exact file" cache lookup, not for the actual upload) is deliberately left pointing
+            // at the real file - a cleaned copy is still the same logical file for dedup purposes.
+            paths.add(PrimeOutgoingMetadata.cleanIfNeeded(path));
             originalPaths.add(originalPath);
         }
         prepareSendingDocuments(accountInstance, paths, originalPaths, uris, caption, mine, dialogId, replyToMsg, replyToTopMsg, storyItem, quote, editingMessageObject, notify, scheduleDate, inputContent, quickReplyShortcut, quickReplyShortcutId, 0, invertMedia, 0);

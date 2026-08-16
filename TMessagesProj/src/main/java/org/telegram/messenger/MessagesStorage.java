@@ -5959,6 +5959,55 @@ public class MessagesStorage extends BaseController {
         });
     }
 
+    /** PrimeGram: generic version of {@link #createTaskForMid} for {@link PrimeAutoDelete} - that
+     *  one always writes media=1 (the media-wipe bucket {@link MessagesController#checkDeletingTask}
+     *  only ever calls emptyMessagesMedia() on, leaving the message shell behind) and is only ever
+     *  called for secret-chat self-destruct timers. Auto-delete needs the media=0 bucket, which
+     *  checkDeletingTask drives through a real deleteMessages(..., forAll=true, ...) - same queue,
+     *  same restart-survival, ordinary (non-secret) dialogId works unmodified since nothing here is
+     *  secret-chat-specific despite the table's name. */
+    public void createTaskForOutgoingAutoDelete(long dialogId, int messageId, int date) {
+        storageQueue.postRunnable(() -> {
+            SQLitePreparedStatement state = null;
+            try {
+                SparseArray<ArrayList<Integer>> messages = new SparseArray<>();
+                ArrayList<Integer> midsArray = new ArrayList<>();
+                midsArray.add(messageId);
+                messages.put(date, midsArray);
+
+                state = database.executeFast("REPLACE INTO enc_tasks_v4 VALUES(?, ?, ?, ?)");
+                state.requery();
+                state.bindInteger(1, messageId);
+                state.bindLong(2, dialogId);
+                state.bindInteger(3, date);
+                state.bindInteger(4, 0);
+                state.step();
+                state.dispose();
+                state = null;
+                getMessagesController().didAddedNewTask(date, dialogId, messages);
+            } catch (Exception e) {
+                checkSQLException(e);
+            } finally {
+                if (state != null) {
+                    state.dispose();
+                }
+            }
+        });
+    }
+
+    /** Cancels a not-yet-fired auto-delete task, e.g. the user turned the per-chat toggle off
+     *  after already sending messages under it, or the message itself got deleted some other way. */
+    public void cancelOutgoingAutoDeleteTask(long dialogId, int messageId) {
+        storageQueue.postRunnable(() -> {
+            try {
+                database.executeFast(String.format(Locale.US,
+                        "DELETE FROM enc_tasks_v4 WHERE mid = %d AND uid = %d AND media = 0", messageId, dialogId)).stepThis().dispose();
+            } catch (Exception e) {
+                checkSQLException(e);
+            }
+        });
+    }
+
     private void createTaskForSecretMedia(long dialogId, SparseArray<ArrayList<Integer>> messages) {
         SQLiteCursor cursor = null;
         SQLitePreparedStatement state = null;

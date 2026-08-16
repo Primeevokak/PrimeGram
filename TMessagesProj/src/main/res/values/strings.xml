@@ -4186,12 +4186,12 @@
     <string name="Page4Title">Secure</string>
     <string name="Page5Title">Powerful</string>
     <string name="Page6Title">Cloud-Based</string>
-    <string name="Page1Message">The world\'s **fastest** messaging app.\nIt is **free** and **secure**.</string>
-    <string name="Page2Message">**Telegram** delivers messages faster than\nany other application.</string>
-    <string name="Page3Message">**Telegram** provides free unlimited cloud storage for chats and media.</string>
-    <string name="Page4Message">**Telegram** keeps your messages safe\nfrom hacker attacks.</string>
-    <string name="Page5Message">**Telegram** has no limits on\nthe size of your media and chats.</string>
-    <string name="Page6Message">**Telegram** lets you access your messages\nfrom multiple devices.</string>
+    <string name="Page1Message">A Telegram fork focused\non privacy and control.</string>
+    <string name="Page2Message">Runs on the same cloud network as Telegram —\nno servers of its own, no extra delay.</string>
+    <string name="Page3Message">Free cloud storage for chats and media,\nwith no limit on how many conversations you keep.</string>
+    <string name="Page4Message">A startup PIN, hidden read receipts,\nauto-delete and an emergency mode — all in one place.</string>
+    <string name="Page5Message">No limits on\nthe size of your media and chats.</string>
+    <string name="Page6Message">Your chats stay in sync\nacross every device you use.</string>
     <string name="StartMessaging">Start Messaging</string>
     <!-- VoIP -->
     <string name="AccountSettings">Account Settings</string>

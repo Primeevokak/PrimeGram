@@ -30,3 +30,7 @@ __pycache__/
 # in git status, and some autosave hook was independently committing inside it too.
 /tg-ws-proxy-repo/
 
+# Same deal: a separate, unrelated git checkout (its own .git, its own remote: confeden/Novagram)
+# kept only as a local reference, not part of this repo's history, not a submodule.
+/novagram-repo/
+

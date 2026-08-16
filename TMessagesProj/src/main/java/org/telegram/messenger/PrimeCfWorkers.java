@@ -28,6 +28,50 @@ public final class PrimeCfWorkers {
     private static final String KEY_ENABLED = "primegram_cf_workers_enabled";
     private static final String KEY_DOMAINS = "primegram_cf_worker_domains";
 
+    /**
+     * Workers volunteered by subscribers (collected via the Cloudflare-worker-collector bot,
+     * verified live before being added here), shipped with the app so every install benefits
+     * from all of them without each person configuring anything. Grows with app updates as more
+     * come in - see cf-worker-bot/collected_domains.txt for the live collection.
+     *
+     * <p>A single shared worker (or the single shared {@code kwsN.<domain>.co.uk} balancer, or
+     * even the single shared {@code 149.154.167.220} redirect) all turned out to be one account's
+     * worth of free-tier Cloudflare capacity serving every user of this app at once - this list
+     * exists to spread that same load across as many separate free-tier accounts as subscribers
+     * are willing to spin up, since each one only costs its owner twenty lines of JavaScript.
+     */
+    private static final String[] BUNDLED_DOMAINS = new String[]{
+            // populated as subscribers submit and the bot verifies their workers
+            "aged-smoke-43f9.niellon2.workers.dev",
+            "aged-snow-0e00.yumakayev14.workers.dev",
+            "broken-cell-3480.luna-f94.workers.dev",
+            "divine-sound-f867.primeevolutionzero.workers.dev",
+            "floral-art-45f8.klukvamorsov-lol.workers.dev",
+            "fragrant-field-ee6c.klukvamorsov.workers.dev",
+            "little-star-2ae0.ramil14415.workers.dev",
+            "nameless-sun-37d7.klukvamorsov.workers.dev",
+            "raspy-lake-fbd0.rematchclient.workers.dev",
+            "rough-term-d9f6.luna-f94.workers.dev",
+            "royal-tooth-e689.klukvamorsov.workers.dev",
+            "shiny-star-222a.goghog688.workers.dev",
+            "small-morning-1f6b.klukvalab.workers.dev",
+            "sparkling-wildflower-e9c0.niellon1.workers.dev",
+            "white-scene-eba6.niellon.workers.dev",
+            "yellow-bread-af76.luna-f94.workers.dev",
+            "yellow-flower-a227.alekspolejaev13.workers.dev",
+            "young-grass-fd67.klukvamorsov.workers.dev",
+            "broken-math-a86c.swet302003.workers.dev",
+            "wandering-dawn-9800.artem-ponkratov-2000.workers.dev",
+    };
+
+    /** How long a worker that just failed sits out before being tried again - short, because a
+     *  Worker hitting its free daily quota recovers on its own, and a transient network blip
+     *  clears in seconds; long enough that a genuinely dead one does not eat every connection's
+     *  first attempt. */
+    private static final long SICK_COOLDOWN_MS = 5 * 60_000L;
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long> sickUntil = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.Random RANDOM = new java.util.Random();
+
     private PrimeCfWorkers() {
     }
 
@@ -43,7 +87,7 @@ public final class PrimeCfWorkers {
         MessagesController.getGlobalMainSettings().edit().putBoolean(KEY_ENABLED, enabled).apply();
     }
 
-    /** In the order the user added them; the connector walks the list from the top. */
+    /** In the order the user added them; kept for the settings screen's own list display. */
     public static List<String> getDomains() {
         final List<String> domains = new ArrayList<>();
         try {
@@ -60,6 +104,54 @@ public final class PrimeCfWorkers {
         } catch (Throwable ignore) {
         }
         return domains;
+    }
+
+    /**
+     * The user's own configured workers plus every bundled one, deduplicated, shuffled, and with
+     * anything currently sick filtered out (or kept in if that would leave nothing to try at
+     * all). Shuffling per call is what actually spreads load across the whole pool - a fixed
+     * order means every device's first attempt lands on the same worker until it falls over,
+     * exactly the failure mode this list exists to avoid.
+     */
+    public static List<String> getShuffledHealthyDomains() {
+        final java.util.LinkedHashSet<String> all = new java.util.LinkedHashSet<>(getDomains());
+        for (String d : BUNDLED_DOMAINS) {
+            all.add(d);
+        }
+        final List<String> healthy = new ArrayList<>();
+        final long now = System.currentTimeMillis();
+        for (String d : all) {
+            final Long until = sickUntil.get(d);
+            if (until == null || until <= now) {
+                healthy.add(d);
+            }
+        }
+        final List<String> pool = healthy.isEmpty() ? new ArrayList<>(all) : healthy;
+        java.util.Collections.shuffle(pool, RANDOM);
+        return pool;
+    }
+
+    /** Whether {@code domain} is a Worker relay (bundled or user-added), as opposed to one of
+     *  TgWsProxyService's own direct/dc-redirect domains - used to keep the two paths' failure
+     *  tracking from being lumped into the same (dcId, isMedia) breaker key. */
+    public static boolean isKnownDomain(String domain) {
+        if (domain == null) {
+            return false;
+        }
+        for (String d : BUNDLED_DOMAINS) {
+            if (d.equals(domain)) {
+                return true;
+            }
+        }
+        return getDomains().contains(domain);
+    }
+
+    public static void markSick(String domain) {
+        sickUntil.put(domain, System.currentTimeMillis() + SICK_COOLDOWN_MS);
+    }
+
+    public static void markHealthy(String domain) {
+        sickUntil.remove(domain);
     }
 
     private static void save(List<String> domains) {
