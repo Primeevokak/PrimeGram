@@ -286,7 +286,16 @@ public class FileLoadOperation {
     }
 
     private void updateParams() {
-        if ((preloadPrefixSize > 0 || MessagesController.getInstance(currentAccount).getfileExperimentalParams) && !forceSmallChunk) {
+        // PrimeGram: a user-controlled ceiling above (and independent of) the stock/experimental
+        // bump below - PrimeDownloadBoost.currentParams() returns stock params by itself whenever
+        // its mode is OFF or a proxy is active, so this only ever pushes chunk size/concurrency
+        // UP from whatever the stock logic below would have picked, never down.
+        int[] boost = PrimeDownloadBoost.currentParams();
+        if (boost[0] > 1024 * 128 && !forceSmallChunk) {
+            downloadChunkSizeBig = boost[0];
+            maxDownloadRequests = boost[1];
+            maxDownloadRequestsBig = boost[1];
+        } else if ((preloadPrefixSize > 0 || MessagesController.getInstance(currentAccount).getfileExperimentalParams) && !forceSmallChunk) {
             downloadChunkSizeBig = 1024 * 512;
             maxDownloadRequests = 8;
             maxDownloadRequestsBig = 8;
@@ -1811,6 +1820,9 @@ public class FileLoadOperation {
             }
             return false;
         }
+        // PrimeGram: feeds the dynamic download-boost mode's throughput/failure-rate probe - a
+        // no-op unless that mode is actually selected (see PrimeDownloadBoost.reportChunkResult).
+        PrimeDownloadBoost.reportChunkResult(requestInfo.chunkSize, error != null);
         final int requestToken = requestInfo.requestToken;
         requestInfos.remove(requestInfo);
         AndroidUtilities.runOnUIThread(() -> uiRequestTokens.remove((Integer) requestToken));

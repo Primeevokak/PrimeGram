@@ -4358,10 +4358,14 @@ public class AndroidUtilities {
             if (!restrict && primeOpenHtmlInBrowser(f, fileName, mimeType, activity)) {
                 return true;
             }
-            // PrimeGram: a .plugin file is ours, and handing it to the system chooser would show
-            // the user "no app can open this file" about a file this app is the only reader of.
+            // PrimeGram: a .plugin (raw Python) or .elyx (packaged, zipped) file is ours, and
+            // handing either to the system chooser would show the user "no app can open this
+            // file" about a file this app is the only reader of. PrimePluginsController.inspect()
+            // already reads both formats from a fresh, not-yet-installed file - offer() just
+            // never got called for .elyx because this check only ever looked for .plugin.
             if (!restrict && fileName != null
-                    && fileName.toLowerCase().endsWith(org.telegram.messenger.plugins.PrimePluginsController.EXTENSION)
+                    && (fileName.toLowerCase().endsWith(org.telegram.messenger.plugins.PrimePluginsController.EXTENSION)
+                        || fileName.toLowerCase().endsWith(org.telegram.messenger.plugins.PrimePluginsController.EXTENSION_ELYX))
                     && org.telegram.ui.PrimePluginInstallDialog.offer(activity, f, resourcesProvider)) {
                 return true;
             }

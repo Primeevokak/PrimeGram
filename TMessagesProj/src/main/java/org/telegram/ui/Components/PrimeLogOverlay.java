@@ -158,7 +158,7 @@ public class PrimeLogOverlay extends FrameLayout implements NotificationCenter.N
         if (!PrimeLogOverlayState.isEnabled()) {
             return;
         }
-        badge.setText("Логи (" + PrimeLogCollector.lineCount() + ") draws=" + TopicsTabsView.VerticalTabView.primeDispatchDrawFireCount.get());
+        badge.setText("Логи (" + PrimeLogCollector.lineCount() + ")");
         if (expanded) {
             final List<String> lines = PrimeLogCollector.tail(TAIL_LINES);
             logText.setText(TextUtils.join("\n", lines));

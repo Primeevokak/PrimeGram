@@ -1152,14 +1152,6 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
 
                 @Override
                 protected void dispatchDraw(@NonNull Canvas canvas) {
-                    primeDispatchDrawFireCount.incrementAndGet();
-                    if (primeDrawLogCount.getAndIncrement() < 60) {
-                        android.util.Log.d("PrimeMonoAvatar", "imageLayoutView.dispatchDraw topicId=" + topicId
-                                + " w=" + getWidth() + " h=" + getHeight()
-                                + " imgW=" + imageView.getWidth() + " imgH=" + imageView.getHeight()
-                                + " imgAlpha=" + imageView.getAlpha() + " imgVis=" + imageView.getVisibility()
-                                + " hasDrawable=" + (imageView.getImageReceiver().getDrawable() != null));
-                    }
                     final float counterAlpha = counterText.isNotEmpty();
                     final boolean counterVisible = counterAlpha > 0.0f;
                     final float counterScale = lerp(0.5f, 1.0f, counterAlpha) * countScale;
@@ -1220,24 +1212,6 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             addView(lineView, LayoutHelper.createFrame(6, LayoutHelper.MATCH_PARENT, Gravity.FILL_VERTICAL | Gravity.LEFT, -3, 3, 0, 3));
             lineView.setTranslationX(-dp(3));
             lineView.setVisibility(View.GONE);
-        }
-
-        @Override
-        protected void onAttachedToWindow() {
-            super.onAttachedToWindow();
-            // RecyclerView binds a freshly-created holder (via bindViewHolder) before it's
-            // actually added as a window-attached child, so setMf()'s ImageReceiver.invalidate()
-            // call (fired synchronously from setImage()) lands on a still-detached view and is a
-            // silent no-op - Android never schedules a real draw for it. Once this row genuinely
-            // attaches, nothing else naturally re-invalidates it (a newly addView()'d child gets
-            // measured/laid out but isn't guaranteed a fresh draw pass on its own), so the
-            // avatar/placeholder stayed visually blank forever despite already holding correct
-            // data - until something else (a long-press's manual view.draw() snapshot) forced it.
-            imageView.invalidate();
-            android.util.Log.d("PrimeMonoAvatar", "onAttachedToWindow topicId=" + topicId
-                    + " w=" + imageView.getWidth() + " h=" + imageView.getHeight()
-                    + " alpha=" + imageView.getAlpha() + " vis=" + imageView.getVisibility()
-                    + " hasDrawable=" + (imageView.getImageReceiver().getDrawable() != null));
         }
 
         private boolean mono = false;
@@ -1472,20 +1446,9 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
         }
 
         public void setMf(long chatDialogId, TLRPC.TL_forumTopic dialog, boolean selected) {
-            // PrimeGram: the on-screen diagnostic overlay proved every child here (imageView,
-            // its ImageReceiver, imageLayoutView's dispatchDraw) is correctly sized, visible and
-            // populated even while the row looks blank - which only makes sense if something
-            // ABOVE all of them, at this row's own level, is the thing actually hidden.
-            // RecyclerView's DefaultItemAnimator fades a freshly-inserted item's alpha in from 0
-            // (that's how "add" animations work) by animating THIS view (the item view), not any
-            // child - and TopicsTabsView deliberately calls notifyDataSetChanged() (see
-            // updateTabs(boolean)'s own doc) to force a rebind when a sender's avatar/name
-            // arrives after the row already existed. notifyDataSetChanged() has no idea an "add"
-            // fade might still be running on this exact view when it fires, so that animation can
-            // be abandoned mid-flight with alpha never reaching 1 - a real, if unusual, way for a
-            // RecyclerView row to end up invisible with every child inside it individually fine.
-            // Forcing this row's own transient render state back to identity on every bind is
-            // impossible to get wrong and costs nothing.
+            // PrimeGram: forcing this row's own transient render state back to identity on every
+            // bind costs nothing and rules out a DefaultItemAnimator "add" fade left mid-flight by
+            // the unconditional notifyDataSetChanged() in updateTabs(false) (see its own doc).
             setAlpha(1f);
             setTranslationX(0f);
             setTranslationY(0f);
@@ -1499,9 +1462,6 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
             topicId = dialogId;
             textView.setText(DialogObject.getName(dialogId));
             textView.setVisibility(VISIBLE);
-            android.util.Log.d("PrimeMonoAvatar", "setMf dialogId=" + dialogId
-                    + " attached=" + isAttachedToWindow() + " w=" + imageView.getWidth() + " h=" + imageView.getHeight()
-                    + " name=" + textView.getText());
             if (dialogId >= 0) {
                 TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(dialogId);
                 if (user != null) {
@@ -1552,13 +1512,6 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
          *  updateInterfaces(UPDATE_MASK_AVATAR|UPDATE_MASK_NAME) notification TopicsTabsView
          *  already listens for and forces an unconditional rebind on (see its own doc). */
         private static final java.util.Set<Long> monoForumSenderFetchInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
-        private static final java.util.concurrent.atomic.AtomicInteger primeDrawLogCount = new java.util.concurrent.atomic.AtomicInteger();
-        // PrimeGram: unbounded, not gated on the 60-line log cap and not read through logcat at
-        // all - the environment logs ~5000 lines/sec of unrelated system noise (gralloc etc.),
-        // which can silently drop even our own tagged lines before a reader ever sees them.
-        // PrimeLogOverlay reads this counter directly instead, so "did dispatchDraw ever actually
-        // run for a mono tab" has an answer that can't be lost to log-buffer overflow.
-        static final java.util.concurrent.atomic.AtomicInteger primeDispatchDrawFireCount = new java.util.concurrent.atomic.AtomicInteger();
 
         private static void resolveMonoForumSender(int account, long chatDialogId, long userId) {
             if (chatDialogId >= 0 || !monoForumSenderFetchInFlight.add(userId)) {
@@ -1954,20 +1907,9 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
 
         private AvatarSpan avatarSpan;
         public void setMf(long chatDialogId, TLRPC.TL_forumTopic dialog, boolean selected) {
-            // PrimeGram: the on-screen diagnostic overlay proved every child here (imageView,
-            // its ImageReceiver, imageLayoutView's dispatchDraw) is correctly sized, visible and
-            // populated even while the row looks blank - which only makes sense if something
-            // ABOVE all of them, at this row's own level, is the thing actually hidden.
-            // RecyclerView's DefaultItemAnimator fades a freshly-inserted item's alpha in from 0
-            // (that's how "add" animations work) by animating THIS view (the item view), not any
-            // child - and TopicsTabsView deliberately calls notifyDataSetChanged() (see
-            // updateTabs(boolean)'s own doc) to force a rebind when a sender's avatar/name
-            // arrives after the row already existed. notifyDataSetChanged() has no idea an "add"
-            // fade might still be running on this exact view when it fires, so that animation can
-            // be abandoned mid-flight with alpha never reaching 1 - a real, if unusual, way for a
-            // RecyclerView row to end up invisible with every child inside it individually fine.
-            // Forcing this row's own transient render state back to identity on every bind is
-            // impossible to get wrong and costs nothing.
+            // PrimeGram: forcing this row's own transient render state back to identity on every
+            // bind costs nothing and rules out a DefaultItemAnimator "add" fade left mid-flight by
+            // the unconditional notifyDataSetChanged() in updateTabs(false) (see its own doc).
             setAlpha(1f);
             setTranslationX(0f);
             setTranslationY(0f);

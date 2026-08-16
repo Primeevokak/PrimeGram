@@ -184,6 +184,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_PIN_EMERGENCY_DISABLE = 168;
     private static final int ID_HIDE_NOTIFICATION_TEXT = 169;
     private static final int ID_LOG_OVERLAY = 170;
+    private static final int ID_DOWNLOAD_BOOST = 171;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1749,6 +1750,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(info(5, "Качество и загрузка",
                     "Ограничение качества экономит трафик, а не только пиксели.",
                     "Качество видео ограничивает то, что скачивается, а не только то, что играет: скачивается ровно та дорожка, которую выбирает плеер. Если ни одна не помещается в лимит, берётся обычная — лимит не должен оставить видео непроигрываемым. Уже скачанное не перекачивается заново, даже если оно крупнее лимита. Настройка применяется к сообщениям, открытым после её изменения.\n\nВыключенная догрузка на мобильной сети переводит автозагрузку в режим «Свой» — иначе правка задела бы заодно Wi-Fi и роуминг, у которых с готовыми пресетами общий объект. Остальные значения при этом переносятся как были.\n\nКэш — только скачанное для просмотра. Файлы, которые вы сами сохранили в загрузки или галерею, кнопка не трогает."));
+
+            items.add(UItem.asHeader("Ускорение загрузки"));
+            items.add(UItem.asCustom(ID_DOWNLOAD_BOOST, downloadBoostSlider()));
+            endCard(items);
         }
 
         if (section == SECTION_MEDIA_CAMERA) {
@@ -3673,6 +3678,35 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     private String primeAutoDeletePeriodLabel() {
         return LocaleController.formatTTLString(org.telegram.messenger.PrimeAutoDelete.getPeriodHours() * 3600);
+    }
+
+    private static String primeDownloadBoostModeLabel(int ordinal) {
+        switch (org.telegram.messenger.PrimeDownloadBoost.Mode.fromOrdinal(ordinal)) {
+            case FASTER:
+                return "Быстрее";
+            case HYPER:
+                return "Гипер";
+            case ULTRA:
+                return "Ультра";
+            case DYNAMIC:
+                return "Автоматически";
+            case OFF:
+            default:
+                return "Стандарт";
+        }
+    }
+
+    private org.telegram.ui.Cells.PrimeSliderCell downloadBoostSlider;
+
+    private org.telegram.ui.Cells.PrimeSliderCell downloadBoostSlider() {
+        if (downloadBoostSlider == null && getContext() != null) {
+            downloadBoostSlider = new org.telegram.ui.Cells.PrimeSliderCell(getContext(),
+                    "Ускорение загрузки", 0, 4, org.telegram.messenger.PrimeDownloadBoost.getMode().ordinal(), null);
+            downloadBoostSlider.setFormatter(PrimeGramSettingsActivity::primeDownloadBoostModeLabel);
+            downloadBoostSlider.setListener((value, stop) ->
+                    org.telegram.messenger.PrimeDownloadBoost.setMode(org.telegram.messenger.PrimeDownloadBoost.Mode.fromOrdinal(value)));
+        }
+        return downloadBoostSlider;
     }
 
     private void showAutoDeletePeriodDialog() {
