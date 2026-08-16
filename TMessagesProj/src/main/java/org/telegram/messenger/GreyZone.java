@@ -2,6 +2,7 @@ package org.telegram.messenger;
 
 import android.content.SharedPreferences;
 
+import org.telegram.SQLite.SQLiteCursor;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.tl.TL_account;
@@ -28,6 +29,11 @@ public class GreyZone {
     public static final String GHOST_DONT_READ = "grey_ghost_dont_read";
     /** Don't send the "typing…" indicator. */
     public static final String GHOST_DONT_TYPING = "grey_ghost_dont_typing";
+    /** Don't send read receipts (or the voice-message-heard / self-destruct-photo-viewed signals -
+     *  see markMessageContentAsRead's own site) to someone who messaged first and has never been
+     *  replied to - independent of the general GHOST_DONT_READ toggle, which this can be on
+     *  without. Auto-lifts permanently the moment any outgoing message exists in that dialog. */
+    public static final String GHOST_DONT_READ_STRANGERS = "grey_ghost_dont_read_strangers";
     /** Don't report yourself as online. */
     public static final String GHOST_DONT_ONLINE = "grey_ghost_dont_online";
     /** Keep a local copy of messages other people delete. */
@@ -79,6 +85,7 @@ public class GreyZone {
             editor.putBoolean(ALLOW_SCREENSHOTS, false)
                     .putBoolean(BYPASS_NOFORWARDS, false)
                     .putBoolean(GHOST_DONT_READ, false)
+                    .putBoolean(GHOST_DONT_READ_STRANGERS, false)
                     .putBoolean(GHOST_DONT_TYPING, false)
                     .putBoolean(GHOST_DONT_ONLINE, false)
                     .putBoolean(SAVE_DELETED, false)
@@ -240,7 +247,92 @@ public class GreyZone {
         if (mode == MODE_NEVER) {
             return true;
         }
-        return isEnabled(GHOST_DONT_READ) && isScheduleActiveNow();
+        if (isEnabled(GHOST_DONT_READ) && isScheduleActiveNow()) {
+            return true;
+        }
+        // Independent of the general toggle above and its schedule - this one only ever applies
+        // to a dialog that has never been replied to, so it isn't the kind of broad always-on
+        // behavior the schedule window is meant to bound.
+        return isEnabled(GHOST_DONT_READ_STRANGERS) && isKnownStranger(dialogId);
+    }
+
+    // ---- "Stranger" (started by them, never replied to) detection ----
+    //
+    // shouldGhostRead() is called synchronously from hot paths (completeReadTask,
+    // markMessageContentAsRead) that must not touch SQLite directly - MessagesStorage's own
+    // convention is that its database is only ever touched from its own storageQueue. So this is
+    // a cache, not a live query: refreshStrangerStatus() kicks off the real check asynchronously
+    // and isKnownStranger() reads whatever answer (if any) has landed so far, defaulting to
+    // "not a stranger" (i.e. don't hide) until a positive answer is actually in hand - failing
+    // toward the receipt still being sent, not toward it silently vanishing before this feature
+    // has even had a chance to confirm it should.
+    private static final java.util.concurrent.ConcurrentHashMap<Long, Boolean> strangerCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<Long, Boolean> strangerQueryInFlight = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static boolean isKnownStranger(long dialogId) {
+        if (!Boolean.TRUE.equals(strangerCache.get(dialogId))) {
+            return false;
+        }
+        return true;
+    }
+
+    /** Fire-and-forget; safe to call on every read-task regardless of whether this feature is
+     *  even on, so the cache is already warm by the time someone enables it. */
+    public static void refreshStrangerStatus(int account, long dialogId) {
+        if (dialogId <= 0 || strangerCache.containsKey(dialogId)) {
+            return; // groups/channels/self are never "strangers" here; already answered otherwise
+        }
+        if (strangerQueryInFlight.putIfAbsent(dialogId, Boolean.TRUE) != null) {
+            return;
+        }
+        try {
+            MessagesStorage.getInstance(account).getStorageQueue().postRunnable(() -> {
+                boolean stranger = false;
+                try {
+                    SQLiteCursor cursor = MessagesStorage.getInstance(account).getDatabase()
+                            .queryFinalized("SELECT 1 FROM messages_v2 WHERE uid = " + dialogId + " AND out = 1 LIMIT 1");
+                    stranger = !cursor.next();
+                    cursor.dispose();
+                } catch (Throwable t) {
+                    FileLog.e(t);
+                } finally {
+                    strangerQueryInFlight.remove(dialogId);
+                }
+                strangerCache.put(dialogId, stranger);
+            });
+        } catch (Throwable t) {
+            strangerQueryInFlight.remove(dialogId);
+        }
+    }
+
+    /** Called the moment an own outgoing message is acked in any dialog - instant, synchronous,
+     *  no query needed: an outgoing message existing is exactly what "not a stranger" means, so
+     *  this both answers a not-yet-cached dialog and overrides a stale cached "stranger" one. */
+    public static void markNotStranger(long dialogId) {
+        strangerCache.put(dialogId, false);
+    }
+
+    private static volatile boolean strangerAutoLiftRegistered;
+
+    /** Idempotent; call once at startup. Own registration, separate from PrimeAutoDelete's - both
+     *  happen to listen for the same "own message acked" moment, but for unrelated reasons, and
+     *  keeping them apart means either can be found/changed without reading the other. */
+    public static void ensureStrangerAutoLiftRegistered() {
+        if (strangerAutoLiftRegistered) {
+            return;
+        }
+        strangerAutoLiftRegistered = true;
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            NotificationCenter.getInstance(a).addObserver((id, acc, args) -> {
+                if (args.length < 4 || !(args[2] instanceof org.telegram.tgnet.TLRPC.Message)) {
+                    return;
+                }
+                org.telegram.tgnet.TLRPC.Message message = (org.telegram.tgnet.TLRPC.Message) args[2];
+                if (message.out) {
+                    markNotStranger(MessageObject.getDialogId(message));
+                }
+            }, NotificationCenter.messageReceivedByServer);
+        }
     }
 
     /** True if the "typing…" indicator for this dialog should be suppressed right now. */

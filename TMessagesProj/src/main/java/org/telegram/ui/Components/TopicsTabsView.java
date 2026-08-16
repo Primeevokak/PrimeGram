@@ -1513,6 +1513,19 @@ public class TopicsTabsView extends FrameLayout implements NotificationCenter.No
                 }
                 MessagesController.getInstance(account).putUsers(res.users, false);
                 MessagesController.getInstance(account).putChats(res.chats, false);
+                // PrimeGram: putUsers() alone does NOT post UPDATE_MASK_AVATAR/UPDATE_MASK_NAME -
+                // it only ever posts UPDATE_MASK_STATUS internally, for the online/offline dot.
+                // TopicsTabsView.didReceivedNotification's mono-branch listens specifically for
+                // AVATAR|NAME to trigger updateTabs(false) (the unconditional rebind this whole
+                // resolve exists to feed) - without this, the fetch above genuinely succeeds and
+                // the user object really does land in MessagesController's cache, but nothing
+                // ever tells this screen to look again, so the tab stayed blank forever anyway,
+                // just for a different reason than the original "never fetched at all" bug.
+                if (!res.users.isEmpty()) {
+                    NotificationCenter.getInstance(account).postNotificationName(
+                            NotificationCenter.updateInterfaces,
+                            MessagesController.UPDATE_MASK_AVATAR | MessagesController.UPDATE_MASK_NAME);
+                }
             });
         }
 

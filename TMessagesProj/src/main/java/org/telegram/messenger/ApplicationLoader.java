@@ -323,6 +323,7 @@ public class ApplicationLoader extends Application {
         PrimeStartupTrace.mark("postInitApplication: user configs read");
         initAccountStack(primaryAccount);
         PrimeAutoDelete.ensureRegistered();
+        GreyZone.ensureStrangerAutoLiftRegistered();
         PrimeStartupTrace.mark("postInitApplication: account stack built");
         SharedConfig.pushStringStatus = "__FIREBASE_GENERATING_SINCE_" + ConnectionsManager.getInstance(primaryAccount).getCurrentTime() + "__";
         PrimeStartupTrace.mark("postInitApplication: account " + primaryAccount + " ready, " + deferredAccounts.size() + " deferred");

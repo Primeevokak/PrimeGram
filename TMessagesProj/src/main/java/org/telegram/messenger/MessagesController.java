@@ -14500,6 +14500,17 @@ public class MessagesController extends BaseController implements NotificationCe
         if (messageObject.getId() < 0) {
             markMessageAsRead(messageObject.getDialogId(), messageObject.messageOwner.random_id, Integer.MIN_VALUE);
         } else {
+            // PrimeGram grey zone: this is the SAME server-visible signal completeReadTask()
+            // already gates - the voice-message "unheard" dot and self-destruct-photo view timer
+            // both clear via this exact request. Without this check, GHOST_DONT_READ(_STRANGERS)
+            // hid the ordinary read receipt but leaked both of those instead - the local DB
+            // update and messagesReadContent notification above still happen either way, so the
+            // UI here still correctly clears its own "unheard"/"unviewed" state; only the network
+            // request telling the OTHER side is what's suppressed.
+            GreyZone.refreshStrangerStatus(currentAccount, dialogId);
+            if (GreyZone.shouldGhostRead(dialogId)) {
+                return;
+            }
             if (messageObject.messageOwner.peer_id.channel_id != 0) {
                 TLRPC.TL_channels_readMessageContents req = new TLRPC.TL_channels_readMessageContents();
                 req.channel = getInputChannel(messageObject.messageOwner.peer_id.channel_id);
@@ -14652,6 +14663,7 @@ public class MessagesController extends BaseController implements NotificationCe
         // PrimeGram grey zone: don't tell the other side the message was read. The chat is
         // still marked read locally — only the outgoing receipt is dropped, unless this
         // dialog has a per-dialog exception set to always read.
+        GreyZone.refreshStrangerStatus(currentAccount, task.dialogId);
         if (GreyZone.shouldGhostRead(task.dialogId)) {
             return;
         }

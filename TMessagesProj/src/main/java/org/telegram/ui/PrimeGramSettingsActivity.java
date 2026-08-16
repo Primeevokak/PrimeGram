@@ -179,6 +179,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_PIN_EMERGENCY = 163;
     private static final int ID_AUTO_DELETE_ENABLE = 164;
     private static final int ID_AUTO_DELETE_PERIOD = 165;
+    private static final int ID_ANON_FILENAMES = 166;
+    private static final int ID_STRIP_METADATA = 167;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -1541,6 +1543,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
             endCard(items);
             items.add(UItem.asShadow("Собственные сообщения (не пересланные, без медиа-само­уничтожения) в обычных чатах удаляются сами через заданное время после отправки. На секретные чаты не влияет — там уже есть свой таймер. Можно включить/выключить отдельно для конкретного чата в его меню."));
+
+            row(check(ID_ANON_FILENAMES, IconBackgroundColors.GRAY, R.drawable.msg_secret,
+                    "Обезличивать имена скачанных файлов", org.telegram.messenger.PrimeFileNames.isEnabled()));
+            row(check(ID_STRIP_METADATA, IconBackgroundColors.GRAY, R.drawable.msg_secret,
+                    "Удалять EXIF/GPS из отправляемых файлов", org.telegram.messenger.PrimeOutgoingMetadata.isEnabled()));
+            endCard(items);
+            items.add(UItem.asShadow("Первое — файлы, скачанные внутри приложения, сохраняются на диск под случайным именем вместо исходного (не влияет на явное «Сохранить как»/в галерею). Второе — из фото и файлов, отправляемых как документ (не как «Фото» — там Telegram и так пересобирает картинку), вырезаются метаданные съёмки и координаты GPS перед загрузкой на сервер, без потери качества."));
         }
 
         if (section == SECTION_TOOLS) {
@@ -2352,6 +2361,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         } else if (item.id == ID_AUTO_DELETE_PERIOD) {
             showAutoDeletePeriodDialog();
+        } else if (item.id == ID_ANON_FILENAMES) {
+            org.telegram.messenger.PrimeFileNames.setEnabled(!org.telegram.messenger.PrimeFileNames.isEnabled());
+            listView.adapter.update(true);
+        } else if (item.id == ID_STRIP_METADATA) {
+            org.telegram.messenger.PrimeOutgoingMetadata.setEnabled(!org.telegram.messenger.PrimeOutgoingMetadata.isEnabled());
+            listView.adapter.update(true);
         } else if (item.id == ID_MESSAGE_TAGS) {
             presentFragment(new MessageTagsActivity());
         } else if (item.id == ID_TEXT_TOOLBAR) {
