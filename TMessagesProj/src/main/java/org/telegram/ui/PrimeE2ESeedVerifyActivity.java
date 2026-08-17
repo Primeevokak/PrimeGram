@@ -77,6 +77,10 @@ public class PrimeE2ESeedVerifyActivity extends BaseFragment {
         seedField.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlackText));
         seedField.setHint("Секретная фраза");
         seedField.setSingleLine(true);
+        // PrimeGram E2E: pre-fill with whatever was typed here last time - previously
+        // this field always started blank, which read as "my phrase gets deleted and
+        // never saves" even though the resulting code was computed correctly each time.
+        seedField.setText(PrimeE2EState.getSeedPhrase(dialogId));
         root.addView(seedField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, 0, 20));
 
         codeView = new TextView(context);
@@ -116,6 +120,7 @@ public class PrimeE2ESeedVerifyActivity extends BaseFragment {
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
+                PrimeE2EState.setSeedPhrase(dialogId, s.toString());
                 refreshCode();
             }
 
@@ -144,7 +149,7 @@ public class PrimeE2ESeedVerifyActivity extends BaseFragment {
         builder.setMessage("Переписка будет установлена заново. Уже полученные зашифрованные "
                 + "сообщения перестанут расшифровываться.");
         builder.setPositiveButton("Сбросить", (dialog, which) -> {
-            PrimeE2EManager.resetSession(dialogId);
+            PrimeE2EManager.disableEncryption(currentAccount, dialogId);
             finishFragment();
         });
         builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);

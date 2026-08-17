@@ -26,6 +26,15 @@ final class PrimeE2EFraming {
     /** No payload needed - which dialog it's about is implicit in which chat it arrived
      *  in, same as the handshake messages themselves. */
     private static final String CANCEL_MARKER = "[PGE2E1:C]";
+    /** Sent as the *plaintext* of a normal ratchet-encrypted message (not a bare text
+     *  marker like {@link #CANCEL_MARKER}) when an already-{@code ESTABLISHED} session
+     *  is deliberately torn down - see {@code PrimeE2EManager.disableEncryption}'s doc
+     *  for why this needs to be authenticated (encrypted under the real ratchet key)
+     *  rather than a plain marker anyone able to write into the chat could forge. Uses
+     *  control characters unlikely to collide with anything a real human would type, on
+     *  the off chance decryption of a corrupted/adversarial ciphertext ever produces
+     *  something resembling it by pure accident. */
+    static final String DISABLE_SENTINEL = "PGE2E-DISABLE-v1";
     private static final String SUFFIX = "]";
 
     static final int SUBTYPE_REQUEST = 0;
@@ -40,6 +49,10 @@ final class PrimeE2EFraming {
 
     static boolean isCiphertext(String text) {
         return text != null && text.startsWith(CIPHERTEXT_PREFIX) && text.endsWith(SUFFIX);
+    }
+
+    static boolean isDisableSentinel(String text) {
+        return DISABLE_SENTINEL.equals(text);
     }
 
     static boolean isCancel(String text) {

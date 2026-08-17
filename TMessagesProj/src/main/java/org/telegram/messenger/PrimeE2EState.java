@@ -21,6 +21,7 @@ public final class PrimeE2EState {
 
     private static final String MODE_PREFIX = "prime_e2e_dlg_mode_";
     private static final String VERIFIED_PREFIX = "prime_e2e_dlg_verified_";
+    private static final String SEED_PREFIX = "prime_e2e_dlg_seed_";
 
     private PrimeE2EState() {
     }
@@ -35,9 +36,28 @@ public final class PrimeE2EState {
 
     static void setMode(long dialogId, int mode) {
         if (mode == MODE_NONE) {
-            prefs().edit().remove(MODE_PREFIX + dialogId).remove(VERIFIED_PREFIX + dialogId).apply();
+            prefs().edit().remove(MODE_PREFIX + dialogId).remove(VERIFIED_PREFIX + dialogId)
+                    .remove(SEED_PREFIX + dialogId).apply();
         } else {
             prefs().edit().putInt(MODE_PREFIX + dialogId, mode).apply();
+        }
+    }
+
+    /** The seed phrase the user typed for this dialog's safety-number comparison, kept
+     *  locally so it doesn't have to be retyped every time this screen reopens - never
+     *  transmitted (the app never sends it anywhere, see
+     *  {@code PrimeE2EManager.computeVerificationCode}'s doc) and never mixed into any
+     *  ratchet/message key, so storing the plain text locally doesn't weaken anything
+     *  the seed phrase already wasn't protecting on its own. */
+    public static String getSeedPhrase(long dialogId) {
+        return prefs().getString(SEED_PREFIX + dialogId, "");
+    }
+
+    public static void setSeedPhrase(long dialogId, String phrase) {
+        if (phrase == null || phrase.isEmpty()) {
+            prefs().edit().remove(SEED_PREFIX + dialogId).apply();
+        } else {
+            prefs().edit().putString(SEED_PREFIX + dialogId, phrase).apply();
         }
     }
 

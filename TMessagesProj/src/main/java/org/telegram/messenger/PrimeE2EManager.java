@@ -153,6 +153,38 @@ public final class PrimeE2EManager {
         NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.primeE2EStateChanged, dialogId);
     }
 
+    /** User-facing "Сбросить сессию" action on an already-{@code ESTABLISHED} session
+     *  (as opposed to {@link #cancelHandshake}, for a still-pending one): sends one
+     *  final message through the still-valid ratchet telling the peer encryption is
+     *  being turned off, THEN wipes the local session. Deliberately ratchet-encrypted
+     *  rather than a bare {@code [PGE2E1:C]} marker - a plain marker is forgeable by
+     *  anyone able to write into the chat (including, in principle, a compromised
+     *  server), which is exactly why {@code handleIncomingCancel} refuses to tear down
+     *  an established session on one; this notice can only have come from whoever
+     *  actually holds the real ratchet key, so accepting it as authoritative is sound. */
+    public static void disableEncryption(int account, long dialogId) {
+        PrimeE2ESession session = PrimeE2EVault.getSession(dialogId);
+        if (session != null && session.mode == PrimeE2ESession.Mode.ESTABLISHED && session.sendChainKey != null) {
+            PrimeE2ERatchet.Encrypted encrypted = PrimeE2ERatchet.encrypt(session,
+                    PrimeE2EFraming.DISABLE_SENTINEL.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            String framed = PrimeE2EFraming.encodeCiphertext(encrypted);
+            if (framed != null) {
+                // Built manually (not via sendFramed) so primeDisplayMessage can be set
+                // to the sentinel too - otherwise this device's own stored/shown copy
+                // would be the raw ciphertext marker, same bug DialogCell's fix (device
+                // testing this session) was for, just on the sending side this time.
+                SendMessagesHelper.SendMessageParams params = SendMessagesHelper.SendMessageParams.of(framed, dialogId);
+                params.primeDisplayMessage = PrimeE2EFraming.DISABLE_SENTINEL;
+                SendMessagesHelper.getInstance(account).sendMessage(params);
+            }
+        }
+        // Reset unconditionally, even if there was nothing to encrypt with (no
+        // established session, or mid-handshake with no send chain yet) - the local
+        // teardown must never be blocked on a network message actually going out.
+        resetSession(dialogId);
+        NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.primeE2EStateChanged, dialogId);
+    }
+
     /** Called from {@code MessageObject}'s constructor for every incoming message,
      *  right after {@code messageOwner = message} and before {@code updateMessageText()}
      *  runs - returns the text that should actually end up in
@@ -177,7 +209,7 @@ public final class PrimeE2EManager {
                 return text; // stays hidden - ChatActivity's protocol-marker filter covers it
             }
             if (PrimeE2EFraming.isCiphertext(text)) {
-                return handleIncomingCiphertext(message);
+                return handleIncomingCiphertext(account, message);
             }
         } catch (Exception e) {
             FileLog.e(e);
@@ -197,7 +229,13 @@ public final class PrimeE2EManager {
             return false;
         }
         String text = obj.messageOwner.message;
-        return PrimeE2EFraming.isHandshake(text) || PrimeE2EFraming.isCancel(text);
+        // The disable-sentinel case is post-decryption: by the time ChatActivity/
+        // DialogCell read messageOwner.message here, handleIncomingCiphertext has
+        // already replaced the raw [PGE2E1:M ...] marker with the decrypted plaintext
+        // (or, for exactly this sentinel, left the sentinel string itself in place) -
+        // see that method's own doc.
+        return PrimeE2EFraming.isHandshake(text) || PrimeE2EFraming.isCancel(text)
+                || PrimeE2EFraming.isDisableSentinel(text);
     }
 
     /** True only for the *request* half of a handshake - the one message that renders
@@ -356,7 +394,7 @@ public final class PrimeE2EManager {
         PrimeE2EState.setMode(dialogId, PrimeE2EState.MODE_ESTABLISHED);
     }
 
-    private static String handleIncomingCiphertext(TLRPC.Message message) {
+    private static String handleIncomingCiphertext(int account, TLRPC.Message message) {
         long dialogId = message.dialog_id;
         PrimeE2ESession session = PrimeE2EVault.getSession(dialogId);
         if (session == null || session.mode != PrimeE2ESession.Mode.ESTABLISHED) {
@@ -371,7 +409,16 @@ public final class PrimeE2EManager {
         if (plaintext == null) {
             return "🔒";
         }
-        return new String(plaintext, java.nio.charset.StandardCharsets.UTF_8);
+        String decoded_text = new String(plaintext, java.nio.charset.StandardCharsets.UTF_8);
+        if (PrimeE2EFraming.isDisableSentinel(decoded_text)) {
+            // The peer deliberately turned encryption off on their end and told us via
+            // this authenticated (ratchet-encrypted) notice, not a forgeable plain
+            // marker - mirror the teardown locally and let a visible chat refresh.
+            resetSession(dialogId);
+            NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.primeE2EStateChanged, dialogId);
+            return decoded_text; // hidden by isProtocolMarker's sentinel check, never shown as a bubble
+        }
+        return decoded_text;
     }
 
     private static final byte[] ZERO_SALT_32 = new byte[32];
