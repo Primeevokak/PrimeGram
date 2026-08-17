@@ -119,6 +119,7 @@ final class PrimeE2EVault {
             PrimeE2EIo.writeBytes(out, s.theirRatchetPub);
             PrimeE2EIo.writeBytes(out, s.pendingSpkPriv);
             PrimeE2EIo.writeBytes(out, s.pendingSpkPub);
+            PrimeE2EIo.writeBytes(out, s.incomingBundleRaw != null ? s.incomingBundleRaw.getBytes(StandardCharsets.UTF_8) : null);
             out.writeInt(s.skippedKeys.size());
             for (Map.Entry<String, byte[]> e : s.skippedKeys.entrySet()) {
                 PrimeE2EIo.writeBytes(out, e.getKey().getBytes(StandardCharsets.US_ASCII));
@@ -157,6 +158,9 @@ final class PrimeE2EVault {
                 s.theirRatchetPub = emptyToNull(PrimeE2EIo.readBytes(in));
                 s.pendingSpkPriv = emptyToNull(PrimeE2EIo.readBytes(in));
                 s.pendingSpkPub = emptyToNull(PrimeE2EIo.readBytes(in));
+                byte[] incomingBundleBytes = PrimeE2EIo.readBytes(in);
+                s.incomingBundleRaw = incomingBundleBytes != null && incomingBundleBytes.length > 0
+                        ? new String(incomingBundleBytes, StandardCharsets.UTF_8) : null;
                 int skippedCount = in.readInt();
                 if (skippedCount < 0 || skippedCount > PrimeE2ESession.MAX_SKIPPED_KEYS * 2) {
                     return null;

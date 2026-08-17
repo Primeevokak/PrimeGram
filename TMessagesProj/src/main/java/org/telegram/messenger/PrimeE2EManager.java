@@ -41,9 +41,17 @@ public final class PrimeE2EManager {
         return s != null && s.mode == PrimeE2ESession.Mode.REQUESTED;
     }
 
+    /** This device received a bundle-request and is waiting for the local user to hold
+     *  "Подтвердить"/"Отменить" - no cryptography has run yet. */
+    public static boolean isIncomingPending(long dialogId) {
+        PrimeE2ESession s = PrimeE2EVault.getSession(dialogId);
+        return s != null && s.mode == PrimeE2ESession.Mode.INCOMING_PENDING;
+    }
+
     /** UI entry point ("Enable E2E Encryption" in the chat menu). */
     public static void beginHandshake(int account, long dialogId) {
-        if (!isEligibleDialog(dialogId) || isSessionEstablished(dialogId) || isHandshakePending(dialogId)) {
+        if (!isEligibleDialog(dialogId) || isSessionEstablished(dialogId)
+                || isHandshakePending(dialogId) || isIncomingPending(dialogId)) {
             return;
         }
         PrimeE2EIdentity.PublicBundle local = PrimeE2EIdentity.getOrCreateLocalBundle();
@@ -125,10 +133,24 @@ public final class PrimeE2EManager {
     }
 
     /** Discards any in-progress or established session and starts over - the user-facing
-     *  "Reset Session" action, also the correct recovery if the ratchet ever desyncs. */
+     *  "Reset Session" action, also the correct recovery if the ratchet ever desyncs.
+     *  Does NOT notify the peer - use {@link #cancelHandshake} for the user-facing
+     *  Cancel button, which does both. */
     public static void resetSession(long dialogId) {
         PrimeE2EVault.deleteSession(dialogId);
         PrimeE2EState.setMode(dialogId, PrimeE2EState.MODE_NONE);
+    }
+
+    /** User-facing "Отменить" action, from either side of a pending handshake
+     *  (sender still {@code REQUESTED}, or receiver still {@code INCOMING_PENDING}):
+     *  resets the local session and tells the other side via {@code [PGE2E1:C]} so
+     *  their own prompt updates instead of sitting stale. Safe to call even if there's
+     *  no session (e.g. a double-tap race) - {@link #sendFramed} and
+     *  {@link #resetSession} are both no-ops/idempotent in that case. */
+    public static void cancelHandshake(int account, long dialogId) {
+        resetSession(dialogId);
+        sendFramed(account, dialogId, PrimeE2EFraming.encodeCancel());
+        NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.primeE2EStateChanged, dialogId);
     }
 
     /** Called from {@code MessageObject}'s constructor for every incoming message,
@@ -148,7 +170,11 @@ public final class PrimeE2EManager {
         try {
             if (PrimeE2EFraming.isHandshake(text)) {
                 handleIncomingHandshake(account, message);
-                return text; // ChatActivity's timeline filter hides this separately
+                return text; // ChatActivity renders this via PrimeE2EHandshakeCell instead of hiding it
+            }
+            if (PrimeE2EFraming.isCancel(text)) {
+                handleIncomingCancel(account, message.dialog_id);
+                return text; // stays hidden - ChatActivity's protocol-marker filter covers it
             }
             if (PrimeE2EFraming.isCiphertext(text)) {
                 return handleIncomingCiphertext(message);
@@ -159,11 +185,35 @@ public final class PrimeE2EManager {
         return text;
     }
 
-    /** Used by {@code ChatActivity}'s message-list filter (mirrors
-     *  {@code PrimeBigFileReceiver.isHiddenChunk}) to hide handshake/control messages
-     *  from the rendered timeline on both ends. */
-    public static boolean isHandshakeMarker(MessageObject obj) {
-        return obj != null && obj.messageOwner != null && PrimeE2EFraming.isHandshake(obj.messageOwner.message);
+    /** Used by {@code DialogCell}'s preview-text guard and the delete-menu guard
+     *  (`MessageObject.canDeleteMessage`) - true for ANY E2E protocol message (both
+     *  handshake subtypes, request and response, plus a cancel marker), none of which
+     *  must ever show as raw marker text or be user-deletable. Broader than
+     *  {@link #isHandshakeRequestMarker} on purpose: the *response* half of a handshake
+     *  never gets its own visible row (see that method's doc), but still must never leak
+     *  as plaintext-looking garbage in the dialogs list. */
+    public static boolean isProtocolMarker(MessageObject obj) {
+        if (obj == null || obj.messageOwner == null) {
+            return false;
+        }
+        String text = obj.messageOwner.message;
+        return PrimeE2EFraming.isHandshake(text) || PrimeE2EFraming.isCancel(text);
+    }
+
+    /** True only for the *request* half of a handshake - the one message that renders
+     *  as a real {@code PrimeE2EHandshakeCell} row (via {@link PrimeInteractiveCellRegistry}).
+     *  The *response* message is real, normally-delivered content too, but carries no
+     *  new information the UI needs to show on its own - the single request row already
+     *  reflects current state (pending/established) whenever it rebinds, so response
+     *  messages stay hidden from the timeline exactly like a cancel marker (see
+     *  {@code ChatActivity}'s hidden-message filter: hidden whenever
+     *  {@link #isProtocolMarker} is true but this one is false). */
+    public static boolean isHandshakeRequestMarker(MessageObject obj) {
+        if (obj == null || obj.messageOwner == null || !PrimeE2EFraming.isHandshake(obj.messageOwner.message)) {
+            return false;
+        }
+        PrimeE2EFraming.Bundle bundle = PrimeE2EFraming.decodeHandshake(obj.messageOwner.message);
+        return bundle != null && bundle.subtype == PrimeE2EFraming.SUBTYPE_REQUEST;
     }
 
     private static void handleIncomingHandshake(int account, TLRPC.Message message) {
@@ -176,22 +226,48 @@ public final class PrimeE2EManager {
             return;
         }
         if (bundle.subtype == PrimeE2EFraming.SUBTYPE_REQUEST) {
-            handleBundleRequest(account, dialogId, bundle);
+            handleBundleRequest(account, dialogId, message.message, bundle);
         } else {
             handleBundleResponse(account, dialogId, bundle);
         }
     }
 
-    /** We're the replier - cryptographically the X3DH initiator: verify the requester's
-     *  SPK signature, consume one of their one-time prekeys, generate our own
-     *  ephemeral, compute SK, and bootstrap our ratchet as the sending side right away
-     *  (see this class's own doc for why the roles are inverted from the UI action). */
-    private static void handleBundleRequest(int account, long dialogId, PrimeE2EFraming.Bundle requesterBundle) {
-        if (isSessionEstablished(dialogId)) {
-            return; // already talking to this peer - ignore a stray/replayed request
+    /** We received a bundle-request. This does NOT run any cryptography or establish
+     *  anything - it only verifies the SPK signature (fail closed on a forged bundle,
+     *  never even show the prompt for one) and stashes the request for the local user
+     *  to act on via {@link #confirmIncomingHandshake}/{@link #cancelHandshake}. See
+     *  this class's own doc for why the eventual replier ends up as the cryptographic
+     *  X3DH initiator regardless of who tapped "Enable E2E" first. */
+    private static void handleBundleRequest(int account, long dialogId, String rawBundleText, PrimeE2EFraming.Bundle requesterBundle) {
+        if (isSessionEstablished(dialogId) || isIncomingPending(dialogId)) {
+            return; // already talking to this peer, or already have a pending prompt - ignore a stray/replayed request
         }
         if (!PrimeE2ECrypto.ed25519Verify(requesterBundle.ikSignPub, requesterBundle.spkPub, requesterBundle.spkSig)) {
-            return; // forged/corrupt bundle - fail closed, never render or act on it
+            return; // forged/corrupt bundle - fail closed, never show a prompt for it
+        }
+
+        PrimeE2ESession session = new PrimeE2ESession();
+        session.selfUserId = selfUserId(account);
+        session.peerUserId = dialogId;
+        session.dialogId = dialogId;
+        session.mode = PrimeE2ESession.Mode.INCOMING_PENDING;
+        session.incomingBundleRaw = rawBundleText;
+        PrimeE2EVault.putSession(session);
+        PrimeE2EState.setMode(dialogId, PrimeE2EState.MODE_INCOMING_PENDING);
+    }
+
+    /** The local user held "Подтвердить" on an {@code INCOMING_PENDING} prompt - runs
+     *  the X3DH math that {@link #handleBundleRequest} deliberately deferred, exactly
+     *  as it used to run automatically before this consent step existed. */
+    public static void confirmIncomingHandshake(int account, long dialogId) {
+        PrimeE2ESession pending = PrimeE2EVault.getSession(dialogId);
+        if (pending == null || pending.mode != PrimeE2ESession.Mode.INCOMING_PENDING || pending.incomingBundleRaw == null) {
+            return;
+        }
+        PrimeE2EFraming.Bundle requesterBundle = PrimeE2EFraming.decodeHandshake(pending.incomingBundleRaw);
+        if (requesterBundle == null) {
+            resetSession(dialogId);
+            return;
         }
 
         SecureRandom random = new SecureRandom();
@@ -225,6 +301,21 @@ public final class PrimeE2EManager {
         response.consumedOpkIndex = consumedIndex;
         response.ephemeralPub = ek.pub;
         sendFramed(account, dialogId, PrimeE2EFraming.encodeHandshake(response));
+        NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.primeE2EStateChanged, dialogId);
+    }
+
+    private static void handleIncomingCancel(int account, long dialogId) {
+        if (!isEligibleDialog(dialogId)) {
+            return;
+        }
+        // Only meaningful if we actually have a pending handshake for this dialog - an
+        // ESTABLISHED session is never torn down by a bare cancel marker (that would be
+        // a trivial DoS: anyone able to send a message into the chat could kill an
+        // already-working encrypted session).
+        if (isHandshakePending(dialogId) || isIncomingPending(dialogId)) {
+            resetSession(dialogId);
+        }
+        NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.primeE2EStateChanged, dialogId);
     }
 
     /** We're the original requester - cryptographically the X3DH "bundle owner" whose

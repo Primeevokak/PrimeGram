@@ -1321,6 +1321,13 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
             message.updateTranslation();
         }
         CharSequence msgText = message != null ? message.messageText : null;
+        if (org.telegram.messenger.PrimeE2EManager.isProtocolMarker(message)) {
+            // PrimeGram E2E: a handshake/control message is real, delivered content the
+            // dialogs-list preview would otherwise show verbatim as raw
+            // "[PGE2E1:H ...]" text - ChatActivity already hides it from the open chat's
+            // own timeline, this is the equivalent hide for the chat-list row preview.
+            msgText = "🔒 Запрос на шифрование";
+        }
         if (msgText instanceof Spannable) {
             Spannable sp = new SpannableStringBuilder(msgText);
             for (Object span : sp.getSpans(0, sp.length(), URLSpanNoUnderlineBold.class))

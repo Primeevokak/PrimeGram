@@ -412,6 +412,10 @@ public class ApplicationLoader extends Application {
         if (PrimeLogOverlayState.isEnabled()) {
             PrimeLogCollector.start();
         }
+        // PrimeGram E2E: registers the interactive handshake-prompt cell with
+        // PrimeInteractiveCellRegistry once per process, before any chat could possibly
+        // need to look it up.
+        org.telegram.ui.Cells.PrimeE2EHandshakeCell.register();
 
         // Must run before any GIF/round-video decoder is created this process,
         // so it can catch "hw_accel crashed last run" before the feature gets

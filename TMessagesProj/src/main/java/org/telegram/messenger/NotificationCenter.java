@@ -386,6 +386,12 @@ public class NotificationCenter {
     /** PrimeGram: the "Диагностика" UI-inspector overlay toggle changed - see PrimeUiInspector. */
     public static final int primeUiInspectorChanged = totalEvents++;
     public static final int primeLogOverlayChanged = totalEvents++;
+    /** PrimeGram E2E: fired with a single {@code Long} dialogId argument whenever a
+     *  handshake's local state changes for a reason the open chat can't otherwise learn
+     *  about on its own (an incoming [PGE2E1:C] cancel, or this device's own confirm/
+     *  cancel action) - lets a visible PrimeE2EHandshakeCell refresh in place instead of
+     *  showing a stale prompt. */
+    public static final int primeE2EStateChanged = totalEvents++;
     /** PrimeGram: the "Диагностика" live performance monitor toggle changed - see PrimePerfMonitor. */
     public static final int primePerfMonitorChanged = totalEvents++;
 

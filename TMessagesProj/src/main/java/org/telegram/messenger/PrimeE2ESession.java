@@ -12,7 +12,14 @@ import java.util.Map;
 public final class PrimeE2ESession {
 
     public enum Mode {
-        NONE, REQUESTED, ESTABLISHED
+        NONE,
+        /** This device sent a bundle-request and is waiting for the peer's reply. */
+        REQUESTED,
+        /** This device received a bundle-request and is waiting for the local user to
+         *  hold "Подтвердить"/"Отменить" - no DH math has run yet, see
+         *  {@link #incomingBundleRaw}. */
+        INCOMING_PENDING,
+        ESTABLISHED
     }
 
     /** Bounded so a broken or malicious peer flooding gaps in the message-number
@@ -72,6 +79,16 @@ public final class PrimeE2ESession {
      *  long to reply - a snapshot avoids the two silently drifting apart). */
     public byte[] pendingSpkPriv;
     public byte[] pendingSpkPub;
+
+    /** Only populated while {@code mode == INCOMING_PENDING}: the raw, still-encoded
+     *  `[PGE2E1:H ...]` bundle-request text this device received but hasn't acted on
+     *  yet - kept encoded (not re-parsed into fields) since {@link PrimeE2EFraming.Bundle}
+     *  isn't itself part of this class's serialized shape; re-decoding it on confirm is
+     *  cheap and keeps this class's own (de)serializer from needing to know the wire
+     *  format. Surviving process death here (sealed alongside the rest of this session)
+     *  is what lets the confirm/cancel prompt still work correctly even if the app was
+     *  killed and relaunched before the user acted on it. */
+    public String incomingBundleRaw;
 
     /** Skipped-message-key cache, keyed by "ratchetPubKeyHex:msgNum". LinkedHashMap in
      *  access order would evict the wrong thing here (skipped keys are consumed once

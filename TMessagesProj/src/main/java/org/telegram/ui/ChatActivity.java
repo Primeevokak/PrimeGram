@@ -2925,7 +2925,8 @@ public class ChatActivity extends BaseFragment implements
                     .add(NotificationCenter.changeRepliesCounter)
                     .add(NotificationCenter.messagesRead)
                     .add(NotificationCenter.didLoadChatInviter)
-                    .add(NotificationCenter.groupCallUpdated);
+                    .add(NotificationCenter.groupCallUpdated)
+                    .add(NotificationCenter.primeE2EStateChanged);
             } else {
                 observersGroup.add(NotificationCenter.threadMessagesRead);
                 if (isTopic) {
@@ -3879,9 +3880,20 @@ public class ChatActivity extends BaseFragment implements
                 } else if (id == prime_chat_tags) {
                     presentFragment(new MessageTagsActivity(dialog_id));
                 } else if (id == prime_e2e_toggle) {
-                    if (org.telegram.messenger.PrimeE2EManager.isSessionEstablished(dialog_id)) {
+                    if (org.telegram.messenger.PrimeE2EManager.isSessionEstablished(dialog_id)
+                            || org.telegram.messenger.PrimeE2EManager.isHandshakePending(dialog_id)) {
+                        // Established -> straight to the safety-number screen. Pending
+                        // (we're the sender, waiting for a reply) -> same screen, which is
+                        // exactly what closes the "sender can never set the seed phrase"
+                        // gap - this menu item is now a second way in alongside the
+                        // in-feed card's own settings button.
                         presentFragment(new org.telegram.ui.PrimeE2ESeedVerifyActivity(dialog_id));
-                    } else if (!org.telegram.messenger.PrimeE2EManager.isHandshakePending(dialog_id)) {
+                    } else if (org.telegram.messenger.PrimeE2EManager.isIncomingPending(dialog_id)) {
+                        if (getParentActivity() != null) {
+                            BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.chats_infotip,
+                                    "Подтвердите или отклоните запрос в сообщении в этом чате").show();
+                        }
+                    } else {
                         org.telegram.messenger.PrimeE2EManager.beginHandshake(currentAccount, dialog_id);
                         if (getParentActivity() != null) {
                             BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.chats_infotip,
@@ -4544,6 +4556,8 @@ public class ChatActivity extends BaseFragment implements
                             : "E2E-шифрование: активно (не проверено)";
                 } else if (org.telegram.messenger.PrimeE2EManager.isHandshakePending(e2eDialogId)) {
                     e2eLabel = "E2E-шифрование: устанавливается…";
+                } else if (org.telegram.messenger.PrimeE2EManager.isIncomingPending(e2eDialogId)) {
+                    e2eLabel = "E2E-шифрование: получен запрос";
                 } else {
                     e2eLabel = "Включить E2E-шифрование";
                 }
@@ -21388,10 +21402,13 @@ public class ChatActivity extends BaseFragment implements
                     && org.telegram.messenger.PrimeBigFileReceiver.getInstance().isHiddenChunk(obj)) {
                 continue;
             }
-            // PrimeGram E2E: an X3DH handshake/bundle message is real, normally-delivered
-            // protocol content, not something either side ever meant to read as a chat
-            // bubble - hide it from the rendered timeline the same way a big-file chunk is.
-            if (org.telegram.messenger.PrimeE2EManager.isHandshakeMarker(obj)) {
+            // PrimeGram E2E: the handshake *request* renders as its own interactive
+            // PrimeE2EHandshakeCell row (see PrimeInteractiveCellRegistry) instead of
+            // being hidden - only its response half and a bare cancel marker (real,
+            // normally-delivered protocol content neither side ever meant to read as a
+            // chat bubble) get filtered out here, the same way a big-file chunk is.
+            if (org.telegram.messenger.PrimeE2EManager.isProtocolMarker(obj)
+                    && !org.telegram.messenger.PrimeE2EManager.isHandshakeRequestMarker(obj)) {
                 continue;
             }
             if (obj.replyMessageObject != null) {
@@ -24444,7 +24461,18 @@ public class ChatActivity extends BaseFragment implements
     }
 
     private void didReceivedNotification7(int id, int account, final Object... args) {
-        if (id == NotificationCenter.goingToPreviewTheme) {
+        if (id == NotificationCenter.primeE2EStateChanged) {
+            long changedDialogId = (Long) args[0];
+            // PrimeGram E2E: an incoming cancel, or this device's own confirm/cancel,
+            // just changed local handshake state for this dialog - the visible
+            // PrimeE2EHandshakeCell row (if any) needs to re-read that state instead of
+            // showing a stale prompt. This event fires only on an actual user action,
+            // not per-message, so a full adapter refresh is cheap enough to not bother
+            // hunting down the exact row.
+            if (changedDialogId == dialog_id && chatAdapter != null) {
+                chatAdapter.notifyDataSetChanged();
+            }
+        } else if (id == NotificationCenter.goingToPreviewTheme) {
             isPauseOnThemePreview = true;
             if (chatLayoutManager != null) {
                 scrollToPositionOnRecreate = chatLayoutManager.findFirstVisibleItemPosition();
@@ -25732,7 +25760,8 @@ public class ChatActivity extends BaseFragment implements
                 org.telegram.messenger.PrimeBigFileReceiver.getInstance();
         for (int a = arr.size() - 1; a >= 0; a--) {
             final MessageObject candidate = arr.get(a);
-            if (org.telegram.messenger.PrimeE2EManager.isHandshakeMarker(candidate)) {
+            if (org.telegram.messenger.PrimeE2EManager.isProtocolMarker(candidate)
+                    && !org.telegram.messenger.PrimeE2EManager.isHandshakeRequestMarker(candidate)) {
                 arr.remove(a);
                 continue;
             }
@@ -38162,6 +38191,17 @@ public class ChatActivity extends BaseFragment implements
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             View view = null;
+            final org.telegram.messenger.PrimeInteractiveCellRegistry.Factory primeFactory =
+                    org.telegram.messenger.PrimeInteractiveCellRegistry.factoryForViewType(viewType);
+            if (primeFactory != null) {
+                view = primeFactory.create(mContext, themeDelegate);
+                if (view instanceof org.telegram.ui.Cells.PrimeE2EHandshakeCell) {
+                    ((org.telegram.ui.Cells.PrimeE2EHandshakeCell) view).setDelegate(
+                            dialogId -> presentFragment(new PrimeE2ESeedVerifyActivity(dialogId)));
+                }
+                view.setLayoutParams(new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                return new RecyclerListView.Holder(view);
+            }
             if (viewType == 0) {
                 view = new ChatMessageCell(mContext, currentAccount, true, sharedResources, themeDelegate);
                 ChatMessageCell chatMessageCell = (ChatMessageCell) view;
@@ -38610,7 +38650,9 @@ public class ChatActivity extends BaseFragment implements
                 MessageObject message = messages.get(position - messagesStartRow);
                 View view = holder.itemView;
 
-                if (view instanceof ChatMessageCell) {
+                if (view instanceof org.telegram.ui.Cells.PrimeInteractiveActionCell) {
+                    ((org.telegram.ui.Cells.PrimeInteractiveActionCell) view).bind(message);
+                } else if (view instanceof ChatMessageCell) {
                     final ChatMessageCell messageCell = (ChatMessageCell) view;
                     MessageObject.GroupedMessages groupedMessages = getValidGroupedMessage(message);
                     messageCell.isChat = currentChat != null || UserObject.isUserSelf(currentUser) || UserObject.isReplyUser(currentUser) || (chatMode == MODE_SEARCH) || (chatMode == MODE_FEED);
@@ -39163,7 +39205,16 @@ public class ChatActivity extends BaseFragment implements
                 } else {
                     messages = ChatActivity.this.messages;
                 }
-                return messages.get(position - messagesStartRow).contentType;
+                final MessageObject rowObject = messages.get(position - messagesStartRow);
+                // PrimeGram: any feature that registered a custom interactive cell (see
+                // PrimeInteractiveCellRegistry) gets first refusal on this message's view
+                // type - falls through to the ordinary contentType-based dispatch below
+                // for every other row (the overwhelming majority).
+                final int primeViewType = org.telegram.messenger.PrimeInteractiveCellRegistry.viewTypeFor(rowObject);
+                if (primeViewType >= 0) {
+                    return primeViewType;
+                }
+                return rowObject.contentType;
             } else if (position == botInfoRow) {
                 return 3;
             } else if (position == userInfoRow) {

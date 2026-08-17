@@ -23,6 +23,9 @@ final class PrimeE2EFraming {
 
     private static final String HANDSHAKE_PREFIX = "[PGE2E1:H ";
     private static final String CIPHERTEXT_PREFIX = "[PGE2E1:M ";
+    /** No payload needed - which dialog it's about is implicit in which chat it arrived
+     *  in, same as the handshake messages themselves. */
+    private static final String CANCEL_MARKER = "[PGE2E1:C]";
     private static final String SUFFIX = "]";
 
     static final int SUBTYPE_REQUEST = 0;
@@ -37,6 +40,14 @@ final class PrimeE2EFraming {
 
     static boolean isCiphertext(String text) {
         return text != null && text.startsWith(CIPHERTEXT_PREFIX) && text.endsWith(SUFFIX);
+    }
+
+    static boolean isCancel(String text) {
+        return CANCEL_MARKER.equals(text);
+    }
+
+    static String encodeCancel() {
+        return CANCEL_MARKER;
     }
 
     // ---- Handshake bundle ----

@@ -11,9 +11,11 @@ public final class PrimeE2EState {
 
     /** No session for this dialog - the default, unstated state. */
     static final int MODE_NONE = 0;
-    /** This device sent (or received) a bundle-request and is waiting for the other
-     *  side's reply. */
+    /** This device sent a bundle-request and is waiting for the other side's reply. */
     static final int MODE_REQUESTED = 1;
+    /** This device received a bundle-request and is waiting for the local user to
+     *  confirm/cancel - see {@link PrimeE2ESession.Mode#INCOMING_PENDING}. */
+    static final int MODE_INCOMING_PENDING = 3;
     /** Handshake complete - messages to/from this dialog are encrypted. */
     static final int MODE_ESTABLISHED = 2;
 

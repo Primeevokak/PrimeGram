@@ -11695,6 +11695,14 @@ public class MessageObject {
     }
 
     public boolean canDeleteMessage(boolean inScheduleMode, TLRPC.Chat chat) {
+        // PrimeGram E2E: a handshake/cancel protocol message must never be manually
+        // deletable - the sealed PrimeE2EVault session (not this message) is what
+        // actually needs to survive, but an accidentally-deleted prompt mid-negotiation
+        // is confusing for no benefit, and deleting the *response* half specifically
+        // would desync a pending confirm from what the other side actually sent.
+        if (PrimeE2EManager.isProtocolMarker(this)) {
+            return false;
+        }
         return (
             isStory() && messageOwner != null && messageOwner.dialog_id == UserConfig.getInstance(currentAccount).getClientUserId() ||
             eventId == 0 && sponsoredId == null && canDeleteMessage(currentAccount, inScheduleMode, messageOwner, chat) || isEphemeral()
