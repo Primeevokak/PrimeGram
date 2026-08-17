@@ -1936,6 +1936,16 @@ public class MessageObject {
             fromUser = getUser(users, sUsers, message.from_id.user_id);
         }
 
+        // PrimeGram E2E: a no-op for every ordinary message (cheap prefix check inside),
+        // but for a marked handshake/ciphertext message this both runs any handshake
+        // side effect and - for ciphertext - replaces messageOwner.message with the
+        // decrypted plaintext in place, so everything below (updateMessageText,
+        // generateCaption, every cell/notification/search reader) sees plaintext
+        // without needing its own decrypt call. MessagesStorage already persisted the
+        // raw (still-ciphertext) message before this constructor runs, so the DB itself
+        // never holds plaintext.
+        messageOwner.message = PrimeE2EManager.processIncoming(currentAccount, message);
+
         updateMessageText(users, chats, sUsers, sChats);
         setType();
         if (generateLayout) {

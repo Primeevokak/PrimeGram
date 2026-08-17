@@ -1,0 +1,354 @@
+package org.telegram.messenger;
+
+import org.telegram.tgnet.TLRPC;
+
+import java.security.SecureRandom;
+
+/**
+ * PrimeGram E2E: orchestration facade over the X3DH handshake and Double Ratchet
+ * message flow for a single account - the one class every hook point (chat menu,
+ * {@code SendMessagesHelper}, {@code MessageObject}, {@code ChatActivity}) calls into,
+ * so those diffs stay a few lines each.
+ *
+ * <p><b>Handshake ceremony.</b> Neither side has a live directory to fetch a prekey
+ * bundle from before the very first message, so the classic X3DH "initiator fetches
+ * responder's published bundle" shape is inverted here: whoever taps "Enable E2E"
+ * sends their OWN identity/SPK/OPK bundle as the request - cryptographically that makes
+ * them the X3DH "bundle owner" (their prekeys are what get consumed), and whoever
+ * *replies* is the actual X3DH initiator (generates the ephemeral, computes SK first,
+ * and can start sending immediately). See {@code PrimeE2EFraming.Bundle.ephemeralPub}'s
+ * doc for the same explanation from the wire-format side.
+ */
+public final class PrimeE2EManager {
+
+    private PrimeE2EManager() {
+    }
+
+    /** Only ordinary 1-on-1 chats with another real user - Telegram dialog ids are
+     *  positive exactly for that case (negative = chat/channel, encrypted/Secret Chat
+     *  dialogs are a completely separate id space this fork never confuses with these). */
+    static boolean isEligibleDialog(long dialogId) {
+        return dialogId > 0;
+    }
+
+    public static boolean isSessionEstablished(long dialogId) {
+        PrimeE2ESession s = PrimeE2EVault.getSession(dialogId);
+        return s != null && s.mode == PrimeE2ESession.Mode.ESTABLISHED;
+    }
+
+    public static boolean isHandshakePending(long dialogId) {
+        PrimeE2ESession s = PrimeE2EVault.getSession(dialogId);
+        return s != null && s.mode == PrimeE2ESession.Mode.REQUESTED;
+    }
+
+    /** UI entry point ("Enable E2E Encryption" in the chat menu). */
+    public static void beginHandshake(int account, long dialogId) {
+        if (!isEligibleDialog(dialogId) || isSessionEstablished(dialogId) || isHandshakePending(dialogId)) {
+            return;
+        }
+        PrimeE2EIdentity.PublicBundle local = PrimeE2EIdentity.getOrCreateLocalBundle();
+        PrimeE2EIdentity.SpkKeyPair spkSnapshot = PrimeE2EIdentity.currentSpk();
+
+        PrimeE2ESession session = new PrimeE2ESession();
+        session.selfUserId = selfUserId(account);
+        session.peerUserId = dialogId;
+        session.dialogId = dialogId;
+        session.mode = PrimeE2ESession.Mode.REQUESTED;
+        session.pendingSpkPriv = spkSnapshot.priv;
+        session.pendingSpkPub = spkSnapshot.pub;
+        PrimeE2EVault.putSession(session);
+        PrimeE2EState.setMode(dialogId, PrimeE2EState.MODE_REQUESTED);
+
+        PrimeE2EFraming.Bundle wire = toWireBundle(local, PrimeE2EFraming.SUBTYPE_REQUEST);
+        sendFramed(account, dialogId, PrimeE2EFraming.encodeHandshake(wire));
+    }
+
+    /** Hooked at the very top of {@code SendMessagesHelper.sendMessage(...)}, right
+     *  after the existing plugin hook and before anything reads {@code
+     *  sendMessageParams.message} into a local. For a plain-text send into an
+     *  E2E-established dialog, mutates {@code params} in place - {@code params.message}
+     *  becomes ciphertext (what actually reaches {@code reqSend.message}/the server),
+     *  {@code params.primeDisplayMessage} becomes the original plaintext (what the
+     *  sender's own bubble and local storage show, via the existing split this field
+     *  already powers for the outgoing-translation feature) - and returns {@code false}
+     *  (proceed with sending).
+     *
+     *  <p>Returns {@code true} ("block this send, do not call through to the network")
+     *  in exactly one case that matters: the dialog is E2E-established but this side's
+     *  own sending chain isn't ready yet (this device was the original bundle-owner and
+     *  hasn't received the replier's first ratcheted message yet - a real, if usually
+     *  brief, window). Falling through and sending the typed text as plain, unencrypted
+     *  content in a chat the user was just told is "E2E active" would be a silent
+     *  confidentiality failure worse than a message that has to be retried a moment
+     *  later, so this blocks rather than degrades. */
+    public static boolean tryEncryptOutgoingText(SendMessagesHelper.SendMessageParams params) {
+        String text = params.message;
+        if (text == null || text.isEmpty() || params.primeDisplayMessage != null) {
+            return false;
+        }
+        if (PrimeE2EFraming.isHandshake(text) || PrimeE2EFraming.isCiphertext(text)) {
+            return false; // our own protocol message - never re-encrypt or re-wrap it
+        }
+        if (params.photo != null || params.document != null || params.location != null
+                || params.poll != null || params.todo != null || params.invoice != null || params.game != null) {
+            return false; // media send - out of scope until Phase 6
+        }
+        long dialogId = params.peer;
+        if (!isEligibleDialog(dialogId)) {
+            return false;
+        }
+        PrimeE2ESession session = PrimeE2EVault.getSession(dialogId);
+        if (session == null || session.mode != PrimeE2ESession.Mode.ESTABLISHED) {
+            return false; // no established session for this dialog - send as ordinary text
+        }
+        if (session.sendChainKey == null) {
+            // Established, but this side hasn't derived a sending chain yet - see this
+            // method's own doc. Block rather than silently send plaintext.
+            return true;
+        }
+
+        PrimeE2ERatchet.Encrypted encrypted = PrimeE2ERatchet.encrypt(session, text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String framed = PrimeE2EFraming.encodeCiphertext(encrypted);
+        if (framed == null) {
+            return true; // encryption failed - block rather than fall back to plaintext
+        }
+        // Persist the advanced ratchet state BEFORE returning - if the app crashes
+        // between here and the network call actually completing, the worst case is a
+        // message that never reaches the server (retried normally), never a ratchet
+        // that thinks it sent something it didn't.
+        PrimeE2EVault.putSession(session);
+
+        params.primeDisplayMessage = text;
+        params.message = framed;
+        params.entities = null; // entity offsets describe the plaintext - meaningless against ciphertext
+        return false;
+    }
+
+    /** Discards any in-progress or established session and starts over - the user-facing
+     *  "Reset Session" action, also the correct recovery if the ratchet ever desyncs. */
+    public static void resetSession(long dialogId) {
+        PrimeE2EVault.deleteSession(dialogId);
+        PrimeE2EState.setMode(dialogId, PrimeE2EState.MODE_NONE);
+    }
+
+    /** Called from {@code MessageObject}'s constructor for every incoming message,
+     *  right after {@code messageOwner = message} and before {@code updateMessageText()}
+     *  runs - returns the text that should actually end up in
+     *  {@code messageOwner.message}. Never throws: a malformed/hostile marked message
+     *  must never break message-list construction for the whole chat. */
+    static String processIncoming(int account, TLRPC.Message message) {
+        String text = message.message;
+        if (text == null || message.out) {
+            // Our own sent copy already holds plaintext locally (the
+            // SendMessagesHelper.sendMessage hook's primeDisplayMessage split writes
+            // plaintext into newMsg.message before it's ever stored), so it never
+            // carries an E2E marker - nothing to do for messages we sent ourselves.
+            return text;
+        }
+        try {
+            if (PrimeE2EFraming.isHandshake(text)) {
+                handleIncomingHandshake(account, message);
+                return text; // ChatActivity's timeline filter hides this separately
+            }
+            if (PrimeE2EFraming.isCiphertext(text)) {
+                return handleIncomingCiphertext(message);
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+        return text;
+    }
+
+    /** Used by {@code ChatActivity}'s message-list filter (mirrors
+     *  {@code PrimeBigFileReceiver.isHiddenChunk}) to hide handshake/control messages
+     *  from the rendered timeline on both ends. */
+    public static boolean isHandshakeMarker(MessageObject obj) {
+        return obj != null && obj.messageOwner != null && PrimeE2EFraming.isHandshake(obj.messageOwner.message);
+    }
+
+    private static void handleIncomingHandshake(int account, TLRPC.Message message) {
+        long dialogId = message.dialog_id;
+        if (!isEligibleDialog(dialogId)) {
+            return;
+        }
+        PrimeE2EFraming.Bundle bundle = PrimeE2EFraming.decodeHandshake(message.message);
+        if (bundle == null) {
+            return;
+        }
+        if (bundle.subtype == PrimeE2EFraming.SUBTYPE_REQUEST) {
+            handleBundleRequest(account, dialogId, bundle);
+        } else {
+            handleBundleResponse(account, dialogId, bundle);
+        }
+    }
+
+    /** We're the replier - cryptographically the X3DH initiator: verify the requester's
+     *  SPK signature, consume one of their one-time prekeys, generate our own
+     *  ephemeral, compute SK, and bootstrap our ratchet as the sending side right away
+     *  (see this class's own doc for why the roles are inverted from the UI action). */
+    private static void handleBundleRequest(int account, long dialogId, PrimeE2EFraming.Bundle requesterBundle) {
+        if (isSessionEstablished(dialogId)) {
+            return; // already talking to this peer - ignore a stray/replayed request
+        }
+        if (!PrimeE2ECrypto.ed25519Verify(requesterBundle.ikSignPub, requesterBundle.spkPub, requesterBundle.spkSig)) {
+            return; // forged/corrupt bundle - fail closed, never render or act on it
+        }
+
+        SecureRandom random = new SecureRandom();
+        PrimeE2ECrypto.KeyPair ek = PrimeE2ECrypto.generateX25519(random);
+        byte[] myIkDhPriv = PrimeE2EIdentity.ikDhPriv();
+
+        int consumedIndex = -1;
+        byte[] opkPub = null;
+        if (!requesterBundle.opkIndices.isEmpty()) {
+            consumedIndex = requesterBundle.opkIndices.get(0);
+            opkPub = requesterBundle.opkPubs.get(0);
+        }
+
+        byte[] dh1 = PrimeE2ECrypto.x25519(myIkDhPriv, requesterBundle.spkPub);
+        byte[] dh2 = PrimeE2ECrypto.x25519(ek.priv, requesterBundle.ikDhPub);
+        byte[] dh3 = PrimeE2ECrypto.x25519(ek.priv, requesterBundle.spkPub);
+        byte[] dh4 = opkPub != null ? PrimeE2ECrypto.x25519(ek.priv, opkPub) : null;
+        byte[] sk = PrimeE2ERatchet.deriveX3DHSharedSecret(dh1, dh2, dh3, dh4);
+
+        PrimeE2ESession session = new PrimeE2ESession();
+        session.selfUserId = selfUserId(account);
+        session.peerUserId = dialogId;
+        session.dialogId = dialogId;
+        session.peerIkSignPub = requesterBundle.ikSignPub;
+        PrimeE2ERatchet.initAsInitiator(session, sk, requesterBundle.spkPub, random);
+        PrimeE2EVault.putSession(session);
+        PrimeE2EState.setMode(dialogId, PrimeE2EState.MODE_ESTABLISHED);
+
+        PrimeE2EIdentity.PublicBundle myBundle = PrimeE2EIdentity.getOrCreateLocalBundle();
+        PrimeE2EFraming.Bundle response = toWireBundle(myBundle, PrimeE2EFraming.SUBTYPE_RESPONSE);
+        response.consumedOpkIndex = consumedIndex;
+        response.ephemeralPub = ek.pub;
+        sendFramed(account, dialogId, PrimeE2EFraming.encodeHandshake(response));
+    }
+
+    /** We're the original requester - cryptographically the X3DH "bundle owner" whose
+     *  prekeys just got consumed: mirror the same DH combination using the exact SPK
+     *  (and, if one was consumed, OPK) we advertised, then bootstrap our ratchet as the
+     *  receiving side - no send chain until the replier's first real message arrives. */
+    private static void handleBundleResponse(int account, long dialogId, PrimeE2EFraming.Bundle responderBundle) {
+        PrimeE2ESession session = PrimeE2EVault.getSession(dialogId);
+        if (session == null || session.mode != PrimeE2ESession.Mode.REQUESTED || session.pendingSpkPriv == null) {
+            return; // no matching outstanding request - stray/duplicate/replayed response
+        }
+        if (!PrimeE2ECrypto.ed25519Verify(responderBundle.ikSignPub, responderBundle.spkPub, responderBundle.spkSig)) {
+            return;
+        }
+        if (responderBundle.ephemeralPub == null) {
+            return;
+        }
+
+        byte[] myIkDhPriv = PrimeE2EIdentity.ikDhPriv();
+        byte[] opkPriv = responderBundle.consumedOpkIndex >= 0
+                ? PrimeE2EIdentity.opkPrivIfUnconsumed(responderBundle.consumedOpkIndex) : null;
+
+        byte[] dh1 = PrimeE2ECrypto.x25519(session.pendingSpkPriv, responderBundle.ikDhPub);
+        byte[] dh2 = PrimeE2ECrypto.x25519(myIkDhPriv, responderBundle.ephemeralPub);
+        byte[] dh3 = PrimeE2ECrypto.x25519(session.pendingSpkPriv, responderBundle.ephemeralPub);
+        byte[] dh4 = opkPriv != null ? PrimeE2ECrypto.x25519(opkPriv, responderBundle.ephemeralPub) : null;
+        byte[] sk = PrimeE2ERatchet.deriveX3DHSharedSecret(dh1, dh2, dh3, dh4);
+
+        if (responderBundle.consumedOpkIndex >= 0) {
+            PrimeE2EIdentity.consumeOwnOpk(responderBundle.consumedOpkIndex);
+        }
+
+        session.peerIkSignPub = responderBundle.ikSignPub;
+        PrimeE2ERatchet.initAsResponder(session, sk, session.pendingSpkPriv, session.pendingSpkPub);
+        session.pendingSpkPriv = null;
+        session.pendingSpkPub = null;
+        PrimeE2EVault.putSession(session);
+        PrimeE2EState.setMode(dialogId, PrimeE2EState.MODE_ESTABLISHED);
+    }
+
+    private static String handleIncomingCiphertext(TLRPC.Message message) {
+        long dialogId = message.dialog_id;
+        PrimeE2ESession session = PrimeE2EVault.getSession(dialogId);
+        if (session == null || session.mode != PrimeE2ESession.Mode.ESTABLISHED) {
+            return "🔒"; // lock emoji - no session to decrypt with
+        }
+        PrimeE2EFraming.DecodedCiphertext decoded = PrimeE2EFraming.decodeCiphertext(message.message);
+        if (decoded == null) {
+            return "🔒";
+        }
+        byte[] plaintext = PrimeE2ERatchet.decrypt(session, decoded.header, decoded.nonce, decoded.ciphertext, new SecureRandom());
+        PrimeE2EVault.putSession(session); // ratchet state advanced even on failure - persist either way
+        if (plaintext == null) {
+            return "🔒";
+        }
+        return new String(plaintext, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static final byte[] ZERO_SALT_32 = new byte[32];
+
+    /** Out-of-band safety-number verification code, per this class's own doc and the
+     *  implementation plan's §5-equivalent design: {@code FP} is derived from both
+     *  sides' long-term signing identities (order-independent, so both compute the same
+     *  value regardless of role), then folded together with the user-supplied seed
+     *  phrase via HMAC into a short numeric code the two humans compare out of band.
+     *  The seed phrase never touches any ratchet/message key - this is authentication
+     *  only, exactly as specified. */
+    public static String computeVerificationCode(long dialogId, String seedPhrase) {
+        PrimeE2ESession session = PrimeE2EVault.getSession(dialogId);
+        if (session == null || session.mode != PrimeE2ESession.Mode.ESTABLISHED || session.peerIkSignPub == null) {
+            return null;
+        }
+        byte[] myIkSignPub = PrimeE2EIdentity.getOrCreateLocalBundle().ikSignPub;
+        byte[] a = myIkSignPub, b = session.peerIkSignPub;
+        if (compareUnsigned(a, b) > 0) {
+            byte[] t = a; a = b; b = t;
+        }
+        byte[] ikm = new byte[a.length + b.length];
+        System.arraycopy(a, 0, ikm, 0, a.length);
+        System.arraycopy(b, 0, ikm, a.length, b.length);
+        byte[] fp = PrimeE2ECrypto.hkdfSha256(ZERO_SALT_32, ikm,
+                "PGE2E-FP-v1".getBytes(java.nio.charset.StandardCharsets.US_ASCII), 32);
+
+        byte[] seedKey = PrimeE2ECrypto.hkdfSha256(ZERO_SALT_32,
+                (seedPhrase == null ? "" : seedPhrase).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                "PGE2E-SEED-v1".getBytes(java.nio.charset.StandardCharsets.US_ASCII), 32);
+        byte[] code = PrimeE2ECrypto.hmacSha256(seedKey, fp);
+
+        long numeric = ((code[0] & 0xFFL) << 24 | (code[1] & 0xFFL) << 16 | (code[2] & 0xFFL) << 8 | (code[3] & 0xFFL)) % 1_000_000L;
+        return String.format(java.util.Locale.US, "%06d", numeric);
+    }
+
+    private static int compareUnsigned(byte[] a, byte[] b) {
+        for (int i = 0; i < a.length && i < b.length; i++) {
+            int x = a[i] & 0xFF, y = b[i] & 0xFF;
+            if (x != y) {
+                return x - y;
+            }
+        }
+        return a.length - b.length;
+    }
+
+    private static PrimeE2EFraming.Bundle toWireBundle(PrimeE2EIdentity.PublicBundle local, int subtype) {
+        PrimeE2EFraming.Bundle wire = new PrimeE2EFraming.Bundle();
+        wire.subtype = subtype;
+        wire.ikDhPub = local.ikDhPub;
+        wire.ikSignPub = local.ikSignPub;
+        wire.spkPub = local.spkPub;
+        wire.spkSig = local.spkSig;
+        wire.spkId = local.spkId;
+        wire.opkIndices.addAll(local.opkIndices);
+        wire.opkPubs.addAll(local.opkPubs);
+        return wire;
+    }
+
+    private static void sendFramed(int account, long dialogId, String framedText) {
+        if (framedText == null) {
+            return;
+        }
+        SendMessagesHelper.getInstance(account).sendMessage(
+                SendMessagesHelper.SendMessageParams.of(framedText, dialogId));
+    }
+
+    private static long selfUserId(int account) {
+        return UserConfig.getInstance(account).getClientUserId();
+    }
+}

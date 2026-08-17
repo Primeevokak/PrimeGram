@@ -20,8 +20,8 @@
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:actionBarStyle">@style/ActionBar.Transparent.TMessages.Start</item>
-        <item name="android:colorBackground">@android:color/white</item>
-        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:colorPrimaryDark">#426482</item>
         <item name="android:colorPrimary">#527da3</item>
@@ -32,13 +32,13 @@
              animation. icon_foreground_sa is the fork's real icon (an atom mark) - the same one
              shown as the installed app icon and in PrimeGram settings; icon_foreground (no _sa
              suffix) turned out to be a stale, unused leftover still shaped like Telegram's own
-             paper plane, not real PrimeGram artwork. The atom's own designed background
-             (icon_background_sa.xml) is solid white with dark linework, so the splash background
-             matches that instead of an arbitrary dark color - a dark background would make this
-             specific mark unreadable, not just off-brand. -->
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/icon_foreground_sa</item>
+             paper plane, not real PrimeGram artwork. Default launch is dark now (black
+             background), so this uses icon_foreground_sa_white - a channel-inverted copy of the
+             same artwork (light linework on transparent) generated to stay legible against
+             black, since the original's dark linework would disappear into it. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/icon_foreground_sa_white</item>
         <item name="android:windowSplashScreenAnimationDuration">@integer/splash_screen_duration</item>
-        <item name="android:windowSplashScreenBackground">@android:color/white</item>
+        <item name="android:windowSplashScreenBackground">@android:color/black</item>
     </style>
 
     <style name="Theme.TMessages" parent="Theme.AppCompat.Light">

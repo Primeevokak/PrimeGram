@@ -7,8 +7,12 @@
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:actionBarStyle">@style/ActionBar.Transparent.TMessages.Start</item>
-        <item name="android:colorBackground">@android:color/white</item>
-        <item name="android:windowBackground">@android:color/white</item>
+        <!-- PrimeGram: launch is dark by default (matches values-v31/values-night's own Start
+             style) - this pre-API21 fallback has no windowSplashScreen* items to invert (that
+             API doesn't exist yet at this level), just the plain window background shown until
+             the first Activity draws. -->
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:textViewStyle">@style/MyTextViewStyle</item>
     </style>

@@ -33,6 +33,11 @@ dependencies {
     implementation 'androidx.webkit:webkit:1.12.1'
     // PrimeGram Blocks: persists a wait.duration block's scheduled resume across process death.
     implementation 'androidx.work:work-runtime:2.9.1'
+    // PrimeGram E2E: X25519/Ed25519/HKDF for the per-chat X3DH+Double Ratchet encryption
+    // layer. Lightweight crypto API only (org.bouncycastle.crypto.*), never registered as a
+    // JCE Provider, so it can't conflict with Android's own Conscrypt provider.
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
+    testImplementation 'junit:junit:4.13.2'
 
     implementation 'com.google.android.gms:play-services-cast-framework:21.4.0'
     implementation "androidx.mediarouter:mediarouter:1.7.0"

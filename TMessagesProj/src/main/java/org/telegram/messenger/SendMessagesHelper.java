@@ -4202,6 +4202,17 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         if (org.telegram.messenger.plugins.PrimePluginHooks.onSendMessage(currentAccount, sendMessageParams)) {
             return;
         }
+        // PrimeGram E2E: for a plain-text send into a dialog with an established
+        // session, swaps sendMessageParams.message to ciphertext (what reaches the
+        // server below) and sets primeDisplayMessage to the original plaintext (what
+        // this device's own bubble/local storage show) - see PrimeE2EManager's own doc.
+        // A true return means the dialog is E2E-established but this side can't encrypt
+        // yet (no sending chain derived) - blocking here is deliberate: falling through
+        // would send the typed text as plain, unencrypted content in a chat the user
+        // was just told is protected.
+        if (PrimeE2EManager.tryEncryptOutgoingText(sendMessageParams)) {
+            return;
+        }
         String message = sendMessageParams.message;
         String caption = sendMessageParams.caption;
         TLRPC.MessageMedia location = sendMessageParams.location;

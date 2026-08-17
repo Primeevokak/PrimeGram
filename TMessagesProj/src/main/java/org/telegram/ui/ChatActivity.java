@@ -1651,6 +1651,9 @@ public class ChatActivity extends BaseFragment implements
     private final static int prime_chat_tags = 902;
     /** PrimeGram: per-chat override for PrimeAutoDelete (own outgoing messages only). */
     private final static int prime_auto_delete_own = 903;
+    /** PrimeGram: opt-in client-side E2E encryption (X3DH + Double Ratchet) layered on
+     *  top of this chat's ordinary messages - independent of Telegram's own Secret Chats. */
+    private final static int prime_e2e_toggle = 904;
 
     /** PrimeGram: plugin items on the header ("...") menu. */
     private final org.telegram.messenger.plugins.PrimePluginMenuItems.ClickRouter primeChatMenuRouter =
@@ -3875,6 +3878,16 @@ public class ChatActivity extends BaseFragment implements
                     showTempSubAlert();
                 } else if (id == prime_chat_tags) {
                     presentFragment(new MessageTagsActivity(dialog_id));
+                } else if (id == prime_e2e_toggle) {
+                    if (org.telegram.messenger.PrimeE2EManager.isSessionEstablished(dialog_id)) {
+                        presentFragment(new org.telegram.ui.PrimeE2ESeedVerifyActivity(dialog_id));
+                    } else if (!org.telegram.messenger.PrimeE2EManager.isHandshakePending(dialog_id)) {
+                        org.telegram.messenger.PrimeE2EManager.beginHandshake(currentAccount, dialog_id);
+                        if (getParentActivity() != null) {
+                            BulletinFactory.of(ChatActivity.this).createSimpleBulletin(R.raw.chats_infotip,
+                                    "Запрос на E2E-шифрование отправлен").show();
+                        }
+                    }
                 } else if (id == prime_auto_delete_own) {
                     boolean nowOn = !org.telegram.messenger.PrimeAutoDelete.isEnabledForDialog(dialog_id);
                     org.telegram.messenger.PrimeAutoDelete.setDialogOverride(dialog_id, nowOn);
@@ -4517,6 +4530,24 @@ public class ChatActivity extends BaseFragment implements
                 boolean primeAutoDeleteOn = org.telegram.messenger.PrimeAutoDelete.isEnabledForDialog(dialog_id);
                 headerItem.lazilyAddSubItem(prime_auto_delete_own, R.drawable.msg_autodelete,
                     primeAutoDeleteOn ? "Автоудаление моих сообщений: вкл" : "Автоудаление моих сообщений: выкл");
+            }
+            // PrimeGram E2E: only offered for an ordinary 1-on-1 chat with another real
+            // user - never groups/channels/bots/self, and never on top of a Secret Chat
+            // (currentEncryptedChat != null), which already runs its own independent
+            // encryption this feature has no relationship to.
+            if (chatMode == 0 && !isTopic && currentUser != null && !currentUser.self && !UserObject.isBot(currentUser) && currentEncryptedChat == null) {
+                final long e2eDialogId = dialog_id;
+                final String e2eLabel;
+                if (org.telegram.messenger.PrimeE2EManager.isSessionEstablished(e2eDialogId)) {
+                    e2eLabel = org.telegram.messenger.PrimeE2EState.isVerified(e2eDialogId)
+                            ? "E2E-шифрование: активно (проверено)"
+                            : "E2E-шифрование: активно (не проверено)";
+                } else if (org.telegram.messenger.PrimeE2EManager.isHandshakePending(e2eDialogId)) {
+                    e2eLabel = "E2E-шифрование: устанавливается…";
+                } else {
+                    e2eLabel = "Включить E2E-шифрование";
+                }
+                headerItem.lazilyAddSubItem(prime_e2e_toggle, R.drawable.msg_secret, e2eLabel);
             }
             // PrimeGram: only offered where leaving is actually possible — a channel or group
             // we are currently a member of and did not create.
@@ -21357,6 +21388,12 @@ public class ChatActivity extends BaseFragment implements
                     && org.telegram.messenger.PrimeBigFileReceiver.getInstance().isHiddenChunk(obj)) {
                 continue;
             }
+            // PrimeGram E2E: an X3DH handshake/bundle message is real, normally-delivered
+            // protocol content, not something either side ever meant to read as a chat
+            // bubble - hide it from the rendered timeline the same way a big-file chunk is.
+            if (org.telegram.messenger.PrimeE2EManager.isHandshakeMarker(obj)) {
+                continue;
+            }
             if (obj.replyMessageObject != null) {
                 repliesMessagesDict.put(obj.replyMessageObject.getId(), obj.replyMessageObject);
                 addReplyMessageOwner(obj, 0);
@@ -25695,6 +25732,10 @@ public class ChatActivity extends BaseFragment implements
                 org.telegram.messenger.PrimeBigFileReceiver.getInstance();
         for (int a = arr.size() - 1; a >= 0; a--) {
             final MessageObject candidate = arr.get(a);
+            if (org.telegram.messenger.PrimeE2EManager.isHandshakeMarker(candidate)) {
+                arr.remove(a);
+                continue;
+            }
             if (bigFiles.observe(candidate) != null) {
                 if (bigFiles.isHiddenChunk(candidate)) {
                     arr.remove(a);

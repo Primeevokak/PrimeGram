@@ -22,12 +22,12 @@
         <item name="android:colorPrimary">#232d3a</item>
         <item name="android:navigationBarColor">#000000</item>
         <item name="android:forceDarkAllowed">false</item>
-        <!-- PrimeGram: same identity as the light theme's values-v31/styles.xml - the real atom
-             icon (icon_foreground_sa) on white, matching its own designed background
-             (icon_background_sa.xml), not a dark color the dark linework would disappear into. -->
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/icon_foreground_sa</item>
+        <!-- PrimeGram: same identity as values-v31/styles.xml - default launch is dark, so this
+             uses icon_foreground_sa_white (light linework on transparent) against black, not the
+             original dark-on-white artwork which would disappear against this background. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/icon_foreground_sa_white</item>
         <item name="android:windowSplashScreenAnimationDuration">@integer/splash_screen_duration</item>
-        <item name="android:windowSplashScreenBackground">@android:color/white</item>
+        <item name="android:windowSplashScreenBackground">@android:color/black</item>
     </style>
 
     <style name="ActionBar.Transparent.TMessages.Start" parent="android:style/Widget.Material.Light.ActionBar">
