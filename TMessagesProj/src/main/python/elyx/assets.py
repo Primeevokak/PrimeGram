@@ -5,8 +5,8 @@ attribute per subdirectory, exposed as a namespace whose ``.files`` is a ``{file
 asset}`` dict for files whose real name is not a valid Python identifier (most fonts:
 ``Circular-Bold.ttf``).
 
-Confirmed by disassembling a real .elyx's compiled bytecode (``meeow_reswaga``/reSwaga -
-the same plugin that surfaced ``elyx.settings``/``elyx.metainfo``): every asset object
+Confirmed by disassembling a real, popular .elyx's compiled bytecode (the same plugin
+that surfaced ``elyx.settings``/``elyx.metainfo``): every asset object
 supports ``.path_str`` (the file's real path), ``.content_bytes()`` (raw bytes), and -
 for ``.svg`` files - ``.to_svg_drawable(width, height)``.
 

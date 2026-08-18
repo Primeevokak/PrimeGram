@@ -18,8 +18,8 @@ import org.telegram.ui.Components.LayoutHelper;
 
 /**
  * A real Google sign-in inside a WebView, for the one thing YouTube Music's private API needs
- * that none of this feature's other platforms do: a session cookie. Mirrors reSwaga's own
- * {@code create_auth_alert} flow (disassembled from its compiled bytecode, since it ships no
+ * that none of this feature's other platforms do: a session cookie. Mirrors a popular
+ * reference plugin's own {@code create_auth_alert} flow (disassembled from its compiled bytecode, since it ships no
  * source) - open the actual login page, poll {@link CookieManager} for the {@code SAPISID}/
  * {@code __Secure-3PAPISID} cookie once signed in, hand the whole cookie string back and close.
  *

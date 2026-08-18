@@ -31,7 +31,7 @@ public class TgMusicProvider implements TrackProvider {
         track.progressSec = playing.audioProgressSec;
 
         if (playing.isMusic() && !playing.isVoice() && !playing.isRoundVideo()) {
-            // Best-effort cover art lookup via iTunes search, matching reSwaga's approach —
+            // Best-effort cover art lookup via iTunes search, matching a reference plugin's approach —
             // Telegram audio messages don't carry cover art of their own.
             try {
                 String artwork = playing.getArtworkUrl(false);

@@ -7,8 +7,8 @@ plugin author plausibly reaches for - attribute access (``metainfo.version``),
 dict-style (``metainfo['version']``/``'version' in metainfo``), and ``.get(key,
 default)``.
 
-Real-world failure this fixes: a .elyx plugin (``meeow_reswaga``/reSwaga - the same one
-that first surfaced the ``elyx.settings`` gap) crashed on load with
+Real-world failure this fixes: the same real, popular .elyx plugin that first surfaced
+the ``elyx.settings`` gap crashed on load with
 ``ImportError: cannot import name 'metainfo' from 'elyx'`` because this module simply
 didn't exist yet.
 

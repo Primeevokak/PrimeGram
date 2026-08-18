@@ -11,7 +11,7 @@ public class LastFmProvider implements TrackProvider {
     private final String username;
     private final String apiKey;
 
-    /** Unlike reSwaga, there is no baked-in shared API key — get a free one at last.fm/api/account/create. */
+    /** Unlike some reference plugins, there is no baked-in shared API key — get a free one at last.fm/api/account/create. */
     public LastFmProvider(String username, String apiKey) {
         this.username = username == null ? "" : username.trim();
         this.apiKey = apiKey == null ? "" : apiKey.trim();

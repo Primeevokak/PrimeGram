@@ -1,7 +1,7 @@
 """``from elyx import settings`` - persistent per-plugin settings for packaged (.elyx) plugins,
 called from a HELPER module that isn't the plugin's own ``BasePlugin`` subclass (which already has
 ``self.get_setting``/``self.set_setting`` - see ``base_plugin.py``) and so has no plugin instance to
-call those on. Real-world failure this fixes: a .elyx plugin (``meeow_reswaga``/reSwaga) crashed on
+call those on. Real-world failure this fixes: a real, popular .elyx plugin crashed on
 load with ``ImportError: cannot import name 'settings' from 'elyx'`` because this module simply
 didn't exist yet - only ``elyx.strings`` did.
 

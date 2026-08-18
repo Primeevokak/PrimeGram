@@ -11,8 +11,8 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 
 /**
- * Font pack for {@link MusicCardRenderer} - the same font families reSwaga's card renderer
- * offers (Onest/Circular/YS Text/YS Music/Noto Sans JP), bundled straight into the app under
+ * Font pack for {@link MusicCardRenderer} - the same font families a reference plugin's card
+ * renderer offers (Onest/Circular/YS Text/YS Music/Noto Sans JP), bundled straight into the app under
  * {@code assets/music_fonts/} rather than fetched from a user-supplied URL. Card rendering still
  * works fine with just the system Typeface if a family's file is somehow missing.
  *

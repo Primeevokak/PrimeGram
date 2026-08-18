@@ -1,7 +1,7 @@
 """``from elyx import gen2`` - builds an ad-hoc Java-interface implementation from plain
 Python callables, one per interface method, instead of writing a full ``Base`` subclass
 for a single throwaway listener (a ``TextWatcher``, a ``View.OnAttachStateChangeListener``
-- exactly what a real .elyx plugin, meeow_reswaga/reSwaga, uses it for, confirmed by
+- exactly what a real, popular .elyx plugin uses it for, confirmed by
 disassembling its compiled bytecode since there is no source-level documentation for
 elyxbuilder's own ``elyx.gen2`` to read instead).
 

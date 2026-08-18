@@ -115,9 +115,9 @@ def _resolve_java_type(type_string):
     refuses to reflect it at all (``ValueError: Cannot reflect a primitive type``) - there is no
     ``Void.TYPE``-style wrapper trick available the way there is for ``int``/``boolean``/etc.
     Every caller here already treats a falsy return type as "no return class" (``None``), so
-    mapping ``"void"`` to ``None`` here means a plugin author writing ``-> "void"`` (a real
-    .elyx plugin, meeow_reswaga/reSwaga, does exactly this on a ``@jmethod``) gets the same
-    "void method" result as leaving the return type off entirely, instead of a crash.
+    mapping ``"void"`` to ``None`` here means a plugin author writing ``-> "void"`` (a real,
+    popular .elyx plugin does exactly this on a ``@jmethod``) gets the same "void method"
+    result as leaving the return type off entirely, instead of a crash.
     """
     if type_string == "void":
         return None
@@ -484,8 +484,8 @@ class Base:
         # Calling the overloaded name directly used to fail here: Chaquopy's static
         # overload resolution has to pick one of six candidates whose parameter lists
         # differ only in how many trailing `List` arguments they carry - all erased to
-        # the same `java.util.List` type at the JVM level - and a real .elyx plugin
-        # (meeow_reswaga/reSwaga) hit a 9-argument call Chaquopy rejected as "cannot be
+        # the same `java.util.List` type at the JVM level - and a real, popular .elyx
+        # plugin hit a 9-argument call Chaquopy rejected as "cannot be
         # applied" to *any* of the six, even though the argument count unambiguously
         # picks the 9-argument one. Passing empty lists instead of `None` (an earlier
         # fix attempt) narrowed the symptom but did not resolve it - only removing the

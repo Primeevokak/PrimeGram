@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * Reads "currently playing" via stats.fm's public API (no OAuth needed —
- * just the user's public stats.fm/Spotify username), mirroring reSwaga's
+ * just the user's public stats.fm/Spotify username), mirroring a reference plugin's
  * approach of avoiding a full Spotify OAuth flow.
  */
 public class SpotifyProvider implements TrackProvider {

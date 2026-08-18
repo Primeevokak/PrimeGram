@@ -290,7 +290,7 @@ public final class PrimeClassProxy {
      * nulls. Those five overloads sharing the {@code createProxyClass} name meant Chaquopy's static
      * overload resolution had to pick one of six candidates whose parameter lists differ only in
      * how many trailing {@code List} arguments they have - all erased to the same {@code List} type
-     * at the JVM level - and a real .elyx plugin (meeow_reswaga/reSwaga) hit a call Chaquopy
+     * at the JVM level - and a real, popular .elyx plugin hit a call Chaquopy
      * rejected as "cannot be applied" to <i>any</i> of the six, even though the argument count
      * unambiguously picked the 9-argument one; changing the passed-in {@code None}s to empty lists
      * (an earlier fix attempt) narrowed the symptom but did not resolve it. A distinctly-named

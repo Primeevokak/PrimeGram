@@ -16,21 +16,21 @@ import java.util.regex.Pattern;
 /**
  * YouTube Music, via the same private "innertube" API the music.youtube.com web player itself
  * calls (there is no public API for "what is this account currently playing/recently played") -
- * ported from reSwaga's own implementation (disassembled from its compiled bytecode, since it
- * ships no source: {@code utils/platform_utils.pyc}'s {@code build_api_link}/{@code build_headers}
- * /{@code build_params}/{@code decode_api_response} for this platform).
+ * ported from a popular reference plugin's own implementation (disassembled from its compiled
+ * bytecode, since it ships no source: {@code utils/platform_utils.pyc}'s {@code build_api_link}/
+ * {@code build_headers}/{@code build_params}/{@code decode_api_response} for this platform).
  *
  * <p>Auth is a cookie captured from a real Google sign-in (see {@link
- * org.telegram.ui.MusicYtmLoginActivity}), the same way reSwaga's own {@code create_auth_alert}
- * does it - not a login PrimeGram performs itself, only a cookie jar it stores. Every request signs
- * itself with {@code SAPISIDHASH}, exactly how the browser does for any Google endpoint using
- * {@code SAPISID}/{@code __Secure-3PAPISID} cookie auth: {@code SHA1(timestamp + " " + sapisid +
- * " " + origin)}.
+ * org.telegram.ui.MusicYtmLoginActivity}), the same way that reference plugin's own
+ * {@code create_auth_alert} does it - not a login PrimeGram performs itself, only a cookie jar it
+ * stores. Every request signs itself with {@code SAPISIDHASH}, exactly how the browser does for
+ * any Google endpoint using {@code SAPISID}/{@code __Secure-3PAPISID} cookie auth:
+ * {@code SHA1(timestamp + " " + sapisid + " " + origin)}.
  *
  * <p>Reads the account's "history" shelf (browseId {@code FEmusic_history}) and takes its first
  * entry - YouTube Music's internal API has no true real-time "now playing" endpoint a third party
  * can call, so the most recent history entry is the closest available signal, same approximation
- * reSwaga itself makes.
+ * that reference plugin makes.
  */
 public class YoutubeMusicProvider implements TrackProvider {
 
@@ -123,7 +123,7 @@ public class YoutubeMusicProvider implements TrackProvider {
     /** Walks {@code contents.singleColumnBrowseResultsRenderer.tabs[].tabRenderer.content
      *  .sectionListRenderer.contents[].musicShelfRenderer.contents[0]
      *  .musicResponsiveListItemRenderer} for the first (most recent) history entry, same path
-     *  reSwaga's own {@code decode_api_response} reads. */
+     *  that reference plugin's own {@code decode_api_response} reads. */
     private Track decode(JSONObject response) {
         try {
             JSONArray tabs = response

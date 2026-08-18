@@ -18,7 +18,7 @@ import java.net.URL;
 
 /**
  * Renders the "now playing" card as a Bitmap via Android's Canvas — a native
- * equivalent of reSwaga's PIL-based card, at the same 1440x600 layout.
+ * equivalent of a reference plugin's PIL-based card, at the same 1440x600 layout.
  * Unlike the original, this uses the system Typeface instead of bundled/
  * downloaded custom fonts (Onest/Circular/etc.) to avoid a whole runtime
  * font-download subsystem for a purely cosmetic difference.
@@ -201,7 +201,7 @@ public class MusicCardRenderer {
         }
     }
 
-    /** Port of reSwaga's get_cover_accent_color: gamma-correct downscale + darkened average. */
+    /** Port of a reference plugin's get_cover_accent_color: gamma-correct downscale + darkened average. */
     public static int getCoverAccentColor(Bitmap cover) {
         Bitmap small = Bitmap.createScaledBitmap(cover, 16, 16, true);
         long totalR = 0, totalG = 0, totalB = 0;
@@ -221,7 +221,7 @@ public class MusicCardRenderer {
         return Color.rgb((int) (totalR / count), (int) (totalG / count), (int) (totalB / count));
     }
 
-    /** Port of reSwaga's adjust_color_for_readability. */
+    /** Port of a reference plugin's adjust_color_for_readability. */
     public static int adjustColorForReadability(int rgbColor) {
         float[] hsl = new float[3];
         android.graphics.Color.colorToHSV(rgbColor, hsl); // hue, sat, value — approximate HSL via HSV here is fine for this heuristic

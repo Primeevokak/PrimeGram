@@ -79,8 +79,8 @@ public class MusicMessenger {
         }
     }
 
-    /** Progress while a card goes out to several chats at once - matches reSwaga's "Share
-     *  with..." (its own {@code send_to_bottom_sheet}), which reports "Sent to X of Y" as it
+    /** Progress while a card goes out to several chats at once - matches a reference plugin's
+     *  "Share with..." (its own {@code send_to_bottom_sheet}), which reports "Sent to X of Y" as it
      *  works through a picked chat list rather than going quiet until the very end. */
     public interface MultiCallback {
         /** Called on the UI thread after each attempted send, {@code dialogId} being the one

@@ -859,6 +859,24 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         } catch (Throwable ignore) {}
     }
 
+    /** PrimeGram: jumps to the Chats tab from anywhere - used to land the guided settings
+     *  tour back on the main chats list when it finishes, instead of wherever in Settings
+     *  it happened to end. */
+    public static void switchToChatsTab() {
+        try {
+            final MainTabsActivity activity = primeInstance;
+            if (activity == null) {
+                return;
+            }
+            AndroidUtilities.runOnUIThread(() -> {
+                if (activity.viewPager != null) {
+                    activity.selectTab(POSITION_CHATS, false);
+                    activity.viewPager.scrollToPosition(POSITION_CHATS);
+                }
+            });
+        } catch (Throwable ignore) {}
+    }
+
     /** PrimeGram: the Feed tab is optional — plenty of people never use it. */
     public static boolean isFeedHidden() {
         try {

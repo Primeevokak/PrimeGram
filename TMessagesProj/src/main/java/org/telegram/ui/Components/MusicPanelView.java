@@ -390,7 +390,7 @@ public class MusicPanelView extends LinearLayout {
                 .sendText(dialogId, track, (success, error) -> endSend(textButton, "Текст", success, error));
     }
 
-    /** reSwaga's "Share with..." - pick several chats, send the card to all of them, reporting
+    /** A reference plugin's "Share with..." - pick several chats, send the card to all of them, reporting
      *  progress instead of going quiet until the whole batch finishes. Reuses
      *  {@link org.telegram.ui.UsersSelectActivity}, the same generic multi-chat picker the
      *  folder-creation screens already use, rather than building a chat picker from scratch. */
