@@ -45,7 +45,7 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
         ScrollView scrollView = new ScrollView(context);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
+        root.setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent));
         root.setPadding(AndroidUtilities.dp(20), AndroidUtilities.dp(16), AndroidUtilities.dp(20), AndroidUtilities.dp(24));
 
         LinearLayout enableRow = new LinearLayout(context);
@@ -54,8 +54,8 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
 
         TextView enableLabel = new TextView(context);
         enableLabel.setText("Эквалайзер");
-        enableLabel.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
-        enableLabel.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlackText));
+        enableLabel.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_MEDIUM);
+        enableLabel.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_PRIMARY);
         enableRow.addView(enableLabel, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
         Switch enableSwitch = new Switch(context);
@@ -86,8 +86,8 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
         if (bandCount <= 0) {
             TextView hint = new TextView(context);
             hint.setText("Запустите воспроизведение трека, чтобы настроить полосы эквалайзера.");
-            hint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
-            hint.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteGrayText));
+            hint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
+            hint.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
             bandsContainer.addView(hint, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
             return;
         }
@@ -99,8 +99,8 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
             int freqHz = PrimeEqualizer.getCenterFreqHz(band);
             TextView label = new TextView(context);
             label.setText(freqHz >= 1000 ? (freqHz / 1000) + " кГц" : freqHz + " Гц");
-            label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
-            label.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteGrayText));
+            label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
+            label.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
             bandsContainer.addView(label, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 12, 0, 0));
 
             SeekBar seekBar = new SeekBar(context);

@@ -21,6 +21,8 @@ import java.util.List;
 /** PrimeGram Music: one playlist's track list, with remove-from-playlist support. */
 public class PrimeMusicPlaylistActivity extends BaseFragment {
 
+    private static final int ID_DELETE_PLAYLIST = 1;
+
     private final long playlistId;
     private LinearLayout container;
 
@@ -32,19 +34,22 @@ public class PrimeMusicPlaylistActivity extends BaseFragment {
     @Override
     public View createView(Context context) {
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
-        actionBar.setTitle("Плейлист");
+        actionBar.setTitle(playlistTitle());
         actionBar.setAllowOverlayTitle(true);
+        actionBar.createMenu().addItem(ID_DELETE_PLAYLIST, R.drawable.msg_delete);
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
             public void onItemClick(int id) {
                 if (id == -1) {
                     finishFragment();
+                } else if (id == ID_DELETE_PLAYLIST) {
+                    confirmDeletePlaylist();
                 }
             }
         });
 
         ScrollView scrollView = new ScrollView(context);
-        scrollView.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
+        scrollView.setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent));
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(container, LayoutHelper.createScroll(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, android.view.Gravity.TOP));
@@ -60,7 +65,10 @@ public class PrimeMusicPlaylistActivity extends BaseFragment {
         for (PrimeTrack track : tracks) {
             PrimeMusicTrackRow row = new PrimeMusicTrackRow(getContext(), getResourceProvider());
             row.bind(track);
-            row.setOnClickListener(v -> PrimeMusicPlayback.playQueue(UserConfig.selectedAccount, tracks, tracks.indexOf(track)));
+            row.setOnClickListener(v -> {
+                PrimeMusicPlayback.playQueue(UserConfig.selectedAccount, tracks, tracks.indexOf(track));
+                reload();
+            });
             row.getLikeIcon().setOnClickListener(v -> {
                 PrimeMusicLibrary.setLiked(track.id, !track.liked);
                 reload();
@@ -69,7 +77,36 @@ public class PrimeMusicPlaylistActivity extends BaseFragment {
                 PrimeMusicLibrary.removeFromPlaylist(playlistId, track.id);
                 reload();
             });
-            container.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            row.setOnLongClickListener(v -> {
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                org.telegram.ui.Components.PrimeMusicTrackMenu.show(getParentActivity(), row, track, getResourceProvider(), this::reload);
+                return true;
+            });
+            container.addView(row, PrimeMusicTrackRow.createRowLayoutParams());
         }
+    }
+
+    private String playlistTitle() {
+        for (org.telegram.messenger.music.PrimePlaylist playlist : PrimeMusicLibrary.getPlaylists()) {
+            if (playlist.id == playlistId) {
+                return playlist.name;
+            }
+        }
+        return "Плейлист";
+    }
+
+    private void confirmDeletePlaylist() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        new android.app.AlertDialog.Builder(getParentActivity())
+                .setTitle("Удалить плейлист")
+                .setMessage("Плейлист «" + playlistTitle() + "» будет удалён. Треки останутся в медиатеке.")
+                .setPositiveButton("Удалить", (dialog, which) -> {
+                    PrimeMusicLibrary.deletePlaylist(playlistId);
+                    finishFragment();
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
     }
 }

@@ -394,6 +394,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private static final int PLAY_SERVICES_REQUEST_CHECK_SETTINGS = 140;
     public static final int SCREEN_CAPTURE_REQUEST_CODE = 520;
     public static final int WEBVIEW_SHARE_API_REQUEST_CODE = 521;
+    public static final int PRIME_MUSIC_DELETE_REQUEST_CODE = 522;
 
     public static final int BLUETOOTH_CONNECT_TYPE = 0;
     private SparseIntArray requestedPermissions = new SparseIntArray();
@@ -6999,6 +7000,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 webviewShareAPIDoneListener.run(resultCode == RESULT_OK);
                 webviewShareAPIDoneListener = null;
             }
+        } else if (requestCode == PRIME_MUSIC_DELETE_REQUEST_CODE) {
+            if (primeMusicDeleteResultListener != null) {
+                primeMusicDeleteResultListener.run(resultCode == RESULT_OK);
+                primeMusicDeleteResultListener = null;
+            }
         } else {
             ThemeEditorView editorView = ThemeEditorView.getInstance();
             if (editorView != null) {
@@ -7028,6 +7034,15 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private Utilities.Callback<Boolean> webviewShareAPIDoneListener;
     public void whenWebviewShareAPIDone(Utilities.Callback<Boolean> listener) {
         webviewShareAPIDoneListener = listener;
+    }
+
+    // PrimeGram Music: physically deleting a device-scanned file (as opposed to just
+    // hiding/excluding it) needs MediaStore.createDeleteRequest's system confirmation
+    // sheet on API 30+ - a real Activity-result round trip, same shape as the
+    // webview-share-API listener right above.
+    private Utilities.Callback<Boolean> primeMusicDeleteResultListener;
+    public void whenPrimeMusicDeleteResultReady(Utilities.Callback<Boolean> listener) {
+        primeMusicDeleteResultListener = listener;
     }
 
     @Override

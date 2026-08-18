@@ -69,6 +69,15 @@ public final class PrimeMusicTrackMenu {
 
         boolean removable = track.source == PrimeTrack.SOURCE_LOCAL || track.source == PrimeTrack.SOURCE_DEVICE;
 
+        addItem(activity, layout, track.liked ? "Убрать из понравившихся" : "Добавить в понравившиеся",
+                track.liked ? R.drawable.media_like_active : R.drawable.media_like, () -> {
+            dismiss.run();
+            PrimeMusicLibrary.setLiked(track.id, !track.liked);
+            if (callback != null) {
+                callback.onChanged();
+            }
+        });
+
         addItem(activity, layout, "Добавить в плейлист", R.drawable.msg_list, () -> {
             dismiss.run();
             showAddToPlaylist(activity, track);
@@ -98,8 +107,19 @@ public final class PrimeMusicTrackMenu {
             });
         }
 
+        // For a device-scanned track, "Удалить из библиотеки" and "Удалить файл с
+        // устройства" are two deliberately separate, differently-destructive actions
+        // (the user explicitly asked these not be merged/confused):
+        //  - this one only sets the `excluded` flag (soft, DB-only) - the file on disk
+        //    is never touched, and findOrAddDeviceTrack's own UPDATE never clears this
+        //    flag, so the next device sync will NOT silently bring the track back.
+        //    Reversible any time from the "Скрытые треки" management screen, since a
+        //    single tap in a popup menu is an easy way to hide the wrong track by
+        //    mistake.
+        //  - "Удалить файл с устройства" below actually deletes the file
+        //    (PrimeMusicFileDeleter) and is irreversible.
         if (track.source == PrimeTrack.SOURCE_DEVICE) {
-            addItem(activity, layout, "Не музыка", R.drawable.msg_block2, () -> {
+            addItem(activity, layout, "Удалить из библиотеки", R.drawable.msg_block2, () -> {
                 dismiss.run();
                 PrimeMusicLibrary.setExcluded(track.id, true);
                 if (callback != null) {
@@ -110,15 +130,21 @@ public final class PrimeMusicTrackMenu {
 
         if (removable) {
             ActionBarMenuSubItem deleteItem = new ActionBarMenuSubItem(activity, false, true);
-            deleteItem.setTextAndIcon("Удалить из библиотеки", R.drawable.msg_delete);
+            boolean physicalFile = track.source == PrimeTrack.SOURCE_DEVICE;
+            deleteItem.setTextAndIcon(physicalFile ? "Удалить файл с устройства" : "Удалить из библиотеки", R.drawable.msg_delete);
             int redColor = Theme.getColor(Theme.key_text_RedRegular, provider);
             deleteItem.setTextColor(redColor);
             deleteItem.setIconColor(redColor);
             deleteItem.setOnClickListener(v -> {
                 dismiss.run();
-                PrimeMusicLibrary.deleteTrack(track.id);
-                if (callback != null) {
-                    callback.onChanged();
+                if (physicalFile) {
+                    confirmPhysicalDelete(activity, track, callback);
+                } else {
+                    org.telegram.messenger.music.PrimeMusicFileDeleter.deletePermanently(activity, track, deleted -> {
+                        if (callback != null) {
+                            callback.onChanged();
+                        }
+                    });
                 }
             });
             layout.addView(deleteItem);
@@ -139,6 +165,21 @@ public final class PrimeMusicTrackMenu {
         if (callback != null) {
             window.setOnDismissListener(callback::onChanged);
         }
+    }
+
+    private static void confirmPhysicalDelete(Activity activity, PrimeTrack track, Callback callback) {
+        String title = track.title != null && !track.title.isEmpty() ? track.title : "трек";
+        new android.app.AlertDialog.Builder(activity)
+                .setTitle("Удалить файл")
+                .setMessage("Файл «" + title + "» будет удалён с устройства безвозвратно. Продолжить?")
+                .setPositiveButton("Удалить", (dialog, which) ->
+                        org.telegram.messenger.music.PrimeMusicFileDeleter.deletePermanently(activity, track, deleted -> {
+                            if (callback != null) {
+                                callback.onChanged();
+                            }
+                        }))
+                .setNegativeButton("Отмена", null)
+                .show();
     }
 
     private static void addItem(Activity activity, ActionBarPopupWindow.ActionBarPopupWindowLayout layout, String text, int icon, Runnable onClick) {
@@ -168,22 +209,7 @@ public final class PrimeMusicTrackMenu {
     }
 
     private static void promptNewPlaylistAndAdd(Activity activity, PrimeTrack track) {
-        org.telegram.ui.Components.EditTextBoldCursor input = new org.telegram.ui.Components.EditTextBoldCursor(activity);
-        input.setTextColor(0xFF000000);
-        int pad = AndroidUtilities.dp(16);
-        input.setPadding(pad, pad, pad, pad);
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("Новый плейлист")
-                .setView(input)
-                .setPositiveButton("Создать", (dialog, which) -> {
-                    String name = input.getText().toString().trim();
-                    if (!name.isEmpty()) {
-                        long playlistId = PrimeMusicLibrary.createPlaylist(name);
-                        PrimeMusicLibrary.addToPlaylist(playlistId, track.id);
-                    }
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
+        PrimeMusicPlaylistDialog.show(activity, playlistId -> PrimeMusicLibrary.addToPlaylist(playlistId, track.id));
     }
 
     /** Splices this track into the currently playing queue - only meaningful for

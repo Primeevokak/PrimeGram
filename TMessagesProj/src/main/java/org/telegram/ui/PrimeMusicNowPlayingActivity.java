@@ -43,14 +43,14 @@ import java.util.Locale;
  */
 public class PrimeMusicNowPlayingActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
 
-    public static final int COLOR_BG = 0xFF0B0B0F;
-    public static final int COLOR_CARD = 0xFF161622;
-    public static final int COLOR_TEXT_PRIMARY = 0xFFFFFFFF;
-    public static final int COLOR_TEXT_SECONDARY = 0xFF8E8E93;
-    public static final int COLOR_ACCENT_GREEN = 0xFF1DB954;
-    public static final int COLOR_ACCENT_PINK = 0xFFFF3B5C;
+    // Real namida colors (PrimeMusicTheme) - see its own doc for where every value
+    // traces back to in namida's actual source, replacing the invented near-black/
+    // neon palette this screen used to hardcode.
+    public static final int COLOR_TEXT_PRIMARY = org.telegram.messenger.music.PrimeMusicTheme.TEXT_PRIMARY;
+    public static final int COLOR_TEXT_SECONDARY = org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY;
 
     private FrameLayout root;
+    private View scrim;
     private ImageView blurBackgroundView;
     private FrameLayout coverFrame;
     private ImageView artView;
@@ -101,7 +101,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
                 return true;
             }
         };
-        root.setBackgroundColor(COLOR_BG);
+        root.setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent));
 
         // Full-bleed blurred cover behind everything - namida's single biggest visual
         // signature for this screen. Hidden until a real cover resolves (see
@@ -110,8 +110,9 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         blurBackgroundView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         blurBackgroundView.setVisibility(View.GONE);
         root.addView(blurBackgroundView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        View scrim = new View(context);
-        scrim.setBackgroundColor(0xCC0B0B0F);
+        scrim = new View(context);
+        scrim.setBackgroundColor(androidx.core.graphics.ColorUtils.setAlphaComponent(
+                org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent), 0xCC));
         root.addView(scrim, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         ScrollView scroll = new ScrollView(context);
@@ -147,16 +148,6 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         topTitle.setGravity(Gravity.CENTER);
         topBar.addView(topTitle, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
-        ImageView downloadButton = new ImageView(context);
-        downloadButton.setImageResource(R.drawable.msg_download);
-        downloadButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        downloadButton.setPadding(dp(8), dp(8), dp(8), dp(8));
-        downloadButton.setColorFilter(new PorterDuffColorFilter(COLOR_TEXT_SECONDARY, PorterDuff.Mode.SRC_IN));
-        downloadButton.setClickable(true);
-        downloadButton.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, Theme.RIPPLE_MASK_CIRCLE_20DP));
-        downloadButton.setOnClickListener(v -> downloadCurrentTrack(downloadButton));
-        topBar.addView(downloadButton, LayoutHelper.createLinear(40, 40));
-
         ImageView sleepTimerButton = new ImageView(context);
         sleepTimerButton.setImageResource(R.drawable.msg_mute);
         sleepTimerButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -172,7 +163,8 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         // ---- Cover: real embedded artwork when available, procedural gradient +
         //      glassmorphic disc placeholder otherwise (see applyCoverForTrack) ----
         coverFrame = new FrameLayout(context);
-        coverFrame.setBackground(Theme.createRoundRectDrawable(dp(24), 0xFF1A1A22));
+        coverFrame.setBackground(Theme.createRoundRectDrawable(dp(24),
+                org.telegram.messenger.music.PrimeMusicTheme.card(org.telegram.messenger.music.PrimeMusicTheme.currentAccent)));
         coverFrame.setOutlineProvider(org.telegram.messenger.utils.ViewOutlineProviderImpl.boundsWithPaddingRoundRect(0, dp(24)));
         coverFrame.setClipToOutline(true);
         content.addView(coverFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 320, 0, 16, 0, 0));
@@ -354,7 +346,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         // ---- Encased Card Container for Lyrics & Up Next Queue ----
         panelContainer = new FrameLayout(context);
         GradientDrawable panelBg = new GradientDrawable();
-        panelBg.setColor(COLOR_CARD);
+        panelBg.setColor(org.telegram.messenger.music.PrimeMusicTheme.card(org.telegram.messenger.music.PrimeMusicTheme.currentAccent));
         panelBg.setCornerRadius(dp(16));
         panelBg.setStroke(dp(1), 0x1AFFFFFF);
         panelContainer.setBackground(panelBg);
@@ -457,18 +449,6 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
                 .show();
     }
 
-    private void downloadCurrentTrack(View button) {
-        MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
-        if (playing == null) {
-            return;
-        }
-        if (PrimeMusicPlayback.resolveLocalTrackId(playing) != null) {
-            return;
-        }
-        button.setAlpha(0.4f);
-        org.telegram.messenger.music.PrimeMusicDownloader.downloadFromMessage(playing, (success, trackId) -> button.setAlpha(1f));
-    }
-
     private void showTagEditor() {
         MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
         if (playing == null || getParentActivity() == null) {
@@ -505,7 +485,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
     private void updateLikeIcon(boolean liked) {
         if (liked) {
             likeButton.setImageResource(R.drawable.media_like_active);
-            likeButton.setColorFilter(new PorterDuffColorFilter(COLOR_ACCENT_PINK, PorterDuff.Mode.SRC_IN));
+            likeButton.setColorFilter(new PorterDuffColorFilter(0xFFFF3B5C, PorterDuff.Mode.SRC_IN));
         } else {
             likeButton.setImageResource(R.drawable.media_like);
             likeButton.setColorFilter(new PorterDuffColorFilter(0x66FFFFFF, PorterDuff.Mode.SRC_IN));
@@ -626,8 +606,9 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
     }
 
     private void updateShuffleRepeatIcons() {
+        int accent = org.telegram.messenger.music.PrimeMusicTheme.currentAccent;
         shuffleButton.setImageResource(SharedConfig.shuffleMusic ? R.drawable.player_new_shuffle : R.drawable.player_new_shuffle_off);
-        shuffleButton.setColorFilter(new PorterDuffColorFilter(SharedConfig.shuffleMusic ? COLOR_ACCENT_GREEN : 0xFF6E6E77, PorterDuff.Mode.SRC_IN));
+        shuffleButton.setColorFilter(new PorterDuffColorFilter(SharedConfig.shuffleMusic ? accent : 0xFF6E6E77, PorterDuff.Mode.SRC_IN));
         int repeatIcon;
         switch (SharedConfig.repeatMode) {
             case 1:
@@ -641,7 +622,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
                 break;
         }
         repeatButton.setImageResource(repeatIcon);
-        repeatButton.setColorFilter(new PorterDuffColorFilter(SharedConfig.repeatMode != 0 ? COLOR_ACCENT_GREEN : 0xFF6E6E77, PorterDuff.Mode.SRC_IN));
+        repeatButton.setColorFilter(new PorterDuffColorFilter(SharedConfig.repeatMode != 0 ? accent : 0xFF6E6E77, PorterDuff.Mode.SRC_IN));
     }
 
     /** Resolves and applies the real cover (falls back to the procedural gradient) plus
@@ -702,7 +683,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         String title = playing.getMusicTitle();
         String artist = playing.getMusicAuthor();
         titleView.setText(title != null && !title.isEmpty() ? title : "Без названия");
-        artistView.setText(artist != null ? artist : "");
+        org.telegram.messenger.music.PrimeMusicArtistLabel.bind(artistView, artist);
 
         String seed = (title != null ? title : "") + "_" + (artist != null ? artist : "");
         long trackId = resolveTrackId(playing);
@@ -725,6 +706,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         getNotificationCenter().addObserver(this, NotificationCenter.messagePlayingPlayStateChanged);
         getNotificationCenter().addObserver(this, NotificationCenter.messagePlayingProgressDidChanged);
         getNotificationCenter().addObserver(this, NotificationCenter.messagePlayingDidReset);
+        org.telegram.messenger.music.PrimeMusicTheme.addAccentListener(accentListener);
         return super.onFragmentCreate();
     }
 
@@ -734,10 +716,35 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         getNotificationCenter().removeObserver(this, NotificationCenter.messagePlayingPlayStateChanged);
         getNotificationCenter().removeObserver(this, NotificationCenter.messagePlayingProgressDidChanged);
         getNotificationCenter().removeObserver(this, NotificationCenter.messagePlayingDidReset);
+        org.telegram.messenger.music.PrimeMusicTheme.removeAccentListener(accentListener);
         if (sleepTimer != null) {
             sleepTimer.cancel();
         }
         super.onFragmentDestroy();
+    }
+
+    /** See PrimeMusicHomeView's identical field for why this exists separately from
+     *  the synchronous messagePlayingDidStart handler below. */
+    private final Runnable accentListener = () -> {
+        applyAccentTint();
+        refreshAll();
+    };
+
+    /** Re-tints the chrome painted once at construction time with whatever the accent
+     *  was then - the root/scrim background and the lyrics/queue panel card all need
+     *  to follow the live per-track accent too (shuffle/repeat/like already read
+     *  {@code PrimeMusicTheme.currentAccent} fresh on every {@code refreshAll()} call,
+     *  no separate re-tint needed for those). */
+    private void applyAccentTint() {
+        int accent = org.telegram.messenger.music.PrimeMusicTheme.currentAccent;
+        root.setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.bg(accent));
+        scrim.setBackgroundColor(androidx.core.graphics.ColorUtils.setAlphaComponent(
+                org.telegram.messenger.music.PrimeMusicTheme.bg(accent), 0xCC));
+        GradientDrawable panelBg = new GradientDrawable();
+        panelBg.setColor(org.telegram.messenger.music.PrimeMusicTheme.card(accent));
+        panelBg.setCornerRadius(dp(16));
+        panelBg.setStroke(dp(1), 0x1AFFFFFF);
+        panelContainer.setBackground(panelBg);
     }
 
     @Override

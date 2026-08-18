@@ -16,6 +16,7 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.R;
 import org.telegram.messenger.music.PrimeAlbumArt;
 import org.telegram.messenger.music.PrimeMusicGroup;
+import org.telegram.messenger.music.PrimeMusicTheme;
 import org.telegram.ui.ActionBar.Theme;
 
 /** PrimeGram Music: one row in a grouped library browse list (album/artist/genre/
@@ -30,10 +31,11 @@ public class PrimeMusicGroupRow extends FrameLayout {
 
     public PrimeMusicGroupRow(Context context, Theme.ResourcesProvider resourcesProvider) {
         super(context);
+        int thumb = PrimeMusicTheme.TILE_THUMBNAIL_DP;
         setPadding(dp(16), dp(8), dp(16), dp(8));
 
         coverFrame = new FrameLayout(context);
-        addView(coverFrame, LayoutHelper.createFrame(48, 48, Gravity.CENTER_VERTICAL | Gravity.LEFT));
+        addView(coverFrame, LayoutHelper.createFrame(thumb, thumb, Gravity.CENTER_VERTICAL | Gravity.LEFT));
 
         coverIcon = new ImageView(context);
         coverIcon.setScaleType(ImageView.ScaleType.CENTER);
@@ -45,19 +47,19 @@ public class PrimeMusicGroupRow extends FrameLayout {
         texts.setOrientation(LinearLayout.VERTICAL);
         texts.setGravity(Gravity.CENTER_VERTICAL);
         addView(texts, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
-                Gravity.CENTER_VERTICAL | Gravity.LEFT, 64, 0, 40, 0));
+                Gravity.CENTER_VERTICAL | Gravity.LEFT, thumb + 16, 0, 40, 0));
 
         title = new TextView(context);
-        title.setTextColor(0xFFFFFFFF);
+        title.setTextColor(PrimeMusicTheme.TEXT_PRIMARY);
         title.setTypeface(AndroidUtilities.bold());
-        title.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_DIP, PrimeMusicTheme.SP_MEDIUM);
         title.setMaxLines(1);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         texts.addView(title);
 
         subtitle = new TextView(context);
-        subtitle.setTextColor(0xFF8E8E93);
-        subtitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+        subtitle.setTextColor(PrimeMusicTheme.TEXT_TERTIARY);
+        subtitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, PrimeMusicTheme.SP_SMALL);
         subtitle.setMaxLines(1);
         subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         texts.addView(subtitle, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
@@ -69,12 +71,19 @@ public class PrimeMusicGroupRow extends FrameLayout {
 
         setClickable(true);
         setBackground(Theme.createSelectorDrawable(0x18FFFFFF, Theme.RIPPLE_MASK_ALL));
-        setMinimumHeight(dp(64));
+        setMinimumHeight(dp(PrimeMusicTheme.TILE_CONTENT_HEIGHT_DP));
     }
 
     public void bind(PrimeMusicGroup group) {
-        title.setText(group.title != null ? group.title : "");
+        org.telegram.messenger.music.PrimeMusicArtistLabel.bind(title, group.title);
         subtitle.setText(group.subtitle != null ? group.subtitle : "");
         PrimeAlbumArt.applyCover(coverFrame, coverIcon, group.coverPath, group.title, 10);
+    }
+
+    /** See {@link PrimeMusicTrackRow#createRowLayoutParams()}'s identical doc. */
+    public static LinearLayout.LayoutParams createRowLayoutParams() {
+        LinearLayout.LayoutParams lp = LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT);
+        lp.bottomMargin = dp(PrimeMusicTheme.TILE_MARGIN_DP);
+        return lp;
     }
 }

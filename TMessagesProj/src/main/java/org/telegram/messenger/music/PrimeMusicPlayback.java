@@ -116,4 +116,27 @@ public final class PrimeMusicPlayback {
         single.add(track);
         playQueue(account, single, 0);
     }
+
+    /** Cheap, read-only "is this the track playing right now" check for list-row
+     *  highlighting (namida's own track tile does the same - a colored background +
+     *  brighter text on whichever row is currently playing, confirmed in
+     *  {@code track_tile.dart}'s {@code isTrackCurrentlyPlaying} logic). Deliberately
+     *  does NOT go through {@code PrimeMusicLibrary.findOrAddTelegramTrack} the way the
+     *  Now Playing screen's own track-id resolution does - that inserts a DB row on
+     *  first call, which would be a real write on every single row bind in a long list,
+     *  for a check that runs on every rebind. */
+    public static boolean isPlayingThisTrack(PrimeTrack track) {
+        MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+        if (playing == null || track == null) {
+            return false;
+        }
+        Long localId = resolveLocalTrackId(playing);
+        if (localId != null) {
+            return localId == track.id;
+        }
+        if (track.source == PrimeTrack.SOURCE_TELEGRAM) {
+            return playing.getDialogId() == track.dialogId && playing.getId() == track.messageId;
+        }
+        return false;
+    }
 }

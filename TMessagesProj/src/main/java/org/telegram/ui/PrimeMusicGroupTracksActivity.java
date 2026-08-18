@@ -50,7 +50,7 @@ public class PrimeMusicGroupTracksActivity extends BaseFragment {
         });
 
         ScrollView scrollView = new ScrollView(context);
-        scrollView.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
+        scrollView.setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent));
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(container, LayoutHelper.createScroll(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, android.view.Gravity.TOP));
@@ -66,13 +66,16 @@ public class PrimeMusicGroupTracksActivity extends BaseFragment {
         for (PrimeTrack track : tracks) {
             PrimeMusicTrackRow row = new PrimeMusicTrackRow(getContext(), getResourceProvider());
             row.bind(track);
-            row.setOnClickListener(v -> PrimeMusicPlayback.playQueue(UserConfig.selectedAccount, tracks, tracks.indexOf(track)));
+            row.setOnClickListener(v -> {
+                PrimeMusicPlayback.playQueue(UserConfig.selectedAccount, tracks, tracks.indexOf(track));
+                reload();
+            });
             row.getLikeIcon().setOnClickListener(v -> {
                 PrimeMusicLibrary.setLiked(track.id, !track.liked);
                 reload();
             });
             row.bindDefaultMenu(getParentActivity(), track, this::reload);
-            container.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            container.addView(row, PrimeMusicTrackRow.createRowLayoutParams());
         }
     }
 }

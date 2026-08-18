@@ -1,6 +1,7 @@
 package org.telegram.ui;
 
 import android.content.Context;
+import android.view.MotionEvent;
 import android.view.View;
 
 import org.telegram.ui.ActionBar.ActionBar;
@@ -14,20 +15,43 @@ import org.telegram.ui.Components.PrimeMusicHomeView;
  * the actual home screen (recommendations/playlists/liked songs, dark visual style)
  * inside {@link #createView}.
  */
-public class PrimeMusicActivity extends BaseFragment {
+public class PrimeMusicActivity extends BaseFragment implements MainTabsActivity.TabFragmentDelegate {
+
+    private PrimeMusicHomeView homeView;
 
     @Override
     public View createView(Context context) {
         actionBar.setAddToContainer(false);
         actionBar.setCastShadows(false);
 
-        PrimeMusicHomeView homeView = new PrimeMusicHomeView(context, this);
+        homeView = new PrimeMusicHomeView(context, this);
         fragmentView = homeView;
         return fragmentView;
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        // Picks up anything changed on a pushed screen (a deleted/renamed playlist, a
+        // synced library, a like toggled elsewhere) once the user comes back here -
+        // reloadData() itself is cheap (async DB read, see its own doc).
+        if (homeView != null) {
+            homeView.reloadData();
+        }
+    }
+
+    @Override
     public boolean isLightStatusBar() {
         return false;
+    }
+
+    // MainTabsActivity refuses a tab-swipe away from any fragment that doesn't opt in
+    // here (canScrollInternal defaults to false for non-delegates) - every other real
+    // tab (Chats/Feed/Settings/Profile) already implements this; Music never did, which
+    // is why swiping INTO it worked (that's gated by canSwipeToPosition, not this) but
+    // swiping back OUT never did.
+    @Override
+    public boolean canParentTabsSlide(MotionEvent ev, boolean forward) {
+        return true;
     }
 }

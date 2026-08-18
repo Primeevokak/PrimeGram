@@ -109,7 +109,18 @@ _PRIMITIVE_WRAPPERS = {
 def _resolve_java_type(type_string):
     """``"int"`` or ``"java.lang.String"`` to the real ``Class`` object - the primitives by way of
     their boxed wrapper's ``TYPE`` field, since that is the only place Java keeps a ``Class`` for
-    something that is not itself a class."""
+    something that is not itself a class.
+
+    ``"void"`` is not a class either, and unlike the other primitives Chaquopy's own ``jclass``
+    refuses to reflect it at all (``ValueError: Cannot reflect a primitive type``) - there is no
+    ``Void.TYPE``-style wrapper trick available the way there is for ``int``/``boolean``/etc.
+    Every caller here already treats a falsy return type as "no return class" (``None``), so
+    mapping ``"void"`` to ``None`` here means a plugin author writing ``-> "void"`` (a real
+    .elyx plugin, meeow_reswaga/reSwaga, does exactly this on a ``@jmethod``) gets the same
+    "void method" result as leaving the return type off entirely, instead of a crash.
+    """
+    if type_string == "void":
+        return None
     from java import jclass
     wrapper = _PRIMITIVE_WRAPPERS.get(type_string)
     if wrapper is not None:
@@ -465,9 +476,21 @@ class Base:
         preconstructor_fns = None
         if preconstructors is None:
             preconstructors, preconstructor_fns = _collect_preconstructors(cls)
+        # Chaquopy's own static-overload resolution picks a Java overload by scoring
+        # how well each argument's *runtime* type matches candidate parameter types -
+        # a bare Python `None` carries no type information at all, so with several
+        # `None`s in the same call (interfaces/fields/mvel/overloads/preconstructors
+        # all empty is the common case for a simple class) it can end up unable to
+        # decide between this method's several same-named overloads even though the
+        # argument *count* unambiguously picks one - confirmed by a real .elyx plugin
+        # (meeow_reswaga/reSwaga) crashing on exactly this call with "cannot be
+        # applied" against all six overloads simultaneously. Passing a real (possibly
+        # empty) Python list instead of `None` is unambiguous - `createProxyClass`'s
+        # own Java body already treats an empty list identically to null (a plain
+        # `if (x != null)` guard before each use), so this changes nothing behaviorally.
         proxy_class = PrimeClassProxy.createProxyClass(
-            java_class, list(interfaces) or None, list(methods), fields or None, mvel_methods or None,
-            new_methods or None, overloads or None, preconstructors or None,
+            java_class, list(interfaces), list(methods), fields or [], mvel_methods or [],
+            new_methods or [], overloads or [], preconstructors or [],
             _ConstructorHandler(cls, java_to_python, preconstructor_fns))
         cls.__jproxy_class__ = proxy_class
         return proxy_class

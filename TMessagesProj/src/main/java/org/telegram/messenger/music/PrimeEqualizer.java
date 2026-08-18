@@ -7,6 +7,7 @@ import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MediaController;
 import org.telegram.messenger.NotificationCenter;
+import org.telegram.messenger.UserConfig;
 import org.telegram.ui.Components.VideoPlayer;
 
 /**
@@ -25,12 +26,29 @@ public final class PrimeEqualizer implements NotificationCenter.NotificationCent
     private static final String PREFS = "mainconfig";
     private static final String KEY_ENABLED = "prime_music_eq_enabled";
     private static final String KEY_BAND_PREFIX = "prime_music_eq_band_";
+    // Band layout (count/frequencies/range) is fixed per device+build, not per
+    // playback session - cached here the first time a real Equalizer attaches so the
+    // settings screen keeps working (sliders visible, editable) even when nothing is
+    // currently playing, instead of only right after a track started.
+    private static final String KEY_CACHED_BAND_COUNT = "prime_music_eq_cached_band_count";
+    private static final String KEY_CACHED_RANGE_MIN = "prime_music_eq_cached_range_min";
+    private static final String KEY_CACHED_RANGE_MAX = "prime_music_eq_cached_range_max";
+    private static final String KEY_CACHED_FREQ_PREFIX = "prime_music_eq_cached_freq_";
 
     private Equalizer equalizer;
     private short bandCount;
 
     public static void register() {
-        NotificationCenter.getGlobalInstance().addObserver(instance, NotificationCenter.messagePlayingDidStart);
+        // messagePlayingDidStart is posted per-account (MediaController posts via
+        // NotificationCenter.getInstance(messageObject.currentAccount)), never on the
+        // global instance - registering there (the original, wrong copy of a stale
+        // precedent) meant attach() was never actually called on a real playback start,
+        // so the equalizer looked entirely nonfunctional. Mirrors the working pattern
+        // already used for this exact notification elsewhere (FragmentContextView,
+        // AudioPlayerAlert, SharedAudioCell, etc.) - loop every account slot.
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            NotificationCenter.getInstance(a).addObserver(instance, NotificationCenter.messagePlayingDidStart);
+        }
     }
 
     private PrimeEqualizer() {
@@ -49,32 +67,42 @@ public final class PrimeEqualizer implements NotificationCenter.NotificationCent
         instance.applyEnabledState();
     }
 
-    /** @return band count, or 0 if no equalizer is currently attached (nothing playing
-     *  yet) - the settings screen should re-check after playback starts. */
+    /** @return band count - the live value while a real {@code Equalizer} is attached,
+     *  otherwise whatever was cached the last time one was (band layout is fixed per
+     *  device/build, not per playback session, so this is stable across app restarts),
+     *  or 0 if a track has genuinely never played with the equalizer wired up yet. */
     public static short getBandCount() {
-        return instance.equalizer != null ? instance.bandCount : 0;
+        if (instance.equalizer != null) {
+            return instance.bandCount;
+        }
+        return (short) prefs().getInt(KEY_CACHED_BAND_COUNT, 0);
     }
 
     public static short[] getBandLevelRange() {
-        if (instance.equalizer == null) {
-            return new short[]{-1500, 1500};
+        if (instance.equalizer != null) {
+            try {
+                return instance.equalizer.getBandLevelRange();
+            } catch (Throwable t) {
+                // fall through to cache
+            }
         }
-        try {
-            return instance.equalizer.getBandLevelRange();
-        } catch (Throwable t) {
-            return new short[]{-1500, 1500};
+        int min = prefs().getInt(KEY_CACHED_RANGE_MIN, Integer.MIN_VALUE);
+        int max = prefs().getInt(KEY_CACHED_RANGE_MAX, Integer.MIN_VALUE);
+        if (min != Integer.MIN_VALUE && max != Integer.MIN_VALUE) {
+            return new short[]{(short) min, (short) max};
         }
+        return new short[]{-1500, 1500};
     }
 
     public static int getCenterFreqHz(short band) {
-        if (instance.equalizer == null) {
-            return 0;
+        if (instance.equalizer != null) {
+            try {
+                return instance.equalizer.getCenterFreq(band) / 1000;
+            } catch (Throwable t) {
+                // fall through to cache
+            }
         }
-        try {
-            return instance.equalizer.getCenterFreq(band) / 1000;
-        } catch (Throwable t) {
-            return 0;
-        }
+        return prefs().getInt(KEY_CACHED_FREQ_PREFIX + band, 0);
     }
 
     public static short getBandLevel(short band) {
@@ -120,9 +148,16 @@ public final class PrimeEqualizer implements NotificationCenter.NotificationCent
             }
             equalizer = new Equalizer(0, sessionId);
             bandCount = equalizer.getNumberOfBands();
+            SharedPreferences.Editor editor = prefs().edit();
+            editor.putInt(KEY_CACHED_BAND_COUNT, bandCount);
+            short[] range = equalizer.getBandLevelRange();
+            editor.putInt(KEY_CACHED_RANGE_MIN, range[0]);
+            editor.putInt(KEY_CACHED_RANGE_MAX, range[1]);
             for (short band = 0; band < bandCount; band++) {
                 equalizer.setBandLevel(band, getBandLevel(band));
+                editor.putInt(KEY_CACHED_FREQ_PREFIX + band, equalizer.getCenterFreq(band) / 1000);
             }
+            editor.apply();
             equalizer.setEnabled(isEnabled());
         } catch (Throwable t) {
             // Some devices/ROMs don't provide the effect at all - music still plays

@@ -16,20 +16,30 @@ import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.R;
+import org.telegram.messenger.music.PrimeMusicTheme;
 import org.telegram.ui.ActionBar.Theme;
 
 /**
- * PrimeGram Music: a premium Spotify-style square-cover card for carousels.
- * Uses procedural multi-stop gradients matching the seed hash when real artwork is absent,
- * with a distinct outlined/dashed style for the "+ Новый плейлист" action card.
+ * PrimeGram Music: a square-cover card for carousels, matching namida's real
+ * {@code album_card.dart} composition - card color/elevation/radius from
+ * {@link PrimeMusicTheme}, the same bottom-right quick-play badge every namida album
+ * card has. namida itself has no synthetic-cover system for missing artwork (just a
+ * plain icon on the card color) - tried faithfully once, the user asked for the
+ * colorful per-track synthetic cover back instead of a flat square, so the fallback
+ * here is a deliberate deviation from namida: a deterministic multi-stop gradient
+ * keyed on the track/playlist's own name, so a track with no embedded art still reads
+ * as "this track" rather than every missing-cover item looking identical.
  */
 public class PrimeMusicCardCell extends LinearLayout {
 
     public static final int CARD_SIZE_DP = 132;
-    public static final int CARD_RADIUS_DP = 14;
+    public static final int CARD_RADIUS_DP = PrimeMusicTheme.CARD_RADIUS_DP;
 
-    // Curated high-vibrancy music gradients (Spotify / Apple Music style)
-    public static final int[][] GRADIENT_PALETTES = new int[][]{
+    // Curated high-vibrancy gradients for the synthetic-cover fallback, picked by a
+    // deterministic hash of the track/playlist's own seed string - restored at the
+    // user's explicit request after a faithful-to-namida flat placeholder read as an
+    // empty square rather than a real "cover."
+    private static final int[][] GRADIENT_PALETTES = new int[][]{
             {0xFF8A2387, 0xFFE94057, 0xFFF27121}, // Sunset Punch
             {0xFF00C6FF, 0xFF0072FF},             // Cyber Blue
             {0xFF11998E, 0xFF38EF7D},             // Neon Mint
@@ -46,6 +56,7 @@ public class PrimeMusicCardCell extends LinearLayout {
     private final ImageView artView;
     private final ImageView coverIcon;
     private final FrameLayout iconGlowDisc;
+    private final ImageView playBadge;
     private final TextView title;
     private final TextView subtitle;
 
@@ -73,25 +84,71 @@ public class PrimeMusicCardCell extends LinearLayout {
         coverIcon.setScaleType(ImageView.ScaleType.CENTER);
         iconGlowDisc.addView(coverIcon, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
+        // Bottom-right quick-play badge - namida's own AlbumCard puts one on every
+        // artwork tile (a circular translucent button that plays the item directly,
+        // distinct from tapping the card itself which opens it). Hidden unless a
+        // caller wires a click handler via bind()'s onPlayBadgeClick.
+        playBadge = new ImageView(context);
+        playBadge.setImageResource(R.drawable.ic_action_play);
+        playBadge.setScaleType(ImageView.ScaleType.CENTER);
+        playBadge.setPadding(dp(4), dp(4), dp(4), dp(4));
+        playBadge.setColorFilter(new PorterDuffColorFilter(0xFFFFFFFF, PorterDuff.Mode.SRC_IN));
+        playBadge.setBackground(Theme.createCircleDrawable(dp(26), 0x99000000));
+        playBadge.setClickable(true);
+        playBadge.setVisibility(GONE);
+        coverFrame.addView(playBadge, LayoutHelper.createFrame(26, 26, Gravity.BOTTOM | Gravity.RIGHT, 0, 0, 6, 6));
+
         title = new TextView(context);
-        title.setTextColor(0xFFFFFFFF);
+        title.setTextColor(PrimeMusicTheme.TEXT_PRIMARY);
         title.setTypeface(AndroidUtilities.bold());
-        title.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13.5f);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_DIP, PrimeMusicTheme.SP_MEDIUM);
         title.setMaxLines(1);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         addView(title, LayoutHelper.createLinear(CARD_SIZE_DP, LayoutHelper.WRAP_CONTENT, 0, 8, 0, 0));
 
         subtitle = new TextView(context);
-        subtitle.setTextColor(0xFF8E8E93);
-        subtitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+        subtitle.setTextColor(PrimeMusicTheme.TEXT_TERTIARY);
+        subtitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, PrimeMusicTheme.SP_SMALL);
         subtitle.setMaxLines(1);
         subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         addView(subtitle, LayoutHelper.createLinear(CARD_SIZE_DP, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
 
         setClickable(true);
-        setBackground(Theme.createSelectorDrawable(0x20FFFFFF, Theme.RIPPLE_MASK_ALL));
+        setLongClickable(true);
+        // namida's real card (themes.dart:33-42) is one elevated surface behind both
+        // the artwork and the text block below it, not just a ripple over nothing -
+        // artwork sits flush against the card edges (namida's own composition), only
+        // the text below gets horizontal breathing room (already applied to
+        // title/subtitle above via their own left/right layout, not this padding).
+        //
+        // No ripple/press-highlight layer here on purpose - a long press now opens a
+        // real action menu (see HomeView's long-click wiring), and the stock ripple
+        // used to sit fully spread for the entire hold since nothing consumed the
+        // long-press before, reading as a stuck white outline - the user explicitly
+        // asked for that to go.
+        //
+        // The 14dp on the right is this cell's own inter-card gap (setPadding above),
+        // not part of the visible card - a background/outline drawn to the View's full
+        // bounds (the normal Android behavior, ignoring padding) would paint straight
+        // across that gap and make adjacent cards read as touching. Insetting the
+        // background/outline by that same 14dp keeps the fill exactly where the
+        // artwork+text actually are.
+        GradientDrawable cardFill = new GradientDrawable();
+        cardFill.setColor(PrimeMusicTheme.card(PrimeMusicTheme.currentAccent));
+        cardFill.setCornerRadius(dp(CARD_RADIUS_DP));
+        setBackground(new android.graphics.drawable.InsetDrawable(cardFill, 0, 0, dp(14), 0));
+        setElevation(dp(3));
+        setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth() - dp(14), view.getHeight(), dp(CARD_RADIUS_DP));
+            }
+        });
     }
 
+    /** A deterministic synthetic cover for a track/playlist with no real artwork -
+     *  same palette on repeat views of the same item (hashed from {@code seed}, not
+     *  random), so it reads as a stable "identity" rather than a placeholder. */
     public static GradientDrawable createProceduralCoverDrawable(String seed, int cornerRadiusDp) {
         int index = 0;
         if (seed != null && !seed.isEmpty()) {
@@ -104,11 +161,34 @@ public class PrimeMusicCardCell extends LinearLayout {
     }
 
     public void bind(String titleText, String subtitleText) {
-        bind(titleText, subtitleText, null);
+        bind(titleText, subtitleText, null, null);
     }
 
     public void bind(String titleText, String subtitleText, String coverPath) {
+        bind(titleText, subtitleText, coverPath, null);
+    }
+
+    public void bind(String titleText, String subtitleText, String coverPath, Runnable onPlayBadgeClick) {
         boolean isAddAction = "+ Новый плейлист".equals(titleText);
+
+        if (onPlayBadgeClick != null) {
+            playBadge.setVisibility(VISIBLE);
+            playBadge.setOnClickListener(v -> onPlayBadgeClick.run());
+        } else {
+            playBadge.setVisibility(GONE);
+            playBadge.setOnClickListener(null);
+        }
+
+        int accent = PrimeMusicTheme.currentAccent;
+
+        // Re-tint the card surface for the live accent - it may have changed since
+        // this cell was constructed (a different track is now playing). Inset by the
+        // same 14dp inter-card gap the constructor's own background uses - see its
+        // doc for why the fill can't just paint to the View's full bounds.
+        GradientDrawable cardFill = new GradientDrawable();
+        cardFill.setColor(PrimeMusicTheme.card(accent));
+        cardFill.setCornerRadius(dp(CARD_RADIUS_DP));
+        setBackground(new android.graphics.drawable.InsetDrawable(cardFill, 0, 0, dp(14), 0));
 
         if (isAddAction) {
             // Distinct sleek outlined/dashed card for "Add Playlist"
@@ -120,20 +200,21 @@ public class PrimeMusicCardCell extends LinearLayout {
             coverFrame.setBackground(outline);
 
             iconGlowDisc.setVisibility(VISIBLE);
-            iconGlowDisc.setBackground(Theme.createCircleDrawable(dp(44), 0x221DB954));
+            iconGlowDisc.setBackground(Theme.createCircleDrawable(dp(44), (accent & 0x00FFFFFF) | 0x22000000));
             coverIcon.setImageResource(R.drawable.msg_add);
-            coverIcon.setColorFilter(new PorterDuffColorFilter(0xFF1DB954, PorterDuff.Mode.SRC_IN));
+            coverIcon.setColorFilter(new PorterDuffColorFilter(accent | 0xFF000000, PorterDuff.Mode.SRC_IN));
 
             title.setText("Новый плейлист");
-            title.setTextColor(0xFF1DB954);
-            subtitle.setText("Создать");
-            subtitle.setTextColor(0x881DB954);
+            title.setTextColor(accent | 0xFF000000);
+            subtitle.setText("");
         } else {
             String seed = (titleText != null ? titleText : "") + (subtitleText != null ? subtitleText : "");
 
             // Paint the placeholder immediately - the real cover (if any) decodes off the
             // main thread and swaps in once ready, see PrimeAlbumArt's own doc for why a
             // synchronous decode per card here was the "opening the player lags" bug.
+            // The placeholder itself is plain (card-colored tile + note icon) - namida
+            // has no per-item gradient/color-variety system for missing artwork.
             artView.setImageDrawable(null);
             coverFrame.setBackground(createProceduralCoverDrawable(seed, CARD_RADIUS_DP));
             iconGlowDisc.setVisibility(VISIBLE);
@@ -158,9 +239,9 @@ public class PrimeMusicCardCell extends LinearLayout {
             }
 
             title.setText(titleText != null ? titleText : "");
-            title.setTextColor(0xFFFFFFFF);
+            title.setTextColor(PrimeMusicTheme.TEXT_PRIMARY);
             subtitle.setText(subtitleText != null ? subtitleText : "");
-            subtitle.setTextColor(0xFF8E8E93);
+            subtitle.setTextColor(PrimeMusicTheme.TEXT_TERTIARY);
         }
     }
 }

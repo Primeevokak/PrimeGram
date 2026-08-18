@@ -108,6 +108,18 @@ public final class PrimeMusicLibrary {
         db().write("UPDATE tracks SET excluded = ? WHERE id = ?", excluded ? 1 : 0, trackId);
     }
 
+    /** Every track currently hidden via {@link #setExcluded} - backs a management
+     *  screen so a track hidden by mistake (a real risk: the action is one tap in a
+     *  popup menu, easy to hit on the wrong row) can be found and restored, instead of
+     *  the exclude flag being a one-way trip with no way back short of re-adding the
+     *  file to the device. */
+    public static List<PrimeTrack> getExcludedTracks() {
+        List<PrimeTrack> tracks = new ArrayList<>();
+        db().queryEach("SELECT * FROM tracks WHERE excluded = 1 ORDER BY added_at DESC", new Object[]{},
+                cursor -> tracks.add(readTrack(cursor)));
+        return tracks;
+    }
+
     public static void deleteTrack(long trackId) {
         db().write("DELETE FROM tracks WHERE id = ?", trackId);
         db().write("DELETE FROM track_tags WHERE track_id = ?", trackId);
@@ -384,15 +396,26 @@ public final class PrimeMusicLibrary {
     // ---- Recommendations ----
     //
     // A weighted-sum heuristic over recency-decayed play frequency, a liked-track
-    // boost, and a tag-affinity term (tracks sharing tags with the user's own
-    // most-played/liked tracks score higher) - genuinely personalized, updates as
-    // listening habits change, without needing an ML model this app has no
-    // infrastructure for. All done in-memory: library size is a personal collection
-    // (hundreds of tracks at most), not worth round-tripping SQL window functions for.
+    // boost, a tag-affinity term (tracks sharing mood tags with the user's own
+    // most-played/liked tracks score higher), and an artist/genre-affinity term -
+    // genuinely personalized, updates as listening habits change, without needing an
+    // ML model this app has no infrastructure for. All done in-memory: library size is
+    // a personal collection (hundreds of tracks at most), not worth round-tripping SQL
+    // window functions for.
+    //
+    // Tags require the user to manually tag tracks, so a library with zero tags (the
+    // common case - tagging is opt-in) previously fell back to nothing beyond raw play
+    // count/likes, which barely reads as "recommendations" for a fresh or lightly-tagged
+    // library. Artist and genre are metadata nearly every track already has (from ID3
+    // tags or the Telegram message itself), so affinity computed the same way over
+    // those two fields gives a real second signal - "more from artists/genres you
+    // already listen to" - that works without the user doing anything extra.
 
     private static final double LIKED_BOOST = 3.0;
     private static final double HALF_LIFE_DAYS = 7.0;
     private static final double TAG_AFFINITY_WEIGHT = 0.5;
+    private static final double ARTIST_AFFINITY_WEIGHT = 0.35;
+    private static final double GENRE_AFFINITY_WEIGHT = 0.15;
 
     public static List<PrimeTrack> getRecommendations(int limit) {
         List<PrimeTrack> allTracks = getAllTracks();
@@ -431,6 +454,25 @@ public final class PrimeMusicLibrary {
             }
         }
 
+        // Same affinity computation as tags above, keyed by artist/genre string instead
+        // of a tag id - skips unknown/empty values so a device-scanned track with no
+        // ID3 metadata never pollutes another track's score via a shared "<unknown>"
+        // bucket.
+        Map<String, Double> artistWeight = new HashMap<>();
+        Map<String, Double> genreWeight = new HashMap<>();
+        for (PrimeTrack track : allTracks) {
+            double score = baseScoreByTrack.getOrDefault(track.id, 0.0);
+            if (score <= 0) {
+                continue;
+            }
+            if (!PrimeMusicArtistLabel.isUnknown(track.artist)) {
+                artistWeight.merge(track.artist, score, Double::sum);
+            }
+            if (track.genre != null && !track.genre.isEmpty()) {
+                genreWeight.merge(track.genre, score, Double::sum);
+            }
+        }
+
         Map<Long, Double> finalScore = new HashMap<>();
         for (PrimeTrack track : allTracks) {
             double score = baseScoreByTrack.getOrDefault(track.id, 0.0);
@@ -440,6 +482,14 @@ public final class PrimeMusicLibrary {
                     double affinity = tagWeight.getOrDefault(tagId, 0.0) - score;
                     score += affinity * TAG_AFFINITY_WEIGHT / Math.max(1, tags.size());
                 }
+            }
+            if (!PrimeMusicArtistLabel.isUnknown(track.artist)) {
+                double affinity = artistWeight.getOrDefault(track.artist, 0.0) - score;
+                score += affinity * ARTIST_AFFINITY_WEIGHT;
+            }
+            if (track.genre != null && !track.genre.isEmpty()) {
+                double affinity = genreWeight.getOrDefault(track.genre, 0.0) - score;
+                score += affinity * GENRE_AFFINITY_WEIGHT;
             }
             finalScore.put(track.id, score);
         }

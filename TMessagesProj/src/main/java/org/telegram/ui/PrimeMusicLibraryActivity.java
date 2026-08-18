@@ -55,7 +55,7 @@ public class PrimeMusicLibraryActivity extends BaseFragment {
         });
 
         FrameLayout root = new FrameLayout(context);
-        root.setBackgroundColor(0xFF0B0B0F);
+        root.setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent));
 
         LinearLayout column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -114,13 +114,16 @@ public class PrimeMusicLibraryActivity extends BaseFragment {
         for (PrimeTrack track : tracks) {
             PrimeMusicTrackRow row = new PrimeMusicTrackRow(getContext(), getResourceProvider());
             row.bind(track);
-            row.setOnClickListener(v -> PrimeMusicPlayback.playQueue(UserConfig.selectedAccount, tracks, tracks.indexOf(track)));
+            row.setOnClickListener(v -> {
+                PrimeMusicPlayback.playQueue(UserConfig.selectedAccount, tracks, tracks.indexOf(track));
+                showSegment(SEGMENT_TRACKS);
+            });
             row.getLikeIcon().setOnClickListener(v -> {
                 PrimeMusicLibrary.setLiked(track.id, !track.liked);
                 showSegment(SEGMENT_TRACKS);
             });
             row.bindDefaultMenu(getParentActivity(), track, () -> showSegment(SEGMENT_TRACKS));
-            listContainer.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            listContainer.addView(row, PrimeMusicTrackRow.createRowLayoutParams());
         }
     }
 
@@ -129,7 +132,7 @@ public class PrimeMusicLibraryActivity extends BaseFragment {
             PrimeMusicGroupRow row = new PrimeMusicGroupRow(getContext(), getResourceProvider());
             row.bind(group);
             row.setOnClickListener(v -> presentFragment(new PrimeMusicGroupTracksActivity(groupType, group.key, group.title)));
-            listContainer.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            listContainer.addView(row, PrimeMusicGroupRow.createRowLayoutParams());
         }
     }
 
