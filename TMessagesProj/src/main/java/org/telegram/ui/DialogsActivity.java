@@ -599,6 +599,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private ActionBarMenuSubItem readItem;
     @Nullable
     private ActionBarMenuSubItem blockItem;
+    @Nullable
+    private ActionBarMenuSubItem encryptChatItem;
 
     private float additionalFloatingTranslation;
     private float floatingButtonPanOffset;
@@ -727,6 +729,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private final static int add_to_folder = 109;
     private final static int remove_from_folder = 110;
     private final static int community_ungroup = 111;
+    private final static int encrypt_chat = 112;
 
     private final static int ARCHIVE_ITEM_STATE_PINNED = 0;
     private final static int ARCHIVE_ITEM_STATE_SHOWED = 1;
@@ -4411,6 +4414,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     hideActionMode(false);
                 } else if (id == pin || id == read || id == delete || id == clear || id == mute || id == archive || id == block || id == archive2 || id == pin2) {
                     performSelectedDialogsAction(selectedDialogs, id, true, false);
+                } else if (id == encrypt_chat) {
+                    if (selectedDialogs.size() == 1) {
+                        long targetDialogId = selectedDialogs.get(0);
+                        if (org.telegram.messenger.PrimeChatPin.isLocked(targetDialogId)) {
+                            org.telegram.ui.Components.PrimeChatPinDialog.showRemove(getParentActivity(), targetDialogId, () -> updateCounters(false));
+                        } else {
+                            org.telegram.ui.Components.PrimeChatPinDialog.showEnroll(getParentActivity(), targetDialogId, () -> hideActionMode(false));
+                        }
+                    }
                 }
             }
         });
@@ -7193,6 +7205,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         readItem = otherItem.addSubItem(read, R.drawable.msg_markread, LocaleController.getString(R.string.MarkAsRead));
         clearItem = otherItem.addSubItem(clear, R.drawable.msg_clear, LocaleController.getString(R.string.ClearHistory));
         blockItem = otherItem.addSubItem(block, R.drawable.msg_block, LocaleController.getString(R.string.BlockUser));
+        // PrimeGram: per-chat PIN lock - only ever makes sense for exactly one selected
+        // dialog (a PIN protects one chat, not "these N chats" as a group), so visibility
+        // is gated in updateCounters() alongside the selection count, not shown here.
+        encryptChatItem = otherItem.addSubItem(encrypt_chat, R.drawable.msg_pin_code, "Зашифровать");
 
         muteItem.setOnLongClickListener(e -> {
             performSelectedDialogsAction(selectedDialogs, mute, true, true);
@@ -10572,6 +10588,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 blockItem.setVisibility(View.GONE);
             } else {
                 blockItem.setVisibility(View.VISIBLE);
+            }
+        }
+        if (encryptChatItem != null) {
+            if (count != 1) {
+                encryptChatItem.setVisibility(View.GONE);
+            } else {
+                encryptChatItem.setVisibility(View.VISIBLE);
+                boolean locked = org.telegram.messenger.PrimeChatPin.isLocked(selectedDialogs.get(0));
+                encryptChatItem.setTextAndIcon(locked ? "Снять шифрование" : "Зашифровать", R.drawable.msg_pin_code);
             }
         }
         if (removeFromFolderItem != null) {

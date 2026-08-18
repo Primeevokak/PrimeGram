@@ -38,3 +38,7 @@ __pycache__/
 # reference for the custom Music tab's UI/architecture - not a submodule.
 /namida-repo/
 
+# Same deal: yandex-music-api (MarshalX/yandex-music-api), an unofficial Yandex Music
+# API client, kept as a local reference for the Music tab - not a submodule.
+/yandex-music-api-repo/
+

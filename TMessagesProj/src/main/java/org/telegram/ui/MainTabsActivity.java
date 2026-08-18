@@ -731,7 +731,16 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             // Building these tabs early costs memory that a tight device may not have to spare.
             return;
         }
-        final int[] positionsToPreload = {POSITION_PROFILE, POSITION_CALLS_OR_SETTINGS};
+        // Music (like Feed) is hidden by default, so it's excluded from this list
+        // whenever the user hasn't actually turned it on - preloading it then would
+        // cost memory for the majority who never open the tab at all. For users who
+        // did enable it, the first swipe/tap into Music used to build the whole home
+        // screen (two RecyclerViews, hero cards, mini-player) cold, synchronously,
+        // right on the transition-animation frame - exactly the kind of jank this
+        // preload mechanism exists to avoid for Profile/Settings already.
+        final int[] positionsToPreload = isMusicHidden()
+                ? new int[]{POSITION_PROFILE, POSITION_CALLS_OR_SETTINGS}
+                : new int[]{POSITION_PROFILE, POSITION_CALLS_OR_SETTINGS, POSITION_MUSIC};
         final int[] next = {0};
         android.os.Looper.myQueue().addIdleHandler(() -> {
             if (next[0] >= positionsToPreload.length || getParentActivity() == null || isFinishing()) {

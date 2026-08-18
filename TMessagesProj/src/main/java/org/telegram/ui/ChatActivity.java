@@ -2703,6 +2703,12 @@ public class ChatActivity extends BaseFragment implements
     private NotificationCenter.ObserversGroup observersGroup;
     private NotificationCenter.ObserversGroup globalObserversGroup;
 
+    // PrimeGram: per-chat PIN (see PrimeChatPin) - re-checked every time this exact
+    // fragment instance is created, deliberately NOT sharing the app-wide PrimePinSession's
+    // process-global "unlocked" semantics, since the app can already be past its own PIN
+    // gate while this one specific chat still needs its own separate PIN.
+    private boolean primeChatPinUnlocked;
+
     @Override
     public boolean onFragmentCreate() {
         final long chatId = arguments.getLong("chat_id", 0);
@@ -9216,7 +9222,41 @@ public class ChatActivity extends BaseFragment implements
         ViewCompat.setOnApplyWindowInsetsListener(fragmentView, this::onApplyWindowInsets);
         Timer.finish(t);
 
+        primeShowChatPinGateIfNeeded(context);
+
         return fragmentView;
+    }
+
+    /** PrimeGram: if this dialog has a per-chat PIN (see PrimeChatPin) and this fragment
+     *  instance hasn't already been unlocked, blocks the just-built chat content behind a
+     *  full-screen overlay + PIN prompt rather than redirecting through a separate
+     *  Activity the way the app-wide PIN gate does - the message list underneath is
+     *  already built at this point either way (this phase is access-control only, see
+     *  the feature's own plan doc), so a full-screen sibling view is enough to keep it
+     *  off screen until the PIN is entered. Dismissing without success pops back out of
+     *  the chat instead of leaving a locked screen with nothing to do. */
+    private void primeShowChatPinGateIfNeeded(Context context) {
+        if (primeChatPinUnlocked || !org.telegram.messenger.PrimeChatPin.isLocked(dialog_id)) {
+            return;
+        }
+        if (!(fragmentView instanceof android.view.ViewGroup) || getParentActivity() == null) {
+            return;
+        }
+        android.view.ViewGroup root = (android.view.ViewGroup) fragmentView;
+        android.widget.FrameLayout scrim = new android.widget.FrameLayout(context);
+        scrim.setBackgroundColor(0xFF000000 | (org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent) & 0x00FFFFFF));
+        root.addView(scrim, new android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+
+        org.telegram.ui.Components.PrimeChatPinDialog.showUnlock(getParentActivity(), dialog_id, unlocked -> {
+            if (root.indexOfChild(scrim) >= 0) {
+                root.removeView(scrim);
+            }
+            if (unlocked) {
+                primeChatPinUnlocked = true;
+            } else {
+                finishFragment();
+            }
+        });
     }
 
     private boolean lastImeVisible;

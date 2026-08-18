@@ -120,6 +120,21 @@ public final class PrimeMusicLibrary {
         return tracks;
     }
 
+    /** "Не нравится" - unlike {@link #setExcluded}, this never hides the track from the
+     *  library/search, it only stops {@link #getWaveRecommendations} from offering it.
+     *  Reversible from a dedicated review screen, same reasoning as excluded tracks:
+     *  the action is one tap away in a menu, easy to hit on the wrong row. */
+    public static void setDisliked(long trackId, boolean disliked) {
+        db().write("UPDATE tracks SET disliked = ? WHERE id = ?", disliked ? 1 : 0, trackId);
+    }
+
+    public static List<PrimeTrack> getDislikedTracks() {
+        List<PrimeTrack> tracks = new ArrayList<>();
+        db().queryEach("SELECT * FROM tracks WHERE disliked = 1 ORDER BY added_at DESC", new Object[]{},
+                cursor -> tracks.add(readTrack(cursor)));
+        return tracks;
+    }
+
     public static void deleteTrack(long trackId) {
         db().write("DELETE FROM tracks WHERE id = ?", trackId);
         db().write("DELETE FROM track_tags WHERE track_id = ?", trackId);
@@ -147,6 +162,9 @@ public final class PrimeMusicLibrary {
         track.album = cursor.getColumnCount() > 12 && !cursor.isNull(12) ? cursor.stringValue(12) : null;
         track.genre = cursor.getColumnCount() > 13 && !cursor.isNull(13) ? cursor.stringValue(13) : null;
         track.dateAdded = cursor.getColumnCount() > 14 && !cursor.isNull(14) ? cursor.longValue(14) : 0L;
+        // Column 15 is `excluded` (read directly by name-filtered queries, never needed
+        // on the PrimeTrack object itself), 16 is `disliked`.
+        track.disliked = cursor.getColumnCount() > 16 && !cursor.isNull(16) && cursor.intValue(16) != 0;
         return track;
     }
 
@@ -416,13 +434,88 @@ public final class PrimeMusicLibrary {
     private static final double TAG_AFFINITY_WEIGHT = 0.5;
     private static final double ARTIST_AFFINITY_WEIGHT = 0.35;
     private static final double GENRE_AFFINITY_WEIGHT = 0.15;
+    // Deliberately the smallest weight of the bunch (below even genre) - this is a mild
+    // nudge toward the length of track the user actually tends to listen to/like, not a
+    // hard constraint. A single dislike on one long track must not be enough to tilt the
+    // whole wave toward only short ones - the weight is small specifically so one data
+    // point can't dominate; it only shows up once a real pattern exists across several
+    // plays/likes.
+    private static final double DURATION_AFFINITY_WEIGHT = 0.08;
 
     public static List<PrimeTrack> getRecommendations(int limit) {
         List<PrimeTrack> allTracks = getAllTracks();
         if (allTracks.isEmpty()) {
             return allTracks;
         }
+        Map<Long, Double> finalScore = computeTrackScores(allTracks);
+        // Recommending a track the user explicitly marked "не нравится" would directly
+        // contradict that signal - excluded from the candidate pool here too, same as
+        // the wave, even though this method has no session/mood-filter concept of its own.
+        List<PrimeTrack> eligible = new ArrayList<>();
+        for (PrimeTrack track : allTracks) {
+            if (!track.disliked) {
+                eligible.add(track);
+            }
+        }
+        Collections.sort(eligible, (a, b) -> Double.compare(
+                finalScore.getOrDefault(b.id, 0.0), finalScore.getOrDefault(a.id, 0.0)));
+        if (eligible.size() > limit) {
+            return eligible.subList(0, limit);
+        }
+        return eligible;
+    }
 
+    /** Моя волна: the same scoring {@link #getRecommendations} uses, but session-aware -
+     *  a track already played earlier in the current wave ({@code excludeTrackIds}) or
+     *  marked "не нравится" is never offered again, and when a mood filter is active,
+     *  only tracks carrying at least one of those tags are eligible at all. The mood
+     *  filter reuses the same tags {@code PrimeMusicTagEditor} already lets a user put on
+     *  a track - no separate mood taxonomy, "мы используем теги как аналог настроения"
+     *  per the feature's own request. */
+    public static List<PrimeTrack> getWaveRecommendations(java.util.Set<Long> excludeTrackIds, java.util.List<String> moodTagFilter, int limit) {
+        List<PrimeTrack> allTracks = getAllTracks();
+        if (allTracks.isEmpty()) {
+            return allTracks;
+        }
+        Map<Long, Double> finalScore = computeTrackScores(allTracks);
+
+        java.util.Set<Long> moodTrackIds = null;
+        if (moodTagFilter != null && !moodTagFilter.isEmpty()) {
+            moodTrackIds = new java.util.HashSet<>();
+            for (String tagName : moodTagFilter) {
+                for (PrimeTrack tagged : getTracksWithTag(tagName)) {
+                    moodTrackIds.add(tagged.id);
+                }
+            }
+        }
+
+        List<PrimeTrack> candidates = new ArrayList<>();
+        for (PrimeTrack track : allTracks) {
+            if (track.disliked) {
+                continue;
+            }
+            if (excludeTrackIds != null && excludeTrackIds.contains(track.id)) {
+                continue;
+            }
+            if (moodTrackIds != null && !moodTrackIds.contains(track.id)) {
+                continue;
+            }
+            candidates.add(track);
+        }
+        Collections.sort(candidates, (a, b) -> Double.compare(
+                finalScore.getOrDefault(b.id, 0.0), finalScore.getOrDefault(a.id, 0.0)));
+        if (candidates.size() > limit) {
+            return candidates.subList(0, limit);
+        }
+        return candidates;
+    }
+
+    /** Shared scoring pass behind both {@link #getRecommendations} and
+     *  {@link #getWaveRecommendations} - recency-decayed play frequency + a liked-track
+     *  boost + tag/artist/genre affinity, computed once over the whole library so the
+     *  wave's session-level filtering (excluded/disliked/mood tag) never has to
+     *  recompute historical weighting from scratch. */
+    private static Map<Long, Double> computeTrackScores(List<PrimeTrack> allTracks) {
         long now = System.currentTimeMillis();
         Map<Long, Double> playScore = new HashMap<>();
         db().queryEach("SELECT track_id, played_at FROM play_history", new Object[]{}, cursor -> {
@@ -473,6 +566,22 @@ public final class PrimeMusicLibrary {
             }
         }
 
+        // How long a track the user actually tends to play/like, weighted the same way
+        // as everything else above - a plain average would let one 45-minute mix or one
+        // disliked 10-minute track swing the whole preference; weighting by baseScore
+        // means it only shifts once real listening behavior backs it up.
+        double durationWeightSum = 0;
+        double durationWeightedTotal = 0;
+        for (PrimeTrack track : allTracks) {
+            double score = baseScoreByTrack.getOrDefault(track.id, 0.0);
+            if (score <= 0 || track.duration <= 0) {
+                continue;
+            }
+            durationWeightSum += score;
+            durationWeightedTotal += score * track.duration;
+        }
+        double preferredDurationSec = durationWeightSum > 0 ? durationWeightedTotal / durationWeightSum : 0;
+
         Map<Long, Double> finalScore = new HashMap<>();
         for (PrimeTrack track : allTracks) {
             double score = baseScoreByTrack.getOrDefault(track.id, 0.0);
@@ -491,15 +600,12 @@ public final class PrimeMusicLibrary {
                 double affinity = genreWeight.getOrDefault(track.genre, 0.0) - score;
                 score += affinity * GENRE_AFFINITY_WEIGHT;
             }
+            if (preferredDurationSec > 0 && track.duration > 0) {
+                double similarity = 1.0 - Math.min(1.0, Math.abs(track.duration - preferredDurationSec) / preferredDurationSec);
+                score += similarity * DURATION_AFFINITY_WEIGHT;
+            }
             finalScore.put(track.id, score);
         }
-
-        List<PrimeTrack> sorted = new ArrayList<>(allTracks);
-        Collections.sort(sorted, (a, b) -> Double.compare(
-                finalScore.getOrDefault(b.id, 0.0), finalScore.getOrDefault(a.id, 0.0)));
-        if (sorted.size() > limit) {
-            return sorted.subList(0, limit);
-        }
-        return sorted;
+        return finalScore;
     }
 }

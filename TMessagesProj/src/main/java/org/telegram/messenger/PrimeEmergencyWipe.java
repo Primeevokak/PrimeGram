@@ -60,7 +60,12 @@ public final class PrimeEmergencyWipe {
         }
 
         try {
-            PrimePinKeyStore.deleteQuietly();
+            // Only the app-wide PIN's key - per-chat PIN vaults (PrimePinVault(context,
+            // "dlg" + dialogId)) each have their own Keystore alias that isn't enumerated
+            // here. Their sealed files are still caught by wipeStorage() below, so a wipe
+            // is not recoverable, but their orphaned Keystore aliases are a known gap this
+            // scope didn't extend to closing.
+            PrimePinKeyStore.deleteQuietly("");
         } catch (Throwable ignored) {
         }
         try {

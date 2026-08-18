@@ -35,13 +35,22 @@ public final class PrimePinVault {
     private static final int STORAGE_VERSION = 1;
     private static final int GCM_IV_LEN = 12;
     private static final int GCM_TAG_BITS = 128;
-    private static final byte[] AAD = "PrimeGram protected PIN state v1".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+    private static final String AAD_BASE = "PrimeGram protected PIN state v1";
     private static final int MAX_STATE_BYTES = 16 * 1024;
     private static final int MAX_KDF_ITERATIONS = 5_000_000;
 
-    private static final Object PROCESS_LOCK = new Object();
+    // One PROCESS_LOCK per JVM was fine when there was only ever one vault (the app-wide
+    // PIN) - a per-chat vault now runs the same code concurrently for a different scope,
+    // and must not be serialized behind an unrelated chat's file I/O. Scoped locks below
+    // keep every *individual* vault's own operations atomic (same guarantee as before)
+    // without forcing chat A's enroll to wait on chat B's.
+    private static final java.util.concurrent.ConcurrentHashMap<String, Object> PROCESS_LOCKS = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final Context context;
+    /** Empty string for the app-wide PIN (identical file/alias/AAD to before this class
+     *  was generalized - see the constructor's own doc), non-empty (e.g. {@code "dlg123"})
+     *  for a per-chat PIN, one independent vault per scope. */
+    private final String scope;
 
     /** Set by enroll()/enrollEmergency()/verify() on the Throwable branch, read right after by
      *  the UI to show something more useful than a bare "something went wrong" - this vault has
@@ -59,8 +68,21 @@ public final class PrimePinVault {
         FileLog.e(t);
     }
 
+    /** The app-wide PIN vault - unchanged behavior (same file, same Keystore alias, same
+     *  AAD) from before this class supported scoping, so the existing feature has zero
+     *  regression risk from the per-chat one being added alongside it. */
     public PrimePinVault(Context context) {
+        this(context, "");
+    }
+
+    /** A scoped vault, completely independent of the app-wide one and of every other
+     *  scope - its own file, its own Keystore alias, its own AAD (so a sealed blob from
+     *  one scope can never be decrypted as if it belonged to another). {@code scope}
+     *  should be a short, filesystem/alias-safe token (e.g. {@code "dlg" + dialogId});
+     *  {@code null} is treated as {@code ""} (the app-wide vault). */
+    public PrimePinVault(Context context, String scope) {
         this.context = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+        this.scope = scope == null ? "" : scope;
     }
 
     public enum VaultState { NOT_ENROLLED, ENROLLED, CORRUPT, UNAVAILABLE }
@@ -137,11 +159,16 @@ public final class PrimePinVault {
     }
 
     private File stateFile() {
-        return new File(dir(), "pin_state.bin");
+        return new File(dir(), scope.isEmpty() ? "pin_state.bin" : "pin_state_" + scope + ".bin");
     }
 
     private File lockFile() {
-        return new File(dir(), "pin_state.lock");
+        return new File(dir(), scope.isEmpty() ? "pin_state.lock" : "pin_state_" + scope + ".lock");
+    }
+
+    private byte[] aad() {
+        String value = scope.isEmpty() ? AAD_BASE : AAD_BASE + ":" + scope;
+        return value.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
     }
 
     private static int readBootCount(Context context) {
@@ -157,7 +184,7 @@ public final class PrimePinVault {
     }
 
     public VaultInspection inspect() {
-        synchronized (PROCESS_LOCK) {
+        synchronized (PROCESS_LOCKS.computeIfAbsent(scope, k -> new Object())) {
             try (FileLock ignored = acquireLock()) {
                 if (!stateFile().exists()) {
                     return new VaultInspection(VaultState.NOT_ENROLLED, 0L, PrimePinKeyStore.ProtectionLevel.UNKNOWN);
@@ -180,12 +207,12 @@ public final class PrimePinVault {
         if (!PrimePinContract.isValidPin(pin)) {
             return EnrollmentResult.INVALID_PIN;
         }
-        synchronized (PROCESS_LOCK) {
+        synchronized (PROCESS_LOCKS.computeIfAbsent(scope, k -> new Object())) {
             try (FileLock ignored = acquireLock()) {
                 if (stateFile().exists()) {
                     return EnrollmentResult.ALREADY_ENROLLED;
                 }
-                PrimePinKeyStore.KeyMaterial keyMaterial = PrimePinKeyStore.getOrCreate();
+                PrimePinKeyStore.KeyMaterial keyMaterial = PrimePinKeyStore.getOrCreate(scope);
                 if (!keyMaterial.level.secure && !acceptSoftwareProtection) {
                     return EnrollmentResult.SOFTWARE_CONSENT_REQUIRED;
                 }
@@ -211,7 +238,7 @@ public final class PrimePinVault {
     }
 
     public EmergencyStatus enrollEmergency(char[] pin) {
-        synchronized (PROCESS_LOCK) {
+        synchronized (PROCESS_LOCKS.computeIfAbsent(scope, k -> new Object())) {
             try (FileLock ignored = acquireLock()) {
                 if (!stateFile().exists()) {
                     return EmergencyStatus.NOT_ENROLLED;
@@ -224,7 +251,7 @@ public final class PrimePinVault {
                     state.hasEmergency = false;
                     state.emergencySalt = null;
                     state.emergencyVerifier = null;
-                    writeState(state, PrimePinKeyStore.load());
+                    writeState(state, PrimePinKeyStore.load(scope));
                     return EmergencyStatus.REMOVED;
                 }
                 if (!PrimePinContract.isValidPin(pin)) {
@@ -237,7 +264,7 @@ public final class PrimePinVault {
                 state.emergencySalt = salt;
                 state.emergencyVerifier = PrimePinKdf.createVerifier(pin, salt, state.kdfIterations);
                 state.hasEmergency = true;
-                writeState(state, PrimePinKeyStore.load());
+                writeState(state, PrimePinKeyStore.load(scope));
                 return EmergencyStatus.SET;
             } catch (Exception e) {
                 recordError(e);
@@ -253,7 +280,7 @@ public final class PrimePinVault {
      * where it doesn't work.
      */
     public VerificationResult verify(char[] pin) {
-        synchronized (PROCESS_LOCK) {
+        synchronized (PROCESS_LOCKS.computeIfAbsent(scope, k -> new Object())) {
             try (FileLock ignored = acquireLock()) {
                 if (!stateFile().exists()) {
                     return new VerificationResult(VerificationStatus.NOT_ENROLLED, 0L, 0, PrimePinKeyStore.ProtectionLevel.UNKNOWN);
@@ -300,14 +327,14 @@ public final class PrimePinVault {
 
                 if (state.hasEmergency && emergencyMatch[0]) {
                     if (eval.stateChanged) {
-                        writeState(state, PrimePinKeyStore.load());
+                        writeState(state, PrimePinKeyStore.load(scope));
                     }
                     return new VerificationResult(VerificationStatus.EMERGENCY, 0L, 0, state.protectionLevel);
                 }
 
                 if (eval.isLocked()) {
                     if (eval.stateChanged) {
-                        writeState(state, PrimePinKeyStore.load());
+                        writeState(state, PrimePinKeyStore.load(scope));
                     }
                     return new VerificationResult(VerificationStatus.LOCKED, eval.remainingMillis, state.failedAttempts, state.protectionLevel);
                 }
@@ -319,13 +346,13 @@ public final class PrimePinVault {
                 if (primaryMatch[0]) {
                     PrimePinLockout.State cleared = PrimePinLockout.afterSuccess(bootCount);
                     applyLockoutState(state, cleared);
-                    writeState(state, PrimePinKeyStore.load());
+                    writeState(state, PrimePinKeyStore.load(scope));
                     return new VerificationResult(VerificationStatus.ACCEPTED, 0L, 0, state.protectionLevel);
                 }
 
                 PrimePinLockout.State failed = PrimePinLockout.afterFailure(toLockoutState(state), android.os.SystemClock.elapsedRealtime(), bootCount);
                 applyLockoutState(state, failed);
-                writeState(state, PrimePinKeyStore.load());
+                writeState(state, PrimePinKeyStore.load(scope));
                 PrimePinLockout.Evaluation postFailure = PrimePinLockout.evaluate(failed, android.os.SystemClock.elapsedRealtime(), bootCount);
                 return new VerificationResult(VerificationStatus.REJECTED, postFailure.remainingMillis, state.failedAttempts, state.protectionLevel);
             } catch (Exception e) {
@@ -342,10 +369,10 @@ public final class PrimePinVault {
     public VerificationResult disable(char[] pin) {
         VerificationResult result = verify(pin);
         if (result.status == VerificationStatus.ACCEPTED || result.status == VerificationStatus.EMERGENCY) {
-            synchronized (PROCESS_LOCK) {
+            synchronized (PROCESS_LOCKS.computeIfAbsent(scope, k -> new Object())) {
                 stateFile().delete();
                 lockFile().delete();
-                PrimePinKeyStore.deleteQuietly();
+                PrimePinKeyStore.deleteQuietly(scope);
             }
         }
         return result;
@@ -393,13 +420,13 @@ public final class PrimePinVault {
             byte[] cipherText = new byte[in.available()];
             in.readFully(cipherText);
 
-            SecretKey key = PrimePinKeyStore.load();
+            SecretKey key = PrimePinKeyStore.load(scope);
             if (key == null) {
                 return null;
             }
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_BITS, iv));
-            cipher.updateAAD(AAD);
+            cipher.updateAAD(aad());
             byte[] plain = cipher.doFinal(cipherText);
 
             DataInputStream innerIn = new DataInputStream(new ByteArrayInputStream(plain));
@@ -472,7 +499,7 @@ public final class PrimePinVault {
         if (iv == null || iv.length != GCM_IV_LEN) {
             throw new IllegalStateException("Keystore returned an unusable IV (len=" + (iv == null ? -1 : iv.length) + ")");
         }
-        cipher.updateAAD(AAD);
+        cipher.updateAAD(aad());
         byte[] cipherText = cipher.doFinal(plain);
 
         ByteArrayOutputStream envelope = new ByteArrayOutputStream();

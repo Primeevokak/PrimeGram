@@ -78,6 +78,24 @@ public final class PrimeMusicTrackMenu {
             }
         });
 
+        // Не нравится - a taste signal for "Моя волна"/recommendations (see
+        // PrimeMusicLibrary#getWaveRecommendations), not a library-visibility toggle like
+        // "Удалить из библиотеки" below - the track stays in the library and search, it
+        // just stops being offered by the wave. Skips playback if this happens to be the
+        // currently playing track, same as the dislike button on the Now Playing screen.
+        if (!track.disliked) {
+            addItem(activity, layout, "Не нравится", R.drawable.msg_block2, () -> {
+                dismiss.run();
+                PrimeMusicLibrary.setDisliked(track.id, true);
+                if (org.telegram.messenger.music.PrimeMusicPlayback.isPlayingThisTrack(track)) {
+                    org.telegram.messenger.MediaController.getInstance().playNextMessage();
+                }
+                if (callback != null) {
+                    callback.onChanged();
+                }
+            });
+        }
+
         addItem(activity, layout, "Добавить в плейлист", R.drawable.msg_list, () -> {
             dismiss.run();
             showAddToPlaylist(activity, track);

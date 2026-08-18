@@ -60,6 +60,7 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
     private final LinearLayout libraryContainer;
     private final TextView likedCountSubtitle;
     private TextView hiddenTracksRow;
+    private TextView dislikedTracksRow;
 
     private final PrimeMusicSearchPanel searchPanel;
 
@@ -141,6 +142,13 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         settingsButton.setOnClickListener(v -> fragment.presentFragment(new PrimeMusicPlayerSettingsActivity()));
         header.addView(settingsButton, LayoutHelper.createLinear(36, 36));
         content.addView(header);
+
+        // ---- Моя волна ----
+        // First thing the user sees below the header, per the feature's own spec - a
+        // real animated liquid-gradient background (GLSL/shader, matching the reference
+        // design) is a separate, later pass; this is a static gradient placeholder so
+        // the entry point and layout position are real and usable now.
+        content.addView(buildWaveCard(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 240, 0, 16, 0, 28));
 
         // ---- Recommended Section ----
         addSectionHeader("Рекомендуем для вас");
@@ -339,6 +347,17 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         hiddenTracksRow.setVisibility(View.GONE);
         content.addView(hiddenTracksRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 0));
 
+        dislikedTracksRow = new TextView(context);
+        dislikedTracksRow.setTypeface(AndroidUtilities.bold());
+        dislikedTracksRow.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
+        dislikedTracksRow.setGravity(Gravity.CENTER);
+        dislikedTracksRow.setPadding(dp(16), dp(10), dp(16), dp(10));
+        dislikedTracksRow.setClickable(true);
+        dislikedTracksRow.setBackground(Theme.createSelectorDrawable(0x18FFFFFF, Theme.RIPPLE_MASK_ALL));
+        dislikedTracksRow.setOnClickListener(v -> fragment.presentFragment(new org.telegram.ui.PrimeMusicDislikedActivity()));
+        dislikedTracksRow.setVisibility(View.GONE);
+        content.addView(dislikedTracksRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 0));
+
         // ---- Docked Floating Mini-Player ----
         miniPlayer = new FrameLayout(context);
         GradientDrawable miniBg = new GradientDrawable();
@@ -419,6 +438,83 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
                 && org.telegram.messenger.music.PrimeDeviceMusicScanner.hasPermission()) {
             syncDeviceLibrary();
         }
+    }
+
+    /** PrimeGram: whether a touch at (x, y) - in this view's own local coordinates,
+     *  same space {@code MotionEvent}s reach {@link org.telegram.ui.PrimeMusicActivity
+     *  #canParentTabsSlide} in - lands over one of the horizontal carousels. The
+     *  Music tab's own swipe-away-to-another-tab gesture must not claim touches here:
+     *  it would fight the carousel's own horizontal scroll for the same drag, and
+     *  since the outer tab-swipe used to always lose that fight by never trying
+     *  (canParentTabsSlide returning false everywhere), "swipe away from Music" and
+     *  "swipe the carousels" only work together once the tab-swipe backs off inside
+     *  these two zones specifically, rather than claiming the whole page. */
+    public boolean isTouchOverHorizontalCarousel(float x, float y) {
+        return isTouchInside(recommendedList, x, y) || isTouchInside(playlistsList, x, y);
+    }
+
+    private boolean isTouchInside(View child, float x, float y) {
+        if (child == null || child.getVisibility() != VISIBLE) {
+            return false;
+        }
+        int[] childLocation = new int[2];
+        int[] selfLocation = new int[2];
+        child.getLocationInWindow(childLocation);
+        getLocationInWindow(selfLocation);
+        float left = childLocation[0] - selfLocation[0];
+        float top = childLocation[1] - selfLocation[1];
+        return x >= left && x <= left + child.getWidth() && y >= top && y <= top + child.getHeight();
+    }
+
+    /** "Моя волна" entry card - a real animated background
+     *  ({@link org.telegram.ui.Components.PrimeWaveBackgroundView}, drifting blobs +
+     *  continuous hue shift), not the static gradient this used to be. Pressing play
+     *  starts the wave and opens the full immersive screen
+     *  ({@link org.telegram.ui.PrimeMusicWaveActivity}) - the small card here is just an
+     *  entry point, not where the actual listening experience lives (matching the
+     *  reference: pressing play visibly transforms into something much bigger). */
+    private FrameLayout buildWaveCard(Context context) {
+        FrameLayout card = new FrameLayout(context);
+        card.setClipToOutline(true);
+        card.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(20));
+            }
+        });
+
+        org.telegram.ui.Components.PrimeWaveBackgroundView waveBg = new org.telegram.ui.Components.PrimeWaveBackgroundView(context);
+        card.addView(waveBg, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        TextView waveTitle = new TextView(context);
+        waveTitle.setText("Моя волна");
+        waveTitle.setTextColor(0xFFFFFFFF);
+        waveTitle.setTypeface(AndroidUtilities.bold());
+        waveTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 22);
+        card.addView(waveTitle, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT, 18, 16, 0, 0));
+
+        FrameLayout playCircle = new FrameLayout(context);
+        playCircle.setBackground(Theme.createCircleDrawable(dp(56), 0xFFFFFFFF));
+        playCircle.setClickable(true);
+        ImageView playIcon = new ImageView(context);
+        playIcon.setImageResource(R.drawable.ic_action_play);
+        playIcon.setColorFilter(new PorterDuffColorFilter(0xFF0E0E12, PorterDuff.Mode.SRC_IN));
+        playCircle.addView(playIcon, LayoutHelper.createFrame(26, 26, Gravity.CENTER));
+        playCircle.setOnClickListener(v -> startWaveAndOpen());
+        card.addView(playCircle, LayoutHelper.createFrame(56, 56, Gravity.CENTER));
+
+        return card;
+    }
+
+    private void startWaveAndOpen() {
+        org.telegram.messenger.music.PrimeTrack track = org.telegram.messenger.music.PrimeMusicWave.current() == null
+                ? org.telegram.messenger.music.PrimeMusicWave.start()
+                : org.telegram.messenger.music.PrimeMusicWave.current();
+        if (track == null) {
+            return;
+        }
+        org.telegram.messenger.music.PrimeMusicPlayback.playSingle(UserConfig.selectedAccount, track);
+        fragment.presentFragment(new org.telegram.ui.PrimeMusicWaveActivity());
     }
 
     private void addSectionHeader(String text) {
@@ -536,21 +632,29 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
             int likedCount = PrimeMusicLibrary.getLikedTracks().size();
             List<PrimeTrack> allTracks = PrimeMusicLibrary.getAllTracks();
             int hiddenCount = PrimeMusicLibrary.getExcludedTracks().size();
+            int dislikedCount = PrimeMusicLibrary.getDislikedTracks().size();
             AndroidUtilities.runOnUIThread(() -> {
                 if (isAttachedToWindow()) {
-                    applyReloadedData(recommendations, loadedPlaylists, likedCount, allTracks, hiddenCount);
+                    applyReloadedData(recommendations, loadedPlaylists, likedCount, allTracks, hiddenCount, dislikedCount);
                 }
             });
         });
     }
 
-    private void applyReloadedData(List<PrimeTrack> recommendations, List<PrimePlaylist> loadedPlaylists, int likedCount, List<PrimeTrack> allTracks, int hiddenCount) {
+    private void applyReloadedData(List<PrimeTrack> recommendations, List<PrimePlaylist> loadedPlaylists, int likedCount, List<PrimeTrack> allTracks, int hiddenCount, int dislikedCount) {
         if (hiddenCount > 0) {
             hiddenTracksRow.setText("Скрытые треки (" + hiddenCount + ")");
             hiddenTracksRow.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
             hiddenTracksRow.setVisibility(View.VISIBLE);
         } else {
             hiddenTracksRow.setVisibility(View.GONE);
+        }
+        if (dislikedCount > 0) {
+            dislikedTracksRow.setText("Не нравится (" + dislikedCount + ")");
+            dislikedTracksRow.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
+            dislikedTracksRow.setVisibility(View.VISIBLE);
+        } else {
+            dislikedTracksRow.setVisibility(View.GONE);
         }
         recommendedTracks = recommendations;
         if (recommendedTracks.isEmpty()) {

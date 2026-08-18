@@ -25,6 +25,18 @@ _PEER_FIELD = PrimeClassProxy.PEER_FIELD
 _SUPER_PREFIX = "prime$super$"
 
 
+def _java_list(items):
+    """A real ``java.util.ArrayList`` built from ``items`` (``None`` treated as
+    empty) - see ``Base.extends``'s own doc for why this replaced handing Chaquopy a
+    plain Python ``list`` at the ``createProxyClassFull`` call boundary."""
+    from java.util import ArrayList
+    result = ArrayList()
+    if items:
+        for item in items:
+            result.add(item)
+    return result
+
+
 class UnsupportedInThisBuild(NotImplementedError):
     def __init__(self, what):
         super().__init__("%s needs runtime dex generation, which this build does not have" % what)
@@ -490,9 +502,21 @@ class Base:
         # picks the 9-argument one. Passing empty lists instead of `None` (an earlier
         # fix attempt) narrowed the symptom but did not resolve it - only removing the
         # overload set entirely did.
+        #
+        # Even after that, a plain Python `list` handed to a `List<SpecificType>`
+        # parameter failed the same way once one of these lists actually held an
+        # element (`TypeError: Cannot convert list object to java.util.List`) -
+        # confirmed by disassembling the same real plugin's compiled bytecode: it
+        # declares one `@jmethod(...)`, which is the first time `new_methods` here was
+        # ever non-empty against this new call site, so the implicit Python-list-to-
+        # java.util.List conversion Chaquopy does for empty lists was never actually
+        # exercised for a populated one. Building real `java.util.ArrayList` instances
+        # instead removes the guesswork entirely - an ArrayList already *is* a List,
+        # nothing left for Chaquopy to convert.
         proxy_class = PrimeClassProxy.createProxyClassFull(
-            java_class, list(interfaces), list(methods), fields or [], mvel_methods or [],
-            new_methods or [], overloads or [], preconstructors or [],
+            java_class, _java_list(interfaces), _java_list(methods), _java_list(fields),
+            _java_list(mvel_methods), _java_list(new_methods), _java_list(overloads),
+            _java_list(preconstructors),
             _ConstructorHandler(cls, java_to_python, preconstructor_fns))
         cls.__jproxy_class__ = proxy_class
         return proxy_class

@@ -49,9 +49,15 @@ public class PrimeMusicActivity extends BaseFragment implements MainTabsActivity
     // here (canScrollInternal defaults to false for non-delegates) - every other real
     // tab (Chats/Feed/Settings/Profile) already implements this; Music never did, which
     // is why swiping INTO it worked (that's gated by canSwipeToPosition, not this) but
-    // swiping back OUT never did.
+    // swiping back OUT never did. Unconditional true was too broad, though - the Home
+    // screen has its own horizontal carousels (recommended tracks, playlists), and a
+    // touch over either of those needs to stay theirs, not get claimed by the outer
+    // tab-swipe fighting for the same horizontal drag.
     @Override
     public boolean canParentTabsSlide(MotionEvent ev, boolean forward) {
+        if (homeView != null && homeView.isTouchOverHorizontalCarousel(ev.getX(), ev.getY())) {
+            return false;
+        }
         return true;
     }
 }

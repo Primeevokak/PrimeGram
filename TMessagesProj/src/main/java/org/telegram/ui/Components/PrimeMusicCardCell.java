@@ -208,7 +208,12 @@ public class PrimeMusicCardCell extends LinearLayout {
             title.setTextColor(accent | 0xFF000000);
             subtitle.setText("");
         } else {
-            String seed = (titleText != null ? titleText : "") + (subtitleText != null ? subtitleText : "");
+            // Must match the "title_artist" seed convention every other screen builds
+            // (PrimeMusicTrackRow, PrimeMusicNowPlayingActivity, PrimeMusicHomeView's
+            // mini-player) - this one used to concatenate without the separator, so
+            // the exact same track hashed to a different palette entry depending on
+            // which screen rendered its placeholder cover.
+            String seed = (titleText != null ? titleText : "") + "_" + (subtitleText != null ? subtitleText : "");
 
             // Paint the placeholder immediately - the real cover (if any) decodes off the
             // main thread and swaps in once ready, see PrimeAlbumArt's own doc for why a

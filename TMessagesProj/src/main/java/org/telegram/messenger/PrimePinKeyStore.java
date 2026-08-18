@@ -65,37 +65,47 @@ public final class PrimePinKeyStore {
     private PrimePinKeyStore() {
     }
 
-    static boolean exists() throws Exception {
-        KeyStore ks = KeyStore.getInstance(PROVIDER);
-        ks.load(null);
-        return ks.containsAlias(KEY_ALIAS);
+    /** Empty scope reproduces the exact alias the app-wide PIN has always used - a
+     *  per-chat vault ({@link PrimePinVault#PrimePinVault(android.content.Context,
+     *  String)}) passes a non-empty scope (e.g. {@code "dlg123"}) to get its own,
+     *  completely independent Keystore key. */
+    private static String alias(String scope) {
+        return (scope == null || scope.isEmpty()) ? KEY_ALIAS : KEY_ALIAS + "." + scope;
     }
 
-    static void deleteQuietly() {
+    static boolean exists(String scope) throws Exception {
+        KeyStore ks = KeyStore.getInstance(PROVIDER);
+        ks.load(null);
+        return ks.containsAlias(alias(scope));
+    }
+
+    static void deleteQuietly(String scope) {
         try {
             KeyStore ks = KeyStore.getInstance(PROVIDER);
             ks.load(null);
-            if (ks.containsAlias(KEY_ALIAS)) {
-                ks.deleteEntry(KEY_ALIAS);
+            String a = alias(scope);
+            if (ks.containsAlias(a)) {
+                ks.deleteEntry(a);
             }
         } catch (Exception ignored) {
         }
     }
 
     /** Creates the key if missing, tries StrongBox first on API 28+, falls back to TEE. */
-    static KeyMaterial getOrCreate() throws Exception {
+    static KeyMaterial getOrCreate(String scope) throws Exception {
+        String a = alias(scope);
         KeyStore ks = KeyStore.getInstance(PROVIDER);
         ks.load(null);
-        if (ks.containsAlias(KEY_ALIAS)) {
-            SecretKey existing = (SecretKey) ks.getKey(KEY_ALIAS, null);
+        if (ks.containsAlias(a)) {
+            SecretKey existing = (SecretKey) ks.getKey(a, null);
             return new KeyMaterial(existing, inspectSecurityLevel(existing));
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
-                SecretKey key = generate(true);
+                SecretKey key = generate(a, true);
                 return new KeyMaterial(key, inspectSecurityLevel(key));
             } catch (StrongBoxUnavailableException ignored) {
-                deleteQuietly();
+                deleteQuietly(scope);
             } catch (Exception e) {
                 // Real devices: a StrongBox HAL that's present but broken/misconfigured routinely
                 // throws a plain ProviderException (or another undocumented subclass) instead of
@@ -107,23 +117,23 @@ public final class PrimePinKeyStore {
                 // was already routing to, so widening the catch just makes that same fallback
                 // reachable for every real-world failure shape, not only the documented one.
                 FileLog.e(e);
-                deleteQuietly();
+                deleteQuietly(scope);
             }
         }
-        SecretKey key = generate(false);
+        SecretKey key = generate(a, false);
         return new KeyMaterial(key, inspectSecurityLevel(key));
     }
 
-    static SecretKey load() throws Exception {
+    static SecretKey load(String scope) throws Exception {
         KeyStore ks = KeyStore.getInstance(PROVIDER);
         ks.load(null);
-        return (SecretKey) ks.getKey(KEY_ALIAS, null);
+        return (SecretKey) ks.getKey(alias(scope), null);
     }
 
-    private static SecretKey generate(boolean strongBox) throws NoSuchAlgorithmException, NoSuchProviderException,
+    private static SecretKey generate(String alias, boolean strongBox) throws NoSuchAlgorithmException, NoSuchProviderException,
             java.security.InvalidAlgorithmParameterException {
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, PROVIDER);
-        KeyGenParameterSpec.Builder builder = new KeyGenParameterSpec.Builder(KEY_ALIAS,
+        KeyGenParameterSpec.Builder builder = new KeyGenParameterSpec.Builder(alias,
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setKeySize(256)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)

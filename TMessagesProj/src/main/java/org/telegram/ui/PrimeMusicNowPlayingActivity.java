@@ -79,6 +79,9 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
     private boolean dragging;
 
     private android.os.CountDownTimer sleepTimer;
+    private boolean sleepStopAtTrackEndArmed;
+    private long sleepStopTargetMessageId;
+    private int lastSleepTimerMinutes = 30;
 
     @Override
     public boolean hasForceLightStatusBar() {
@@ -341,6 +344,25 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         likeButton.setOnClickListener(v -> toggleLike());
         actionsRow.addView(likeButton, LayoutHelper.createLinear(38, 38));
 
+        // "Не нравится" - the like icon with a diagonal strikethrough, per the feature's
+        // own spec ("лайк перечеркнуть просто"), not a separate thumbs-down glyph. Marks
+        // the track disliked (PrimeMusicWave/getWaveRecommendations never offers it
+        // again) and immediately skips it, same as a real dislike should behave - staying
+        // on a track right after saying you don't want it makes no sense.
+        FrameLayout dislikeButton = new FrameLayout(context);
+        dislikeButton.setClickable(true);
+        dislikeButton.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, Theme.RIPPLE_MASK_CIRCLE_20DP));
+        ImageView dislikeHeart = new ImageView(context);
+        dislikeHeart.setImageResource(R.drawable.media_like);
+        dislikeHeart.setColorFilter(new PorterDuffColorFilter(0x66FFFFFF, PorterDuff.Mode.SRC_IN));
+        dislikeButton.addView(dislikeHeart, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        View strike = new View(context);
+        strike.setBackgroundColor(0x99FFFFFF);
+        strike.setRotation(-45f);
+        dislikeButton.addView(strike, LayoutHelper.createFrame(26, 2, Gravity.CENTER));
+        dislikeButton.setOnClickListener(v -> dislikeCurrentTrack());
+        actionsRow.addView(dislikeButton, LayoutHelper.createLinear(38, 38, 0, 6, 0, 0));
+
         content.addView(actionsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 24, 0, 0));
 
         // ---- Encased Card Container for Lyrics & Up Next Queue ----
@@ -420,30 +442,37 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         if (getParentActivity() == null) {
             return;
         }
-        List<String> options = java.util.Arrays.asList("Выключить таймер", "15 минут", "30 минут", "45 минут", "60 минут");
-        org.telegram.ui.Components.PrimeMusicDialog.list(getParentActivity(), "Таймер сна", options, null, which -> {
-                    if (sleepTimer != null) {
-                        sleepTimer.cancel();
-                        sleepTimer = null;
-                    }
-                    if (which == 0) {
-                        return;
-                    }
-                    int minutes = new int[]{0, 15, 30, 45, 60}[which];
-                    sleepTimer = new android.os.CountDownTimer(minutes * 60_000L, 60_000L) {
-                        @Override
-                        public void onTick(long millisUntilFinished) {
-                        }
+        org.telegram.ui.Components.PrimeSleepTimerDialog.show(getParentActivity(), lastSleepTimerMinutes,
+                sleepStopAtTrackEndArmed, (minutes, stopAtTrackEnd) -> {
+            if (sleepTimer != null) {
+                sleepTimer.cancel();
+                sleepTimer = null;
+            }
+            sleepStopAtTrackEndArmed = false;
+            if (stopAtTrackEnd) {
+                MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+                sleepStopTargetMessageId = playing != null ? playing.getId() : 0;
+                sleepStopAtTrackEndArmed = true;
+                return;
+            }
+            if (minutes <= 0) {
+                return;
+            }
+            lastSleepTimerMinutes = minutes;
+            sleepTimer = new android.os.CountDownTimer(minutes * 60_000L, 60_000L) {
+                @Override
+                public void onTick(long millisUntilFinished) {
+                }
 
-                        @Override
-                        public void onFinish() {
-                            MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
-                            if (playing != null) {
-                                MediaController.getInstance().pauseMessage(playing);
-                            }
-                        }
-                    }.start();
-                });
+                @Override
+                public void onFinish() {
+                    MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+                    if (playing != null) {
+                        MediaController.getInstance().pauseMessage(playing);
+                    }
+                }
+            }.start();
+        });
     }
 
     private void showTagEditor() {
@@ -468,6 +497,16 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
     private boolean isTrackLiked(long trackId) {
         org.telegram.messenger.music.PrimeTrack track = PrimeMusicLibrary.getTrack(trackId);
         return track != null && track.liked;
+    }
+
+    private void dislikeCurrentTrack() {
+        MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+        if (playing == null) {
+            return;
+        }
+        long trackId = resolveTrackId(playing);
+        PrimeMusicLibrary.setDisliked(trackId, true);
+        MediaController.getInstance().playNextMessage();
     }
 
     private long resolveTrackId(MessageObject playing) {
@@ -755,9 +794,19 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         // label actually need to move on a progress tick.
         if (id == NotificationCenter.messagePlayingProgressDidChanged) {
             updateProgressOnly();
-        } else {
-            refreshAll();
+            return;
         }
+        // "Конец трека или выпуска" sleep-timer mode: a new track starting that isn't
+        // the one playing when the timer was armed means the armed track just ended -
+        // pause right there instead of letting the next one start.
+        if (id == NotificationCenter.messagePlayingDidStart && sleepStopAtTrackEndArmed) {
+            MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+            if (playing != null && playing.getId() != sleepStopTargetMessageId) {
+                sleepStopAtTrackEndArmed = false;
+                MediaController.getInstance().pauseMessage(playing);
+            }
+        }
+        refreshAll();
     }
 
     private void updateProgressOnly() {

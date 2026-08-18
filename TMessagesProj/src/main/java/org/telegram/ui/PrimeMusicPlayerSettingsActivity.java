@@ -6,7 +6,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
@@ -16,6 +15,7 @@ import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.ui.Components.PrimeEqualizerGraphView;
 import org.telegram.ui.Components.Switch;
 
 /**
@@ -27,6 +27,8 @@ import org.telegram.ui.Components.Switch;
 public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
 
     private LinearLayout bandsContainer;
+    private PrimeEqualizerGraphView graphView;
+    private TextView emptyHint;
 
     @Override
     public View createView(Context context) {
@@ -84,55 +86,38 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
         bandsContainer.removeAllViews();
         short bandCount = PrimeEqualizer.getBandCount();
         if (bandCount <= 0) {
-            TextView hint = new TextView(context);
-            hint.setText("Эквалайзер недоступен на этом устройстве.");
-            hint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
-            hint.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
-            bandsContainer.addView(hint, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            emptyHint = new TextView(context);
+            emptyHint.setText("Эквалайзер недоступен на этом устройстве.");
+            emptyHint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
+            emptyHint.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
+            bandsContainer.addView(emptyHint, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
             return;
         }
         short[] range = PrimeEqualizer.getBandLevelRange();
-        int min = range[0];
-        int max = range[1];
-        int span = Math.max(1, max - min);
+        int[] freqs = new int[bandCount];
+        short[] levels = new short[bandCount];
         for (short band = 0; band < bandCount; band++) {
-            int freqHz = PrimeEqualizer.getCenterFreqHz(band);
-            TextView label = new TextView(context);
-            label.setText(freqHz >= 1000 ? (freqHz / 1000) + " кГц" : freqHz + " Гц");
-            label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
-            label.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
-            bandsContainer.addView(label, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 12, 0, 0));
-
-            SeekBar seekBar = new SeekBar(context);
-            seekBar.setMax(span);
-            short current = PrimeEqualizer.getBandLevel(band);
-            seekBar.setProgress(current - min);
-            final short bandFinal = band;
-            final int minFinal = min;
-            seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override
-                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                    if (fromUser) {
-                        PrimeEqualizer.setBandLevel(bandFinal, (short) (progress + minFinal));
-                    }
-                }
-
-                @Override
-                public void onStartTrackingTouch(SeekBar seekBar) {
-                }
-
-                @Override
-                public void onStopTrackingTouch(SeekBar seekBar) {
-                }
-            });
-            bandsContainer.addView(seekBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            freqs[band] = PrimeEqualizer.getCenterFreqHz(band);
+            levels[band] = PrimeEqualizer.getBandLevel(band);
         }
+
+        graphView = new PrimeEqualizerGraphView(context);
+        graphView.setBands(freqs, range[0], range[1], levels);
+        graphView.setGraphEnabled(PrimeEqualizer.isEnabled());
+        graphView.setListener((bandIndex, level) -> PrimeEqualizer.setBandLevel((short) bandIndex, level));
+        bandsContainer.addView(graphView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 8, 0, 0));
+
+        TextView hint = new TextView(context);
+        hint.setText("Потяните точку вверх или вниз, чтобы изменить полосу");
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
+        hint.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
+        hint.setGravity(Gravity.CENTER);
+        bandsContainer.addView(hint, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 8, 0, 0));
     }
 
     private void updateBandsEnabled() {
-        bandsContainer.setAlpha(PrimeEqualizer.isEnabled() ? 1f : 0.5f);
-        for (int i = 0; i < bandsContainer.getChildCount(); i++) {
-            bandsContainer.getChildAt(i).setEnabled(PrimeEqualizer.isEnabled());
+        if (graphView != null) {
+            graphView.setGraphEnabled(PrimeEqualizer.isEnabled());
         }
     }
 }

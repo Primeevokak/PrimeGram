@@ -28,4 +28,7 @@ public final class PrimeTrack {
     public String album;
     public String genre;
     public long dateAdded;
+    /** "Не нравится" - a taste signal for the wave/recommendation scoring, distinct
+     *  from {@link #liked} being simply false. See {@code PrimeMusicLibrary#setDisliked}. */
+    public boolean disliked;
 }

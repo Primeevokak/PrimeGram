@@ -96,6 +96,11 @@ public final class PrimeMusicDatabase {
         // flag does: findOrAddDeviceTrack's UPDATE never touches it, so once set it stays
         // set across rescans, and every read query below filters it out.
         addColumnIfMissing("tracks", "excluded", "INTEGER");
+        // Separate from `excluded` on purpose - "не нравится" is a taste signal the
+        // recommendation/wave scoring reads, while `excluded` means "not real music,
+        // hide it everywhere." A disliked track still shows up in the library/search,
+        // it just stops being offered by the wave/recommendations.
+        addColumnIfMissing("tracks", "disliked", "INTEGER");
 
         database.executeFast("CREATE TABLE IF NOT EXISTS tags (" +
                 "id INTEGER PRIMARY KEY, " +
