@@ -240,7 +240,7 @@ public class PrimeMusicCardCell extends LinearLayout {
 
             title.setText(titleText != null ? titleText : "");
             title.setTextColor(PrimeMusicTheme.TEXT_PRIMARY);
-            subtitle.setText(subtitleText != null ? subtitleText : "");
+            org.telegram.messenger.music.PrimeMusicArtistLabel.bind(subtitle, subtitleText);
             subtitle.setTextColor(PrimeMusicTheme.TEXT_TERTIARY);
         }
     }

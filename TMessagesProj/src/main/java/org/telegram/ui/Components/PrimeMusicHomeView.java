@@ -119,7 +119,10 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         header.addView(searchButton, LayoutHelper.createLinear(36, 36, 0, 0, 2, 0));
 
         ImageView syncButton = new ImageView(context);
-        syncButton.setImageResource(R.drawable.msg_download);
+        // A refresh/retry glyph, not a download-tray one - this triggers a device
+        // library rescan, not a download, and a download-shaped icon here was being
+        // read as a leftover "download" button.
+        syncButton.setImageResource(R.drawable.msg_retry);
         syncButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         syncButton.setPadding(dp(8), dp(8), dp(8), dp(8));
         syncButton.setColorFilter(new PorterDuffColorFilter(COLOR_TEXT_SECONDARY, PorterDuff.Mode.SRC_IN));

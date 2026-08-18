@@ -476,19 +476,21 @@ class Base:
         preconstructor_fns = None
         if preconstructors is None:
             preconstructors, preconstructor_fns = _collect_preconstructors(cls)
-        # Chaquopy's own static-overload resolution picks a Java overload by scoring
-        # how well each argument's *runtime* type matches candidate parameter types -
-        # a bare Python `None` carries no type information at all, so with several
-        # `None`s in the same call (interfaces/fields/mvel/overloads/preconstructors
-        # all empty is the common case for a simple class) it can end up unable to
-        # decide between this method's several same-named overloads even though the
-        # argument *count* unambiguously picks one - confirmed by a real .elyx plugin
-        # (meeow_reswaga/reSwaga) crashing on exactly this call with "cannot be
-        # applied" against all six overloads simultaneously. Passing a real (possibly
-        # empty) Python list instead of `None` is unambiguous - `createProxyClass`'s
-        # own Java body already treats an empty list identically to null (a plain
-        # `if (x != null)` guard before each use), so this changes nothing behaviorally.
-        proxy_class = PrimeClassProxy.createProxyClass(
+        # createProxyClass has six overloads on the Java side (4 to 9 parameters, each
+        # shorter one just appending a null and calling the next) purely so plain Java
+        # callers can skip trailing arguments - this Python call always supplies all
+        # nine anyway (empty lists instead of omitting any), so it uses
+        # createProxyClassFull instead, a distinctly-named method with no overloads.
+        # Calling the overloaded name directly used to fail here: Chaquopy's static
+        # overload resolution has to pick one of six candidates whose parameter lists
+        # differ only in how many trailing `List` arguments they carry - all erased to
+        # the same `java.util.List` type at the JVM level - and a real .elyx plugin
+        # (meeow_reswaga/reSwaga) hit a 9-argument call Chaquopy rejected as "cannot be
+        # applied" to *any* of the six, even though the argument count unambiguously
+        # picks the 9-argument one. Passing empty lists instead of `None` (an earlier
+        # fix attempt) narrowed the symptom but did not resolve it - only removing the
+        # overload set entirely did.
+        proxy_class = PrimeClassProxy.createProxyClassFull(
             java_class, list(interfaces), list(methods), fields or [], mvel_methods or [],
             new_methods or [], overloads or [], preconstructors or [],
             _ConstructorHandler(cls, java_to_python, preconstructor_fns))

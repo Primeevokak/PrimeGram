@@ -99,14 +99,11 @@ public class PrimeMusicPlaylistActivity extends BaseFragment {
         if (getParentActivity() == null) {
             return;
         }
-        new android.app.AlertDialog.Builder(getParentActivity())
-                .setTitle("Удалить плейлист")
-                .setMessage("Плейлист «" + playlistTitle() + "» будет удалён. Треки останутся в медиатеке.")
-                .setPositiveButton("Удалить", (dialog, which) -> {
+        org.telegram.ui.Components.PrimeMusicDialog.confirm(getParentActivity(), "Удалить плейлист",
+                "Плейлист «" + playlistTitle() + "» будет удалён. Треки останутся в медиатеке.",
+                "Удалить", true, () -> {
                     PrimeMusicLibrary.deletePlaylist(playlistId);
                     finishFragment();
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
+                });
     }
 }

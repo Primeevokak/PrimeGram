@@ -169,17 +169,14 @@ public final class PrimeMusicTrackMenu {
 
     private static void confirmPhysicalDelete(Activity activity, PrimeTrack track, Callback callback) {
         String title = track.title != null && !track.title.isEmpty() ? track.title : "трек";
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("Удалить файл")
-                .setMessage("Файл «" + title + "» будет удалён с устройства безвозвратно. Продолжить?")
-                .setPositiveButton("Удалить", (dialog, which) ->
+        PrimeMusicDialog.confirm(activity, "Удалить файл",
+                "Файл «" + title + "» будет удалён с устройства безвозвратно. Продолжить?",
+                "Удалить", true, () ->
                         org.telegram.messenger.music.PrimeMusicFileDeleter.deletePermanently(activity, track, deleted -> {
                             if (callback != null) {
                                 callback.onChanged();
                             }
-                        }))
-                .setNegativeButton("Отмена", null)
-                .show();
+                        }));
     }
 
     private static void addItem(Activity activity, ActionBarPopupWindow.ActionBarPopupWindowLayout layout, String text, int icon, Runnable onClick) {
@@ -192,20 +189,20 @@ public final class PrimeMusicTrackMenu {
     private static void showAddToPlaylist(Activity activity, PrimeTrack track) {
         List<PrimePlaylist> playlists = PrimeMusicLibrary.getPlaylists();
         List<String> names = new ArrayList<>();
-        for (PrimePlaylist playlist : playlists) {
-            names.add(playlist.name);
+        int[] icons = new int[playlists.size() + 1];
+        for (int i = 0; i < playlists.size(); i++) {
+            names.add(playlists.get(i).name);
+            icons[i] = R.drawable.msg_list;
         }
         names.add("+ Новый плейлист");
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("Добавить в плейлист")
-                .setItems(names.toArray(new String[0]), (dialog, which) -> {
-                    if (which < playlists.size()) {
-                        PrimeMusicLibrary.addToPlaylist(playlists.get(which).id, track.id);
-                    } else {
-                        promptNewPlaylistAndAdd(activity, track);
-                    }
-                })
-                .show();
+        icons[playlists.size()] = R.drawable.msg_add;
+        PrimeMusicDialog.list(activity, "Добавить в плейлист", names, icons, which -> {
+            if (which < playlists.size()) {
+                PrimeMusicLibrary.addToPlaylist(playlists.get(which).id, track.id);
+            } else {
+                promptNewPlaylistAndAdd(activity, track);
+            }
+        });
     }
 
     private static void promptNewPlaylistAndAdd(Activity activity, PrimeTrack track) {

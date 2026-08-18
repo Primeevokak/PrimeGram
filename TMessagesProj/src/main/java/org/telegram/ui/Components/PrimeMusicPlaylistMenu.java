@@ -90,16 +90,13 @@ public final class PrimeMusicPlaylistMenu {
 
     private static void confirmDelete(Activity activity, PrimePlaylist playlist, Callback callback) {
         String name = playlist.name != null && !playlist.name.isEmpty() ? playlist.name : "плейлист";
-        new android.app.AlertDialog.Builder(activity)
-                .setTitle("Удалить плейлист")
-                .setMessage("Плейлист «" + name + "» будет удалён безвозвратно. Треки в нём останутся в библиотеке. Продолжить?")
-                .setPositiveButton("Удалить", (dialog, which) -> {
+        PrimeMusicDialog.confirm(activity, "Удалить плейлист",
+                "Плейлист «" + name + "» будет удалён безвозвратно. Треки в нём останутся в библиотеке. Продолжить?",
+                "Удалить", true, () -> {
                     PrimeMusicLibrary.deletePlaylist(playlist.id);
                     if (callback != null) {
                         callback.onChanged();
                     }
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
+                });
     }
 }

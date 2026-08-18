@@ -69,13 +69,55 @@ public final class PrimeEqualizer implements NotificationCenter.NotificationCent
 
     /** @return band count - the live value while a real {@code Equalizer} is attached,
      *  otherwise whatever was cached the last time one was (band layout is fixed per
-     *  device/build, not per playback session, so this is stable across app restarts),
-     *  or 0 if a track has genuinely never played with the equalizer wired up yet. */
+     *  device/build, not per playback session, so this is stable across app restarts).
+     *  Probes a throwaway global-session {@code Equalizer} to seed the cache on first
+     *  call if nothing has ever attached yet - the equalizer settings screen should be
+     *  usable before the user has played a single track, not gated on one. */
     public static short getBandCount() {
         if (instance.equalizer != null) {
             return instance.bandCount;
         }
-        return (short) prefs().getInt(KEY_CACHED_BAND_COUNT, 0);
+        int cached = prefs().getInt(KEY_CACHED_BAND_COUNT, 0);
+        if (cached <= 0) {
+            instance.probeBandMetadata();
+            cached = prefs().getInt(KEY_CACHED_BAND_COUNT, 0);
+        }
+        return (short) cached;
+    }
+
+    /** Band count/range/center-frequencies are fixed per device+build, not per playback
+     *  session - a throwaway {@code Equalizer} on the global output session (0) reads
+     *  them without needing any track to actually be playing. Not kept attached or
+     *  enabled (session 0 is the whole device's output mix, not this app's specific
+     *  player instance) - {@link #attach()} still does the real per-track attach once
+     *  something actually plays; this only exists to make the settings screen show real
+     *  sliders immediately instead of an empty "start playback first" state. */
+    private void probeBandMetadata() {
+        Equalizer probe = null;
+        try {
+            probe = new Equalizer(0, 0);
+            short count = probe.getNumberOfBands();
+            SharedPreferences.Editor editor = prefs().edit();
+            editor.putInt(KEY_CACHED_BAND_COUNT, count);
+            short[] range = probe.getBandLevelRange();
+            editor.putInt(KEY_CACHED_RANGE_MIN, range[0]);
+            editor.putInt(KEY_CACHED_RANGE_MAX, range[1]);
+            for (short band = 0; band < count; band++) {
+                editor.putInt(KEY_CACHED_FREQ_PREFIX + band, probe.getCenterFreq(band) / 1000);
+            }
+            editor.apply();
+        } catch (Throwable t) {
+            // Some devices/ROMs don't provide the effect at all - the settings screen
+            // falls back to its own "no equalizer available" state.
+            FileLog.e(t);
+        } finally {
+            if (probe != null) {
+                try {
+                    probe.release();
+                } catch (Throwable ignore) {
+                }
+            }
+        }
     }
 
     public static short[] getBandLevelRange() {

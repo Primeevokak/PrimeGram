@@ -420,10 +420,8 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         if (getParentActivity() == null) {
             return;
         }
-        String[] options = {"Выключить таймер", "15 минут", "30 минут", "45 минут", "60 минут"};
-        new android.app.AlertDialog.Builder(getParentActivity())
-                .setTitle("Таймер сна")
-                .setItems(options, (dialog, which) -> {
+        List<String> options = java.util.Arrays.asList("Выключить таймер", "15 минут", "30 минут", "45 минут", "60 минут");
+        org.telegram.ui.Components.PrimeMusicDialog.list(getParentActivity(), "Таймер сна", options, null, which -> {
                     if (sleepTimer != null) {
                         sleepTimer.cancel();
                         sleepTimer = null;
@@ -445,8 +443,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
                             }
                         }
                     }.start();
-                })
-                .show();
+                });
     }
 
     private void showTagEditor() {
@@ -749,6 +746,26 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        refreshAll();
+        // messagePlayingProgressDidChanged fires many times a second during playback -
+        // routing it through the full refreshAll() (which re-resolves the track id via
+        // a synchronous DB write, re-triggers the cover decode+blur pipeline, and fully
+        // rebuilds the up-next queue's views from scratch) turned every second of
+        // playback into dozens of full screen rebuilds on the main thread, which is
+        // exactly what read as "the player runs at 1.5 fps." Only the seek bar/elapsed
+        // label actually need to move on a progress tick.
+        if (id == NotificationCenter.messagePlayingProgressDidChanged) {
+            updateProgressOnly();
+        } else {
+            refreshAll();
+        }
+    }
+
+    private void updateProgressOnly() {
+        MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+        if (playing == null || userIsSeeking) {
+            return;
+        }
+        seekBar.setProgress((int) (playing.audioProgress * 1000));
+        elapsedView.setText(formatTime(playing.audioProgressSec));
     }
 }

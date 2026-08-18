@@ -282,6 +282,30 @@ public final class PrimeClassProxy {
                 null, handler);
     }
 
+    /**
+     * Same 9-argument call as the full {@link #createProxyClass}, under a name with no overloads -
+     * the Python side ({@code extera_utils/classes.py}'s {@code Base.extends()}) always supplies
+     * every argument anyway (empty lists instead of omitting trailing ones), so it never needed the
+     * other five shorter overloads that exist purely for Java callers who want to skip trailing
+     * nulls. Those five overloads sharing the {@code createProxyClass} name meant Chaquopy's static
+     * overload resolution had to pick one of six candidates whose parameter lists differ only in
+     * how many trailing {@code List} arguments they have - all erased to the same {@code List} type
+     * at the JVM level - and a real .elyx plugin (meeow_reswaga/reSwaga) hit a call Chaquopy
+     * rejected as "cannot be applied" to <i>any</i> of the six, even though the argument count
+     * unambiguously picked the 9-argument one; changing the passed-in {@code None}s to empty lists
+     * (an earlier fix attempt) narrowed the symptom but did not resolve it. A distinctly-named
+     * method has exactly one candidate, so Chaquopy has nothing left to disambiguate.
+     */
+    public static Class<?> createProxyClassFull(Class<?> superClass, List<Class<?>> interfaces,
+                                                  List<String> methodNames, List<FieldSpec> fields,
+                                                  List<MvelMethodSpec> mvelMethods, List<NewMethodSpec> newMethods,
+                                                  List<MethodOverloadSpec> overloads, List<PreConstructorSpec> preConstructors,
+                                                  Utilities.Callback3Return<Object, String, Object[], Object> handler)
+            throws ReflectiveOperationException {
+        return createProxyClass(superClass, interfaces, methodNames, fields, mvelMethods, newMethods, overloads,
+                preConstructors, handler);
+    }
+
     /** Same again, with {@code preConstructors} - {@code @jpreconstructor(...)} declarations -
      *  added too. */
     public static Class<?> createProxyClass(Class<?> superClass, List<Class<?>> interfaces,

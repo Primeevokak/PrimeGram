@@ -85,7 +85,7 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
         short bandCount = PrimeEqualizer.getBandCount();
         if (bandCount <= 0) {
             TextView hint = new TextView(context);
-            hint.setText("Запустите воспроизведение трека, чтобы настроить полосы эквалайзера.");
+            hint.setText("Эквалайзер недоступен на этом устройстве.");
             hint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
             hint.setTextColor(org.telegram.messenger.music.PrimeMusicTheme.TEXT_TERTIARY);
             bandsContainer.addView(hint, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
