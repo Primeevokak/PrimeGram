@@ -344,22 +344,14 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         likeButton.setOnClickListener(v -> toggleLike());
         actionsRow.addView(likeButton, LayoutHelper.createLinear(38, 38));
 
-        // "Не нравится" - the like icon with a diagonal strikethrough, per the feature's
-        // own spec ("лайк перечеркнуть просто"), not a separate thumbs-down glyph. Marks
-        // the track disliked (PrimeMusicWave/getWaveRecommendations never offers it
-        // again) and immediately skips it, same as a real dislike should behave - staying
-        // on a track right after saying you don't want it makes no sense.
+        // "Не нравится" - marks the track disliked (PrimeMusicWave/getWaveRecommendations
+        // never offers it again) and immediately skips it, same as a real dislike should
+        // behave - staying on a track right after saying you don't want it makes no sense.
         FrameLayout dislikeButton = new FrameLayout(context);
         dislikeButton.setClickable(true);
         dislikeButton.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, Theme.RIPPLE_MASK_CIRCLE_20DP));
-        ImageView dislikeHeart = new ImageView(context);
-        dislikeHeart.setImageResource(R.drawable.media_like);
-        dislikeHeart.setColorFilter(new PorterDuffColorFilter(0x66FFFFFF, PorterDuff.Mode.SRC_IN));
-        dislikeButton.addView(dislikeHeart, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        View strike = new View(context);
-        strike.setBackgroundColor(0x99FFFFFF);
-        strike.setRotation(-45f);
-        dislikeButton.addView(strike, LayoutHelper.createFrame(26, 2, Gravity.CENTER));
+        org.telegram.ui.Components.PrimeDislikeIconView dislikeGlyph = new org.telegram.ui.Components.PrimeDislikeIconView(context);
+        dislikeButton.addView(dislikeGlyph, LayoutHelper.createFrame(22, 22, Gravity.CENTER));
         dislikeButton.setOnClickListener(v -> dislikeCurrentTrack());
         actionsRow.addView(dislikeButton, LayoutHelper.createLinear(38, 38, 0, 6, 0, 0));
 
