@@ -1627,6 +1627,18 @@ public class VideoPlayer implements Player.Listener, VideoListener, AnalyticsLis
         return volumeBoostMb;
     }
 
+    /** PrimeGram Music: exposes the same audio session id {@link #applyVolumeBoost}
+     *  already resolves internally for its own {@code LoudnessEnhancer}, so a new
+     *  equalizer (which needs the identical {@code int audioSessionId}
+     *  {@code android.media.audiofx.Equalizer}'s constructor takes) can attach without
+     *  duplicating this player/session resolution logic. {@code C.AUDIO_SESSION_ID_UNSET}
+     *  if no session exists yet (nothing playing) - callers must re-query and re-attach
+     *  after playback actually starts, same as {@link #applyVolumeBoost} itself does. */
+    public int getAudioSessionIdForEffects() {
+        ExoPlayer target = player != null ? player : audioPlayer;
+        return target != null ? target.getAudioSessionId() : C.AUDIO_SESSION_ID_UNSET;
+    }
+
     private void applyVolumeBoost() {
         try {
             if (volumeBoostMb <= 0) {

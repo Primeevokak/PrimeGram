@@ -1011,6 +1011,14 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
     private boolean isPaused = false;
     private boolean wasPlayingAudioBeforePause = false;
     private VideoPlayer audioPlayer = null;
+
+    /** PrimeGram Music: exposes the live {@code audioPlayer} instance so
+     *  {@code PrimeEqualizer} can attach to its audio session (the same
+     *  {@code target.getAudioSessionId()} {@code VideoPlayer.applyVolumeBoost} already
+     *  resolves internally) - null whenever nothing is currently playing through it. */
+    public VideoPlayer getAudioPlayer() {
+        return audioPlayer;
+    }
     private VideoPlayer emojiSoundPlayer = null;
     private int emojiSoundPlayerNum = 0;
     private boolean isStreamingCurrentAudio;

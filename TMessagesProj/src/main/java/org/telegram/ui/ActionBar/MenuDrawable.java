@@ -48,9 +48,14 @@ public class MenuDrawable extends Drawable {
     private float downloadRadOffset;
     private float downloadProgress;
     private float animatedDownloadProgress;
-    private float downloadProgressAnimationStart;
-    private float downloadProgressTime;
     private boolean miniIcon;
+
+    // PrimeGram: same fix as MediaActionDrawable's own download ring - a fixed-duration tween
+    // restarted on every setUpdateDownloadProgress() call falls behind once updates arrive
+    // faster than the tween finishes. Reacts to the live gap every frame instead.
+    private final static float PRIME_PROGRESS_CATCHUP_MIN_RATE = 1.2f;
+    private final static float PRIME_PROGRESS_CATCHUP_MAX_RATE = 14f;
+    private final static float PRIME_PROGRESS_CATCHUP_GAIN = 40f;
 
     public static int TYPE_DEFAULT = 0;
     public static int TYPE_UDPATE_AVAILABLE = 1;
@@ -252,15 +257,13 @@ public class MenuDrawable extends Drawable {
                 downloadRadOffset += 360 * dt / 2500.0f;
                 downloadRadOffset = MediaActionDrawable.getCircleValue(downloadRadOffset);
 
-                float progressDiff = downloadProgress - downloadProgressAnimationStart;
-                if (progressDiff > 0) {
-                    downloadProgressTime += dt;
-                    if (downloadProgressTime >= 200.0f) {
+                float gap = downloadProgress - animatedDownloadProgress;
+                if (gap > 0) {
+                    float rate = org.telegram.messenger.Utilities.clamp(PRIME_PROGRESS_CATCHUP_MIN_RATE + gap * PRIME_PROGRESS_CATCHUP_GAIN,
+                            PRIME_PROGRESS_CATCHUP_MAX_RATE, PRIME_PROGRESS_CATCHUP_MIN_RATE);
+                    animatedDownloadProgress += gap * (1f - (float) Math.exp(-rate * dt / 1000f));
+                    if (downloadProgress - animatedDownloadProgress < 0.001f) {
                         animatedDownloadProgress = downloadProgress;
-                        downloadProgressAnimationStart = downloadProgress;
-                        downloadProgressTime = 0;
-                    } else {
-                        animatedDownloadProgress = downloadProgressAnimationStart + progressDiff * interpolator.getInterpolation(downloadProgressTime / 200.0f);
                     }
                 }
                 invalidateSelf();
@@ -270,17 +273,10 @@ public class MenuDrawable extends Drawable {
     }
 
     public void setUpdateDownloadProgress(float value, boolean animated) {
-        if (!animated) {
+        if (!animated || animatedDownloadProgress > value) {
             animatedDownloadProgress = value;
-            downloadProgressAnimationStart = value;
-        } else {
-            if (animatedDownloadProgress > value) {
-                animatedDownloadProgress = value;
-            }
-            downloadProgressAnimationStart = animatedDownloadProgress;
         }
         downloadProgress = value;
-        downloadProgressTime = 0;
         invalidateSelf();
     }
 

@@ -324,6 +324,14 @@ def load_elyx_plugin(plugin_id, package_dir, manifest_json):
         except Exception:
             pass
 
+    assets_rel = refmap.get("assets")
+    if assets_rel:
+        try:
+            import elyx.assets as _elyx_assets
+            _elyx_assets.register(pkg_name, os.path.join(package_dir, *assets_rel.split("/")))
+        except Exception:
+            pass
+
     try:
         import importlib.util
         pkg_init = os.path.join(src_dir, "__init__.pyc")
@@ -451,6 +459,11 @@ def unload_plugin(plugin_id):
         _elyx_strings.unregister(pkg_name)
     except Exception:
         pass
+    try:
+        import elyx.assets as _elyx_assets
+        _elyx_assets.unregister(pkg_name)
+    except Exception:
+        pass
 
 
 def install_requirements(requirements_json):
@@ -488,6 +501,28 @@ def is_loaded(plugin_id):
 
 def loaded_ids():
     return list(_loaded.keys())
+
+
+def get_metainfo(plugin_id):
+    """The running plugin's own manifest fields - backs ``elyx.metainfo``. Works for both
+    plugin shapes: a ``.plugin`` file's module-level dunders (``__version__`` etc.) and a
+    packaged ``.elyx``'s meta.yml, both already copied onto the loaded ``plugin`` object
+    itself by load_plugin()/load_elyx_plugin() above, so there is nothing left to parse
+    again here - just read the attributes back into a plain dict a plugin can use without
+    needing to know which of the two loaders actually ran it."""
+    plugin = _loaded.get(plugin_id)
+    if plugin is None:
+        return {}
+    return {
+        "id": plugin_id,
+        "name": getattr(plugin, "name", None),
+        "description": getattr(plugin, "description", None),
+        "author": getattr(plugin, "author", None),
+        "version": getattr(plugin, "version", None),
+        "min_version": getattr(plugin, "min_version", None),
+        "icon": getattr(plugin, "icon", None),
+        "requirements": list(getattr(plugin, "requirements", None) or []),
+    }
 
 
 # ---------------------------------------------------------------------------

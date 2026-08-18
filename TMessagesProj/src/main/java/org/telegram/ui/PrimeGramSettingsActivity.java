@@ -185,6 +185,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HIDE_NOTIFICATION_TEXT = 169;
     private static final int ID_LOG_OVERLAY = 170;
     private static final int ID_DOWNLOAD_BOOST = 171;
+    private static final int ID_MUSIC_TAB_SHOWN = 172;
+    private static final int ID_MUSIC_PLAYER_SETTINGS = 173;
 
     // ── The guided tour ────────────────────────────────────────────────────────────────────
     //
@@ -600,6 +602,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int SECTION_UI_REACTIONS = 14;
     private static final int SECTION_UI_FORMAT = 15;
     private static final int SECTION_UI_PROFILE = 16;
+    private static final int SECTION_UI_MUSIC = 17;
 
     private static final int SECTION_TOOLS_MAIN = 20;
     private static final int SECTION_TOOLS_TAGS = 21;
@@ -1147,6 +1150,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
             case SECTION_UI_FEED: return "Лента";
 
+            case SECTION_UI_MUSIC: return "Музыка";
+
             case SECTION_UI_REACTIONS: return "Реакции";
 
             case SECTION_UI_FORMAT: return "Даты и числа";
@@ -1269,6 +1274,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Профиль", "ID и дата-центр собеседника"));
             items.add(section(SECTION_UI_FEED, IconBackgroundColors.GRAY, R.drawable.msg_menu_stories,
                     "Лента", "Отдельная вкладка с каналами"));
+            items.add(section(SECTION_UI_MUSIC, IconBackgroundColors.CYAN, R.drawable.msg_filled_data_music,
+                    "Музыка", "Отдельная вкладка с плеером"));
             items.add(UItem.asShadow(null));
         }
 
@@ -1465,6 +1472,21 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     preferences.getBoolean("primegram_feed_exclude_archived", false)));
             endCard(items);
             items.add(UItem.asShadow("Настройки отображения каналов и групп во вкладке Лента."));
+        }
+
+        if (section == SECTION_UI_MUSIC) {
+            row(check(ID_MUSIC_TAB_SHOWN, IconBackgroundColors.CYAN, R.drawable.msg_filled_data_music,
+                    "Показать вкладку «Музыка»",
+                    preferences.getBoolean("primegram_music_tab_shown", false)));
+            endCard(items);
+            items.add(UItem.asShadow("Отдельная вкладка в нижней панели: собственный плеер с рекомендациями, плейлистами, текстами песен и локальной библиотекой. Скрыта по умолчанию."));
+
+            if (preferences.getBoolean("primegram_music_tab_shown", false)) {
+                row(button(ID_MUSIC_PLAYER_SETTINGS, IconBackgroundColors.CYAN, R.drawable.msg_filled_data_music,
+                        "Эквалайзер и звук", org.telegram.messenger.music.PrimeEqualizer.isEnabled() ? "Включён" : "Выключен"));
+                endCard(items);
+                items.add(UItem.asShadow("Настройки эквалайзера для встроенного плеера."));
+            }
         }
 
         if (section == SECTION_CONNECTION) {
@@ -2416,6 +2438,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             prefs.edit().putBoolean("primegram_feed_hidden", !hidden).apply();
             listView.adapter.update(true);
             MainTabsActivity.refreshFeedTabVisibility();
+        } else if (item.id == ID_MUSIC_TAB_SHOWN) {
+            SharedPreferences musicPrefs = MessagesController.getGlobalMainSettings();
+            boolean shown = musicPrefs.getBoolean("primegram_music_tab_shown", false);
+            musicPrefs.edit().putBoolean("primegram_music_tab_shown", !shown).apply();
+            listView.adapter.update(true);
+            MainTabsActivity.refreshMusicTabVisibility();
+        } else if (item.id == ID_MUSIC_PLAYER_SETTINGS) {
+            presentFragment(new PrimeMusicPlayerSettingsActivity());
         } else if (item.id == ID_STARTUP_TRACE) {
             showStartupTrace();
         } else if (item.id == ID_BATTERY_DIAG) {

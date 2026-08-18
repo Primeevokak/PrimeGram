@@ -34,3 +34,7 @@ __pycache__/
 # kept only as a local reference, not part of this repo's history, not a submodule.
 /novagram-repo/
 
+# Same deal: namida (namidaco/namida), a real Flutter music player, kept as a local
+# reference for the custom Music tab's UI/architecture - not a submodule.
+/namida-repo/
+

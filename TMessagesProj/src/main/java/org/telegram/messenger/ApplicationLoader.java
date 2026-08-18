@@ -511,6 +511,14 @@ public class ApplicationLoader extends Application {
 
         applicationHandler = new Handler(applicationContext.getMainLooper());
 
+        // PrimeGram Music: starts recording play history immediately, regardless of
+        // whether the custom Music tab is even enabled yet - by the time a user turns
+        // it on, "Recommended for you" already has real listening history to work from.
+        // Must run after applicationHandler is set - NotificationCenter.addObserver
+        // asserts against it in debug builds.
+        org.telegram.messenger.music.PrimeMusicPlaybackTracker.register();
+        org.telegram.messenger.music.PrimeEqualizer.register();
+
         // registerNetworkCallback is a real binder call into system_server - fine any time after
         // cold start, but doing it inline in onCreate was one more synchronous hop on the path
         // users felt as a startup freeze. Off the critical path, same as the push service below.

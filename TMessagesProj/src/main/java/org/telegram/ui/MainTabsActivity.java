@@ -81,25 +81,30 @@ import me.vkryl.android.animator.BoolAnimator;
 import me.vkryl.android.animator.FactorAnimator;
 
 public class MainTabsActivity extends ViewPagerActivity implements NotificationCenter.NotificationCenterDelegate, FactorAnimator.Target {
-    public static final int TABS_COUNT = 4;
+    public static final int TABS_COUNT = 5;
     private static final int POSITION_CHATS = 0;
     private static final int POSITION_FEED = 1;
-    private static final int POSITION_CALLS_OR_SETTINGS = 2;
-    private static final int POSITION_PROFILE = 3;
+    /** PrimeGram Music: sits right after Feed, before Calls/Settings - hidden by
+     *  default, same "optional tab" treatment as Feed (see {@link #isMusicHidden}). */
+    private static final int POSITION_MUSIC = 2;
+    private static final int POSITION_CALLS_OR_SETTINGS = 3;
+    private static final int POSITION_PROFILE = 4;
     private static final int POSITION_CONTACTS = -1;
 
     private static final int INDEX_CHATS = 0;
     private static final int INDEX_FEED = 1;
-    private static final int INDEX_CONTACTS = 2;
-    private static final int INDEX_SETTINGS = 3;
-    private static final int INDEX_CALLS = 4;
-    private static final int INDEX_PROFILE = 5;
+    private static final int INDEX_MUSIC = 2;
+    private static final int INDEX_CONTACTS = 3;
+    private static final int INDEX_SETTINGS = 4;
+    private static final int INDEX_CALLS = 5;
+    private static final int INDEX_PROFILE = 6;
 
     private static int indexToPosition(int index) {
         if (index == INDEX_CHATS) return POSITION_CHATS;
         if (index == INDEX_SETTINGS || index == INDEX_CALLS) return POSITION_CALLS_OR_SETTINGS;
         if (index == INDEX_PROFILE) return POSITION_PROFILE;
         if (index == INDEX_FEED) return POSITION_FEED;
+        if (index == INDEX_MUSIC) return POSITION_MUSIC;
         return -1;
     }
 
@@ -112,6 +117,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
     private boolean dropCallsFragmentAfterPageScroll;
 
     private UpdateLayoutWrapper updateLayoutWrapper;
+    private PrimeNetworkBannerWrapper primeNetworkBannerWrapper;
     private FrameLayout tabsViewWrapper;
     private MainTabsLayout tabsView;
     private BlurredBackgroundDrawable tabsViewBackground;
@@ -306,13 +312,14 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsView.setPadding(dp(mainTabsMargin + 4), dp(mainTabsMargin + 4), dp(mainTabsMargin + 4), dp(mainTabsMargin + 4));
         tabsView.setMaxWidth(dp(328 + mainTabsMargin * 2));
 
-        tabs = new GlassTabView[6];
+        tabs = new GlassTabView[7];
         tabs[INDEX_CHATS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.CHATS, R.string.MainTabsChats);
         tabs[INDEX_CONTACTS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.CONTACTS, R.string.MainTabsContacts);
         tabs[INDEX_SETTINGS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.SETTINGS, R.string.Settings);
         tabs[INDEX_CALLS] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.CALLS, R.string.MainTabsCalls);
         tabs[INDEX_PROFILE] = GlassTabView.createAvatar(context, resourceProvider, currentAccount, R.string.MainTabsProfile);
         tabs[INDEX_FEED] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.FEED, R.string.MainTabsFeed);
+        tabs[INDEX_MUSIC] = GlassTabView.createMainTab(context, resourceProvider, GlassTabView.TabAnimation.MUSIC, R.string.MainTabsMusic);
         tabs[INDEX_CHATS].setOnLongClickListener(this::openFoldersSelector);
         tabs[INDEX_CONTACTS].setOnLongClickListener(this::openContactsSelector);
         tabs[INDEX_CALLS].setOnLongClickListener(this::openCallsSelector);
@@ -323,6 +330,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsView.addTabToIgnoreClick(tabs[INDEX_PROFILE]);
         tabsView.addTabToIgnoreClick(tabs[INDEX_CALLS]);
         tabsView.addTabToIgnoreClick(tabs[INDEX_FEED]);
+        tabsView.addTabToIgnoreClick(tabs[INDEX_MUSIC]);
 
         for (GlassTabView tab : tabs) {
             tab.setMainTabsCompact(mainTabsCompact);
@@ -360,6 +368,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         checkUi_callTabVisible(getUserConfig().showCallsTab, false);
         primeInstance = this;
         checkUi_feedTabVisible(false);
+        checkUi_musicTabVisible(false);
 
         selectTab(viewPager.getCurrentPosition(), false);
 
@@ -399,6 +408,9 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         if (updateLayout != null) {
             updateLayout.updateAppUpdateViews(currentAccount, false);
         }
+
+        primeNetworkBannerWrapper = new PrimeNetworkBannerWrapper(context);
+        contentView.addView(primeNetworkBannerWrapper, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP));
 
         updateLayout();
         checkUnreadCount(false);
@@ -692,7 +704,13 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
      */
     @Override
     protected boolean canSwipeToPosition(int position) {
-        return position != POSITION_FEED || !isFeedHidden();
+        if (position == POSITION_FEED) {
+            return !isFeedHidden();
+        }
+        if (position == POSITION_MUSIC) {
+            return !isMusicHidden();
+        }
+        return true;
     }
 
     /**
@@ -822,6 +840,8 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             return new ProfileActivity(args);
         } else if (position == POSITION_FEED) {
             return new PrimeFeedActivity();
+        } else if (position == POSITION_MUSIC) {
+            return new PrimeMusicActivity();
         }
         return null;
     }
@@ -863,6 +883,41 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         } catch (Throwable ignore) {}
     }
 
+    /** PrimeGram Music: applies the "show Music tab" setting to whichever tab bar is
+     *  on screen - mirrors {@link #refreshFeedTabVisibility} exactly. */
+    public static void refreshMusicTabVisibility() {
+        try {
+            final MainTabsActivity activity = primeInstance;
+            if (activity != null) {
+                AndroidUtilities.runOnUIThread(() -> activity.checkUi_musicTabVisible(true));
+            }
+        } catch (Throwable ignore) {}
+    }
+
+    /** PrimeGram Music: the tab is opt-in and hidden by default - unlike Feed, whose
+     *  default is "shown," most users will never turn this on, so the default flips. */
+    public static boolean isMusicHidden() {
+        try {
+            return !MessagesController.getGlobalMainSettings().getBoolean("primegram_music_tab_shown", false);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    public void checkUi_musicTabVisible(boolean animated) {
+        try {
+            if (tabsView == null || tabs == null || tabs[INDEX_MUSIC] == null) {
+                return;
+            }
+            final boolean visible = !isMusicHidden();
+            tabsView.setViewVisible(tabs[INDEX_MUSIC], visible, animated);
+            if (!visible && viewPager != null && viewPager.getCurrentPosition() == POSITION_MUSIC) {
+                selectTab(POSITION_CHATS, false);
+                viewPager.scrollToPosition(POSITION_CHATS);
+            }
+        } catch (Throwable ignore) {}
+    }
+
     public DialogsActivity getDialogsActivity() {
         return dialogsActivity;
     }
@@ -878,7 +933,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         // during the drag, not just on landing. Without the isFeedHidden() check, the tab bar
         // hid and reappeared on every such pass-through, since a hidden Feed's page still isn't
         // "not Feed" by index.
-        animatorTabsVisible.setValue(position != POSITION_FEED || isFeedHidden(), animated);
+        animatorTabsVisible.setValue((position != POSITION_FEED || isFeedHidden()) && (position != POSITION_MUSIC || isMusicHidden()), animated);
         for (int a = 0; a < tabs.length; a++) {
             GlassTabView tab = tabs[a];
             tab.setSelected(indexToPosition(a) == position, animated);

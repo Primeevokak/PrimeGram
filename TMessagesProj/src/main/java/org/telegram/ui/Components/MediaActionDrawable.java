@@ -68,21 +68,24 @@ public class MediaActionDrawable extends Drawable {
     private float downloadRadOffset;
     private float downloadProgress;
     private float animatedDownloadProgress;
-    private float downloadProgressAnimationStart;
-    private float downloadProgressTime;
-    private float downloadProgressAnimationDuration = PRIME_PROGRESS_ANIM_MAX_DURATION;
 
     private final static float EPS = 0.001f;
 
-    // PrimeGram: a real progress update's size (how much actually downloaded/uploaded since the
-    // last update) is a decent proxy for current transfer speed - a tiny jump means data is
-    // trickling in, a huge jump means a burst just landed. Scaling the catch-up animation's
-    // duration by that jump keeps the ring visually honest: a fixed duration either races ahead
-    // of a slow trickle and then visibly stalls waiting for the next update, or lags behind a
-    // fast burst. Small jump -> slow (long) animation; big jump -> fast (short) animation.
-    private final static float PRIME_PROGRESS_ANIM_MIN_DURATION = 120f;
-    private final static float PRIME_PROGRESS_ANIM_MAX_DURATION = 900f;
-    private final static float PRIME_PROGRESS_ANIM_REFERENCE_DIFF = 0.05f;
+    // PrimeGram: a fixed-duration tween restarted on every setProgress() call falls further and
+    // further behind once updates arrive faster than the tween itself finishes - exactly what
+    // download boost's bigger/more-parallel chunks do: each individual update's own jump is
+    // small, so the old per-update duration formula (small jump -> slow animation) kept picking
+    // a slow multi-hundred-ms tween for it, and the next update always landed before that tween
+    // completed. Real report: the ring showing ~50MB while ~200MB had actually arrived.
+    //
+    // Fixed by reacting to the *live* gap between what's shown and what's real on every single
+    // frame, not to the size of whatever update last arrived - an exponential approach whose
+    // rate itself grows with the gap: a small gap closes gently (no jitter once caught up), a
+    // gap opened by a burst of fast updates closes quickly instead of queuing up a slow tween
+    // behind it. Self-correcting regardless of how often setProgress() is called.
+    private final static float PRIME_PROGRESS_CATCHUP_MIN_RATE = 1.2f;  // 1/s, gentle once caught up
+    private final static float PRIME_PROGRESS_CATCHUP_MAX_RATE = 14f;   // 1/s, fast when far behind
+    private final static float PRIME_PROGRESS_CATCHUP_GAIN = 40f;       // rate added per 100% of gap
 
     private final static float DOWNLOAD_TO_CANCEL_STAGE1 = 0.5f;
     private final static float DOWNLOAD_TO_CANCEL_STAGE2 = 0.2f;
@@ -203,8 +206,6 @@ public class MediaActionDrawable extends Drawable {
         if (icon == ICON_CANCEL || icon == ICON_CANCEL_FILL) {
             downloadRadOffset = 112;
             animatedDownloadProgress = 0.0f;
-            downloadProgressAnimationStart = 0.0f;
-            downloadProgressTime = 0.0f;
         }
         invalidateSelf();
         return true;
@@ -222,23 +223,12 @@ public class MediaActionDrawable extends Drawable {
         if (downloadProgress == value) {
             return;
         }
-        if (!animated) {
+        if (!animated || animatedDownloadProgress > value) {
+            // Not animated, or progress went backward (a retry/reset) - snap instantly rather
+            // than animating a decrease, matching the original behavior.
             animatedDownloadProgress = value;
-            downloadProgressAnimationStart = value;
-        } else {
-            if (animatedDownloadProgress > value) {
-                animatedDownloadProgress = value;
-            }
-            downloadProgressAnimationStart = animatedDownloadProgress;
         }
         downloadProgress = value;
-        downloadProgressTime = 0;
-        final float diff = Math.abs(value - downloadProgressAnimationStart);
-        if (diff > 0) {
-            downloadProgressAnimationDuration = Utilities.clamp(
-                    PRIME_PROGRESS_ANIM_MAX_DURATION / (1f + diff / PRIME_PROGRESS_ANIM_REFERENCE_DIFF),
-                    PRIME_PROGRESS_ANIM_MAX_DURATION, PRIME_PROGRESS_ANIM_MIN_DURATION);
-        }
         invalidateSelf();
     }
 
@@ -885,15 +875,13 @@ public class MediaActionDrawable extends Drawable {
             downloadRadOffset = getCircleValue(downloadRadOffset);
 
             if (nextIcon != ICON_DOWNLOAD) {
-                float progressDiff = downloadProgress - downloadProgressAnimationStart;
-                if (progressDiff > 0) {
-                    downloadProgressTime += dt;
-                    if (downloadProgressTime >= downloadProgressAnimationDuration) {
+                float gap = downloadProgress - animatedDownloadProgress;
+                if (gap > 0) {
+                    float rate = Utilities.clamp(PRIME_PROGRESS_CATCHUP_MIN_RATE + gap * PRIME_PROGRESS_CATCHUP_GAIN,
+                            PRIME_PROGRESS_CATCHUP_MAX_RATE, PRIME_PROGRESS_CATCHUP_MIN_RATE);
+                    animatedDownloadProgress += gap * (1f - (float) Math.exp(-rate * dt / 1000f));
+                    if (downloadProgress - animatedDownloadProgress < EPS) {
                         animatedDownloadProgress = downloadProgress;
-                        downloadProgressAnimationStart = downloadProgress;
-                        downloadProgressTime = 0;
-                    } else {
-                        animatedDownloadProgress = downloadProgressAnimationStart + progressDiff * interpolator.getInterpolation(downloadProgressTime / downloadProgressAnimationDuration);
                     }
                 }
             }
