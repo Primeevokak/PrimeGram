@@ -2,3 +2,14 @@ include ':TMessagesProj'
 include ':TMessagesProj_AppStandalone'
 
 includeBuild('vpn')
+
+// PrimeGram: the embedded Flutter/Dart engine, for the client's own future screens (no
+// plugin access - Flutter release builds are AOT-compiled, so unlike the Python plugin
+// runtime there is no way for anything to drop in new Dart post-install anyway). This is
+// the standard Flutter "add-to-app" source-module include - it registers a ':flutter'
+// project that TMessagesProj depends on directly, see that module's build.gradle.
+setBinding(new Binding([gradle: this]))
+evaluate(new File(
+        settingsDir,
+        'prime_flutter_module/.android/include_flutter.groovy'
+))

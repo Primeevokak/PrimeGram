@@ -102,6 +102,17 @@ dependencies {
 
 //    implementation 'com.google.mlkit:translate:17.0.3'
 
+    // PrimeGram: the embedded Flutter engine backing PrimeFlutterActivity - infrastructure
+    // for the client's own future screens, no plugin access (see settings.gradle's ':flutter'
+    // include for why plugins can't reach this the way they reach Python). Declared here,
+    // not in TMessagesProj_AppStandalone, because that's where the classes that reference it
+    // (PrimeFlutterActivity, PrimeFlutterEngineHolder) actually live - same reasoning as the
+    // python { ... } block below being applied to this module and not the app module.
+    // gradle.properties' flutter.hostAppProjectName still points at
+    // TMessagesProj_AppStandalone regardless - that setting is about which module the
+    // Flutter Gradle plugin treats as the real host APK, not which module depends on it.
+    implementation project(':flutter')
+
     constraints {
         implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.0") {
             because("kotlin-stdlib-jdk7 is now a part of kotlin-stdlib")
@@ -334,6 +345,10 @@ android {
             buildConfigField "boolean", "BUNDLE", "false"
             buildConfigField "boolean", "BUILD_HOST_IS_WINDOWS", isWindows
             buildConfigField "int", "VERSION_NUM", "1"
+            // PrimeGram: the embedded Flutter module (project(':flutter')) only declares
+            // debug/profile/release build types - this custom one has no equivalent there,
+            // so Gradle needs to be told which of Flutter's to resolve against.
+            matchingFallbacks = ['release']
         }
 
         HA_public {
@@ -350,6 +365,7 @@ android {
             buildConfigField "boolean", "BUNDLE", "false"
             buildConfigField "boolean", "BUILD_HOST_IS_WINDOWS", isWindows
             buildConfigField "int", "VERSION_NUM", "4"
+            matchingFallbacks = ['release']
         }
 
         HA_hardcore {
@@ -366,6 +382,7 @@ android {
             buildConfigField "boolean", "BUNDLE", "false"
             buildConfigField "boolean", "BUILD_HOST_IS_WINDOWS", isWindows
             buildConfigField "int", "VERSION_NUM", "5"
+            matchingFallbacks = ['release']
         }
 
         standalone {
@@ -382,6 +399,7 @@ android {
             buildConfigField "boolean", "BUNDLE", "false"
             buildConfigField "boolean", "BUILD_HOST_IS_WINDOWS", isWindows
             buildConfigField "int", "VERSION_NUM", "6"
+            matchingFallbacks = ['release']
         }
 
         release {
@@ -464,4 +482,3 @@ task checkVisibility {
 }
 
 preBuild.dependsOn checkVisibility
-
