@@ -1328,6 +1328,14 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
             // own timeline, this is the equivalent hide for the chat-list row preview.
             msgText = "🔒 Запрос на шифрование";
         }
+        if (org.telegram.messenger.PrimeChatPin.isLocked(currentDialogId)) {
+            // PrimeGram: the whole point of a per-chat PIN is that opening the chat
+            // itself is gated (ChatActivity's own gate) - showing the real last-message
+            // text right here in the chat list would leak exactly what the PIN is meant
+            // to hide, before anyone ever unlocks anything. Same "🔒, no content" shape
+            // as the E2E handshake case above.
+            msgText = "🔒";
+        }
         if (msgText instanceof Spannable) {
             Spannable sp = new SpannableStringBuilder(msgText);
             for (Object span : sp.getSpans(0, sp.length(), URLSpanNoUnderlineBold.class))

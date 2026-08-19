@@ -513,6 +513,7 @@ public final class PrimeClassProxy {
 
         final Code code = dexMaker.declare(generated.getConstructor(paramTypeIds), Modifier.PUBLIC);
         final TypeId object = TypeId.OBJECT;
+        final TypeId objectArray = TypeId.get(Object[].class);
         final TypeId callbackType = TypeId.get(Utilities.Callback3Return.class);
         final MethodId run = callbackType.getMethod(object, "run", object, object, object);
 
@@ -522,54 +523,77 @@ public final class PrimeClassProxy {
             params[i] = code.getParameter(i, paramTypeIds[i]);
         }
 
+        // Every local this constructor could ever need is reserved here, before the first
+        // real instruction. DexMaker locks its local table the instant an invoke-direct to
+        // super's <init> is emitted below (it has to pin the "uninitialized this" register
+        // layout across that call) - any newLocal() call after that point throws "Cannot
+        // allocate locals after adding instructions", which is exactly what crashed real
+        // plugins the moment their proxied superclass had a constructor worth generating
+        // more than a bare super() call for. Reserving slots costs nothing at the verifier
+        // level; what actually has to stay in order are the *instructions* using them further
+        // down - self is genuinely unusable before the super call itself.
+        final Local preHandler = preSpec != null ? code.newLocal(callbackType) : null;
+        final Local preNullSelf = preSpec != null ? code.newLocal(object) : null;
+        final Local preSig = preSpec != null ? code.newLocal(TypeId.STRING) : null;
+        final Local preArgsLength = preSpec != null ? code.newLocal(TypeId.INT) : null;
+        final Local preArgsArray = preSpec != null ? code.newLocal(objectArray) : null;
+        final Local preArgsIndex = preSpec != null ? code.newLocal(TypeId.INT) : null;
+        final Local preArgsBoxedElem = preSpec != null ? code.newLocal(object) : null;
+        final Local preRewrittenBoxed = preSpec != null ? code.newLocal(object) : null;
+        final Local preRewritten = preSpec != null ? code.newLocal(objectArray) : null;
+        final Local[] preUnboxed = preSpec != null ? new Local[paramTypes.length] : null;
+        if (preSpec != null) {
+            for (int i = 0; i < paramTypes.length; i++) {
+                preUnboxed[i] = code.newLocal(paramTypeIds[i]);
+            }
+        }
+
+        final Local handler = code.newLocal(callbackType);
+        final Local selfBoxed = code.newLocal(object);
+        final Local sig = code.newLocal(TypeId.STRING);
+        final Local argsLength = code.newLocal(TypeId.INT);
+        final Local argsArray = code.newLocal(objectArray);
+        final Local argsIndex = code.newLocal(TypeId.INT);
+        final Local argsBoxedElem = code.newLocal(object);
+        final Local unused = code.newLocal(object);
+
         Local[] superArgs = params;
         if (preSpec != null) {
-            final Local handler = code.newLocal(callbackType);
-            code.sget(handlerField, handler);
-            final Local nullSelf = code.newLocal(object);
-            code.loadConstant(nullSelf, null);
-            final Local sig = code.newLocal(TypeId.STRING);
-            code.loadConstant(sig, signature("<preinit>", paramTypes));
-            final Local origArgs = boxArgs(code, params, paramTypes);
-            final Local rewrittenBoxed = code.newLocal(object);
-            code.invokeInterface(run, rewrittenBoxed, handler, nullSelf, sig, origArgs);
-            final Local rewritten = code.newLocal(TypeId.get(Object[].class));
-            code.cast(rewritten, rewrittenBoxed);
-            superArgs = new Local[paramTypes.length];
-            final Local index = code.newLocal(TypeId.INT);
+            code.sget(handlerField, preHandler);
+            code.loadConstant(preNullSelf, null);
+            code.loadConstant(preSig, signature("<preinit>", paramTypes));
+            final Local origArgs = boxArgsInto(code, params, paramTypes, preArgsLength, preArgsArray, preArgsIndex, preArgsBoxedElem);
+            code.invokeInterface(run, preRewrittenBoxed, preHandler, preNullSelf, preSig, origArgs);
+            code.cast(preRewritten, preRewrittenBoxed);
+            superArgs = preUnboxed;
             for (int i = 0; i < paramTypes.length; i++) {
-                code.loadConstant(index, i);
-                final Local elementBoxed = code.newLocal(object);
-                code.aget(elementBoxed, rewritten, index);
-                superArgs[i] = unbox(code, elementBoxed, paramTypes[i]);
+                code.loadConstant(preArgsIndex, i);
+                code.aget(preArgsBoxedElem, preRewritten, preArgsIndex);
+                unboxInto(code, preUnboxed[i], preArgsBoxedElem, paramTypes[i]);
             }
         }
         code.invokeDirect(superType.getConstructor(paramTypeIds), null, self, superArgs);
 
-        final Local handler = code.newLocal(callbackType);
         code.sget(handlerField, handler);
-        final Local selfBoxed = code.newLocal(object);
         code.cast(selfBoxed, self);
-        final Local sig = code.newLocal(TypeId.STRING);
         code.loadConstant(sig, signature("<init>", paramTypes));
-        final Local args = boxArgs(code, params, paramTypes);
-        final Local unused = code.newLocal(object);
+        final Local args = boxArgsInto(code, params, paramTypes, argsLength, argsArray, argsIndex, argsBoxedElem);
         code.invokeInterface(run, unused, handler, selfBoxed, sig, args);
         code.returnVoid();
     }
 
-    /** Unboxes a single {@code Object} local to {@code type} - primitives through {@link
-     *  TypeHelper}, everything else a plain cast. The read side of what {@link #boxArgs} writes. */
-    private static Local unbox(Code code, Local boxed, Class<?> type) {
-        final TypeId typeId = TypeId.get(type);
-        final Local result = code.newLocal(typeId);
+    /** Unboxes a single {@code Object} local to {@code type} into a caller-supplied
+     *  destination - primitives through {@link TypeHelper}, everything else a plain cast.
+     *  Used by {@link #generateConstructor}, where every local has to be reserved before the
+     *  super-constructor call locks DexMaker's local table (see the comment there), so it
+     *  can't allocate its own result local the way a simpler helper would. */
+    private static void unboxInto(Code code, Local dest, Local boxed, Class<?> type) {
         if (type.isPrimitive()) {
-            code.invokeStatic(TypeId.get(TypeHelper.class).getMethod(typeId, "unbox" + capitalize(type), TypeId.OBJECT),
-                    result, boxed);
+            code.invokeStatic(TypeId.get(TypeHelper.class).getMethod(TypeId.get(type), "unbox" + capitalize(type), TypeId.OBJECT),
+                    dest, boxed);
         } else {
-            code.cast(result, boxed);
+            code.cast(dest, boxed);
         }
-        return result;
     }
 
     /** {@code prime$super$name(...)}: calls the original implementation, nothing else. Lets a
@@ -735,6 +759,24 @@ public final class PrimeClassProxy {
         final Local index = code.newLocal(TypeId.INT);
         for (int i = 0; i < params.length; i++) {
             final Local boxed = code.newLocal(object);
+            final TypeId paramType = TypeId.get(paramTypes[i]);
+            code.invokeStatic(TypeId.get(TypeHelper.class).getMethod(object, "box",
+                    paramTypes[i].isPrimitive() ? paramType : object), boxed, params[i]);
+            code.loadConstant(index, i);
+            code.aput(args, index, boxed);
+        }
+        return args;
+    }
+
+    /** {@link #boxArgs}, writing into caller-supplied locals instead of allocating its own -
+     *  used by {@link #generateConstructor}, where every local has to be reserved before the
+     *  super-constructor call locks DexMaker's local table (see the comment there). */
+    private static Local boxArgsInto(Code code, Local[] params, Class<?>[] paramTypes,
+                                      Local length, Local args, Local index, Local boxed) {
+        final TypeId object = TypeId.OBJECT;
+        code.loadConstant(length, params.length);
+        code.newArray(args, length);
+        for (int i = 0; i < params.length; i++) {
             final TypeId paramType = TypeId.get(paramTypes[i]);
             code.invokeStatic(TypeId.get(TypeHelper.class).getMethod(object, "box",
                     paramTypes[i].isPrimitive() ? paramType : object), boxed, params[i]);

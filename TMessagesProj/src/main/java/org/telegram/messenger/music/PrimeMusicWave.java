@@ -40,6 +40,14 @@ public final class PrimeMusicWave {
         return current;
     }
 
+    /** Whether a wave is actually running right now - used to gate auto-advance-on-end
+     *  (PrimeMusicHomeView) and the "next" behavior (PrimeMusicNowPlayingActivity) so
+     *  neither hijacks ordinary, non-wave playback (e.g. a track played from a
+     *  playlist/liked-songs screen). */
+    public static boolean isActive() {
+        return current != null;
+    }
+
     /** Starts a fresh wave - clears session history, picks a first track. Returns
      *  {@code null} if the library has nothing eligible (e.g. everything is disliked or
      *  nothing matches the active mood filter). */

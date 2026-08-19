@@ -546,12 +546,28 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
      */
     private void primeCloseGuideTabs() {
         guideStartFragment = null;
-        if (getParentLayout() == null) {
+        final org.telegram.ui.ActionBar.INavigationLayout parentLayout = getParentLayout();
+        if (parentLayout == null) {
             return;
         }
-        final java.util.List<org.telegram.ui.ActionBar.BaseFragment> stack = getParentLayout().getFragmentStack();
-        for (int i = stack.size() - 1; i > 0; i--) {
-            getParentLayout().removeFragmentFromStack(stack.get(i));
+        // Everything below the current top can be dropped synchronously - none of it is
+        // visible, so there is no transition to run. The top fragment is different:
+        // removeFragmentFromStack() on whatever is currently on top always routes through
+        // finishFragment()/closeLastFragment() internally (an animated-or-not transition),
+        // regardless of the "immediate" flag. The previous version of this loop walked the
+        // *live* fragment stack top-down and called removeFragmentFromStack() on every entry
+        // including the top one repeatedly as it kept becoming the new top after each
+        // removal - tearing a fragment down again while it was still mid-close-transition is
+        // what crashed the app here instead of landing it on the chats list. Keeping index 1
+        // out of the close-transition path until it is genuinely the last one left avoids
+        // that: the loop only ever touches background fragments, and the actual top gets
+        // exactly one explicit close call.
+        final java.util.List<org.telegram.ui.ActionBar.BaseFragment> stack = parentLayout.getFragmentStack();
+        while (stack.size() > 2) {
+            parentLayout.removeFragmentFromStack(stack.get(1), true);
+        }
+        if (stack.size() == 2) {
+            stack.get(1).finishFragment(false);
         }
         org.telegram.ui.MainTabsActivity.switchToChatsTab();
     }

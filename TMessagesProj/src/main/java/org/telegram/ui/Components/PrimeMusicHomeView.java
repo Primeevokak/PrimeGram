@@ -64,13 +64,14 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
 
     private final PrimeMusicSearchPanel searchPanel;
 
-    private final FrameLayout miniPlayer;
-    private final FrameLayout miniPlayerCoverFrame;
-    private final ImageView miniCoverIcon;
-    private final TextView miniPlayerTitle;
-    private final TextView miniPlayerArtist;
-    private final ImageView miniPlayerPlayPause;
-    private final View miniPlayerProgressBar;
+    private FrameLayout miniPlayer;
+    private FrameLayout miniPlayerCoverFrame;
+    private ImageView miniCoverIcon;
+    private TextView miniPlayerTitle;
+    private TextView miniPlayerArtist;
+    private ImageView miniPlayerPlayPause;
+    private View miniPlayerProgressFill;
+    private FrameLayout wavePlayCircle;
 
     private List<PrimeTrack> recommendedTracks = new ArrayList<>();
     private List<PrimePlaylist> playlists = new ArrayList<>();
@@ -358,71 +359,6 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         dislikedTracksRow.setVisibility(View.GONE);
         content.addView(dislikedTracksRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 0));
 
-        // ---- Docked Floating Mini-Player ----
-        miniPlayer = new FrameLayout(context);
-        GradientDrawable miniBg = new GradientDrawable();
-        miniBg.setColor(ColorUtils.setAlphaComponent(org.telegram.messenger.music.PrimeMusicTheme.card(org.telegram.messenger.music.PrimeMusicTheme.currentAccent), 240));
-        miniBg.setCornerRadii(new float[]{dp(16), dp(16), dp(16), dp(16), 0, 0, 0, 0});
-        miniBg.setStroke(dp(1), 0x22FFFFFF);
-        miniPlayer.setBackground(miniBg);
-        miniPlayer.setClickable(true);
-        miniPlayer.setOnClickListener(v -> {
-            if (MediaController.getInstance().getPlayingMessageObject() != null) {
-                fragment.presentFragment(new PrimeMusicNowPlayingActivity());
-            }
-        });
-        addView(miniPlayer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 68, Gravity.BOTTOM));
-
-        // Mini player Cover thumbnail
-        miniPlayerCoverFrame = new FrameLayout(context);
-        miniPlayer.addView(miniPlayerCoverFrame, LayoutHelper.createFrame(46, 46, Gravity.CENTER_VERTICAL | Gravity.LEFT, 12, 0, 0, 0));
-        miniCoverIcon = new ImageView(context);
-        miniCoverIcon.setImageResource(R.drawable.msg_filled_data_music);
-        miniCoverIcon.setColorFilter(new PorterDuffColorFilter(0xEEFFFFFF, PorterDuff.Mode.SRC_IN));
-        miniPlayerCoverFrame.addView(miniCoverIcon, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-
-        LinearLayout miniTexts = new LinearLayout(context);
-        miniTexts.setOrientation(LinearLayout.VERTICAL);
-        miniTexts.setGravity(Gravity.CENTER_VERTICAL);
-        miniPlayer.addView(miniTexts, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT, 68, 0, 68, 0));
-
-        miniPlayerTitle = new TextView(context);
-        miniPlayerTitle.setTextColor(COLOR_TEXT_PRIMARY);
-        miniPlayerTitle.setTypeface(AndroidUtilities.bold());
-        miniPlayerTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_MEDIUM);
-        miniPlayerTitle.setMaxLines(1);
-        miniPlayerTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        miniTexts.addView(miniPlayerTitle);
-
-        miniPlayerArtist = new TextView(context);
-        miniPlayerArtist.setTextColor(COLOR_TEXT_SECONDARY);
-        miniPlayerArtist.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
-        miniPlayerArtist.setMaxLines(1);
-        miniPlayerArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        miniTexts.addView(miniPlayerArtist, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
-
-        // Circular high-contrast Play/Pause button
-        FrameLayout playPauseCircle = new FrameLayout(context);
-        playPauseCircle.setBackground(Theme.createCircleDrawable(dp(38), 0xFFFFFFFF));
-        playPauseCircle.setClickable(true);
-        miniPlayerPlayPause = new ImageView(context);
-        miniPlayerPlayPause.setColorFilter(new PorterDuffColorFilter(0xFF0E0E12, PorterDuff.Mode.SRC_IN));
-        playPauseCircle.addView(miniPlayerPlayPause, LayoutHelper.createFrame(20, 20, Gravity.CENTER));
-        playPauseCircle.setOnClickListener(v -> {
-            if (MediaController.getInstance().isMessagePaused()) {
-                MediaController.getInstance().playMessage(MediaController.getInstance().getPlayingMessageObject());
-            } else {
-                MediaController.getInstance().pauseMessage(MediaController.getInstance().getPlayingMessageObject());
-            }
-            updateMiniPlayer();
-        });
-        miniPlayer.addView(playPauseCircle, LayoutHelper.createFrame(38, 38, Gravity.RIGHT | Gravity.CENTER_VERTICAL, 0, 0, 14, 0));
-
-        // Slim bottom progress line
-        miniPlayerProgressBar = new View(context);
-        miniPlayerProgressBar.setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.currentAccent);
-        miniPlayer.addView(miniPlayerProgressBar, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 2, Gravity.BOTTOM));
-
         // Actually added to the view tree here, on top of everything else built above
         // (carousels, hero cards, mini-player) - the field itself was constructed near
         // the top of this constructor (before the header's search button, which needs
@@ -466,13 +402,14 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         return x >= left && x <= left + child.getWidth() && y >= top && y <= top + child.getHeight();
     }
 
-    /** "Моя волна" entry card - a real animated background
+    /** "Моя волна" card - a real animated background
      *  ({@link org.telegram.ui.Components.PrimeWaveBackgroundView}, drifting blobs +
      *  continuous hue shift), not the static gradient this used to be. Pressing play
-     *  starts the wave and opens the full immersive screen
-     *  ({@link org.telegram.ui.PrimeMusicWaveActivity}) - the small card here is just an
-     *  entry point, not where the actual listening experience lives (matching the
-     *  reference: pressing play visibly transforms into something much bigger). */
+     *  starts the wave right here on Home - no separate full-screen destination; the
+     *  relocated mini-player below shows what's playing and still opens
+     *  {@link org.telegram.ui.PrimeMusicNowPlayingActivity} on tap, same as it always
+     *  did when it was docked at the bottom of the screen instead of living in this
+     *  card. */
     private FrameLayout buildWaveCard(Context context) {
         FrameLayout card = new FrameLayout(context);
         card.setClipToOutline(true);
@@ -493,20 +430,90 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         waveTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 22);
         card.addView(waveTitle, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT, 18, 16, 0, 0));
 
-        FrameLayout playCircle = new FrameLayout(context);
-        playCircle.setBackground(Theme.createCircleDrawable(dp(56), 0xFFFFFFFF));
-        playCircle.setClickable(true);
+        wavePlayCircle = new FrameLayout(context);
+        wavePlayCircle.setBackground(Theme.createCircleDrawable(dp(56), 0xFFFFFFFF));
+        wavePlayCircle.setClickable(true);
         ImageView playIcon = new ImageView(context);
         playIcon.setImageResource(R.drawable.ic_action_play);
         playIcon.setColorFilter(new PorterDuffColorFilter(0xFF0E0E12, PorterDuff.Mode.SRC_IN));
-        playCircle.addView(playIcon, LayoutHelper.createFrame(26, 26, Gravity.CENTER));
-        playCircle.setOnClickListener(v -> startWaveAndOpen());
-        card.addView(playCircle, LayoutHelper.createFrame(56, 56, Gravity.CENTER));
+        wavePlayCircle.addView(playIcon, LayoutHelper.createFrame(26, 26, Gravity.CENTER));
+        wavePlayCircle.setOnClickListener(v -> startWave());
+        card.addView(wavePlayCircle, LayoutHelper.createFrame(56, 56, Gravity.CENTER));
+
+        // ---- The relocated mini-player - lives here now instead of a separate bar
+        // docked at the bottom of the whole screen, semi-transparent over the wave's
+        // own animated background. Shows whatever is actually playing (any source, not
+        // only wave tracks) - same as the bar it replaced. ----
+        miniPlayer = new FrameLayout(context);
+        GradientDrawable miniBg = new GradientDrawable();
+        miniBg.setColor(0x66000000);
+        miniBg.setCornerRadius(dp(16));
+        miniPlayer.setBackground(miniBg);
+        miniPlayer.setClickable(true);
+        miniPlayer.setOnClickListener(v -> {
+            if (MediaController.getInstance().getPlayingMessageObject() != null) {
+                fragment.presentFragment(new PrimeMusicNowPlayingActivity());
+            }
+        });
+        card.addView(miniPlayer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 60, Gravity.BOTTOM, 14, 0, 14, 14));
+
+        // Progress fill - scaleX'd (not re-measured) on every progress tick, same cheap
+        // GPU-only update the equalizer/timer animations in this feature already use;
+        // a left-pivoted transform behind the title, filling as the track approaches its
+        // end, the passive version of the E2E hold-button's own fill idea.
+        miniPlayerProgressFill = new View(context);
+        miniPlayerProgressFill.setBackgroundColor(0x33FFFFFF);
+        miniPlayerProgressFill.setPivotX(0f);
+        miniPlayerProgressFill.setScaleX(0f);
+        miniPlayer.addView(miniPlayerProgressFill, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        miniPlayerCoverFrame = new FrameLayout(context);
+        miniPlayer.addView(miniPlayerCoverFrame, LayoutHelper.createFrame(40, 40, Gravity.CENTER_VERTICAL | Gravity.LEFT, 10, 0, 0, 0));
+        miniCoverIcon = new ImageView(context);
+        miniCoverIcon.setImageResource(R.drawable.msg_filled_data_music);
+        miniCoverIcon.setColorFilter(new PorterDuffColorFilter(0xEEFFFFFF, PorterDuff.Mode.SRC_IN));
+        miniPlayerCoverFrame.addView(miniCoverIcon, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        LinearLayout miniTexts = new LinearLayout(context);
+        miniTexts.setOrientation(LinearLayout.VERTICAL);
+        miniTexts.setGravity(Gravity.CENTER_VERTICAL);
+        miniPlayer.addView(miniTexts, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT, 60, 0, 56, 0));
+
+        miniPlayerTitle = new TextView(context);
+        miniPlayerTitle.setTextColor(0xFFFFFFFF);
+        miniPlayerTitle.setTypeface(AndroidUtilities.bold());
+        miniPlayerTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_MEDIUM);
+        miniPlayerTitle.setMaxLines(1);
+        miniPlayerTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        miniTexts.addView(miniPlayerTitle);
+
+        miniPlayerArtist = new TextView(context);
+        miniPlayerArtist.setTextColor(0xCCFFFFFF);
+        miniPlayerArtist.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
+        miniPlayerArtist.setMaxLines(1);
+        miniPlayerArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        miniTexts.addView(miniPlayerArtist, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
+
+        FrameLayout playPauseCircle = new FrameLayout(context);
+        playPauseCircle.setBackground(Theme.createCircleDrawable(dp(34), 0xFFFFFFFF));
+        playPauseCircle.setClickable(true);
+        miniPlayerPlayPause = new ImageView(context);
+        miniPlayerPlayPause.setColorFilter(new PorterDuffColorFilter(0xFF0E0E12, PorterDuff.Mode.SRC_IN));
+        playPauseCircle.addView(miniPlayerPlayPause, LayoutHelper.createFrame(18, 18, Gravity.CENTER));
+        playPauseCircle.setOnClickListener(v -> {
+            if (MediaController.getInstance().isMessagePaused()) {
+                MediaController.getInstance().playMessage(MediaController.getInstance().getPlayingMessageObject());
+            } else {
+                MediaController.getInstance().pauseMessage(MediaController.getInstance().getPlayingMessageObject());
+            }
+            updateMiniPlayer();
+        });
+        miniPlayer.addView(playPauseCircle, LayoutHelper.createFrame(34, 34, Gravity.RIGHT | Gravity.CENTER_VERTICAL, 0, 0, 10, 0));
 
         return card;
     }
 
-    private void startWaveAndOpen() {
+    private void startWave() {
         org.telegram.messenger.music.PrimeTrack track = org.telegram.messenger.music.PrimeMusicWave.current() == null
                 ? org.telegram.messenger.music.PrimeMusicWave.start()
                 : org.telegram.messenger.music.PrimeMusicWave.current();
@@ -514,7 +521,6 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
             return;
         }
         org.telegram.messenger.music.PrimeMusicPlayback.playSingle(UserConfig.selectedAccount, track);
-        fragment.presentFragment(new org.telegram.ui.PrimeMusicWaveActivity());
     }
 
     private void addSectionHeader(String text) {
@@ -707,9 +713,11 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
         if (playing == null) {
             miniPlayer.setVisibility(View.GONE);
+            wavePlayCircle.setVisibility(View.VISIBLE);
             return;
         }
         miniPlayer.setVisibility(View.VISIBLE);
+        wavePlayCircle.setVisibility(View.GONE);
         String title = playing.getMusicTitle();
         String artist = playing.getMusicAuthor();
         miniPlayerTitle.setText(title != null && !title.isEmpty() ? title : "Без названия");
@@ -722,6 +730,20 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
 
         boolean paused = MediaController.getInstance().isMessagePaused();
         miniPlayerPlayPause.setImageResource(paused ? R.drawable.ic_action_play : R.drawable.ic_action_pause);
+        updateMiniPlayerProgress();
+    }
+
+    /** Cheap on purpose - called on every progress tick (many times a second while
+     *  playing), so this only ever touches a scaleX transform, never re-measures or
+     *  re-binds anything else. See PrimeMusicNowPlayingActivity's own doc on why a
+     *  heavier handler on this exact notification is what "the player runs at 1.5 fps"
+     *  turned out to mean. */
+    private void updateMiniPlayerProgress() {
+        MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+        if (playing == null) {
+            return;
+        }
+        miniPlayerProgressFill.setScaleX(Math.max(0f, Math.min(1f, playing.audioProgress)));
     }
 
     @Override
@@ -736,6 +758,7 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
             NotificationCenter.getInstance(a).addObserver(this, NotificationCenter.messagePlayingDidStart);
             NotificationCenter.getInstance(a).addObserver(this, NotificationCenter.messagePlayingPlayStateChanged);
             NotificationCenter.getInstance(a).addObserver(this, NotificationCenter.messagePlayingDidReset);
+            NotificationCenter.getInstance(a).addObserver(this, NotificationCenter.messagePlayingProgressDidChanged);
         }
         org.telegram.messenger.music.PrimeMusicTheme.addAccentListener(accentListener);
         updateMiniPlayer();
@@ -748,6 +771,7 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
             NotificationCenter.getInstance(a).removeObserver(this, NotificationCenter.messagePlayingDidStart);
             NotificationCenter.getInstance(a).removeObserver(this, NotificationCenter.messagePlayingPlayStateChanged);
             NotificationCenter.getInstance(a).removeObserver(this, NotificationCenter.messagePlayingDidReset);
+            NotificationCenter.getInstance(a).removeObserver(this, NotificationCenter.messagePlayingProgressDidChanged);
         }
         org.telegram.messenger.music.PrimeMusicTheme.removeAccentListener(accentListener);
     }
@@ -762,22 +786,32 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
     };
 
     /** Re-tints the chrome that was painted once at construction time with whatever
-     *  the accent was then - the screen background, the docked mini-player, and its
-     *  progress line all need to follow the live per-track accent too, matching
-     *  namida's own "the whole UI recolors per track" behavior. */
+     *  the accent was then - just the screen background now; the mini-player living
+     *  inside the wave card is deliberately a flat semi-transparent black regardless of
+     *  accent, since it sits on top of the wave's own animated color-shifting
+     *  background and an accent-tinted bar would fight it for attention. */
     private void applyAccentTint() {
         int accent = org.telegram.messenger.music.PrimeMusicTheme.currentAccent;
         setBackgroundColor(org.telegram.messenger.music.PrimeMusicTheme.bg(accent));
-        GradientDrawable miniBg = new GradientDrawable();
-        miniBg.setColor(ColorUtils.setAlphaComponent(org.telegram.messenger.music.PrimeMusicTheme.card(accent), 240));
-        miniBg.setCornerRadii(new float[]{dp(16), dp(16), dp(16), dp(16), 0, 0, 0, 0});
-        miniBg.setStroke(dp(1), 0x22FFFFFF);
-        miniPlayer.setBackground(miniBg);
-        miniPlayerProgressBar.setBackgroundColor(accent);
     }
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.messagePlayingProgressDidChanged) {
+            updateMiniPlayerProgress();
+            return;
+        }
+        // The wave's own auto-advance: messagePlayingDidReset only fires for a genuine
+        // stop (natural end, explicit stop) - MediaController's own playMessage() path
+        // that switches to a *different* track passes notify=false and never posts this
+        // at all (confirmed by reading cleanupPlayer's call site inside playMessage), so
+        // this can't misfire just because the user opened some unrelated track elsewhere.
+        if (id == NotificationCenter.messagePlayingDidReset && org.telegram.messenger.music.PrimeMusicWave.isActive()) {
+            org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.next();
+            if (next != null) {
+                org.telegram.messenger.music.PrimeMusicPlayback.playSingle(UserConfig.selectedAccount, next);
+            }
+        }
         updateMiniPlayer();
         refreshPlayingHighlights();
     }

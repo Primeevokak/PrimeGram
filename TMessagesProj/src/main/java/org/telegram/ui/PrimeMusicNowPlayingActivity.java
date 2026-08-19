@@ -286,7 +286,20 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         nextButton.setColorFilter(new PorterDuffColorFilter(COLOR_TEXT_PRIMARY, PorterDuff.Mode.SRC_IN));
         nextButton.setClickable(true);
         nextButton.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, Theme.RIPPLE_MASK_CIRCLE_20DP));
-        nextButton.setOnClickListener(v -> MediaController.getInstance().playNextMessage());
+        nextButton.setOnClickListener(v -> {
+            // A wave track always plays via a fresh single-item playlist (see
+            // PrimeMusicPlayback.playSingle), so MediaController's own
+            // playNextMessage() has no real "next" to find there and silently does
+            // nothing - the wave has to pick and start its own next track instead.
+            if (org.telegram.messenger.music.PrimeMusicWave.isActive()) {
+                org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.next();
+                if (next != null) {
+                    org.telegram.messenger.music.PrimeMusicPlayback.playSingle(org.telegram.messenger.UserConfig.selectedAccount, next);
+                }
+            } else {
+                MediaController.getInstance().playNextMessage();
+            }
+        });
         controls.addView(nextButton, LayoutHelper.createLinear(46, 46));
 
         View spacerRight = new View(context);

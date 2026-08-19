@@ -9234,7 +9234,16 @@ public class ChatActivity extends BaseFragment implements
      *  already built at this point either way (this phase is access-control only, see
      *  the feature's own plan doc), so a full-screen sibling view is enough to keep it
      *  off screen until the PIN is entered. Dismissing without success pops back out of
-     *  the chat instead of leaving a locked screen with nothing to do. */
+     *  the chat instead of leaving a locked screen with nothing to do.
+     *
+     *  <p>The scrim alone isn't enough: {@code actionBar} is added by the surrounding
+     *  {@code ActionBarLayout} as a SIBLING of {@code fragmentView}, not a child of it
+     *  (confirmed - {@code ViewPagerActivity}'s own container-building code adds them as
+     *  two separate children of the same container, actionBar second, so it draws on
+     *  top). A scrim living inside fragmentView can never cover it - the chat title, back
+     *  button and "..." menu stayed fully visible above the PIN prompt on a real device,
+     *  which defeats the entire point of locking the chat. Hiding the actionBar itself
+     *  while the gate is up (and restoring it after) is the actual fix. */
     private void primeShowChatPinGateIfNeeded(Context context) {
         if (primeChatPinUnlocked || !org.telegram.messenger.PrimeChatPin.isLocked(dialog_id)) {
             return;
@@ -9247,9 +9256,17 @@ public class ChatActivity extends BaseFragment implements
         scrim.setBackgroundColor(0xFF000000 | (org.telegram.messenger.music.PrimeMusicTheme.bg(org.telegram.messenger.music.PrimeMusicTheme.currentAccent) & 0x00FFFFFF));
         root.addView(scrim, new android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
 
+        boolean actionBarWasVisible = actionBar != null && actionBar.getVisibility() == View.VISIBLE;
+        if (actionBar != null) {
+            actionBar.setVisibility(View.GONE);
+        }
+
         org.telegram.ui.Components.PrimeChatPinDialog.showUnlock(getParentActivity(), dialog_id, unlocked -> {
             if (root.indexOfChild(scrim) >= 0) {
                 root.removeView(scrim);
+            }
+            if (actionBar != null && actionBarWasVisible) {
+                actionBar.setVisibility(View.VISIBLE);
             }
             if (unlocked) {
                 primeChatPinUnlocked = true;

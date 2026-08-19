@@ -6344,11 +6344,15 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     }
 
     private void maybeShowBatteryOptimizationPrompt() {
+        SharedPreferences prefs = MessagesController.getGlobalMainSettings();
         if (org.telegram.messenger.AndroidUtilities.isIgnoringBatteryOptimizations()) {
+            // Nothing to ask - the background-work window is already "passed", so the
+            // notification prompt behind it is free to go whenever it's ready.
+            maybeShowNotificationPermissionPrompt();
             return;
         }
-        SharedPreferences prefs = MessagesController.getGlobalMainSettings();
         if (prefs.getBoolean("primegram_battery_opt_prompted", false)) {
+            maybeShowNotificationPermissionPrompt();
             return;
         }
         // Shown through the current fragment rather than straight off the Activity: a dialog
@@ -6357,9 +6361,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         AndroidUtilities.runOnUIThread(() -> {
             try {
                 if (org.telegram.messenger.AndroidUtilities.isIgnoringBatteryOptimizations()) {
+                    maybeShowNotificationPermissionPrompt();
                     return;
                 }
                 if (prefs.getBoolean("primegram_battery_opt_prompted", false)) {
+                    maybeShowNotificationPermissionPrompt();
                     return;
                 }
                 BaseFragment fragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
@@ -6369,8 +6375,15 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 AlertDialog.Builder builder = new AlertDialog.Builder(fragment.getParentActivity(), fragment.getResourceProvider());
                 builder.setTitle("Разрешить работу в фоне");
                 builder.setMessage("Чтобы прокси PrimeGram не отключался, а уведомления приходили без задержек, разрешите приложению работать без ограничений батареи. Это можно сделать позже в Настройках PrimeGram.");
-                builder.setPositiveButton("Разрешить", (dialog, which) -> org.telegram.messenger.AndroidUtilities.requestIgnoreBatteryOptimizations(LaunchActivity.this));
-                builder.setNegativeButton("Не сейчас", null);
+                // Notification permission is asked right after this dialog is dismissed either
+                // way (allowed or "не сейчас") - never overlapping it, since Android would just
+                // queue the two system/app dialogs on top of each other otherwise.
+                builder.setPositiveButton("Разрешить", (dialog, which) -> {
+                    org.telegram.messenger.AndroidUtilities.requestIgnoreBatteryOptimizations(LaunchActivity.this);
+                    maybeShowNotificationPermissionPrompt();
+                });
+                builder.setNegativeButton("Не сейчас", (dialog, which) -> maybeShowNotificationPermissionPrompt());
+                builder.setOnCancelListener(dialog -> maybeShowNotificationPermissionPrompt());
                 fragment.showDialog(builder.create());
                 // Only remember it was shown once it actually made it on screen.
                 prefs.edit().putBoolean("primegram_battery_opt_prompted", true).apply();
@@ -6378,6 +6391,37 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 FileLog.e(e);
             }
         }, 1200);
+    }
+
+    private void maybeShowNotificationPermissionPrompt() {
+        if (Build.VERSION.SDK_INT < 33) {
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        SharedPreferences prefs = MessagesController.getGlobalMainSettings();
+        if (prefs.getBoolean("primegram_notif_perm_prompted", false)) {
+            return;
+        }
+        AndroidUtilities.runOnUIThread(() -> {
+            try {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    return;
+                }
+                if (prefs.getBoolean("primegram_notif_perm_prompted", false)) {
+                    return;
+                }
+                BaseFragment fragment = actionBarLayout == null ? null : actionBarLayout.getLastFragment();
+                if (fragment == null || fragment.getParentActivity() == null) {
+                    return;
+                }
+                prefs.edit().putBoolean("primegram_notif_perm_prompted", true).apply();
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 4);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        }, 600);
     }
 
     private boolean firstAppUpdateCheck = true;
