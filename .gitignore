@@ -42,3 +42,5 @@ __pycache__/
 # API client, kept as a local reference for the Music tab - not a submodule.
 /yandex-music-api-repo/
 
+.agents/
+

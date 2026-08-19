@@ -511,7 +511,16 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         }
         long trackId = resolveTrackId(playing);
         PrimeMusicLibrary.setDisliked(trackId, true);
-        MediaController.getInstance().playNextMessage();
+        if (org.telegram.messenger.music.PrimeMusicWave.isActive()) {
+            org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.next();
+            if (next != null) {
+                org.telegram.messenger.music.PrimeMusicPlayback.playSingle(org.telegram.messenger.UserConfig.selectedAccount, next);
+            } else {
+                MediaController.getInstance().cleanupPlayer(true, true);
+            }
+        } else {
+            MediaController.getInstance().playNextMessage();
+        }
     }
 
     private long resolveTrackId(MessageObject playing) {

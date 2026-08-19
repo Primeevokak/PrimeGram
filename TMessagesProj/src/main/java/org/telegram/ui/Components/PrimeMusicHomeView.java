@@ -145,11 +145,7 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         content.addView(header);
 
         // ---- Моя волна ----
-        // First thing the user sees below the header, per the feature's own spec - a
-        // real animated liquid-gradient background (GLSL/shader, matching the reference
-        // design) is a separate, later pass; this is a static gradient placeholder so
-        // the entry point and layout position are real and usable now.
-        content.addView(buildWaveCard(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 240, 0, 16, 0, 28));
+        content.addView(buildWaveCard(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 260, 0, 14, 0, 24));
 
         // ---- Recommended Section ----
         addSectionHeader("Рекомендуем для вас");
@@ -410,97 +406,184 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
      *  {@link org.telegram.ui.PrimeMusicNowPlayingActivity} on tap, same as it always
      *  did when it was docked at the bottom of the screen instead of living in this
      *  card. */
+    private PrimeWaveBackgroundView waveBg;
+    private TextView waveSubtitle;
+    private FrameLayout waveIdleContainer;
+    private FrameLayout waveActiveContainer;
+    private ImageView waveLikeBtn;
+    private ImageView waveNextBtn;
+    private PrimeDislikeIconView waveDislikeIcon;
+    private LinearLayout moodChipsLayout;
+    private String activeMoodTag = null;
+
+    /** "Моя волна" card - featuring a high-fidelity living procedural background
+     *  ({@link org.telegram.ui.Components.PrimeWaveBackgroundView}), interactive mood chips,
+     *  embedded direct-action playback controls (Like, Dislike/Skip, Next, Play/Pause),
+     *  and responsive haptic micro-interactions. */
     private FrameLayout buildWaveCard(Context context) {
         FrameLayout card = new FrameLayout(context);
         card.setClipToOutline(true);
         card.setOutlineProvider(new android.view.ViewOutlineProvider() {
             @Override
             public void getOutline(View view, android.graphics.Outline outline) {
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(20));
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(24));
             }
         });
 
-        org.telegram.ui.Components.PrimeWaveBackgroundView waveBg = new org.telegram.ui.Components.PrimeWaveBackgroundView(context);
+        waveBg = new org.telegram.ui.Components.PrimeWaveBackgroundView(context);
         card.addView(waveBg, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        LinearLayout cardContent = new LinearLayout(context);
+        cardContent.setOrientation(LinearLayout.VERTICAL);
+        cardContent.setPadding(dp(16), dp(16), dp(16), dp(14));
+        card.addView(cardContent, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        // ---- Top Header: Title + Subtitle + Live Wave Indicator ----
+        LinearLayout headerRow = new LinearLayout(context);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout titleCol = new LinearLayout(context);
+        titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView waveTitle = new TextView(context);
         waveTitle.setText("Моя волна");
         waveTitle.setTextColor(0xFFFFFFFF);
         waveTitle.setTypeface(AndroidUtilities.bold());
-        waveTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 22);
-        card.addView(waveTitle, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT, 18, 16, 0, 0));
+        waveTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20);
+        titleCol.addView(waveTitle);
+
+        waveSubtitle = new TextView(context);
+        waveSubtitle.setText("Бесконечный поток под ваш вкус");
+        waveSubtitle.setTextColor(0xB3FFFFFF);
+        waveSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+        titleCol.addView(waveSubtitle, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 1, 0, 0));
+        headerRow.addView(titleCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
+
+        cardContent.addView(headerRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        // ---- Mood Filter Chips Bar ----
+        android.widget.HorizontalScrollView chipsScroll = new android.widget.HorizontalScrollView(context);
+        chipsScroll.setHorizontalScrollBarEnabled(false);
+        chipsScroll.setOverScrollMode(OVER_SCROLL_NEVER);
+
+        moodChipsLayout = new LinearLayout(context);
+        moodChipsLayout.setOrientation(LinearLayout.HORIZONTAL);
+        moodChipsLayout.setGravity(Gravity.CENTER_VERTICAL);
+        chipsScroll.addView(moodChipsLayout, LayoutHelper.createScroll(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT));
+
+        setupMoodChips(context);
+        cardContent.addView(chipsScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 10, 0, 0));
+
+        // ---- Center State Container (Idle vs Active Playback) ----
+        FrameLayout centerZone = new FrameLayout(context);
+        cardContent.addView(centerZone, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f, 0, 8, 0, 0));
+
+        // 1. IDLE STATE: Large breathing Play Button
+        waveIdleContainer = new FrameLayout(context);
 
         wavePlayCircle = new FrameLayout(context);
-        wavePlayCircle.setBackground(Theme.createCircleDrawable(dp(56), 0xFFFFFFFF));
+        GradientDrawable playDiscBg = new GradientDrawable();
+        playDiscBg.setShape(GradientDrawable.OVAL);
+        playDiscBg.setColor(0xFFFFFFFF);
+        wavePlayCircle.setBackground(playDiscBg);
         wavePlayCircle.setClickable(true);
+        wavePlayCircle.setElevation(dp(4));
+
         ImageView playIcon = new ImageView(context);
         playIcon.setImageResource(R.drawable.ic_action_play);
         playIcon.setColorFilter(new PorterDuffColorFilter(0xFF0E0E12, PorterDuff.Mode.SRC_IN));
-        wavePlayCircle.addView(playIcon, LayoutHelper.createFrame(26, 26, Gravity.CENTER));
-        wavePlayCircle.setOnClickListener(v -> startWave());
-        card.addView(wavePlayCircle, LayoutHelper.createFrame(56, 56, Gravity.CENTER));
+        wavePlayCircle.addView(playIcon, LayoutHelper.createFrame(28, 28, Gravity.CENTER));
+        wavePlayCircle.setOnClickListener(v -> {
+            v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+            startWave();
+        });
+        waveIdleContainer.addView(wavePlayCircle, LayoutHelper.createFrame(58, 58, Gravity.CENTER));
+        centerZone.addView(waveIdleContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
-        // ---- The relocated mini-player - lives here now instead of a separate bar
-        // docked at the bottom of the whole screen, semi-transparent over the wave's
-        // own animated background. Shows whatever is actually playing (any source, not
-        // only wave tracks) - same as the bar it replaced. ----
-        miniPlayer = new FrameLayout(context);
-        GradientDrawable miniBg = new GradientDrawable();
-        miniBg.setColor(0x66000000);
-        miniBg.setCornerRadius(dp(16));
-        miniPlayer.setBackground(miniBg);
-        miniPlayer.setClickable(true);
-        miniPlayer.setOnClickListener(v -> {
+        // 2. ACTIVE PLAYBACK STATE: Cover, Track Info & Control Pill
+        waveActiveContainer = new FrameLayout(context);
+        waveActiveContainer.setVisibility(View.GONE);
+
+        LinearLayout activeLayout = new LinearLayout(context);
+        activeLayout.setOrientation(LinearLayout.VERTICAL);
+        activeLayout.setGravity(Gravity.CENTER_VERTICAL);
+
+        // Track Info Row (Cover + Title + Artist) - Clickable to open Now Playing
+        LinearLayout trackInfoRow = new LinearLayout(context);
+        trackInfoRow.setOrientation(LinearLayout.HORIZONTAL);
+        trackInfoRow.setGravity(Gravity.CENTER_VERTICAL);
+        trackInfoRow.setClickable(true);
+        trackInfoRow.setBackground(Theme.createSelectorDrawable(0x1AFFFFFF, Theme.RIPPLE_MASK_ALL));
+        trackInfoRow.setPadding(dp(4), dp(4), dp(4), dp(4));
+        trackInfoRow.setOnClickListener(v -> {
             if (MediaController.getInstance().getPlayingMessageObject() != null) {
                 fragment.presentFragment(new PrimeMusicNowPlayingActivity());
             }
         });
-        card.addView(miniPlayer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 60, Gravity.BOTTOM, 14, 0, 14, 14));
-
-        // Progress fill - scaleX'd (not re-measured) on every progress tick, same cheap
-        // GPU-only update the equalizer/timer animations in this feature already use;
-        // a left-pivoted transform behind the title, filling as the track approaches its
-        // end, the passive version of the E2E hold-button's own fill idea.
-        miniPlayerProgressFill = new View(context);
-        miniPlayerProgressFill.setBackgroundColor(0x33FFFFFF);
-        miniPlayerProgressFill.setPivotX(0f);
-        miniPlayerProgressFill.setScaleX(0f);
-        miniPlayer.addView(miniPlayerProgressFill, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         miniPlayerCoverFrame = new FrameLayout(context);
-        miniPlayer.addView(miniPlayerCoverFrame, LayoutHelper.createFrame(40, 40, Gravity.CENTER_VERTICAL | Gravity.LEFT, 10, 0, 0, 0));
+        miniPlayerCoverFrame.setClipToOutline(true);
+        miniPlayerCoverFrame.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(12));
+            }
+        });
         miniCoverIcon = new ImageView(context);
         miniCoverIcon.setImageResource(R.drawable.msg_filled_data_music);
         miniCoverIcon.setColorFilter(new PorterDuffColorFilter(0xEEFFFFFF, PorterDuff.Mode.SRC_IN));
         miniPlayerCoverFrame.addView(miniCoverIcon, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        trackInfoRow.addView(miniPlayerCoverFrame, LayoutHelper.createLinear(48, 48, Gravity.CENTER_VERTICAL));
 
         LinearLayout miniTexts = new LinearLayout(context);
         miniTexts.setOrientation(LinearLayout.VERTICAL);
         miniTexts.setGravity(Gravity.CENTER_VERTICAL);
-        miniPlayer.addView(miniTexts, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT, 60, 0, 56, 0));
 
         miniPlayerTitle = new TextView(context);
         miniPlayerTitle.setTextColor(0xFFFFFFFF);
         miniPlayerTitle.setTypeface(AndroidUtilities.bold());
-        miniPlayerTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_MEDIUM);
+        miniPlayerTitle.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
         miniPlayerTitle.setMaxLines(1);
         miniPlayerTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         miniTexts.addView(miniPlayerTitle);
 
         miniPlayerArtist = new TextView(context);
         miniPlayerArtist.setTextColor(0xCCFFFFFF);
-        miniPlayerArtist.setTextSize(TypedValue.COMPLEX_UNIT_DIP, org.telegram.messenger.music.PrimeMusicTheme.SP_SMALL);
+        miniPlayerArtist.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
         miniPlayerArtist.setMaxLines(1);
         miniPlayerArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
         miniTexts.addView(miniPlayerArtist, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
 
+        trackInfoRow.addView(miniTexts, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, 12, 0, 8, 0));
+        activeLayout.addView(trackInfoRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        // Controls Row: Dislike | Play/Pause | Skip/Next | Like (44x44dp HIG/WCAG compliant touch targets)
+        LinearLayout controlsRow = new LinearLayout(context);
+        controlsRow.setOrientation(LinearLayout.HORIZONTAL);
+        controlsRow.setGravity(Gravity.CENTER);
+        controlsRow.setPadding(0, dp(6), 0, 0);
+
+        // Dislike Button
+        FrameLayout dislikeBtn = new FrameLayout(context);
+        dislikeBtn.setClickable(true);
+        dislikeBtn.setContentDescription("Не нравится");
+        dislikeBtn.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, Theme.RIPPLE_MASK_CIRCLE_20DP));
+        waveDislikeIcon = new PrimeDislikeIconView(context);
+        dislikeBtn.addView(waveDislikeIcon, LayoutHelper.createFrame(22, 22, Gravity.CENTER));
+        dislikeBtn.setOnClickListener(v -> dislikeWaveTrack(v));
+        controlsRow.addView(dislikeBtn, LayoutHelper.createLinear(44, 44, 0, 0, 14, 0));
+
+        // Play/Pause Circle
         FrameLayout playPauseCircle = new FrameLayout(context);
-        playPauseCircle.setBackground(Theme.createCircleDrawable(dp(34), 0xFFFFFFFF));
+        playPauseCircle.setBackground(Theme.createCircleDrawable(dp(44), 0xFFFFFFFF));
         playPauseCircle.setClickable(true);
+        playPauseCircle.setContentDescription("Воспроизведение и пауза");
         miniPlayerPlayPause = new ImageView(context);
         miniPlayerPlayPause.setColorFilter(new PorterDuffColorFilter(0xFF0E0E12, PorterDuff.Mode.SRC_IN));
-        playPauseCircle.addView(miniPlayerPlayPause, LayoutHelper.createFrame(18, 18, Gravity.CENTER));
+        playPauseCircle.addView(miniPlayerPlayPause, LayoutHelper.createFrame(22, 22, Gravity.CENTER));
         playPauseCircle.setOnClickListener(v -> {
+            v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
             if (MediaController.getInstance().isMessagePaused()) {
                 MediaController.getInstance().playMessage(MediaController.getInstance().getPlayingMessageObject());
             } else {
@@ -508,9 +591,170 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
             }
             updateMiniPlayer();
         });
-        miniPlayer.addView(playPauseCircle, LayoutHelper.createFrame(34, 34, Gravity.RIGHT | Gravity.CENTER_VERTICAL, 0, 0, 10, 0));
+        controlsRow.addView(playPauseCircle, LayoutHelper.createLinear(44, 44, 0, 0, 14, 0));
 
+        // Next / Skip Button
+        waveNextBtn = new ImageView(context);
+        waveNextBtn.setImageResource(R.drawable.ic_action_next);
+        waveNextBtn.setScaleType(ImageView.ScaleType.CENTER);
+        waveNextBtn.setColorFilter(new PorterDuffColorFilter(0xFFFFFFFF, PorterDuff.Mode.SRC_IN));
+        waveNextBtn.setClickable(true);
+        waveNextBtn.setContentDescription("Следующий трек");
+        waveNextBtn.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, Theme.RIPPLE_MASK_CIRCLE_20DP));
+        waveNextBtn.setOnClickListener(v -> skipWaveTrack(v));
+        controlsRow.addView(waveNextBtn, LayoutHelper.createLinear(44, 44, 0, 0, 14, 0));
+
+        // Like Button
+        waveLikeBtn = new ImageView(context);
+        waveLikeBtn.setImageResource(R.drawable.media_like);
+        waveLikeBtn.setScaleType(ImageView.ScaleType.CENTER);
+        waveLikeBtn.setColorFilter(new PorterDuffColorFilter(0xCCFFFFFF, PorterDuff.Mode.SRC_IN));
+        waveLikeBtn.setClickable(true);
+        waveLikeBtn.setContentDescription("Нравится");
+        waveLikeBtn.setBackground(Theme.createSelectorDrawable(0x22FFFFFF, Theme.RIPPLE_MASK_CIRCLE_20DP));
+        waveLikeBtn.setOnClickListener(v -> toggleWaveLike(v));
+        controlsRow.addView(waveLikeBtn, LayoutHelper.createLinear(44, 44));
+
+        activeLayout.addView(controlsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        waveActiveContainer.addView(activeLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_VERTICAL));
+        centerZone.addView(waveActiveContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        // ---- Bottom Progress Bar Line ----
+        FrameLayout progressContainer = new FrameLayout(context);
+        progressContainer.setBackgroundColor(0x26FFFFFF);
+
+        miniPlayerProgressFill = new View(context);
+        miniPlayerProgressFill.setBackgroundColor(0xEEFFFFFF);
+        miniPlayerProgressFill.setPivotX(0f);
+        miniPlayerProgressFill.setScaleX(0f);
+        progressContainer.addView(miniPlayerProgressFill, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        card.addView(progressContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 3, Gravity.BOTTOM));
+
+        // Keep reference for legacy callers
+        miniPlayer = waveActiveContainer;
         return card;
+    }
+
+    private void setupMoodChips(Context context) {
+        moodChipsLayout.removeAllViews();
+        String[][] chips = {
+                {null, "Всё подряд"},
+                {"бодрое", "⚡ Бодрое"},
+                {"спокойное", "🌿 Спокойное"},
+                {"любимое", "❤️ Любимое"},
+                {"вечер", "🌙 Вечер"}
+        };
+
+        for (String[] chipData : chips) {
+            final String tag = chipData[0];
+            final String label = chipData[1];
+
+            TextView chip = new TextView(context);
+            chip.setText(label);
+            chip.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+            chip.setTypeface(AndroidUtilities.bold());
+            chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+            chip.setClickable(true);
+
+            boolean isSelected = (tag == null && activeMoodTag == null) || (tag != null && tag.equals(activeMoodTag));
+            styleMoodChip(chip, isSelected);
+
+            chip.setOnClickListener(v -> {
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+                activeMoodTag = tag;
+                if (tag == null) {
+                    org.telegram.messenger.music.PrimeMusicWave.setMoodFilter(null);
+                } else {
+                    List<String> list = new ArrayList<>();
+                    list.add(tag);
+                    org.telegram.messenger.music.PrimeMusicWave.setMoodFilter(list);
+                }
+                setupMoodChips(context);
+            });
+
+            moodChipsLayout.addView(chip, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 6, 0));
+        }
+    }
+
+    private void styleMoodChip(TextView chip, boolean selected) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(14));
+        if (selected) {
+            bg.setColor(0xFFFFFFFF);
+            chip.setTextColor(0xFF0E0E12);
+        } else {
+            bg.setColor(0x22FFFFFF);
+            bg.setStroke(dp(1), 0x1AFFFFFF);
+            chip.setTextColor(0xDDFFFFFF);
+        }
+        chip.setBackground(bg);
+    }
+
+    /** These buttons live on the wave card, but the card - and its mini-player - shows
+     *  for whatever is playing, wave or not (same as the docked mini-player it replaced).
+     *  Routing them through {@link org.telegram.messenger.music.PrimeMusicWave} unconditionally
+     *  would silently hijack ordinary playback: a dislike/skip tap on a track played from
+     *  Liked Songs would call {@code advance()}, which queries wave recommendations and starts
+     *  playing one regardless of whether a wave was ever started. Gated on {@code isActive()},
+     *  same as {@link org.telegram.ui.PrimeMusicNowPlayingActivity}'s own dislike button. */
+    private void dislikeWaveTrack(View v) {
+        v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+        if (!org.telegram.messenger.music.PrimeMusicWave.isActive()) {
+            MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+            if (playing != null) {
+                Long localId = PrimeMusicPlayback.resolveLocalTrackId(playing);
+                long trackId = localId != null ? localId : PrimeMusicLibrary.findOrAddTelegramTrack(
+                        playing.getDialogId(), playing.getId(), playing.getMusicTitle(), playing.getMusicAuthor(), (int) playing.getDuration());
+                PrimeMusicLibrary.setDisliked(trackId, true);
+            }
+            MediaController.getInstance().playNextMessage();
+            return;
+        }
+        org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.dislikeCurrentAndAdvance();
+        if (next != null) {
+            org.telegram.messenger.music.PrimeMusicPlayback.playSingle(UserConfig.selectedAccount, next);
+        } else {
+            MediaController.getInstance().cleanupPlayer(true, true);
+            org.telegram.messenger.music.PrimeMusicWave.stop();
+            updateMiniPlayer();
+        }
+    }
+
+    private void skipWaveTrack(View v) {
+        v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+        if (!org.telegram.messenger.music.PrimeMusicWave.isActive()) {
+            MediaController.getInstance().playNextMessage();
+            return;
+        }
+        org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.next();
+        if (next != null) {
+            org.telegram.messenger.music.PrimeMusicPlayback.playSingle(UserConfig.selectedAccount, next);
+        }
+    }
+
+    private void toggleWaveLike(View v) {
+        v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+        MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+        if (playing == null) {
+            return;
+        }
+        Long localId = PrimeMusicPlayback.resolveLocalTrackId(playing);
+        long trackId = localId != null ? localId : PrimeMusicLibrary.findOrAddTelegramTrack(
+                playing.getDialogId(), playing.getId(), playing.getMusicTitle(), playing.getMusicAuthor(), (int) playing.getDuration());
+
+        PrimeTrack track = PrimeMusicLibrary.getTrack(trackId);
+        boolean newLiked = track == null || !track.liked;
+        PrimeMusicLibrary.setLiked(trackId, newLiked);
+
+        // Heart scale bounce animation
+        waveLikeBtn.animate()
+                .scaleX(1.35f).scaleY(1.35f)
+                .setDuration(120)
+                .withEndAction(() -> waveLikeBtn.animate().scaleX(1f).scaleY(1f).setDuration(120).start())
+                .start();
+
+        updateMiniPlayer();
     }
 
     private void startWave() {
@@ -712,24 +956,68 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
     private void updateMiniPlayer() {
         MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
         if (playing == null) {
-            miniPlayer.setVisibility(View.GONE);
-            wavePlayCircle.setVisibility(View.VISIBLE);
+            if (waveActiveContainer != null) {
+                waveActiveContainer.setVisibility(View.GONE);
+            }
+            if (waveIdleContainer != null) {
+                waveIdleContainer.setVisibility(View.VISIBLE);
+            }
+            if (waveBg != null) {
+                waveBg.setPlaying(false);
+            }
+            if (waveSubtitle != null) {
+                waveSubtitle.setText("Бесконечный поток под ваш вкус");
+            }
+            if (miniPlayerProgressFill != null) {
+                miniPlayerProgressFill.setScaleX(0f);
+            }
             return;
         }
-        miniPlayer.setVisibility(View.VISIBLE);
-        wavePlayCircle.setVisibility(View.GONE);
+
+        if (waveActiveContainer != null) {
+            waveActiveContainer.setVisibility(View.VISIBLE);
+        }
+        if (waveIdleContainer != null) {
+            waveIdleContainer.setVisibility(View.GONE);
+        }
+
+        boolean paused = MediaController.getInstance().isMessagePaused();
+        if (waveBg != null) {
+            waveBg.setPlaying(!paused);
+        }
+        if (waveSubtitle != null) {
+            waveSubtitle.setText(org.telegram.messenger.music.PrimeMusicWave.isActive() ? "Поток подстраивается под вас" : "Сейчас играет");
+        }
+
         String title = playing.getMusicTitle();
         String artist = playing.getMusicAuthor();
-        miniPlayerTitle.setText(title != null && !title.isEmpty() ? title : "Без названия");
-        miniPlayerArtist.setText(artist != null ? artist : "");
+        if (miniPlayerTitle != null) {
+            miniPlayerTitle.setText(title != null && !title.isEmpty() ? title : "Без названия");
+        }
+        if (miniPlayerArtist != null) {
+            miniPlayerArtist.setText(artist != null ? artist : "");
+        }
 
         String seed = (title != null ? title : "") + "_" + (artist != null ? artist : "");
         Long localId = PrimeMusicPlayback.resolveLocalTrackId(playing);
         String coverPath = localId != null ? safeCoverPath(localId) : null;
-        org.telegram.messenger.music.PrimeAlbumArt.applyCover(miniPlayerCoverFrame, miniCoverIcon, coverPath, seed, 10);
+        if (miniPlayerCoverFrame != null && miniCoverIcon != null) {
+            org.telegram.messenger.music.PrimeAlbumArt.applyCover(miniPlayerCoverFrame, miniCoverIcon, coverPath, seed, 12);
+        }
 
-        boolean paused = MediaController.getInstance().isMessagePaused();
-        miniPlayerPlayPause.setImageResource(paused ? R.drawable.ic_action_play : R.drawable.ic_action_pause);
+        if (miniPlayerPlayPause != null) {
+            miniPlayerPlayPause.setImageResource(paused ? R.drawable.ic_action_play : R.drawable.ic_action_pause);
+        }
+
+        if (waveLikeBtn != null) {
+            long trackId = localId != null ? localId : PrimeMusicLibrary.findOrAddTelegramTrack(
+                    playing.getDialogId(), playing.getId(), title, artist, (int) playing.getDuration());
+            PrimeTrack track = PrimeMusicLibrary.getTrack(trackId);
+            boolean isLiked = track != null && track.liked;
+            waveLikeBtn.setImageResource(isLiked ? R.drawable.media_like_active : R.drawable.media_like);
+            waveLikeBtn.setColorFilter(new PorterDuffColorFilter(isLiked ? 0xFFFF3B5C : 0xCCFFFFFF, PorterDuff.Mode.SRC_IN));
+        }
+
         updateMiniPlayerProgress();
     }
 

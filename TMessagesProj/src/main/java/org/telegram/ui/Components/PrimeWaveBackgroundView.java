@@ -1,5 +1,7 @@
 package org.telegram.ui.Components;
 
+import static org.telegram.messenger.AndroidUtilities.dp;
+
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -11,49 +13,59 @@ import android.view.View;
 import android.view.animation.LinearInterpolator;
 
 /**
- * PrimeGram Music: "Моя волна"'s animated background - not a real fragment shader (this
- * fork has no GLSL/EGL pipeline to build on), but a genuine Canvas animation rather than
- * the static gradient it replaced: 3 soft radial blobs drift on independent slow orbits
- * and the whole palette itself hue-shifts continuously between curated color triads, so
- * both the shapes AND the colors are actually moving, not just a picture that looks like
- * they might.
+ * PrimeGram Music: "Моя волна" - high-fidelity procedural liquid gradient background.
+ * Uses 5 harmonic orbital nodes with multi-frequency Lissajous paths and dynamic
+ * palette interpolation to create an organic, living "neural glow" on pure Canvas
+ * without requiring OpenGL/GLSL pipeline dependencies.
  */
 public class PrimeWaveBackgroundView extends View {
 
-    /** Each row is a 3-color triad (as HSV hue degrees) the palette slowly rotates
-     *  through - all warm/glowing families, matching the reference's "sun" look, not a
-     *  random hue wheel spin (that would read as gaudy, not "liquid"). */
+    /** Curated 4-color palettes (HSV hues: primary, secondary, accent, deep glow) */
     private static final float[][] HUE_PALETTES = {
-            {350f, 30f, 45f},   // magenta -> orange -> gold (the reference screenshot)
-            {180f, 200f, 260f}, // teal -> cyan -> violet
-            {20f, 45f, 320f},   // orange -> gold -> pink
+            {338f, 24f, 48f, 280f},  // Solar Plasma: Magenta -> Electric Orange -> Amber Gold -> Deep Violet
+            {165f, 195f, 235f, 280f}, // Deep Aurora: Emerald -> Cyan -> Ultramarine -> Purple
+            {310f, 260f, 210f, 345f}, // Cyber Vibe: Neon Fuchsia -> Indigo -> Electric Blue -> Hot Pink
+            {15f, 350f, 290f, 45f}    // Sunset Glow: Peach Orange -> Crimson -> Deep Plum -> Warm Gold
     };
 
-    private static final long PALETTE_DURATION_MS = 9000;
-    private static final long ORBIT_DURATION_MS = 14000;
+    private static final long PALETTE_DURATION_MS = 10000;
+    private static final long ORBIT_DURATION_MS = 16000;
 
     private final Paint blobPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bgPaint = new Paint();
     private final ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+
     private float globalPhase;
+    private boolean isPlaying = true;
+    private float pulsePhase = 0f;
 
     public PrimeWaveBackgroundView(Context context) {
         super(context);
-        bgPaint.setColor(0xFF0A0A0E);
+        bgPaint.setColor(0xFF0C0C14);
         blobPaint.setStyle(Paint.Style.FILL);
+
         animator.setDuration(ORBIT_DURATION_MS);
         animator.setInterpolator(new LinearInterpolator());
         animator.setRepeatCount(ValueAnimator.INFINITE);
         animator.addUpdateListener(a -> {
             globalPhase = (float) a.getAnimatedValue();
+            if (isPlaying) {
+                pulsePhase = (pulsePhase + 0.025f) % 1f;
+            }
             invalidate();
         });
+    }
+
+    public void setPlaying(boolean playing) {
+        this.isPlaying = playing;
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        animator.start();
+        if (!animator.isRunning()) {
+            animator.start();
+        }
     }
 
     @Override
@@ -63,23 +75,22 @@ public class PrimeWaveBackgroundView extends View {
     }
 
     private static int hsv(float hue, float sat, float value, int alpha) {
-        return Color.HSVToColor(alpha, new float[]{hue % 360f, sat, value});
+        return Color.HSVToColor(alpha, new float[]{(hue % 360f + 360f) % 360f, sat, value});
     }
 
-    /** Interpolates hue between the current palette and the next one over
-     *  {@link #PALETTE_DURATION_MS}, driven off wall-clock time (not the orbit animator,
-     *  a different period) so the color rotation and the shape motion are visibly
-     *  independent rhythms, not locked to the same loop. */
     private float[] currentHues() {
         long now = android.os.SystemClock.uptimeMillis();
         long cycle = now % (PALETTE_DURATION_MS * HUE_PALETTES.length);
         int index = (int) (cycle / PALETTE_DURATION_MS);
         float t = (cycle % PALETTE_DURATION_MS) / (float) PALETTE_DURATION_MS;
+        // Smooth hermite interpolation for color transitions
+        float smoothT = t * t * (3f - 2f * t);
+
         float[] from = HUE_PALETTES[index];
         float[] to = HUE_PALETTES[(index + 1) % HUE_PALETTES.length];
-        float[] result = new float[3];
-        for (int i = 0; i < 3; i++) {
-            result[i] = lerpHue(from[i], to[i], t);
+        float[] result = new float[4];
+        for (int i = 0; i < 4; i++) {
+            result[i] = lerpHue(from[i], to[i], smoothT);
         }
         return result;
     }
@@ -93,33 +104,54 @@ public class PrimeWaveBackgroundView extends View {
     protected void onDraw(Canvas canvas) {
         int w = getWidth();
         int h = getHeight();
-        canvas.drawRect(0, 0, w, h, bgPaint);
         if (w == 0 || h == 0) {
             return;
         }
 
-        float[] hues = currentHues();
-        float maxRadius = Math.max(w, h) * 0.62f;
+        canvas.drawRect(0, 0, w, h, bgPaint);
 
-        drawBlob(canvas, hues[0], w * 0.5f, h * 0.28f, maxRadius, 0f);
-        drawBlob(canvas, hues[1], w * 0.5f, h * 0.5f, maxRadius * 0.85f, 0.33f);
-        drawBlob(canvas, hues[2], w * 0.5f, h * 0.72f, maxRadius * 0.75f, 0.66f);
+        float[] hues = currentHues();
+        float baseRadius = Math.max(w, h) * 0.72f;
+
+        // Breathing pulse calculation
+        float pulse = isPlaying ? (float) (Math.sin(pulsePhase * Math.PI * 2) * 0.06f) : 0f;
+        float dynamicRadius = baseRadius * (1f + pulse);
+
+        // 1. Central radiant energy core
+        drawFluidBlob(canvas, hues[0], w * 0.5f, h * 0.5f, dynamicRadius * 0.95f, 0f, 1.0f, 1.2f, 240);
+
+        // 2. Upper flowing orbital node
+        drawFluidBlob(canvas, hues[1], w * 0.35f, h * 0.30f, dynamicRadius * 0.78f, 0.22f, 1.7f, 2.1f, 210);
+
+        // 3. Right harmonic orbital node
+        drawFluidBlob(canvas, hues[2], w * 0.68f, h * 0.45f, dynamicRadius * 0.82f, 0.48f, 1.3f, 1.9f, 200);
+
+        // 4. Lower deep accent node
+        drawFluidBlob(canvas, hues[3], w * 0.45f, h * 0.72f, dynamicRadius * 0.74f, 0.73f, 2.3f, 1.5f, 190);
+
+        // 5. Ambient secondary glow for extra liquid dispersion
+        drawFluidBlob(canvas, (hues[0] + 30f) % 360f, w * 0.55f, h * 0.58f, dynamicRadius * 0.60f, 0.88f, 0.9f, 1.4f, 160);
     }
 
-    /** One drifting glow - orbits a small ellipse around its own anchor point so it
-     *  never leaves the visible area, phase-offset per blob so all three don't move in
-     *  lockstep. */
-    private void drawBlob(Canvas canvas, float hue, float anchorX, float anchorY, float radius, float phaseOffset) {
+    private void drawFluidBlob(Canvas canvas, float hue, float anchorX, float anchorY, float radius,
+                               float phaseOffset, float freqX, float freqY, int maxAlpha) {
         float phase = (globalPhase + phaseOffset) % 1f;
         double angle = phase * Math.PI * 2;
-        float driftX = (float) Math.cos(angle) * radius * 0.22f;
-        float driftY = (float) Math.sin(angle * 1.3) * radius * 0.16f;
+
+        float driftX = (float) Math.sin(angle * freqX) * radius * 0.26f;
+        float driftY = (float) Math.cos(angle * freqY) * radius * 0.20f;
         float cx = anchorX + driftX;
         float cy = anchorY + driftY;
 
+        int c1 = hsv(hue, 0.68f, 1.0f, maxAlpha);
+        int c2 = hsv(hue, 0.80f, 0.85f, (int) (maxAlpha * 0.55f));
+        int c3 = hsv((hue + 20f) % 360f, 0.90f, 0.60f, (int) (maxAlpha * 0.18f));
+        int c4 = 0x00000000;
+
         blobPaint.setShader(new RadialGradient(cx, cy, radius,
-                new int[]{hsv(hue, 0.55f, 1f, 235), hsv(hue, 0.7f, 0.9f, 90), hsv(hue, 0.8f, 0.7f, 0)},
-                new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
+                new int[]{c1, c2, c3, c4},
+                new float[]{0f, 0.35f, 0.70f, 1.0f}, Shader.TileMode.CLAMP));
+
         canvas.drawCircle(cx, cy, radius, blobPaint);
     }
 }
