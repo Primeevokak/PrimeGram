@@ -237,8 +237,12 @@ apply plugin: 'com.google.gms.google-services'
 // the Flutter module is wired up at all yet) rather than a silent breakage.
 tasks.register('extractFlutterNativeLibs', Sync) {
     def libsJar = file("$rootDir/prime_flutter_module/.android/Flutter/build/intermediates/flutter/release/libs.jar")
-    dependsOn ':flutter:packJniLibsflutterBuildRelease'
-    onlyIf { libsJar.exists() }
+    // packJniLibsflutterBuildRelease is registered dynamically inside :flutter's own
+    // android.libraryVariants.all { ... } callback and isn't reliably resolvable by name
+    // from here at configuration time - assembleRelease is a standard AGP lifecycle task
+    // that's always present and transitively depends on it (it's an api dependency of the
+    // release variant), so depending on that instead sidesteps the ordering problem.
+    dependsOn ':flutter:assembleRelease'
     from({ zipTree(libsJar) }) {
         include 'lib/**/*.so'
         eachFile { details ->
