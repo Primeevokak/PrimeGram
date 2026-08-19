@@ -42,6 +42,11 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # PrimeGram: the "Моя волна" glowing ring background - a real GLSL fragment shader, see
+  # shaders/wave_ring.frag's own doc comment for why this exists.
+  shaders:
+    - shaders/wave_ring.frag
+
   # To add Flutter specific assets to your application, add an assets section,
   # like this:
   # assets:

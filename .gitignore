@@ -48,5 +48,10 @@ __pycache__/
 # API client, kept as a local reference for the Music tab - not a submodule.
 /yandex-music-api-repo/
 
+# Screenshots/icons/images pulled from a Figma community file (real Yandex Music UI) via
+# the Figma MCP, kept as a local design reference for the Music tab rewrite - not our own
+# assets, not licensed for the app itself, never meant to be committed.
+/figma-yandex-music-ref/
+
 .agents/
 

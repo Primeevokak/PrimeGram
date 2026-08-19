@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+// PrimeGram: this import is load-bearing, not decoration - the Dart compiler only
+// includes a library in the compiled program if it's reachable via import from the root
+// script (lib/main.dart, the default build target), regardless of @pragma('vm:entry-point')
+// on anything inside it. Without this line, music_main.dart's musicMain() entry point
+// (used by PrimeMusicFlutterEngineHolder for the Music tab) doesn't exist in the compiled
+// app at all - confirmed on device: "Dart_LookupLibrary: library '...music_main.dart' not
+// found" - not a missing-symbol error, the whole library was absent from the build.
+// ignore: unused_import
+import 'music_main.dart';
+
 // PrimeGram: minimal proof-of-life screen for the embedded Flutter engine -
 // confirms the engine boots, the activity opens, and closes back to the host
 // app cleanly. No MethodChannel wiring yet; that is the natural next step
