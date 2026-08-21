@@ -79,6 +79,20 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
+  # PrimeGram: bundled locally (not fetched at runtime via a fonts package) - this app is
+  # partly offline-first (locally scanned tracks, no guaranteed network), so a font that
+  # needs a network round-trip on first use is the wrong tradeoff. Both are real Google
+  # Fonts (OFL-licensed) variable fonts, downloaded once and committed as assets.
+  # Unbounded: bold geometric display face, Cyrillic-native, for hero titles/headers.
+  # Golos Text: VK's own open-sourced grotesque, warm and highly legible in Russian, for
+  # body/UI text - deliberately not Inter/Roboto/Space Grotesk (see design system doc).
+  fonts:
+    - family: Unbounded
+      fonts:
+        - asset: fonts/Unbounded.ttf
+    - family: GolosText
+      fonts:
+        - asset: fonts/GolosText.ttf
 
   # This section identifies your Flutter project as a module meant for
   # embedding in a native host app.  These identifiers should _not_ ordinarily

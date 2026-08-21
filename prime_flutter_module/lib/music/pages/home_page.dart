@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../bridge.dart';
+import '../design/tokens.dart';
 import '../models.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/wave_card.dart';
+import 'now_playing_page.dart';
 
-/// PrimeGram: Music tab home screen - the wave card up top (see wave_card.dart), a plain
-/// recommendations list below it, tap to play. Cover art, Now Playing screen, equalizer,
-/// hidden/disliked management etc. are Phase 3 (see the plan) - not this pass.
+/// PrimeGram: Music tab home screen - the wave card up top (see wave_card.dart), a
+/// recommendations list below it, mini player docked at the bottom.
 class MusicHomePage extends StatefulWidget {
   const MusicHomePage({super.key});
 
@@ -31,57 +32,59 @@ class _MusicHomePageState extends State<MusicHomePage> {
     await _tracksFuture;
   }
 
+  Future<void> _play(Track track) async {
+    await MusicBridge.instance.playSingle(track.id);
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NowPlayingPage()));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Музыка')),
+      backgroundColor: MusicTokens.bg,
+      appBar: AppBar(
+        backgroundColor: MusicTokens.bg,
+        elevation: 0,
+        title: const Text('Музыка', style: MusicTokens.hero),
+      ),
       body: Column(
         children: [
           Expanded(
             child: RefreshIndicator(
               onRefresh: _reload,
+              color: MusicTokens.accentPurple,
+              backgroundColor: MusicTokens.surfaceRaised,
               child: FutureBuilder<List<Track>>(
                 future: _tracksFuture,
                 builder: (context, snapshot) {
                   final tracks = snapshot.data;
                   return ListView(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(MusicTokens.s16, MusicTokens.s8, MusicTokens.s16, MusicTokens.s16),
                     children: [
                       const WaveCard(),
-                      const SizedBox(height: 20),
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          'Рекомендуем для вас',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
+                      const SizedBox(height: MusicTokens.s24),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: MusicTokens.s12, left: 4),
+                        child: Text('Рекомендуем для вас', style: MusicTokens.title.copyWith(fontSize: 17)),
                       ),
                       if (tracks == null)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: CircularProgressIndicator()),
+                          child: Center(child: CircularProgressIndicator(color: MusicTokens.accentPurple)),
                         )
                       else if (tracks.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: Text('Треков пока нет')),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Center(child: Text('Треков пока нет', style: MusicTokens.body)),
                         )
                       else
-                        ...tracks.map((track) => ListTile(
-                              leading: const CircleAvatar(child: Icon(Icons.music_note)),
-                              title: Text(track.title.isEmpty ? 'Без названия' : track.title),
-                              subtitle: Text(track.artist),
-                              trailing: IconButton(
-                                icon: Icon(
-                                  track.liked ? Icons.favorite : Icons.favorite_border,
-                                  color: track.liked ? Colors.redAccent : null,
-                                ),
-                                onPressed: () {
-                                  MusicBridge.instance.setLiked(track.id, !track.liked);
-                                  _reload();
-                                },
-                              ),
-                              onTap: () => MusicBridge.instance.playSingle(track.id),
+                        ...tracks.map((track) => _TrackRow(
+                              track: track,
+                              onTap: () => _play(track),
+                              onToggleLike: () async {
+                                await MusicBridge.instance.setLiked(track.id, !track.liked);
+                                _reload();
+                              },
                             )),
                     ],
                   );
@@ -91,6 +94,73 @@ class _MusicHomePageState extends State<MusicHomePage> {
           ),
           const MiniPlayer(),
         ],
+      ),
+    );
+  }
+}
+
+class _TrackRow extends StatelessWidget {
+  final Track track;
+  final VoidCallback onTap;
+  final VoidCallback onToggleLike;
+
+  const _TrackRow({required this.track, required this.onTap, required this.onToggleLike});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(MusicTokens.radiusM),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: MusicTokens.s8),
+        child: Row(
+          children: [
+            TrackArtPlaceholder(title: track.title, size: 48),
+            const SizedBox(width: MusicTokens.s12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    track.title.isEmpty ? 'Без названия' : track.title,
+                    style: MusicTokens.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(color: MusicTokens.sourceColor(track.source), shape: BoxShape.circle),
+                      ),
+                      Expanded(
+                        child: Text(
+                          track.artist,
+                          style: MusicTokens.body,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Text(MusicTokens.formatDuration(track.duration), style: MusicTokens.timecode),
+            IconButton(
+              icon: Icon(
+                track.liked ? Icons.favorite : Icons.favorite_border,
+                color: track.liked ? MusicTokens.accentMagenta : MusicTokens.textTertiary,
+                size: 20,
+              ),
+              onPressed: onToggleLike,
+            ),
+          ],
+        ),
       ),
     );
   }

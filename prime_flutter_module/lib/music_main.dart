@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'music/design/tokens.dart';
 import 'music/pages/home_page.dart';
 
 // PrimeGram: second Dart entry point in this module, alongside the original main() (the
@@ -22,8 +23,14 @@ class PrimeMusicApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        colorSchemeSeed: Colors.deepPurple,
-        scaffoldBackgroundColor: const Color(0xFF121216),
+        fontFamily: MusicTokens.bodyFont,
+        scaffoldBackgroundColor: MusicTokens.bg,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: MusicTokens.accentPurple,
+          brightness: Brightness.dark,
+          surface: MusicTokens.surface,
+        ),
+        splashFactory: InkRipple.splashFactory,
       ),
       home: const MusicHomePage(),
     );

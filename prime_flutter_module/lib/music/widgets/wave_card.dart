@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../bridge.dart';
+import '../design/tokens.dart';
 import '../models.dart';
 
 /// PrimeGram: "Моя волна" card. Composition studied from the real Yandex Music home
@@ -107,6 +108,15 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
     setState(() => _current = track);
   }
 
+  Future<void> _toggleLike() async {
+    final current = _current;
+    if (current == null) return;
+    await MusicBridge.instance.setLiked(current.id, !current.liked);
+    final refreshed = await MusicBridge.instance.waveCurrent();
+    if (!mounted) return;
+    setState(() => _current = refreshed ?? current);
+  }
+
   Future<void> _selectMood(_MoodOption mood) async {
     setState(() => _activeMood = mood.tag);
     await MusicBridge.instance.waveSetMoodFilter(mood.tag);
@@ -150,12 +160,16 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
                     final mood = _moods[index];
                     final selected = mood.tag == _activeMood;
                     return ChoiceChip(
-                      label: Text(mood.label, style: const TextStyle(fontSize: 11)),
+                      label: Text(mood.label, style: MusicTokens.caption.copyWith(fontSize: 11)),
                       selected: selected,
                       onSelected: (_) => _selectMood(mood),
-                      selectedColor: Colors.white,
+                      selectedColor: MusicTokens.textPrimary,
                       backgroundColor: const Color(0x1AFFFFFF),
-                      labelStyle: TextStyle(color: selected ? Colors.black : const Color(0xCCFFFFFF)),
+                      labelStyle: TextStyle(
+                        fontFamily: MusicTokens.bodyFont,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? MusicTokens.bg : MusicTokens.textPrimary.withValues(alpha: 0.85),
+                      ),
                       side: BorderSide.none,
                       visualDensity: VisualDensity.compact,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -176,17 +190,14 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
                       InkWell(
                         onTap: _play,
                         borderRadius: BorderRadius.circular(28),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.play_arrow, color: Color(0xCCFFFFFF), size: 28),
-                              SizedBox(width: 8),
-                              Text(
-                                'Моя волна',
-                                style: TextStyle(color: Color(0xCCFFFFFF), fontSize: 22, fontWeight: FontWeight.w700),
-                              ),
+                              const Icon(Icons.play_arrow, color: Color(0xE6FFFFFF), size: 30),
+                              const SizedBox(width: 10),
+                              Text('Моя волна', style: MusicTokens.hero.copyWith(color: const Color(0xE6FFFFFF))),
                             ],
                           ),
                         ),
@@ -208,19 +219,25 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
                         children: [
                           Text(
                             _current!.title.isEmpty ? 'Без названия' : _current!.title,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            style: MusicTokens.title.copyWith(color: MusicTokens.textPrimary),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
                             _current!.artist,
-                            style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 12),
+                            style: MusicTokens.body.copyWith(color: const Color(0xCCFFFFFF)),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
+                    _circleButton(
+                      _current!.liked ? Icons.favorite : Icons.favorite_border,
+                      _toggleLike,
+                      color: _current!.liked ? MusicTokens.accentMagenta : null,
+                    ),
+                    const SizedBox(width: 8),
                     _circleButton(Icons.thumb_down_alt_outlined, _dislike),
                     const SizedBox(width: 8),
                     _circleButton(Icons.skip_next, _next),
@@ -233,7 +250,7 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
     );
   }
 
-  Widget _circleButton(IconData icon, VoidCallback onTap) {
+  Widget _circleButton(IconData icon, VoidCallback onTap, {Color? color}) {
     return InkWell(
       customBorder: const CircleBorder(),
       onTap: onTap,
@@ -241,7 +258,7 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
         width: 40,
         height: 40,
         decoration: const BoxDecoration(color: Color(0x22FFFFFF), shape: BoxShape.circle),
-        child: Icon(icon, color: Colors.white, size: 20),
+        child: Icon(icon, color: color ?? Colors.white, size: 20),
       ),
     );
   }

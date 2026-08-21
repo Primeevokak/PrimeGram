@@ -54,6 +54,15 @@ class MusicBridge {
     }
   }
 
+  Future<Track?> getTrack(int trackId) async {
+    try {
+      final result = await _methods.invokeMethod<Map<dynamic, dynamic>>('getTrack', {'trackId': trackId});
+      return result == null ? null : Track.fromMap(result);
+    } on MissingPluginException {
+      return _mockTracks.firstWhere((t) => t.id == trackId, orElse: () => _mockTracks.first);
+    }
+  }
+
   Future<PlaybackState> getCurrentState() async {
     try {
       final result = await _methods.invokeMethod<Map<dynamic, dynamic>>('getCurrentState');
@@ -90,6 +99,19 @@ class MusicBridge {
   Future<void> setLiked(int trackId, bool liked) async {
     try {
       await _methods.invokeMethod('setLiked', {'trackId': trackId, 'liked': liked});
+    } on MissingPluginException {
+      // Preview-only no-op.
+    }
+  }
+
+  /// Marks a track disliked WITHOUT advancing/skipping anything - unlike
+  /// [waveDislikeAndAdvance], safe to call on any currently playing track regardless of
+  /// whether a wave session is active (mirrors PrimeMusicLibrary.setDisliked directly).
+  /// Now Playing uses this outside a wave session, and waveDislikeAndAdvance inside one -
+  /// same isActive() gating lesson as the native Java UI's own dislike buttons.
+  Future<void> setDisliked(int trackId, bool disliked) async {
+    try {
+      await _methods.invokeMethod('setDisliked', {'trackId': trackId, 'disliked': disliked});
     } on MissingPluginException {
       // Preview-only no-op.
     }

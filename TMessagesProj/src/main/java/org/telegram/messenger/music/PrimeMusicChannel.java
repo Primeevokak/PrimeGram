@@ -54,6 +54,12 @@ public final class PrimeMusicChannel {
                 result.success(currentStateMap());
                 break;
             }
+            case "getTrack": {
+                Number trackId = call.argument("trackId");
+                PrimeTrack track = trackId == null ? null : PrimeMusicLibrary.getTrack(trackId.longValue());
+                result.success(track == null ? null : trackToMap(track));
+                break;
+            }
             case "playSingle": {
                 Number trackId = call.argument("trackId");
                 if (trackId == null) {
@@ -94,6 +100,15 @@ public final class PrimeMusicChannel {
                 Boolean liked = call.argument("liked");
                 if (trackId != null && liked != null) {
                     PrimeMusicLibrary.setLiked(trackId.longValue(), liked);
+                }
+                result.success(null);
+                break;
+            }
+            case "setDisliked": {
+                Number trackId = call.argument("trackId");
+                Boolean disliked = call.argument("disliked");
+                if (trackId != null && disliked != null) {
+                    PrimeMusicLibrary.setDisliked(trackId.longValue(), disliked);
                 }
                 result.success(null);
                 break;
