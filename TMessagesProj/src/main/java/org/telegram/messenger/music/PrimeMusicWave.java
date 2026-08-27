@@ -22,6 +22,15 @@ public final class PrimeMusicWave {
     private static final Set<Long> playedThisSession = new HashSet<>();
     private static List<String> moodFilter = new ArrayList<>();
 
+    /** Ordered play history for this session, separate from {@code playedThisSession}
+     *  (which only tracks *what to exclude* from future recommendations). {@code
+     *  historyIndex} points at {@code current} within {@code history} - {@link #previous()}
+     *  steps it back without re-querying recommendations or touching the exclusion set,
+     *  {@link #advance()} steps it forward, dropping any stale "future" beyond it first
+     *  (going back then hitting next resumes live picking rather than replaying). */
+    private static final List<PrimeTrack> history = new ArrayList<>();
+    private static int historyIndex = -1;
+
     private PrimeMusicWave() {
     }
 
@@ -53,7 +62,28 @@ public final class PrimeMusicWave {
      *  nothing matches the active mood filter). */
     public static PrimeTrack start() {
         playedThisSession.clear();
+        history.clear();
+        historyIndex = -1;
         return advance();
+    }
+
+    /** Whether {@link #previous()} has anything to step back to. */
+    public static boolean hasPrevious() {
+        return historyIndex > 0;
+    }
+
+    /** Steps back to the prior track in this session's history - unlike {@link #next()}
+     *  this doesn't re-query recommendations, it's real "go back" over what already
+     *  played, same as Namida's queue-position-minus-one. Does not touch
+     *  {@code playedThisSession}: the track was already excluded from future picks when
+     *  it was first played, and revisiting it doesn't un-exclude it. */
+    public static PrimeTrack previous() {
+        if (!hasPrevious()) {
+            return null;
+        }
+        historyIndex--;
+        current = history.get(historyIndex);
+        return current;
     }
 
     /** Track finished naturally - same call as {@link #skip}, the distinction exists for
@@ -86,11 +116,20 @@ public final class PrimeMusicWave {
         }
         List<PrimeTrack> candidates = PrimeMusicLibrary.getWaveRecommendations(playedThisSession, moodFilter, 1);
         current = candidates.isEmpty() ? null : candidates.get(0);
+        if (current != null) {
+            while (history.size() > historyIndex + 1) {
+                history.remove(history.size() - 1);
+            }
+            history.add(current);
+            historyIndex = history.size() - 1;
+        }
         return current;
     }
 
     public static void stop() {
         current = null;
         playedThisSession.clear();
+        history.clear();
+        historyIndex = -1;
     }
 }

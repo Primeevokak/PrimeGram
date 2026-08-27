@@ -54,6 +54,65 @@ class MusicBridge {
     }
   }
 
+  Future<List<Track>> getAllTracks() async {
+    try {
+      final result = await _methods.invokeMethod<List<dynamic>>('getAllTracks');
+      return (result ?? const []).map((e) => Track.fromMap(e as Map)).toList();
+    } on MissingPluginException {
+      return _mockTracks;
+    }
+  }
+
+  Future<List<Playlist>> getPlaylists() async {
+    try {
+      final result = await _methods.invokeMethod<List<dynamic>>('getPlaylists');
+      return (result ?? const []).map((e) => Playlist.fromMap(e as Map)).toList();
+    } on MissingPluginException {
+      return const [Playlist(id: 1, name: 'Избранное на вечер', createdAt: 0, trackCount: 2)];
+    }
+  }
+
+  Future<int?> createPlaylist(String name) async {
+    try {
+      return await _methods.invokeMethod<int>('createPlaylist', {'name': name});
+    } on MissingPluginException {
+      return 1;
+    }
+  }
+
+  Future<void> deletePlaylist(int playlistId) async {
+    try {
+      await _methods.invokeMethod('deletePlaylist', {'playlistId': playlistId});
+    } on MissingPluginException {
+      // Preview-only no-op.
+    }
+  }
+
+  Future<List<Track>> getPlaylistTracks(int playlistId) async {
+    try {
+      final result = await _methods.invokeMethod<List<dynamic>>('getPlaylistTracks', {'playlistId': playlistId});
+      return (result ?? const []).map((e) => Track.fromMap(e as Map)).toList();
+    } on MissingPluginException {
+      return _mockTracks.take(2).toList();
+    }
+  }
+
+  Future<void> addToPlaylist(int playlistId, int trackId) async {
+    try {
+      await _methods.invokeMethod('addToPlaylist', {'playlistId': playlistId, 'trackId': trackId});
+    } on MissingPluginException {
+      // Preview-only no-op.
+    }
+  }
+
+  Future<void> removeFromPlaylist(int playlistId, int trackId) async {
+    try {
+      await _methods.invokeMethod('removeFromPlaylist', {'playlistId': playlistId, 'trackId': trackId});
+    } on MissingPluginException {
+      // Preview-only no-op.
+    }
+  }
+
   Future<Track?> getTrack(int trackId) async {
     try {
       final result = await _methods.invokeMethod<Map<dynamic, dynamic>>('getTrack', {'trackId': trackId});
@@ -117,6 +176,19 @@ class MusicBridge {
     }
   }
 
+  /// PrimeMusicActivity has no way to see inside FlutterView's own hit-testing - a
+  /// horizontally-scrollable widget (the mood chip strip) has to tell the native side
+  /// explicitly when it's mid-drag, so canParentTabsSlide() knows not to steal the same
+  /// horizontal gesture for the tab swipe. Wrap any new horizontal scrollable with this
+  /// (see wave_card.dart's `NotificationListener<ScrollNotification>` for the pattern).
+  Future<void> setHorizontalScrollActive(bool active) async {
+    try {
+      await _methods.invokeMethod('setHorizontalScrollActive', {'active': active});
+    } on MissingPluginException {
+      // Preview-only no-op.
+    }
+  }
+
   /// Starts a fresh wave (or resumes the current one if already running) - mirrors
   /// PrimeMusicWave.start()/current(). Returns the track now playing, or null if nothing
   /// was eligible (empty library / everything disliked / mood filter too narrow).
@@ -135,6 +207,26 @@ class MusicBridge {
       return result == null ? null : Track.fromMap(result);
     } on MissingPluginException {
       return _mockTracks[(_mockTracks.indexWhere((t) => t.id == 1) + 1) % _mockTracks.length];
+    }
+  }
+
+  /// Steps back to the prior track in this wave session's history - mirrors
+  /// PrimeMusicWave.previous(). Unlike [waveNext], this never falls through to a fresh
+  /// recommendation - null means there's genuinely nothing behind the current track.
+  Future<Track?> wavePrevious() async {
+    try {
+      final result = await _methods.invokeMethod<Map<dynamic, dynamic>>('wavePrevious');
+      return result == null ? null : Track.fromMap(result);
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  Future<bool> waveHasPrevious() async {
+    try {
+      return await _methods.invokeMethod<bool>('waveHasPrevious') ?? false;
+    } on MissingPluginException {
+      return false;
     }
   }
 

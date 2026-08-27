@@ -31,10 +31,10 @@ class _MoodOption {
 
 const _moods = [
   _MoodOption(null, 'Всё подряд'),
-  _MoodOption('бодрое', '⚡ Бодрое'),
-  _MoodOption('спокойное', '🌿 Спокойное'),
-  _MoodOption('любимое', '❤️ Любимое'),
-  _MoodOption('вечер', '🌙 Вечер'),
+  _MoodOption('бодрое', 'Бодрое'),
+  _MoodOption('спокойное', 'Спокойное'),
+  _MoodOption('любимое', 'Любимое'),
+  _MoodOption('вечер', 'Вечер'),
 ];
 
 class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin {
@@ -45,6 +45,9 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
   Track? _current;
   String? _activeMood;
   bool _loading = true;
+  bool _hasPrevious = false;
+
+  StreamSubscription<PlaybackState>? _stateSub;
 
   @override
   void initState() {
@@ -53,7 +56,29 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
       setState(() => _elapsed = elapsed.inMicroseconds / 1e6);
     })..start();
     _loadShader();
-    _bootstrap();
+    _resync();
+    // Keeps the card honest when playback changes from *outside* the wave (a track tapped
+    // directly in the recommendations list, or anywhere else) - without this, _current
+    // stays stuck on whatever the wave last picked, showing a track that isn't actually
+    // playing anymore. Native PrimeMusicWave.current()/isActive() are the source of truth;
+    // this just notices when they might have changed and re-reads them.
+    _stateSub = MusicBridge.instance.playbackState.listen((state) {
+      if (state.trackId != _current?.id) {
+        _resync();
+      }
+    });
+  }
+
+  Future<void> _resync() async {
+    final active = await MusicBridge.instance.waveIsActive();
+    final track = active ? await MusicBridge.instance.waveCurrent() : null;
+    final hasPrevious = active ? await MusicBridge.instance.waveHasPrevious() : false;
+    if (!mounted) return;
+    setState(() {
+      _current = track;
+      _hasPrevious = hasPrevious;
+      _loading = false;
+    });
   }
 
   Future<void> _loadShader() async {
@@ -67,16 +92,6 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
     }
   }
 
-  Future<void> _bootstrap() async {
-    final active = await MusicBridge.instance.waveIsActive();
-    final track = active ? await MusicBridge.instance.waveCurrent() : null;
-    if (!mounted) return;
-    setState(() {
-      _current = track;
-      _loading = false;
-    });
-  }
-
   Future<void> _play() async {
     setState(() => _loading = true);
     final track = _current ?? await MusicBridge.instance.waveStart();
@@ -88,6 +103,7 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
       _current = track;
       _loading = false;
     });
+    _refreshHasPrevious();
   }
 
   Future<void> _next() async {
@@ -97,6 +113,23 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
     }
     if (!mounted) return;
     setState(() => _current = track);
+    _refreshHasPrevious();
+  }
+
+  Future<void> _previous() async {
+    if (!_hasPrevious) return;
+    final track = await MusicBridge.instance.wavePrevious();
+    if (track != null) {
+      await MusicBridge.instance.playSingle(track.id);
+    }
+    if (!mounted) return;
+    setState(() => _current = track);
+    _refreshHasPrevious();
+  }
+
+  Future<void> _refreshHasPrevious() async {
+    final hasPrevious = await MusicBridge.instance.waveHasPrevious();
+    if (mounted) setState(() => _hasPrevious = hasPrevious);
   }
 
   Future<void> _dislike() async {
@@ -106,6 +139,7 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
     }
     if (!mounted) return;
     setState(() => _current = track);
+    _refreshHasPrevious();
   }
 
   Future<void> _toggleLike() async {
@@ -125,6 +159,7 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     _ticker.dispose();
+    _stateSub?.cancel();
     super.dispose();
   }
 
@@ -152,7 +187,20 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
               right: 12,
               child: SizedBox(
                 height: 28,
-                child: ListView.separated(
+                // Tells PrimeMusicActivity.canParentTabsSlide() to back off while this
+                // strip is being dragged, otherwise the outer tab ViewPager and this
+                // ListView fight over the same horizontal gesture and neither scrolls
+                // right - see MusicBridge.setHorizontalScrollActive's own doc comment.
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification is ScrollStartNotification) {
+                      MusicBridge.instance.setHorizontalScrollActive(true);
+                    } else if (notification is ScrollEndNotification) {
+                      MusicBridge.instance.setHorizontalScrollActive(false);
+                    }
+                    return false;
+                  },
+                  child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: _moods.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 6),
@@ -176,6 +224,7 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                     );
                   },
+                  ),
                 ),
               ),
             ),
@@ -239,6 +288,10 @@ class _WaveCardState extends State<WaveCard> with SingleTickerProviderStateMixin
                     ),
                     const SizedBox(width: 8),
                     _circleButton(Icons.thumb_down_alt_outlined, _dislike),
+                    if (_hasPrevious) ...[
+                      const SizedBox(width: 8),
+                      _circleButton(Icons.skip_previous, _previous),
+                    ],
                     const SizedBox(width: 8),
                     _circleButton(Icons.skip_next, _next),
                   ],

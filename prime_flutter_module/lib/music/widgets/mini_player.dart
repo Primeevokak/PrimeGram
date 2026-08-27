@@ -58,7 +58,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   padding: const EdgeInsets.symmetric(horizontal: MusicTokens.s12, vertical: MusicTokens.s8),
                   child: Row(
                     children: [
-                      TrackArtPlaceholder(title: track?.title ?? '', size: 40, radius: 8),
+                      TrackArt(track: track, size: 40, radius: 8),
                       const SizedBox(width: MusicTokens.s12),
                       Expanded(
                         child: Column(

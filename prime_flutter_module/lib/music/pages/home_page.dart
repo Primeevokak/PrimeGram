@@ -2,166 +2,91 @@ import 'package:flutter/material.dart';
 
 import '../bridge.dart';
 import '../design/tokens.dart';
-import '../models.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/wave_card.dart';
-import 'now_playing_page.dart';
+import 'playlists_tab.dart';
+import 'tracks_tab.dart';
 
-/// PrimeGram: Music tab home screen - the wave card up top (see wave_card.dart), a
-/// recommendations list below it, mini player docked at the bottom.
-class MusicHomePage extends StatefulWidget {
+/// PrimeGram: Music tab root - three swipeable tabs (standard Flutter TabBar/TabBarView,
+/// not Namida's own GetX-based nav - same user-facing outcome, no extra dependency):
+/// Волна (the streaming-style endless radio, see wave_card.dart), Треки (every track,
+/// flat - the offline-library-style browse Namida has and pure streaming apps don't need),
+/// Плейлисты. Mini player stays docked under all three.
+class MusicHomePage extends StatelessWidget {
   const MusicHomePage({super.key});
 
   @override
-  State<MusicHomePage> createState() => _MusicHomePageState();
-}
-
-class _MusicHomePageState extends State<MusicHomePage> {
-  late Future<List<Track>> _tracksFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _tracksFuture = MusicBridge.instance.getRecommendations();
-  }
-
-  Future<void> _reload() async {
-    setState(() {
-      _tracksFuture = MusicBridge.instance.getRecommendations();
-    });
-    await _tracksFuture;
-  }
-
-  Future<void> _play(Track track) async {
-    await MusicBridge.instance.playSingle(track.id);
-    if (!mounted) return;
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NowPlayingPage()));
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: MusicTokens.bg,
-      appBar: AppBar(
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
         backgroundColor: MusicTokens.bg,
-        elevation: 0,
-        title: const Text('Музыка', style: MusicTokens.hero),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _reload,
-              color: MusicTokens.accentPurple,
-              backgroundColor: MusicTokens.surfaceRaised,
-              child: FutureBuilder<List<Track>>(
-                future: _tracksFuture,
-                builder: (context, snapshot) {
-                  final tracks = snapshot.data;
-                  return ListView(
-                    padding: const EdgeInsets.fromLTRB(MusicTokens.s16, MusicTokens.s8, MusicTokens.s16, MusicTokens.s16),
-                    children: [
-                      const WaveCard(),
-                      const SizedBox(height: MusicTokens.s24),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: MusicTokens.s12, left: 4),
-                        child: Text('Рекомендуем для вас', style: MusicTokens.title.copyWith(fontSize: 17)),
-                      ),
-                      if (tracks == null)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: CircularProgressIndicator(color: MusicTokens.accentPurple)),
-                        )
-                      else if (tracks.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: Text('Треков пока нет', style: MusicTokens.body)),
-                        )
-                      else
-                        ...tracks.map((track) => _TrackRow(
-                              track: track,
-                              onTap: () => _play(track),
-                              onToggleLike: () async {
-                                await MusicBridge.instance.setLiked(track.id, !track.liked);
-                                _reload();
-                              },
-                            )),
-                    ],
-                  );
+        appBar: AppBar(
+          backgroundColor: MusicTokens.bg,
+          elevation: 0,
+          title: const Text('Музыка', style: MusicTokens.hero),
+          bottom: TabBar(
+            indicatorColor: MusicTokens.accentPurple,
+            labelColor: MusicTokens.textPrimary,
+            unselectedLabelColor: MusicTokens.textTertiary,
+            labelStyle: const TextStyle(fontFamily: MusicTokens.bodyFont, fontWeight: FontWeight.w700, fontSize: 14),
+            unselectedLabelStyle: const TextStyle(fontFamily: MusicTokens.bodyFont, fontWeight: FontWeight.w500, fontSize: 14),
+            tabs: const [
+              Tab(text: 'Волна'),
+              Tab(text: 'Треки'),
+              Tab(text: 'Плейлисты'),
+            ],
+          ),
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              // Same reasoning as the mood chip strip (see wave_card.dart) - swiping
+              // between Волна/Треки/Плейлисты is itself a horizontal drag, and without
+              // this the outer tab ViewPager (Chats/Music/Settings) fights it for the
+              // same gesture instead of the Music tabs actually swiping.
+              child: NotificationListener<ScrollNotification>(
+                // Axis-filtered on purpose: this wraps the whole TabBarView, and its
+                // children (Треки/Плейлисты) scroll vertically - those notifications
+                // bubble up through this same listener. Without the axis check, plain
+                // list scrolling anywhere in the Music tab was flagged as "horizontal
+                // scroll active" and never cleanly reset, which is what left the outer
+                // Chats/Music/Settings swipe blocked almost everywhere except the very
+                // top of the screen.
+                onNotification: (notification) {
+                  if (notification.metrics.axis != Axis.horizontal) return false;
+                  if (notification is ScrollStartNotification) {
+                    MusicBridge.instance.setHorizontalScrollActive(true);
+                  } else if (notification is ScrollEndNotification) {
+                    MusicBridge.instance.setHorizontalScrollActive(false);
+                  }
+                  return false;
                 },
+                child: const TabBarView(
+                  children: [
+                    _WaveTab(),
+                    TracksTab(),
+                    PlaylistsTab(),
+                  ],
+                ),
               ),
             ),
-          ),
-          const MiniPlayer(),
-        ],
+            const MiniPlayer(),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _TrackRow extends StatelessWidget {
-  final Track track;
-  final VoidCallback onTap;
-  final VoidCallback onToggleLike;
-
-  const _TrackRow({required this.track, required this.onTap, required this.onToggleLike});
+class _WaveTab extends StatelessWidget {
+  const _WaveTab();
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(MusicTokens.radiusM),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: MusicTokens.s8),
-        child: Row(
-          children: [
-            TrackArtPlaceholder(title: track.title, size: 48),
-            const SizedBox(width: MusicTokens.s12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    track.title.isEmpty ? 'Без названия' : track.title,
-                    style: MusicTokens.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        margin: const EdgeInsets.only(right: 6),
-                        decoration: BoxDecoration(color: MusicTokens.sourceColor(track.source), shape: BoxShape.circle),
-                      ),
-                      Expanded(
-                        child: Text(
-                          track.artist,
-                          style: MusicTokens.body,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Text(MusicTokens.formatDuration(track.duration), style: MusicTokens.timecode),
-            IconButton(
-              icon: Icon(
-                track.liked ? Icons.favorite : Icons.favorite_border,
-                color: track.liked ? MusicTokens.accentMagenta : MusicTokens.textTertiary,
-                size: 20,
-              ),
-              onPressed: onToggleLike,
-            ),
-          ],
-        ),
-      ),
+    return const SingleChildScrollView(
+      padding: EdgeInsets.all(MusicTokens.s16),
+      child: WaveCard(),
     );
   }
 }

@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+
+import '../models.dart';
 
 /// PrimeGram Music design system - one place for color/type/spacing so every screen reads
 /// as the same product. Direction: streaming-service energy (the "Моя волна" glow, the
@@ -169,6 +173,38 @@ class TrackArtPlaceholder extends StatelessWidget {
           fontSize: size * 0.38,
           color: Colors.white.withValues(alpha: 0.92),
         ),
+      ),
+    );
+  }
+}
+
+/// Real cover art when a track has one (Track.coverPath - a local filesystem path, valid
+/// to read directly since the Flutter engine runs inside the same app process/sandbox as
+/// the rest of PrimeGram, no network round trip involved), falling back to
+/// [TrackArtPlaceholder] when there's no path or the file fails to load. Every place a
+/// track's art shows should use this, not TrackArtPlaceholder directly.
+class TrackArt extends StatelessWidget {
+  final Track? track;
+  final double size;
+  final double radius;
+
+  const TrackArt({super.key, required this.track, this.size = 48, this.radius = 10});
+
+  @override
+  Widget build(BuildContext context) {
+    final coverPath = track?.coverPath;
+    if (coverPath == null || coverPath.isEmpty) {
+      return TrackArtPlaceholder(title: track?.title ?? '', size: size, radius: radius);
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Image.file(
+        File(coverPath),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            TrackArtPlaceholder(title: track?.title ?? '', size: size, radius: radius),
       ),
     );
   }

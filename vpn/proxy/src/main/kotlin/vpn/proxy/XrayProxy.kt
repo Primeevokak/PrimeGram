@@ -20,6 +20,26 @@ import java.util.Base64
  */
 object XrayProxy {
 
+    // On some old Android builds (seen in the wild: Xiaomi "cactus"/Redmi 6A, Android 9,
+    // 32-bit arm) the process gets killed with SIGSYS/SYS_SECCOMP the moment libXray's Go
+    // runtime is first touched: "seccomp prevented call to disallowed arm system call".
+    // Go's runtime has used async goroutine preemption (signal-based, involving a
+    // membarrier-family syscall) since ~1.19-1.21, and that syscall isn't on the fixed
+    // seccomp allowlist these old kernels ship with - unlike ENOSYS, a blocked-but-unknown
+    // syscall is a hard kill, not a recoverable error, so this has to be prevented before
+    // it happens rather than caught. GODEBUG=asyncpreemptoff=1 disables that mechanism
+    // (a real perf/latency tradeoff for goroutine scheduling, not a correctness one - fine
+    // for a local SOCKS5 proxy). Must be set before *any* call into libXray.LibXray.* -
+    // this object's init block runs once, on first access, before every other member below,
+    // which is every call site there is (XrayProxy is the sole libXray touchpoint).
+    init {
+        try {
+            android.system.Os.setenv("GODEBUG", "asyncpreemptoff=1", true)
+        } catch (e: Throwable) {
+            Log.e("XrayProxy", "Failed to set GODEBUG before Go runtime init", e)
+        }
+    }
+
     private const val TAG = "XrayProxy"
 
     const val SOCKS_PORT = 17808

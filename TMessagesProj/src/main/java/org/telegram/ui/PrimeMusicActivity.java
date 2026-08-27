@@ -85,15 +85,14 @@ public class PrimeMusicActivity extends BaseFragment implements MainTabsActivity
     }
 
     // MainTabsActivity refuses a tab-swipe away from any fragment that doesn't opt in here
-    // (canScrollInternal defaults to false for non-delegates). The Phase 1 Dart home screen
-    // is a plain vertical list with no horizontal carousel, so there is nothing to fight the
-    // outer tab-swipe for yet - unlike the old native PrimeMusicHomeView, which needed
-    // isTouchOverHorizontalCarousel() here. Revisit once Phase 2 adds the wave card's own
-    // horizontal mood-chip strip in Dart - Flutter's own touch consumption inside FlutterView
-    // will need the same kind of negotiation, and this method is likely not enough on its
-    // own to express it (flagged as an open risk in the plan, not solved here).
+    // (canScrollInternal defaults to false for non-delegates). Native code can't see inside
+    // FlutterView's own hit-testing to know when a horizontal drag (the wave card's mood
+    // chip strip) is in progress, so Dart reports it explicitly via MethodChannel
+    // (MusicBridge.setHorizontalScrollActive -> PrimeMusicChannel.isHorizontalScrollActive) -
+    // same shape as PrimeMusicHomeView's old isTouchOverHorizontalCarousel() check, just
+    // fed from the other side of the engine boundary.
     @Override
     public boolean canParentTabsSlide(MotionEvent ev, boolean forward) {
-        return true;
+        return !org.telegram.messenger.music.PrimeMusicChannel.isHorizontalScrollActive();
     }
 }

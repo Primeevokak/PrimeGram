@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import '../bridge.dart';
 import '../design/tokens.dart';
 import '../models.dart';
+import '../widgets/waveform_seek_bar.dart';
 
 /// PrimeGram: full-screen "Сейчас играет" - composition studied from the real Yandex
 /// Music Now Playing screen (Figma reference: big cover, centered play/pause, dislike +
-/// next + like row) - our own layout/tokens, not a pixel clone. Honest to what the
-/// backend actually supports: there is no "previous track" concept in
-/// PrimeMusicWave (a session only ever moves forward), so this doesn't fake a previous
-/// button that would do nothing - dislike/play-pause/next/like is the real, working set.
+/// next + like row) - our own layout/tokens, not a pixel clone. Previous/next both real:
+/// PrimeMusicWave keeps an ordered session history (see PrimeMusicWave.previous()), so
+/// "previous" genuinely steps back rather than faking a no-op button.
+///
+/// Swipe-down-to-dismiss (Namida-style "flick it away") - a vertical drag on the body
+/// translates + fades the page and pops once it's dragged/flung far enough.
 class NowPlayingPage extends StatefulWidget {
   const NowPlayingPage({super.key});
 
@@ -21,13 +24,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   Track? _track;
   int? _trackId;
   bool _waveActive = false;
+  bool _hasPrevious = false;
+  double _dragOffset = 0;
 
   @override
   void initState() {
     super.initState();
-    MusicBridge.instance.waveIsActive().then((active) {
-      if (mounted) setState(() => _waveActive = active);
-    });
+    _refreshWaveState();
+  }
+
+  Future<void> _refreshWaveState() async {
+    final active = await MusicBridge.instance.waveIsActive();
+    final hasPrevious = active ? await MusicBridge.instance.waveHasPrevious() : false;
+    if (mounted) {
+      setState(() {
+        _waveActive = active;
+        _hasPrevious = hasPrevious;
+      });
+    }
   }
 
   Future<void> _loadTrackIfNeeded(int? trackId) async {
@@ -50,6 +64,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     if (!_waveActive) return; // no generic "skip" outside a wave session (see class doc)
     final next = await MusicBridge.instance.waveNext();
     if (next != null) await MusicBridge.instance.playSingle(next.id);
+    await _refreshWaveState();
+  }
+
+  Future<void> _previous() async {
+    if (!_waveActive || !_hasPrevious) return;
+    final prev = await MusicBridge.instance.wavePrevious();
+    if (prev != null) await MusicBridge.instance.playSingle(prev.id);
+    await _refreshWaveState();
   }
 
   Future<void> _toggleLike() async {
@@ -59,62 +81,87 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     setState(() {}); // optimistic-ish: re-fetch on next state tick, not critical to be instant
   }
 
+  void _onDragUpdate(DragUpdateDetails details) {
+    setState(() => _dragOffset = (_dragOffset + details.delta.dy).clamp(0, 400));
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    final flungDown = details.velocity.pixelsPerSecond.dy > 600;
+    if (_dragOffset > 120 || flungDown) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    setState(() => _dragOffset = 0);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: MusicTokens.bg,
-      body: StreamBuilder<PlaybackState>(
-        stream: MusicBridge.instance.playbackState,
-        builder: (context, snapshot) {
-          final state = snapshot.data ?? const PlaybackState();
-          _loadTrackIfNeeded(state.trackId);
-          final track = _track;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final dragProgress = (_dragOffset / screenHeight).clamp(0.0, 1.0);
+    return GestureDetector(
+      onVerticalDragUpdate: _onDragUpdate,
+      onVerticalDragEnd: _onDragEnd,
+      child: Transform.translate(
+        offset: Offset(0, _dragOffset),
+        child: Opacity(
+          opacity: 1 - dragProgress * 0.6,
+          child: Scaffold(
+            backgroundColor: MusicTokens.bg,
+            body: StreamBuilder<PlaybackState>(
+              stream: MusicBridge.instance.playbackState,
+              builder: (context, snapshot) {
+                final state = snapshot.data ?? const PlaybackState();
+                _loadTrackIfNeeded(state.trackId);
+                final track = _track;
 
-          return SafeArea(
-            child: Column(
-              children: [
-                _buildHeader(context),
-                const SizedBox(height: MusicTokens.s24),
-                Expanded(
-                  child: Center(
-                    child: Hero(
-                      tag: 'now-playing-art',
-                      child: track == null
-                          ? const SizedBox(width: 280, height: 280)
-                          : TrackArtPlaceholder(title: track.title, size: 280, radius: MusicTokens.radiusL),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: MusicTokens.s24),
+                return SafeArea(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        track == null ? 'Ничего не играет' : (track.title.isEmpty ? 'Без названия' : track.title),
-                        style: MusicTokens.title.copyWith(fontSize: 20),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      _buildHeader(context),
+                      const SizedBox(height: MusicTokens.s24),
+                      Expanded(
+                        child: Center(
+                          child: Hero(
+                            tag: 'now-playing-art',
+                            child: track == null
+                                ? const SizedBox(width: 280, height: 280)
+                                : TrackArt(track: track, size: 280, radius: MusicTokens.radiusL),
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        track?.artist ?? '',
-                        style: MusicTokens.body,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: MusicTokens.s24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              track == null ? 'Ничего не играет' : (track.title.isEmpty ? 'Без названия' : track.title),
+                              style: MusicTokens.title.copyWith(fontSize: 20),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              track?.artist ?? '',
+                              style: MusicTokens.body,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(height: MusicTokens.s16),
+                      _buildProgress(state, track),
+                      const SizedBox(height: MusicTokens.s8),
+                      _buildControls(state, track),
+                      const SizedBox(height: MusicTokens.s32),
                     ],
                   ),
-                ),
-                const SizedBox(height: MusicTokens.s16),
-                _buildProgress(state, track),
-                const SizedBox(height: MusicTokens.s8),
-                _buildControls(state, track),
-                const SizedBox(height: MusicTokens.s32),
-              ],
+                );
+              },
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -150,29 +197,18 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       padding: const EdgeInsets.symmetric(horizontal: MusicTokens.s24),
       child: Column(
         children: [
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              activeTrackColor: MusicTokens.accentPurple,
-              inactiveTrackColor: MusicTokens.divider,
-              thumbColor: MusicTokens.textPrimary,
-              overlayShape: SliderComponentShape.noOverlay,
-            ),
-            child: Slider(
-              value: state.progress.clamp(0, 1),
-              onChanged: (v) => MusicBridge.instance.seekTo(v),
-            ),
+          WaveformSeekBar(
+            trackId: track?.id ?? 0,
+            progress: state.progress.clamp(0, 1),
+            onSeek: (v) => MusicBridge.instance.seekTo(v),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: MusicTokens.s8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(MusicTokens.formatDuration(positionSeconds), style: MusicTokens.timecode),
-                Text(MusicTokens.formatDuration(duration), style: MusicTokens.timecode),
-              ],
-            ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(MusicTokens.formatDuration(positionSeconds), style: MusicTokens.timecode),
+              Text(MusicTokens.formatDuration(duration), style: MusicTokens.timecode),
+            ],
           ),
         ],
       ),
@@ -188,6 +224,13 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           active: track?.disliked ?? false,
           onTap: _dislike,
           size: 24,
+        ),
+        _iconButton(
+          icon: Icons.skip_previous,
+          active: false,
+          enabled: _waveActive && _hasPrevious,
+          onTap: _previous,
+          size: 28,
         ),
         _PlayPauseButton(paused: state.paused, onTap: () => MusicBridge.instance.pauseResume()),
         _iconButton(

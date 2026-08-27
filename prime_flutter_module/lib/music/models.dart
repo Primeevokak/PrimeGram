@@ -61,6 +61,27 @@ class Track {
   }
 }
 
+/// Mirrors org.telegram.messenger.music.PrimePlaylist. trackCount is computed on the
+/// native side (PrimeMusicChannel.playlistToMap) purely for display - not a real field on
+/// PrimePlaylist itself.
+class Playlist {
+  final int id;
+  final String name;
+  final int createdAt;
+  final int trackCount;
+
+  const Playlist({required this.id, required this.name, required this.createdAt, this.trackCount = 0});
+
+  factory Playlist.fromMap(Map<dynamic, dynamic> map) {
+    return Playlist(
+      id: map['id'] as int,
+      name: map['name'] as String? ?? '',
+      createdAt: map['createdAt'] as int? ?? 0,
+      trackCount: map['trackCount'] as int? ?? 0,
+    );
+  }
+}
+
 /// Mirrors what the EventChannel streams and what getCurrentState() returns - "what's
 /// playing right now", not the track list. trackId is null when nothing is playing.
 class PlaybackState {

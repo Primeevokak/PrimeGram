@@ -27,6 +27,17 @@ public final class PrimeMusicChannel {
     private static final String METHOD_CHANNEL = "primegram/music";
     private static final String EVENT_CHANNEL = "primegram/music/events";
 
+    /** Set by the Dart side (MusicBridge.setHorizontalScrollActive) whenever a
+     *  horizontally-scrollable widget inside the FlutterView is mid-drag - read by
+     *  {@link org.telegram.ui.PrimeMusicActivity#canParentTabsSlide} so the outer tab
+     *  ViewPager doesn't steal the same horizontal gesture. Native code has no way to see
+     *  inside FlutterView's own hit-testing, so this has to be told explicitly. */
+    private static volatile boolean horizontalScrollActive;
+
+    public static boolean isHorizontalScrollActive() {
+        return horizontalScrollActive;
+    }
+
     private PrimeMusicChannel() {
     }
 
@@ -42,12 +53,64 @@ public final class PrimeMusicChannel {
         switch (call.method) {
             case "getRecommendations": {
                 Integer limit = call.argument("limit");
-                List<PrimeTrack> tracks = PrimeMusicLibrary.getRecommendations(limit != null ? limit : 30);
-                List<Map<String, Object>> mapped = new ArrayList<>(tracks.size());
-                for (PrimeTrack track : tracks) {
-                    mapped.add(trackToMap(track));
+                result.success(tracksToMaps(PrimeMusicLibrary.getRecommendations(limit != null ? limit : 30)));
+                break;
+            }
+            case "getAllTracks": {
+                result.success(tracksToMaps(PrimeMusicLibrary.getAllTracks()));
+                break;
+            }
+            case "getPlaylists": {
+                List<PrimePlaylist> playlists = PrimeMusicLibrary.getPlaylists();
+                List<Map<String, Object>> mapped = new ArrayList<>(playlists.size());
+                for (PrimePlaylist playlist : playlists) {
+                    mapped.add(playlistToMap(playlist));
                 }
                 result.success(mapped);
+                break;
+            }
+            case "createPlaylist": {
+                String name = call.argument("name");
+                if (name == null || name.trim().isEmpty()) {
+                    result.error("bad_args", "name is required", null);
+                    return;
+                }
+                long id = PrimeMusicLibrary.createPlaylist(name.trim());
+                result.success(id);
+                break;
+            }
+            case "deletePlaylist": {
+                Number playlistId = call.argument("playlistId");
+                if (playlistId != null) {
+                    PrimeMusicLibrary.deletePlaylist(playlistId.longValue());
+                }
+                result.success(null);
+                break;
+            }
+            case "getPlaylistTracks": {
+                Number playlistId = call.argument("playlistId");
+                List<PrimeTrack> tracks = playlistId == null
+                        ? new ArrayList<>()
+                        : PrimeMusicLibrary.getPlaylistTracks(playlistId.longValue());
+                result.success(tracksToMaps(tracks));
+                break;
+            }
+            case "addToPlaylist": {
+                Number playlistId = call.argument("playlistId");
+                Number trackId = call.argument("trackId");
+                if (playlistId != null && trackId != null) {
+                    PrimeMusicLibrary.addToPlaylist(playlistId.longValue(), trackId.longValue());
+                }
+                result.success(null);
+                break;
+            }
+            case "removeFromPlaylist": {
+                Number playlistId = call.argument("playlistId");
+                Number trackId = call.argument("trackId");
+                if (playlistId != null && trackId != null) {
+                    PrimeMusicLibrary.removeFromPlaylist(playlistId.longValue(), trackId.longValue());
+                }
+                result.success(null);
                 break;
             }
             case "getCurrentState": {
@@ -113,6 +176,14 @@ public final class PrimeMusicChannel {
                 result.success(null);
                 break;
             }
+            case "setHorizontalScrollActive": {
+                Boolean active = call.argument("active");
+                if (active != null) {
+                    horizontalScrollActive = active;
+                }
+                result.success(null);
+                break;
+            }
             case "waveStart": {
                 PrimeTrack track = PrimeMusicWave.current() == null ? PrimeMusicWave.start() : PrimeMusicWave.current();
                 result.success(track == null ? null : trackToMap(track));
@@ -126,6 +197,15 @@ public final class PrimeMusicChannel {
             case "waveNext": {
                 PrimeTrack track = PrimeMusicWave.next();
                 result.success(track == null ? null : trackToMap(track));
+                break;
+            }
+            case "wavePrevious": {
+                PrimeTrack track = PrimeMusicWave.previous();
+                result.success(track == null ? null : trackToMap(track));
+                break;
+            }
+            case "waveHasPrevious": {
+                result.success(PrimeMusicWave.hasPrevious());
                 break;
             }
             case "waveDislikeAndAdvance": {
@@ -180,6 +260,23 @@ public final class PrimeMusicChannel {
         return map;
     }
 
+    private static List<Map<String, Object>> tracksToMaps(List<PrimeTrack> tracks) {
+        List<Map<String, Object>> mapped = new ArrayList<>(tracks.size());
+        for (PrimeTrack track : tracks) {
+            mapped.add(trackToMap(track));
+        }
+        return mapped;
+    }
+
+    private static Map<String, Object> playlistToMap(PrimePlaylist playlist) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", playlist.id);
+        map.put("name", playlist.name);
+        map.put("createdAt", playlist.createdAt);
+        map.put("trackCount", PrimeMusicLibrary.getPlaylistTracks(playlist.id).size());
+        return map;
+    }
+
     private static Map<String, Object> currentStateMap() {
         Map<String, Object> map = new HashMap<>();
         MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
@@ -226,6 +323,23 @@ public final class PrimeMusicChannel {
 
         @Override
         public void didReceivedNotification(int id, int account, Object... args) {
+            if (id == NotificationCenter.messagePlayingDidStart) {
+                // A track started playing that isn't the wave's own pick (e.g. tapped
+                // directly from Треки/a playlist/a chat) - PrimeMusicWave.current is a
+                // static field that only ever changes via its own start/next/dislike/stop
+                // calls, so left alone it keeps reporting isActive()==true and the last
+                // wave track forever, even though something else is actually playing now.
+                // Clearing it here is what makes waveIsActive()/waveCurrent() honest for
+                // every caller, not just this bridge.
+                if (PrimeMusicWave.isActive()) {
+                    MessageObject playing = MediaController.getInstance().getPlayingMessageObject();
+                    Long playingId = playing == null ? null : PrimeMusicPlayback.resolveLocalTrackId(playing);
+                    PrimeTrack waveCurrent = PrimeMusicWave.current();
+                    if (playingId == null || waveCurrent == null || playingId != waveCurrent.id) {
+                        PrimeMusicWave.stop();
+                    }
+                }
+            }
             if (sink == null) {
                 return;
             }
