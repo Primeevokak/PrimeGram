@@ -2332,6 +2332,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_EMERGENCY_PROXY) {
             if (VpnSDK.isProxyRunning()) {
                 VpnSDK.stopProxy();
+                // Persisted so a later cold start (the process was killed in the background,
+                // or the user just relaunches the app) knows NOT to resume this - without it,
+                // ApplicationLoader's own auto-resume (see its startProxy() call) can't tell
+                // "user turned this off" apart from "process died while it was still meant to
+                // be running", and had no signal at all either way before this existed.
+                MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_emergency_vless_enabled", false).apply();
                 listView.adapter.update(true);
             } else {
                 android.widget.Toast.makeText(getContext(), "Получаем ключ...", android.widget.Toast.LENGTH_SHORT).show();
@@ -2339,7 +2345,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     if (listView != null && listView.adapter != null) {
                         listView.adapter.update(true);
                     }
-                    if (!success) {
+                    if (success) {
+                        MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_emergency_vless_enabled", true).apply();
+                    } else {
                         android.widget.Toast.makeText(getContext(), "Не удалось получить ключ. Проверьте соединение и попробуйте ещё раз.", android.widget.Toast.LENGTH_LONG).show();
                     }
                 });

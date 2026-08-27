@@ -440,6 +440,24 @@ public class ApplicationLoader extends Application {
                     return kotlin.Unit.INSTANCE;
                 }
             });
+            // The xray runtime lives only as long as this process does - there is no
+            // VpnService/foreground-service equivalent behind it (see vpn/proxy's own README,
+            // which documents this call but it had gone missing here), so any process death
+            // (OS/OEM background kill after some hours, low memory, a plain cold relaunch)
+            // silently drops it with nothing to bring it back - the settings toggle then just
+            // reflects reality ("off") until the user reopens that screen and flips it again.
+            // Real users reported exactly this ("через несколько часов сам вырубается").
+            // Resume iff the user actually had one of the two xray-backed proxies switched on
+            // last time - a custom server (PrimeVpnServerStore's persisted active id) or the
+            // backend-issued "emergency" key (primegram_emergency_vless_enabled, set/cleared by
+            // that toggle) - never unconditionally, or this would silently re-enable a proxy the
+            // user explicitly turned off.
+            final boolean wantsCustomServer = org.telegram.messenger.PrimeVpnServerStore.getActiveServerId() != null;
+            final boolean wantsEmergencyProxy = MessagesController.getGlobalMainSettings().getBoolean("primegram_emergency_vless_enabled", false);
+            if ((wantsCustomServer || wantsEmergencyProxy) && VpnSDK.startProxy()) {
+                applyXrayProxyToConnectionsManager();
+                PrimeStartupTrace.mark("VpnSDK.startProxy resumed");
+            }
         });
 
         // PrimeGram Blocks: wire the interpreter's NotificationCenter observers for every

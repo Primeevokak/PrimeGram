@@ -5424,7 +5424,14 @@ public class NotificationsController extends BaseController implements Notificat
                                     messagingStyle.addMessage(msg);
                                     Uri uriFinal = uri;
                                     ApplicationLoader.applicationContext.grantUriPermission("com.android.systemui", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                    AndroidUtilities.runOnUIThread(() -> {
+                                    // revokeUriPermission is a synchronous binder call to system_server - it has no UI
+                                    // to touch, so it doesn't belong on the main thread. Scheduling it there via
+                                    // runOnUIThread meant that on a loaded/low-end device a slow system_server could
+                                    // block the main thread for the whole call, which - if it landed while a new FCM
+                                    // broadcast was being delivered - showed up as an ANR on an unrelated receiver
+                                    // (confirmed from a real crash report: main thread stuck in exactly this
+                                    // revokeUriPermission call while FirebaseInstanceIdReceiver's broadcast timed out).
+                                    notificationsQueue.postRunnable(() -> {
                                         try {
                                             ApplicationLoader.applicationContext.revokeUriPermission(uriFinal, Intent.FLAG_GRANT_READ_URI_PERMISSION);
                                         } catch (Exception e) {
