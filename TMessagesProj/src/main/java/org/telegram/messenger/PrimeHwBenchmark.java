@@ -152,7 +152,7 @@ public class PrimeHwBenchmark {
         AnimatedFileNative decoder = null;
         Bitmap bitmap = null;
         try {
-            int[] params = new int[7];
+            int[] params = new int[8];
             decoder = AnimatedFileNative.createDecoderForBenchmark(file.getAbsolutePath(), params, hwAccel);
             if (decoder == null) {
                 pass.failure = (hwAccel ? "Аппаратный" : "Программный") + " декодер не создался.";

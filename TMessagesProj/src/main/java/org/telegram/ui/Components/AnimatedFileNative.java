@@ -6,34 +6,11 @@ import android.os.Trace;
 
 import org.telegram.messenger.AnimatedFileDrawableStream;
 import org.telegram.messenger.BuildConfig;
-import org.telegram.messenger.CrashSafeToggle;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnimatedFileNative {
-
-    private static final String HW_ACCEL_KEY = "primegram_hw_accel";
-
-    // Set once per process by ApplicationLoader at startup via armHwAccelForThisSession().
-    // CrashSafeToggle.checkAndArm() already auto-disabled the feature if the previous
-    // process died mid-attempt, so this reflects "user wants it on AND it's safe to try".
-    private static volatile boolean hwAccelArmedThisSession = false;
-    private static final AtomicBoolean hwAccelAttemptStarted = new AtomicBoolean(false);
-    private static final AtomicBoolean hwAccelConfirmed = new AtomicBoolean(false);
-
-    /**
-     * Call once at app startup, before any decoder is created. Runs at the very beginning
-     * of ApplicationLoader.onCreate(), so it must never be able to take the process down —
-     * any failure here simply leaves hardware decoding off.
-     */
-    public static void armHwAccelForThisSession() {
-        try {
-            hwAccelArmedThisSession = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                    && CrashSafeToggle.checkAndArm(HW_ACCEL_KEY);
-        } catch (Throwable t) {
-            hwAccelArmedThisSession = false;
-        }
-    }
 
     private final int[] mMetaData;
     private long mNativePtr;
@@ -53,21 +30,48 @@ public class AnimatedFileNative {
     }
 
     /**
-     * Creates a decoder with the hardware path forced on or off, bypassing the session flag.
-     *
-     * <p>For the benchmark only. Normal playback must keep going through
-     * {@link #createDecoderFrom}, which honours the user's setting and the crash-safety
-     * machinery; this entry point deliberately skips both so the two paths can be compared
-     * back to back in one process. The native circuit breaker still applies, so a decoder
-     * asked for hardware may legitimately come back running in software - the benchmark
-     * reports what it measured, not what it requested.
+     * PrimeGram: benchmark entry point. The old surfaceless MediaCodec path was dropped with the
+     * 12.10 native rewrite and is being redone (MediaCodec -> ImageReader -> HardwareBuffer), so
+     * until then every decoder is the software one; {@link #isHardwareDecodingAvailable()} says so.
      */
     public static AnimatedFileNative createDecoderForBenchmark(String src, int[] params, boolean hwAccel) {
-        long ptr = nCreateDecoder(src, params, 0, 0, null, false, hwAccel);
-        if (ptr == 0) {
-            return null;
-        }
-        return new AnimatedFileNative(ptr, params);
+        return createDecoderFrom(src, params, 0, 0, null, false);
+    }
+
+    public static boolean isHardwareDecodingAvailable() {
+        return false;
+    }
+
+    public int getWidth() {
+        return mMetaData[0];
+    }
+
+    public int getHeight() {
+        return mMetaData[1];
+    }
+
+    public int getRotation() {
+        return mMetaData[2];
+    }
+
+    public int getProgress(TimeUnit timeUnit) {
+        return (int) timeUnit.convert(mMetaData[3], TimeUnit.MILLISECONDS);
+    }
+
+    public int getDuration(TimeUnit timeUnit) {
+        return (int) timeUnit.convert(mMetaData[4], TimeUnit.MILLISECONDS);
+    }
+
+    public int getFps() {
+        return mMetaData[5];
+    }
+
+    public boolean isLastFrameOpaque() {
+        return mMetaData[6] == 1;
+    }
+
+    public boolean isStaticVideoDetected() {
+        return mMetaData[7] == 1;
     }
 
     public void stopDecoder() {
@@ -131,25 +135,7 @@ public class AnimatedFileNative {
     private static long createDecoder(String src, int[] params, int account, long streamFileSize, AnimatedFileDrawableStream readCallback, boolean preview) {
         Trace.beginSection("AnimatedFileNative#createDecoder");
         try {
-            boolean hwAccel = hwAccelArmedThisSession;
-            if (hwAccel && hwAccelAttemptStarted.compareAndSet(false, true)) {
-                // First hw-accel decoder this process is about to create the native
-                // MediaCodec and run configure()/start() on it — the highest-risk
-                // moment for a hard native crash on a misbehaving vendor decoder.
-                // Commit this synchronously so it's durable on disk before we cross
-                // into native code: if the process dies right here, the next launch's
-                // armHwAccelForThisSession() will see the leftover flag and auto-disable.
-                CrashSafeToggle.beginAttempt(HW_ACCEL_KEY);
-            }
-            long ptr = nCreateDecoder(src, params, account, streamFileSize, readCallback, preview, hwAccel);
-            if (hwAccel && hwAccelConfirmed.compareAndSet(false, true)) {
-                // Reaching here at all means nCreateDecoder returned without crashing
-                // the process — the riskiest moment has passed, so clear the attempt
-                // flag now rather than waiting for a clean app shutdown that may never
-                // come (background kill, etc. — see CrashSafeToggle's javadoc).
-                CrashSafeToggle.confirmSuccess(HW_ACCEL_KEY);
-            }
-            return ptr;
+            return nCreateDecoder(src, params, account, streamFileSize, readCallback, preview);
         } finally {
             Trace.endSection();
         }
@@ -212,7 +198,7 @@ public class AnimatedFileNative {
     public static void getVideoInfo(String src, int[] params, long fileOffset) {
         Trace.beginSection("AnimatedFileNative#getVideoInfo");
         try {
-            nGetVideoInfo(Build.VERSION.SDK_INT, src, params, fileOffset);
+            nGetVideoInfo(src, params, fileOffset);
         } finally {
             Trace.endSection();
         }
@@ -220,7 +206,7 @@ public class AnimatedFileNative {
 
 
 
-    private static native long nCreateDecoder(String src, int[] params, int account, long streamFileSize, Object readCallback, boolean preview, boolean hwAccel);
+    private static native long nCreateDecoder(String src, int[] params, int account, long streamFileSize, Object readCallback, boolean preview);
 
     private static native void nDestroyDecoder(long ptr);
 
@@ -234,5 +220,5 @@ public class AnimatedFileNative {
 
     private static native void nPrepareToSeek(long ptr);
 
-    private static native void nGetVideoInfo(int sdkVersion, String src, int[] params, long fileOffset);
+    private static native void nGetVideoInfo(String src, int[] params, long fileOffset);
 }

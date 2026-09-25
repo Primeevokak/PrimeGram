@@ -48,8 +48,8 @@ import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -338,7 +338,7 @@ public class ContentPreviewViewer {
 
     private boolean isRecentSticker;
 
-    private WindowInsetsCompat lastInsets;
+    private Insets lastInsets = Insets.NONE;
 
     private int currentAccount;
 
@@ -515,14 +515,8 @@ public class ContentPreviewViewer {
                     popupWindow.setInputMethodMode(ActionBarPopupWindow.INPUT_METHOD_NOT_NEEDED);
                     popupWindow.getContentView().setFocusableInTouchMode(true);
 
-                    int insets = 0;
-                    int top;
-                    if (lastInsets != null) {
-                        insets = lastInsets.getStableInsetBottom() + lastInsets.getStableInsetTop();
-                        top = lastInsets.getStableInsetTop();
-                    } else {
-                        top = AndroidUtilities.statusBarHeight;
-                    }
+                    int insets = lastInsets.bottom + lastInsets.top;
+                    int top = lastInsets.top;
                     int size = Math.min(containerView.getWidth(), containerView.getHeight() - insets) - AndroidUtilities.dp(40f);
 
 
@@ -702,14 +696,8 @@ public class ContentPreviewViewer {
 //                popupWindow.setInputMethodMode(ActionBarPopupWindow.INPUT_METHOD_NOT_NEEDED);
 //                popupWindow.getContentView().setFocusableInTouchMode(true);
 
-                int insets = 0;
-                int top;
-                if (lastInsets != null) {
-                    insets = lastInsets.getStableInsetBottom() + lastInsets.getStableInsetTop();
-                    top = lastInsets.getStableInsetTop();
-                } else {
-                    top = AndroidUtilities.statusBarHeight;
-                }
+                int insets = lastInsets.bottom + lastInsets.top;
+                int top = lastInsets.top;
                 int size = (int) (Math.min(containerView.getWidth(), containerView.getHeight() - insets) / 1.8f);
                 int y = (int) (moveY + Math.max(size / 2 + top, (containerView.getHeight() - insets - keyboardHeight) / 2) + size / 2);
                 y += AndroidUtilities.dp(24 + 60);
@@ -888,14 +876,8 @@ public class ContentPreviewViewer {
                 popupWindow.setInputMethodMode(ActionBarPopupWindow.INPUT_METHOD_NOT_NEEDED);
                 popupWindow.getContentView().setFocusableInTouchMode(true);
 
-                int insets = 0;
-                int top;
-                if (lastInsets != null) {
-                    insets = lastInsets.getStableInsetBottom() + lastInsets.getStableInsetTop();
-                    top = lastInsets.getStableInsetTop();
-                } else {
-                    top = AndroidUtilities.statusBarHeight;
-                }
+                int insets = lastInsets.bottom + lastInsets.top;
+                int top = lastInsets.top;
                 int size;
                 if (currentContentType == CONTENT_TYPE_GIF) {
                     size = Math.min(containerView.getWidth(), containerView.getHeight() - insets) - AndroidUtilities.dp(40f);
@@ -1021,14 +1003,8 @@ public class ContentPreviewViewer {
                 popupWindow.setInputMethodMode(ActionBarPopupWindow.INPUT_METHOD_NOT_NEEDED);
                 popupWindow.getContentView().setFocusableInTouchMode(true);
 
-                int insets = 0;
-                int top;
-                if (lastInsets != null) {
-                    insets = lastInsets.getStableInsetBottom() + lastInsets.getStableInsetTop();
-                    top = lastInsets.getStableInsetTop();
-                } else {
-                    top = AndroidUtilities.statusBarHeight;
-                }
+                int insets = lastInsets.bottom + lastInsets.top;
+                int top = lastInsets.top;
                 int size = Math.min(containerView.getWidth(), containerView.getHeight() - insets) - AndroidUtilities.dp(40f);
 
                 int y = (int) (moveY + Math.max(size / 2 + top + (stickerEmojiLayout != null ? AndroidUtilities.dp(40) : 0), (containerView.getHeight() - insets - keyboardHeight) / 2) + size / 2);
@@ -1165,14 +1141,8 @@ public class ContentPreviewViewer {
                 popupWindow.setInputMethodMode(ActionBarPopupWindow.INPUT_METHOD_NOT_NEEDED);
                 popupWindow.getContentView().setFocusableInTouchMode(true);
 
-                int insets = 0;
-                int top;
-                if (lastInsets != null) {
-                    insets = lastInsets.getStableInsetBottom() + lastInsets.getStableInsetTop();
-                    top = lastInsets.getStableInsetTop();
-                } else {
-                    top = AndroidUtilities.statusBarHeight;
-                }
+                int insets = lastInsets.bottom + lastInsets.top;
+                int top = lastInsets.top;
                 int size = Math.min(containerView.getWidth(), containerView.getHeight() - insets) - AndroidUtilities.dp(40f);
 
 
@@ -1741,7 +1711,7 @@ public class ContentPreviewViewer {
         windowView.setFocusableInTouchMode(true);
         windowView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         ViewCompat.setOnApplyWindowInsetsListener(windowView, (v, insets) -> {
-            lastInsets = insets;
+            lastInsets = AndroidUtilities.getDefaultWindowInsets(insets, false);
             return insets;
         });
 
@@ -1787,11 +1757,7 @@ public class ContentPreviewViewer {
             | WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
             | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
 
-        if (Build.VERSION.SDK_INT >= 28) {
-            windowLayoutParams.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= 30
-                    ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                    : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-        }
+        AndroidUtilities.applyEdgeToEdgeLayoutParams(windowLayoutParams);
 
         centerImage.setAspectFit(true);
         centerImage.setInvalidateAll(true);
@@ -2111,14 +2077,8 @@ public class ContentPreviewViewer {
 
         canvas.save();
         int size;
-        int insets = 0;
-        int top;
-        if (lastInsets != null) {
-            insets = lastInsets.getStableInsetBottom() + lastInsets.getStableInsetTop();
-            top = lastInsets.getStableInsetTop();
-        } else {
-            top = AndroidUtilities.statusBarHeight;
-        }
+        int insets = lastInsets.bottom + lastInsets.top;
+        int top = lastInsets.top;
 
         if (currentContentType == CONTENT_TYPE_GIF) {
             size = Math.min(containerView.getWidth(), containerView.getHeight() - insets) - AndroidUtilities.dp(40f);

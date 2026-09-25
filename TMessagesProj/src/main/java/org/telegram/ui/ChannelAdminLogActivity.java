@@ -71,12 +71,10 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.collection.LongSparseArray;
 import androidx.core.content.FileProvider;
-import androidx.recyclerview.widget.ChatListItemAnimator;
+import org.telegram.ui.recyclerview.ChatListItemAnimator;
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.LinearSmoothScrollerCustom;
+import org.telegram.ui.recyclerview.LinearSmoothScrollerCustom;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.google.android.exoplayer2.ui.AspectRatioFrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.AnimationNotificationsLocker;
@@ -108,6 +106,7 @@ import org.telegram.messenger.utils.RectFMergeBounding;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.Vector;
+import org.telegram.tgnet.tl.TL_keyboard;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
@@ -123,6 +122,7 @@ import org.telegram.ui.ActionBar.ThemeDescription;
 import org.telegram.ui.Cells.ChatActionCell;
 import org.telegram.ui.Cells.ChatLoadingCell;
 import org.telegram.ui.Cells.ChatMessageCell;
+import org.telegram.ui.Cells.ChatMessageUnsupportedCell;
 import org.telegram.ui.Cells.ChatUnreadCell;
 import org.telegram.ui.Components.AdminLogFilterAlert2;
 import org.telegram.ui.Components.AlertsCreator;
@@ -145,7 +145,6 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.ShareAlert;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.StickersAlert;
-import org.telegram.ui.Components.TopicsTabsView;
 import org.telegram.ui.Components.URLSpanMono;
 import org.telegram.ui.Components.URLSpanNoUnderline;
 import org.telegram.ui.Components.URLSpanReplacement;
@@ -156,13 +155,14 @@ import org.telegram.ui.Components.blur3.DownscaleScrollableNoiseSuppressor;
 import org.telegram.ui.Components.blur3.drawable.color.impl.BlurredBackgroundProviderImpl;
 import org.telegram.ui.Components.blur3.source.BlurredBackgroundSource;
 import org.telegram.ui.Components.blur3.source.BlurredBackgroundSourceBitmap;
-import org.telegram.ui.Components.blur3.source.BlurredBackgroundSourceColor;
 import org.telegram.ui.Components.blur3.source.BlurredBackgroundSourceRenderNode;
 import org.telegram.ui.Components.blur3.source.BlurredBackgroundSourceWrapped;
-import org.telegram.ui.Components.chat.ViewPositionWatcher;
 import org.telegram.ui.Components.chat.WallpaperBitmapProvider;
 import org.telegram.ui.Components.chat.layouts.ChatActivityChannelButtonsLayout;
 import org.telegram.ui.Components.chat.layouts.ChatActivityFadeView;
+import org.telegram.utils.glass.GlassEngine;
+import org.telegram.utils.glass.positions.GlassPositionsArray;
+import org.telegram.utils.glass.positions.GlassPositionsMerger;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -184,9 +184,7 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
     private final @Nullable BlurredBackgroundSourceRenderNode glassBackgroundSourceFrostedRenderNode;
 
     private final @NonNull BlurredBackgroundDrawableViewFactory glassBackgroundDrawableFactory;
-    private final @NonNull BlurredBackgroundDrawableViewFactory glassBackgroundDrawableFactoryFrosted;
 
-    private final ReferenceList<View> glassAttachedViews = new ReferenceList<>();
     private final @Nullable DownscaleScrollableNoiseSuppressor scrollableViewNoiseSuppressor;
     private final int recommendedAdditionalSizeY;
 
@@ -343,31 +341,34 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
     private ChatListItemAnimator chatListItemAnimator;
 
     public ChannelAdminLogActivity(TLRPC.Chat chat) {
+        glassEngine.setGlassInvalidationListener(this::invalidateMergedVisibleBlurredPositionsAndSourcesImpl);
+        glassEngine.setPositionsMerger(new GlassPositionsMerger(Float.POSITIVE_INFINITY, dp(48)));
+
         navbarContentSourceWallpaper = new BlurredBackgroundSourceWrapped();
         navbarContentDrawableFactory = new BlurredBackgroundDrawableViewFactory(navbarContentSourceWallpaper);
+        navbarContentDrawableFactory.setGlassEngine(glassEngine);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SharedConfig.chatBlurEnabled()) {
             scrollableViewNoiseSuppressor = new DownscaleScrollableNoiseSuppressor();
 
             glassBackgroundSourceFrostedRenderNode = new BlurredBackgroundSourceRenderNode(navbarContentSourceWallpaper);
-            glassBackgroundSourceFrostedRenderNode.setOnDrawablesRelativePositionChangeListener(this::invalidateMergedVisibleBlurredPositionsAndSourcesPositions);
             glassBackgroundSourceFrostedRenderNode.setScrollableNoiseSuppressor(scrollableViewNoiseSuppressor, DownscaleScrollableNoiseSuppressor.DRAW_FROSTED_GLASS);
             glassBackgroundSourceFrostedRenderNode.setUnderSource(navbarContentSourceWallpaper);
 
-            glassBackgroundDrawableFactoryFrosted = new BlurredBackgroundDrawableViewFactory(glassBackgroundSourceFrostedRenderNode);
-            glassBackgroundDrawableFactoryFrosted.setLiquidGlassEffectAllowed(LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS));
-
             if (LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS)) {
                 glassBackgroundSourceRenderNode = new BlurredBackgroundSourceRenderNode(navbarContentSourceWallpaper);
-                glassBackgroundSourceRenderNode.setOnDrawablesRelativePositionChangeListener(this::invalidateMergedVisibleBlurredPositionsAndSourcesPositions);
                 glassBackgroundSourceRenderNode.setScrollableNoiseSuppressor(scrollableViewNoiseSuppressor, DownscaleScrollableNoiseSuppressor.DRAW_GLASS);
                 glassBackgroundSourceRenderNode.setUnderSource(navbarContentSourceWallpaper);
                 glassBackgroundDrawableFactory = new BlurredBackgroundDrawableViewFactory(glassBackgroundSourceRenderNode);
+                glassBackgroundDrawableFactory.setGlassEngine(glassEngine);
+                glassBackgroundDrawableFactory.setOutset(LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS) ? dp(8) : dp(48));
                 glassBackgroundDrawableFactory.setLiquidGlassEffectAllowed(LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS));
                 recommendedAdditionalSizeY = 0;
             } else {
                 glassBackgroundSourceRenderNode = null;
-                glassBackgroundDrawableFactory = glassBackgroundDrawableFactoryFrosted;
+                glassBackgroundDrawableFactory = new BlurredBackgroundDrawableViewFactory(glassBackgroundSourceFrostedRenderNode);
+                glassBackgroundDrawableFactory.setGlassEngine(glassEngine);
+                glassBackgroundDrawableFactory.setOutset(LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS) ? dp(8) : dp(48));
                 recommendedAdditionalSizeY = dp(48);
             }
         } else {
@@ -378,11 +379,8 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
             glassBackgroundSourceFrostedRenderNode = null;
 
             glassBackgroundDrawableFactory = new BlurredBackgroundDrawableViewFactory(navbarContentSourceWallpaper);
-            glassBackgroundDrawableFactoryFrosted = new BlurredBackgroundDrawableViewFactory(navbarContentSourceWallpaper);
+            glassBackgroundDrawableFactory.setGlassEngine(glassEngine);
         }
-        navbarContentDrawableFactory.setLinkedViewsRef(glassAttachedViews);
-        glassBackgroundDrawableFactory.setLinkedViewsRef(glassAttachedViews);
-        glassBackgroundDrawableFactoryFrosted.setLinkedViewsRef(glassAttachedViews);
 
         currentChat = chat;
     }
@@ -670,7 +668,7 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
                 newFilteredMessages.add(message);
             }
             if (thisMessageDeletedBy != nextMessageDeletedBy && !currentDeleteGroup.isEmpty()) {
-                boolean wasKeyboard = message.messageOwner.reply_markup != null && !(message.messageOwner.reply_markup.rows.isEmpty());
+                boolean wasKeyboard = message.messageOwner.reply_markup instanceof TLRPC.TL_replyInlineMarkup && !(((TLRPC.TL_replyInlineMarkup) message.messageOwner.reply_markup).rows.isEmpty());
                 int index = newFilteredMessages.size();
                 ArrayList<MessageObject> separatedFirstActions = new ArrayList<>();
                 for (int j = currentDeleteGroup.size() - 1; j >= 0; j--) {
@@ -692,7 +690,7 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
                         setupExpandButton(lastMessage, currentDeleteGroup.size() - 1);
                         newFilteredMessages.add(lastMessage);
                     }
-                    if (wasKeyboard != (lastMessage.messageOwner.reply_markup != null && !(lastMessage.messageOwner.reply_markup.rows.isEmpty()))) {
+                    if (wasKeyboard != (lastMessage.messageOwner.reply_markup instanceof TLRPC.TL_replyInlineMarkup && !(((TLRPC.TL_replyInlineMarkup) lastMessage.messageOwner.reply_markup).rows.isEmpty()))) {
                         lastMessage.forceUpdate = true;
                         chatAdapter.notifyItemChanged(index + (wasKeyboard ? currentDeleteGroup.size() - 1 : 0));
                         chatAdapter.notifyItemChanged(index + (wasKeyboard ? currentDeleteGroup.size() - 1 : 0) + 1);
@@ -791,15 +789,18 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
             return;
         }
         if (count <= 0) {
-            if (msg.messageOwner.reply_markup != null) {
-                msg.messageOwner.reply_markup.rows.clear();
+            if (msg.messageOwner.reply_markup instanceof TLRPC.TL_replyInlineMarkup) {
+                ((TLRPC.TL_replyInlineMarkup) msg.messageOwner.reply_markup).rows.clear();
+            }
+            if (msg.messageOwner.reply_markup instanceof TLRPC.TL_replyKeyboardMarkup) {
+                ((TLRPC.TL_replyKeyboardMarkup) msg.messageOwner.reply_markup).rows.clear();
             }
         } else {
             TLRPC.TL_replyInlineMarkup markup = new TLRPC.TL_replyInlineMarkup();
             msg.messageOwner.reply_markup = markup;
-            TLRPC.TL_keyboardButtonRow row = new TLRPC.TL_keyboardButtonRow();
+            TL_keyboard.KeyboardInlineButtonRow row = new TL_keyboard.TL_keyboardInlineButtonRow();
             markup.rows.add(row);
-            TLRPC.TL_keyboardButton button = new TLRPC.TL_keyboardButton();
+            TL_keyboard.TL_keyboardInlineButton button = new TL_keyboard.TL_keyboardInlineButton();
             button.text = LocaleController.formatPluralString("EventLogExpandMore", count);
             row.buttons.add(button);
         }
@@ -1002,8 +1003,6 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
 
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                invalidateBlurredSourcesView.bringToFrontIfNeeded();
-
                 int allHeight;
                 int widthSize = MeasureSpec.getSize(widthMeasureSpec);
                 int heightSize = MeasureSpec.getSize(heightMeasureSpec);
@@ -1147,15 +1146,6 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
 
         contentView = (ChatActivityFragmentView) fragmentView;
 
-        invalidateBlurredSourcesView = new OnPostDrawView(context, true, this::invalidateMergedVisibleBlurredPositionsAndSourcesImpl);
-        contentView.addView(invalidateBlurredSourcesView);
-
-        final ViewPositionWatcher viewPositionWatcher = new ViewPositionWatcher(contentView);
-
-        glassBackgroundDrawableFactory.setSourceRootView(viewPositionWatcher, contentView);
-        glassBackgroundDrawableFactoryFrosted.setSourceRootView(viewPositionWatcher, contentView);
-        navbarContentDrawableFactory.setSourceRootView(viewPositionWatcher, contentView);
-
         contentView.setOccupyStatusBar(!AndroidUtilities.isTablet());
         contentView.setBackgroundImage(Theme.getCachedWallpaper(), Theme.isWallpaperMotion());
         boolean nonIsland = org.telegram.messenger.NonIslandHelper.chatElements();
@@ -1201,6 +1191,12 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
 
             @Override
             public boolean drawChild(Canvas canvas, View child, long drawingTime) {
+                if (child instanceof ChatMessageUnsupportedCell) {
+                    canvas.save();
+                    canvas.translate(child.getX(), child.getY());
+                    ((ChatMessageUnsupportedCell) child).drawBackground(canvas);
+                    canvas.restore();
+                }
                 boolean result = super.drawChild(canvas, child, drawingTime);
                 if (child instanceof ChatMessageCell) {
                     ChatMessageCell chatMessageCell = (ChatMessageCell) child;
@@ -1449,13 +1445,11 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
                         floatingDateAnimation.start();
                     }
                 }
-                if (dy != 0) {
-                    invalidateMergedVisibleBlurredPositionsAndSources(BLUR_INVALIDATE_FLAG_SCROLL);
-                }
                 checkScrollForLoad(true);
                 updateMessagesVisiblePart();
             }
         });
+        glassEngine.addScrolledView(chatListView);
         if (scrollToPositionOnRecreate != -1) {
             chatLayoutManager.scrollToPositionWithOffset(scrollToPositionOnRecreate, scrollToOffsetOnRecreate);
             scrollToPositionOnRecreate = -1;
@@ -2601,7 +2595,10 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
         boolean foundTextureViewMessage = false;
         for (int a = 0; a < count; a++) {
             View view = chatListView.getChildAt(a);
-            if (view instanceof ChatMessageCell) {
+            if (view instanceof ChatMessageUnsupportedCell) {
+                ChatMessageUnsupportedCell unsupportedCell = (ChatMessageUnsupportedCell) view;
+                unsupportedCell.setVisiblePart(view.getY() + actionBar.getMeasuredHeight() - contentView.getBackgroundTranslationY(), contentView.getBackgroundSizeY());
+            } else if (view instanceof ChatMessageCell) {
                 ChatMessageCell messageCell = (ChatMessageCell) view;
                 int top = messageCell.getTop();
                 int bottom = messageCell.getBottom();
@@ -2928,6 +2925,19 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
                             return false;
                         }
                         return ChatObject.isForum(currentChat);
+                    }
+
+                    @Override
+                    public void didPressAppUpdateButton() {
+                        if (ApplicationLoader.isStandaloneBuild()) {
+                            if (LaunchActivity.instance != null) {
+                                LaunchActivity.instance.checkAppUpdate(true, null);
+                            }
+                        } else if (BuildVars.isHuaweiStoreApp()) {
+                            Browser.openUrl(getContext(), BuildVars.HUAWEI_STORE_URL);
+                        } else {
+                            Browser.openUrl(getContext(), BuildVars.PLAYSTORE_APP_URL);
+                        }
                     }
 
                     @Override
@@ -3266,7 +3276,7 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
                     }
 
                     @Override
-                    public void didPressBotButton(ChatMessageCell cell, TLRPC.KeyboardButton button) {
+                    public void didPressBotButton(ChatMessageCell cell, TL_keyboard.KeyboardButtonProto button) {
                         MessageObject messageObject = cell.getMessageObject();
                         if (expandedEvents.contains(messageObject.eventId)) {
                             expandedEvents.remove(messageObject.eventId);
@@ -3405,6 +3415,23 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
                 });
             } else if (viewType == 2) {
                 view = new ChatUnreadCell(mContext, null);
+            } else if (viewType == 10) {
+                ChatMessageUnsupportedCell cell = new ChatMessageUnsupportedCell(mContext, resourceProvider);
+                cell.setDelegate(new ChatMessageCell.ChatMessageCellDelegate() {
+                    @Override
+                    public void didPressAppUpdateButton() {
+                        if (ApplicationLoader.isStandaloneBuild()) {
+                            if (LaunchActivity.instance != null) {
+                                LaunchActivity.instance.checkAppUpdate(true, null);
+                            }
+                        } else if (BuildVars.isHuaweiStoreApp()) {
+                            Browser.openUrl(getContext(), BuildVars.HUAWEI_STORE_URL);
+                        } else {
+                            Browser.openUrl(getContext(), BuildVars.PLAYSTORE_APP_URL);
+                        }
+                    }
+                });
+                view = cell;
             } else {
                 view = new ChatLoadingCell(mContext, contentView, null);
             }
@@ -4338,120 +4365,19 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
         return false;
     }
 
-
-    private OnPostDrawView invalidateBlurredSourcesView;
-
-    private static final int BLUR_INVALIDATE_FLAG_SCROLL = 1;
-    private static final int BLUR_INVALIDATE_FLAG_POSITIONS = 1 << 1;
-    private static final int BLUR_INVALIDATE_FLAG_CLIP = 1 << 2;
-
-    private void invalidateMergedVisibleBlurredPositionsAndSourcesPositions() {
-        invalidateMergedVisibleBlurredPositionsAndSources(BLUR_INVALIDATE_FLAG_POSITIONS);
-    }
-
-    private void invalidateMergedVisibleBlurredPositionsAndSources(int flags) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null) {
-            return;
-        }
-
-        invalidateBlurredSourcesView.invalidate(flags);
-    }
-
-    private final ArrayList<RectF> glassDrawablesPositions = new ArrayList<>();
-    private final ArrayList<RectF> glassDrawablesPositionsMerged = new ArrayList<>();
-    private int glassDrawablesPositionsCount;
-
     private void invalidateMergedVisibleBlurredPositionsAndSourcesImpl(int flags) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null) {
             return;
         }
 
-        if (BitwiseUtils.hasFlag(flags, BLUR_INVALIDATE_FLAG_CLIP)) {
-        //    invalidateClipRectForBackgroundAndChatList();
+        if (BitwiseUtils.hasFlag(flags, GlassEngine.FLAG_INVALIDATED_POSITIONS)) {
+            GlassPositionsArray glassPositionsArray = glassEngine.getAllVisibleDrawablesWithDisplayListPositionsMerged();
+            glassPositionsArray.clip(0, chatListView.getY(), contentView.getWidth(), chatListView.getY() + chatListView.getHeight());
+            scrollableViewNoiseSuppressor.setupRenderNodes(glassPositionsArray);
         }
 
-        if (BitwiseUtils.hasFlag(flags, BLUR_INVALIDATE_FLAG_POSITIONS)) {
-            glassDrawablesPositionsCount = getMergedVisibleBlurredPositions(glassDrawablesPositionsMerged);
-            scrollableViewNoiseSuppressor.setupRenderNodes(glassDrawablesPositionsMerged, glassDrawablesPositionsCount);
-        }
-
-        //if (BitwiseUtils.hasFlag(flags, BLUR_INVALIDATE_FLAG_POSITIONS | BLUR_INVALIDATE_FLAG_SCROLL)) {
-        final boolean hasChanges = scrollableViewNoiseSuppressor.invalidateResultRenderNodes(contentView::drawList, contentView.getWidth(), contentView.getHeight());
-        if (hasChanges) {
-            if (glassBackgroundSourceRenderNode != null) {
-                glassBackgroundSourceRenderNode.invalidateDisplayListForDrawables();
-            }
-            if (glassBackgroundSourceFrostedRenderNode != null) {
-                glassBackgroundSourceFrostedRenderNode.invalidateDisplayListForDrawables();
-            }
-            if (actionBar != null) {
-                actionBar.invalidate();
-            }
-            invalidateAllGlassAttachedViews();
-        }
-
-        //}
+        scrollableViewNoiseSuppressor.invalidateResultRenderNodes(contentView::drawList, contentView.getWidth(), contentView.getHeight());
     }
-
-    private int getMergedVisibleBlurredPositions(List<RectF> positions) {
-        final int positionsCount = getVisibleBlurredPositions(glassDrawablesPositions);
-        final int mergedPositionsCount = RectFMergeBounding.mergeOverlapping(glassDrawablesPositions, positionsCount, positions);
-        final int maxX = contentView.getMeasuredWidth();
-        for (int a = 0; a < mergedPositionsCount; a++) {
-            final RectF position = positions.get(a);
-            position.left = androidx.core.math.MathUtils.clamp(position.left, 0, maxX);
-            position.top = Math.max(chatListView.getY(), position.top);
-            position.right = androidx.core.math.MathUtils.clamp(position.right, 0, maxX);
-            position.bottom = Math.min(chatListView.getY() + chatListView.getMeasuredHeight(), position.bottom);
-            /*if (drawDebug) {
-                ((Canvas) null).drawRect(position, Theme.DEBUG_GREEN_STROKE);
-            }*/
-        }
-
-        return mergedPositionsCount;
-    }
-
-    private int getVisibleBlurredPositions(List<RectF> positions) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            int count = 0;
-
-            if (glassBackgroundSourceFrostedRenderNode != null) {
-                final int blurAlpha = ChatActivity.ACTION_BAR_BLUR_ALPHA;
-                if (blurAlpha < 255) {
-                    final RectF rectf;
-                    if (positions.isEmpty()) {
-                        positions.add(rectf = new RectF());
-                    } else {
-                        rectf = positions.get(0);
-                    }
-
-                    rectf.set(0, 0, contentView.getMeasuredWidth(), chatListView.getPaddingTop() + chatListView.getY());
-                    rectf.inset(0, -dp(45));
-                    count += 1;
-                }
-
-                count += glassBackgroundSourceFrostedRenderNode.getVisiblePositions(positions, count, dp(48));
-            }
-
-            if (glassBackgroundSourceRenderNode != null) {
-                count += glassBackgroundSourceRenderNode.getVisiblePositions(positions, count, dp(8));
-            }
-
-            return count;
-        } else {
-            return 0;
-        }
-    }
-
-    private void invalidateAllGlassAttachedViews() {
-        contentView.invalidate();
-        for (View v: glassAttachedViews) {
-            v.invalidate();
-        }
-    }
-
-
-
 
     private final RectF tmpViewRectF = new RectF();
     private boolean quickRejectChild(View child, @Nullable RectF position) {
@@ -4489,6 +4415,15 @@ public class ChannelAdminLogActivity extends BaseFragment implements Notificatio
                     continue;
                 }
 
+                /*
+                if (child instanceof ChatMessageUnsupportedCell) {
+                    blurCanvas.save();
+                    blurCanvas.translate(child.getX(), child.getY());
+                    ((ChatMessageUnsupportedCell) child).drawBackground(blurCanvas);
+                    blurCanvas.restore();
+                    chatListView.drawChild(blurCanvas, child, drawingTime);
+                } else
+                */
                 if (child instanceof ChatMessageCell) {
                     blurCanvas.save();
                     blurCanvas.translate(child.getX(), child.getY());

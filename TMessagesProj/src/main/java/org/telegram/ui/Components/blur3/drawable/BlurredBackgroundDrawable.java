@@ -28,6 +28,7 @@ import androidx.annotation.RequiresApi;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.math.MathUtils;
 
+import org.telegram.messenger.utils.RadiiUtils;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.blur3.Blur3HashImpl;
 import org.telegram.ui.Components.blur3.drawable.color.BlurredBackgroundColorProvider;
@@ -198,6 +199,23 @@ public abstract class BlurredBackgroundDrawable extends Drawable {
         return this;
     }
 
+    private int outsetX, outsetY;
+
+    public BlurredBackgroundDrawable setOutset(int dx, int dy) {
+        this.outsetX = dx;
+        this.outsetY = dy;
+
+        return this;
+    }
+
+    public int getOutsetX() {
+        return outsetX;
+    }
+
+    public int getOutsetY() {
+        return outsetY;
+    }
+
     @CallSuper
     public void updateColors() {
         if (colorProvider == null) return;
@@ -236,7 +254,7 @@ public abstract class BlurredBackgroundDrawable extends Drawable {
         public final Path strokePathBottom = new Path();
 
         public void build() {
-            radiiAreSame = radiiAreSame(radii);
+            radiiAreSame = RadiiUtils.radiiAreSame(radii);
 
             boundsWithPadding.set(bounds);
             boundsWithPadding.inset(padding, padding);
@@ -345,9 +363,17 @@ public abstract class BlurredBackgroundDrawable extends Drawable {
         BlurredBackgroundDrawable.getOutline(outline, boundProps.boundsWithPadding, boundProps.radii);
     }
 
+    public boolean hasDisplayList() {
+        return false;
+    }
+
+    public void updateDisplayList() {
+
+    }
+
     private static Path tmpPath = new Path();
     protected static void getOutline(Outline outline, Rect rect, float[] radii) {
-        final boolean radiiAreSame = radiiAreSame(radii);
+        final boolean radiiAreSame = RadiiUtils.radiiAreSame(radii);
 
         if (radiiAreSame) {
             outline.setRoundRect(rect, Math.min(radii[0], Math.min(rect.width(), rect.height()) / 2f));
@@ -364,16 +390,6 @@ public abstract class BlurredBackgroundDrawable extends Drawable {
             );
             outline.setConvexPath(tmpPath);
         }
-    }
-
-    private static boolean radiiAreSame(float[] radii) {
-        return radii[0] == radii[1]
-            && radii[0] == radii[2]
-            && radii[0] == radii[3]
-            && radii[0] == radii[4]
-            && radii[0] == radii[5]
-            && radii[0] == radii[6]
-            && radii[0] == radii[7];
     }
 
     protected int alpha = 255;
@@ -819,7 +835,7 @@ public abstract class BlurredBackgroundDrawable extends Drawable {
 
                     if (withStroke) {
                         final float[] radii = Arrays.copyOf(boundProps.radii, 8);
-                        final boolean radiiAreSame = radiiAreSame(radii);
+                        final boolean radiiAreSame = RadiiUtils.radiiAreSame(radii);
                         final float radiusMax = Math.min(rect.width(), rect.height()) / 2f;
                         final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 

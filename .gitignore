@@ -49,3 +49,4 @@ __pycache__/
 
 .agents/
 
+TMessagesProj/jni/ffmpeg/build_android

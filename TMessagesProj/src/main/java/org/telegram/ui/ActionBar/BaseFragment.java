@@ -20,6 +20,7 @@ import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Trace;
 import android.text.TextUtils;
 import android.view.Menu;
 import android.view.MotionEvent;
@@ -65,6 +66,8 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.Stories.StoryViewer;
 import org.telegram.ui.bots.BotWebViewAttachedSheet;
+import org.telegram.ui.iv.RichCommand;
+import org.telegram.utils.glass.GlassEngine;
 
 import java.util.ArrayList;
 
@@ -253,7 +256,36 @@ public abstract class BaseFragment {
         this.fragmentView = fragmentView;
     }
 
-    public View createView(Context context) {
+    protected final GlassEngine glassEngine = new GlassEngine();
+
+    public View performCreateView(Context context) {
+        if (!BuildConfig.DEBUG_PRIVATE_VERSION) {
+            return performCreateViewImpl(context);
+        }
+
+        final String className = getClass().getSimpleName();
+        final String sectionNameBase = "Fragment#createView#";
+        final String sectionName = TextUtils.isEmpty(className) ? sectionNameBase : (sectionNameBase + className);
+        Trace.beginSection(sectionName);
+        try {
+            return performCreateViewImpl(context);
+        } finally {
+            Trace.endSection();
+        }
+    }
+
+    private View performCreateViewImpl(Context context) {
+        final View view = createView(context);
+        onViewCreated(view);
+        return view;
+    }
+
+    @CallSuper
+    protected void onViewCreated(View view) {
+        glassEngine.setRoot(view);
+    }
+
+    protected View createView(Context context) {
         return null;
     }
 
@@ -1410,6 +1442,13 @@ public abstract class BaseFragment {
         public boolean occupyNavigationBar;
     }
 
+    public EdgeToEdgeSupportMode getEdgeToEdgeSupportMode() {
+        return isSupportEdgeToEdge() ?
+            EdgeToEdgeSupportMode.VERTICAL :
+            EdgeToEdgeSupportMode.NONE;
+    }
+
+    @Deprecated
     public boolean isSupportEdgeToEdge() {
         // warn: overridden method must return a constant
         return false;

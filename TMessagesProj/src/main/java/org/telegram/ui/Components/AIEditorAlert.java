@@ -736,6 +736,7 @@ public class AIEditorAlert extends BottomSheetWithRecyclerListView implements No
         } else if (
             block instanceof TL_iv.pageBlockMap ||
             block instanceof TL_iv.pageBlockAudio ||
+            block instanceof TL_iv.pageBlockDocument ||
             block instanceof TL_iv.pageBlockVideo ||
             block instanceof TL_iv.pageBlockPhoto ||
             block instanceof TL_iv.pageBlockSlideshow ||
@@ -807,6 +808,7 @@ public class AIEditorAlert extends BottomSheetWithRecyclerListView implements No
         } else if (
             block instanceof TL_iv.pageBlockMap ||
             block instanceof TL_iv.pageBlockAudio ||
+            block instanceof TL_iv.pageBlockDocument ||
             block instanceof TL_iv.pageBlockVideo ||
             block instanceof TL_iv.pageBlockPhoto ||
             block instanceof TL_iv.pageBlockSlideshow ||
@@ -954,7 +956,7 @@ public class AIEditorAlert extends BottomSheetWithRecyclerListView implements No
     protected CharSequence getTitle() {
         if (title == null) {
             title = getString(R.string.AIEditor);
-            titleLoadingDrawable = new RLottieDrawable(R.raw.emoji_stars, "emoji_stars", dp(24), dp(24));
+            titleLoadingDrawable = new RLottieDrawable(R.raw.emoji_stars, dp(24), dp(24));
             titleLoadingDrawable.setAllowDecodeSingleFrame(true);
             titleLoadingDrawable.setAutoRepeat(1);
         }
