@@ -919,7 +919,7 @@ public class ConnectionsManager extends BaseController {
         AndroidUtilities.runOnUIThread(() -> {
             getInstance(currentAccount).connectionState = state;
             if (state == 1 /* ConnectionStateConnecting */) {
-                if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.address)) {
+                if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.settings.getAddress())) {
                     // Only revive it if the user still wants it running.
                     //
                     // This check used to be missing, and that is what made the switch look broken.

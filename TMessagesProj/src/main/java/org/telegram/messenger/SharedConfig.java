@@ -385,6 +385,18 @@ public class SharedConfig {
             settings = proxySettings;
         }
 
+        /** PrimeGram: the pre-12.10 shape, still used for the built-in local tunnels. */
+        public ProxyInfo(String address, int port, String user, String password, String secret) {
+            this(ProxySettings.builder()
+                    .setAddress(address)
+                    .setPort(port)
+                    .setUser(user)
+                    .setPassword(password)
+                    .setSecret(secret)
+                    .setType(TextUtils.isEmpty(secret) ? ProxySettings.Type.SOCKS5 : ProxySettings.Type.MTPROTO)
+                    .build());
+        }
+
         private static ProxyInfo fromSerializedData(int version, InputSerializedData data) {
             ProxySettings.Builder builder = ProxySettings.builder()
                     .setAddress(data.readString(false))
@@ -1482,10 +1494,10 @@ public class SharedConfig {
         boolean hasTgwsProxy = false;
         boolean hasVlessProxy = false;
         for (ProxyInfo info : proxyList) {
-            if ("127.0.0.1".equals(info.address) && info.port == 1080 && TextUtils.isEmpty(info.secret)) {
+            if ("127.0.0.1".equals(info.settings.getAddress()) && info.settings.getPort() == 1080 && TextUtils.isEmpty(info.settings.getSecret())) {
                 hasTgwsProxy = true;
             }
-            if ("127.0.0.2".equals(info.address) && info.port == 17808 && TextUtils.isEmpty(info.secret)) {
+            if ("127.0.0.2".equals(info.settings.getAddress()) && info.settings.getPort() == 17808 && TextUtils.isEmpty(info.settings.getSecret())) {
                 hasVlessProxy = true;
             }
         }
@@ -1545,11 +1557,11 @@ public class SharedConfig {
     }
 
     public static void deleteProxy(ProxyInfo proxyInfo) {
-        if (proxyInfo != null && "127.0.0.1".equals(proxyInfo.address) && proxyInfo.port == 1080 && TextUtils.isEmpty(proxyInfo.secret)) {
+        if (proxyInfo != null && "127.0.0.1".equals(proxyInfo.settings.getAddress()) && proxyInfo.settings.getPort() == 1080 && TextUtils.isEmpty(proxyInfo.settings.getSecret())) {
             // Do not allow deleting the local loopback proxy
             return;
         }
-        if (proxyInfo != null && "127.0.0.2".equals(proxyInfo.address) && proxyInfo.port == 17808 && TextUtils.isEmpty(proxyInfo.secret)) {
+        if (proxyInfo != null && "127.0.0.2".equals(proxyInfo.settings.getAddress()) && proxyInfo.settings.getPort() == 17808 && TextUtils.isEmpty(proxyInfo.settings.getSecret())) {
             // Do not allow deleting the local loopback proxy
             return;
         }

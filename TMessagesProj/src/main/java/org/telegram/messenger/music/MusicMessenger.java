@@ -65,7 +65,7 @@ public class MusicMessenger {
                     SendMessagesHelper.prepareSendingPhoto(
                             accountInstance, path, null, dialogId,
                             null, null, null, caption, null, null, null, 0,
-                            null, true, 0, 0, null, 0
+                            null, true, 0, 0, null
                     );
                     if (callback != null) callback.onResult(true, null);
                 } catch (Exception e) {
@@ -128,7 +128,7 @@ public class MusicMessenger {
                         SendMessagesHelper.prepareSendingPhoto(
                                 accountInstance, path, null, dialogId,
                                 null, null, null, caption, null, null, null, 0,
-                                null, true, 0, 0, null, 0
+                                null, true, 0, 0, null
                         );
                         ok = true;
                     } catch (Exception e) {
@@ -227,7 +227,7 @@ public class MusicMessenger {
                 try {
                     SendMessagesHelper.prepareSendingDocument(
                             accountInstance, path, path, null, caption, mime, dialogId,
-                            null, null, null, null, null, true, 0, null, null, 0, false
+                            null, null, null, null, null, true, 0, null, null, false
                     );
                     if (callback != null) callback.onResult(true, null);
                 } catch (Exception e) {

@@ -41,6 +41,7 @@ import org.telegram.ui.Components.LoadingDrawable;
 import org.telegram.ui.Components.MediaActionDrawable;
 import org.telegram.ui.Components.RadialProgress2;
 import org.telegram.ui.Components.Text;
+import org.telegram.ui.Components.spoilers.SpoilerEffect;
 import org.telegram.ui.Components.spoilers.SpoilerEffect2;
 import org.telegram.ui.Stars.StarsIntroActivity;
 
@@ -66,6 +67,7 @@ public class GroupMedia {
     private LoadingDrawable loadingDrawable;
 
     SpoilerEffect2 spoilerEffect;
+    SpoilerEffect spoilerEffectFallback;
 
     public GroupMedia(@NonNull ChatMessageCell cell) {
         this.cell = cell;
@@ -605,7 +607,16 @@ public class GroupMedia {
             canvas.clipPath(clipPath2);
             canvas.translate(l, t);
             canvas.saveLayerAlpha(0, 0, (int) (r - l), (int) (b - t), (int) (0xFF * hiddenAlpha), Canvas.ALL_SAVE_FLAG);
-            spoilerEffect.draw(canvas, cell, (int) (r - l), (int) (b - t), 1f, cell.drawingToBitmap);
+            if (spoilerEffect != null) {
+                spoilerEffect.draw(canvas, cell, (int) (r - l), (int) (b - t), 1f, cell.drawingToBitmap);
+            } else {
+                if (spoilerEffectFallback == null) {
+                    spoilerEffectFallback = new SpoilerEffect();
+                    spoilerEffectFallback.setColor(Color.WHITE);
+                }
+                spoilerEffectFallback.setBounds(0, 0, (int) (r - l), (int) (b - t));
+                spoilerEffectFallback.draw(canvas);
+            }
             canvas.restore();
             canvas.restore();
             cell.invalidate();

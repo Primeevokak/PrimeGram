@@ -1900,6 +1900,12 @@ public class TgWsProxyService extends Service {
             return null;
         }
         for (String domain : wsDomainsForDc(dcId, isMedia)) {
+            if (frontingFirst) {
+                WsConnection fronted = tryFrontedConnect(fixedIp, domain, dcId, isMedia);
+                if (fronted != null) {
+                    return fronted;
+                }
+            }
             SSLSocket tlsSocket = null;
             final long startedAt = System.currentTimeMillis();
             try {
@@ -1908,6 +1914,7 @@ public class TgWsProxyService extends Service {
                 wsHandshake(tlsSocket, domain, dcId, false);
                 logInfo("DC redirect: connected to " + fixedIp + " as " + domain + " (DC" + dcId + ") in "
                         + (System.currentTimeMillis() - startedAt) + "ms");
+                frontingFirst = false;
                 noteDcConnectOutcome(dcId, isMedia, false, false);
                 return new WsConnection(tlsSocket, domain);
             } catch (Exception e) {
@@ -1915,10 +1922,58 @@ public class TgWsProxyService extends Service {
                 if (tlsSocket != null) {
                     try { tlsSocket.close(); } catch (IOException ignored) {}
                 }
+                // Upstream's rule: a timeout or reset on the real SNI is what DPI blocking looks
+                // like, so that - and only that - is worth a fronted retry right away.
+                if (!frontingFirst && isDpiLikeFailure(e)) {
+                    WsConnection fronted = tryFrontedConnect(fixedIp, domain, dcId, isMedia);
+                    if (fronted != null) {
+                        return fronted;
+                    }
+                }
             }
         }
         noteDcConnectOutcome(dcId, isMedia, false, true);
         return null;
+    }
+
+    /**
+     * Upstream tg-ws-proxy's SNI fronting (proxy/pool.py, _connect_fronted): the same fixed
+     * Telegram IP, the real WS domain in the Host header, but a decoy name in the TLS SNI, so SNI
+     * based DPI sees an unrelated site. Not the Cloudflare fronting removed earlier - that one sent
+     * a decoy SNI to Cloudflare, which routes by SNI and landed on the decoy's own backend. Sticky
+     * the way upstream's try_fronting_first is: once it works it goes first, until a plain
+     * connection succeeds again.
+     */
+    private static final String FRONTING_SNI = "sprinthost.ru";
+    private static volatile boolean frontingFirst = false;
+
+    private WsConnection tryFrontedConnect(String fixedIp, String domain, int dcId, boolean isMedia) {
+        SSLSocket tlsSocket = null;
+        final long startedAt = System.currentTimeMillis();
+        try {
+            paceDcRedirectAttempt();
+            tlsSocket = createTlsSocketToFixedIp(fixedIp, FRONTING_SNI, 443, 7_000);
+            wsHandshake(tlsSocket, domain, dcId, false);
+            logInfo("DC redirect (fronted): connected to " + fixedIp + " as " + domain + " (DC" + dcId + ") in "
+                    + (System.currentTimeMillis() - startedAt) + "ms");
+            frontingFirst = true;
+            noteDcConnectOutcome(dcId, isMedia, false, false);
+            return new WsConnection(tlsSocket, domain);
+        } catch (Exception e) {
+            logError("DC redirect (fronted) via " + fixedIp + " as " + domain + " failed", e);
+            if (tlsSocket != null) {
+                try { tlsSocket.close(); } catch (IOException ignored) {}
+            }
+            return null;
+        }
+    }
+
+    private static boolean isDpiLikeFailure(Exception e) {
+        if (e instanceof java.net.SocketTimeoutException) {
+            return true;
+        }
+        final String message = e.getMessage();
+        return message != null && (message.contains("timed out") || message.contains("reset") || message.contains("ECONNRESET"));
     }
 
     private SSLSocket createTlsSocketToFixedIp(String ip, String sniHost, int port, int timeoutMs) throws IOException {

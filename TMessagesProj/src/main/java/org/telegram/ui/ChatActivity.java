@@ -2738,6 +2738,7 @@ public class ChatActivity extends BaseFragment implements
 
     @Override
     public boolean onFragmentCreate() {
+        primeOpenStartMs = android.os.SystemClock.elapsedRealtime();
         final long chatId = arguments.getLong("chat_id", 0);
         final long userId = arguments.getLong("user_id", 0);
         final int encId = arguments.getInt("enc_id", 0);
@@ -21105,6 +21106,43 @@ public class ChatActivity extends BaseFragment implements
         }
     }
 
+    /** PrimeGram: when this chat was opened, for the "Мониторинг нагрузки" chat-open timings. */
+    private long primeOpenStartMs;
+    private boolean primeOpenCacheLogged;
+    private boolean primeOpenServerLogged;
+
+    /** Logs how long the first cached and the first server batch took after opening, then when
+     *  the list first drew with them - the numbers "the chat is slow to open" is made of. */
+    private void primeTraceOpenLoad(boolean isCache, ArrayList<MessageObject> messages) {
+        if (primeOpenStartMs == 0 || !org.telegram.messenger.PrimePerfMonitor.isEnabled()) {
+            return;
+        }
+        if (isCache ? primeOpenCacheLogged : primeOpenServerLogged) {
+            return;
+        }
+        if (isCache) {
+            primeOpenCacheLogged = true;
+        } else {
+            primeOpenServerLogged = true;
+        }
+        final long elapsed = android.os.SystemClock.elapsedRealtime() - primeOpenStartMs;
+        final int count = messages == null ? 0 : messages.size();
+        org.telegram.messenger.PrimePerfMonitor.event("chat " + dialog_id + " open: " + (isCache ? "cache" : "server") + " " + count + " msgs at +" + elapsed + "ms");
+        if (chatListView != null) {
+            final android.view.ViewTreeObserver observer = chatListView.getViewTreeObserver();
+            observer.addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override
+                public boolean onPreDraw() {
+                    if (chatListView != null) {
+                        chatListView.getViewTreeObserver().removeOnPreDrawListener(this);
+                    }
+                    org.telegram.messenger.PrimePerfMonitor.event("chat " + dialog_id + " open: first frame after " + (isCache ? "cache" : "server") + " at +" + (android.os.SystemClock.elapsedRealtime() - primeOpenStartMs) + "ms");
+                    return true;
+                }
+            });
+        }
+    }
+
     private void didReceivedNotification_messagesDidLoad(int id, int account, final Object... args) {
         int guid = (Integer) args[10];
         if (guid != classGuid) {
@@ -21139,6 +21177,7 @@ public class ChatActivity extends BaseFragment implements
             postponedScrollToLastMessageQueryIndex = 0;
         }
         ArrayList<MessageObject> messArr = (ArrayList<MessageObject>) args[2];
+        primeTraceOpenLoad(isCache, messArr);
 
         boolean universalNotify = false;
         HashMap<Integer, MessageObject> oldMessages = null;

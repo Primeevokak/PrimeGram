@@ -29,14 +29,14 @@
         <item name="android:textViewStyle">@style/MyTextViewStyle</item>
         <item name="android:forceDarkAllowed">false</item>
         <!-- PrimeGram: own launch identity instead of the stock Telegram blue-circle/paper-plane
-             animation. icon_foreground_sa is the fork's real icon (an atom mark) - the same one
+             animation. prime_logo is the fork's real icon (an atom mark) - the same one
              shown as the installed app icon and in PrimeGram settings; icon_foreground (no _sa
              suffix) turned out to be a stale, unused leftover still shaped like Telegram's own
              paper plane, not real PrimeGram artwork. Default launch is dark now (black
-             background), so this uses icon_foreground_sa_white - a channel-inverted copy of the
-             same artwork (light linework on transparent) generated to stay legible against
-             black, since the original's dark linework would disappear into it. -->
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/icon_foreground_sa_white</item>
+             background), so this uses prime_logo_white - the same mark as a vector in light
+             linework, since the dark version would disappear into it. The vector replaced the
+             old PNG, which was dithered and blurred at every density. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/prime_logo_white</item>
         <item name="android:windowSplashScreenAnimationDuration">@integer/splash_screen_duration</item>
         <item name="android:windowSplashScreenBackground">@android:color/black</item>
     </style>

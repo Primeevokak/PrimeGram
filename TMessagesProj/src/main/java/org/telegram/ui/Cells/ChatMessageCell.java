@@ -15360,6 +15360,14 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
 
     public void drawBlurredPhotoParticles(Canvas canvas) {
         if (mediaSpoilerEffect2 == null) {
+            if (!LiteMode.isEnabled(LiteMode.FLAG_CHAT_SPOILER)) {
+                if (mediaSpoilerEffect == null) {
+                    mediaSpoilerEffect = new SpoilerEffect();
+                }
+                mediaSpoilerEffect.setColor(ColorUtils.setAlphaComponent(Color.WHITE, (int) (255 * 0.5f * photoImage.getAlpha())));
+                mediaSpoilerEffect.setBounds((int) photoImage.getImageX(), (int) photoImage.getImageY(), (int) photoImage.getImageX2(), (int) photoImage.getImageY2());
+                mediaSpoilerEffect.draw(canvas);
+            }
             return;
         }
         canvas.save();

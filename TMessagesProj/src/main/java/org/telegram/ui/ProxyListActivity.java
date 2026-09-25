@@ -1102,7 +1102,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == emergencyProxyRow || position == customVlessRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
+            return position == emergencyProxyRow || position == customVlessRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
         }
 
         @Override
@@ -1186,7 +1186,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_SHADOW;
             } else if (position == proxyAddRow || position == deleteAllRow || position == customVlessRow) {
                 return VIEW_TYPE_TEXT_SETTING;
-            } else if (position == emergencyProxyRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow || position == callsRow) {
+            } else if (position == emergencyProxyRow || position == tgwsProxyRow || position == useProxyRow || position == rotationRow) {
                 return VIEW_TYPE_TEXT_CHECK;
             } else if (position == connectionsHeaderRow) {
                 return VIEW_TYPE_HEADER;

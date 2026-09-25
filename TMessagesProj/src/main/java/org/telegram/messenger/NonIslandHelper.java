@@ -40,11 +40,21 @@ public final class NonIslandHelper {
     private NonIslandHelper() {
     }
 
+    // Read from draw, layout and scroll paths many times a frame, so it is cached; setEnabled()
+    // is the only writer of PREF_KEY. -1 = not read yet.
+    private static volatile int enabledCache = -1;
+
     public static boolean isEnabled() {
-        return MessagesController.getGlobalMainSettings().getBoolean(PREF_KEY, false);
+        int cached = enabledCache;
+        if (cached == -1) {
+            cached = MessagesController.getGlobalMainSettings().getBoolean(PREF_KEY, false) ? 1 : 0;
+            enabledCache = cached;
+        }
+        return cached == 1;
     }
 
     public static void setEnabled(boolean enabled) {
+        enabledCache = enabled ? 1 : 0;
         MessagesController.getGlobalMainSettings().edit().putBoolean(PREF_KEY, enabled).apply();
     }
 

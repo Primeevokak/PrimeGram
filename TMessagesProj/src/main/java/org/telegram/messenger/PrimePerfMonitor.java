@@ -88,6 +88,15 @@ public final class PrimePerfMonitor {
         log.clear();
     }
 
+    /** A one-off timing (e.g. how long a chat took to show its messages), logged next to the
+     *  frame summaries so a slow moment and its cause read in order. No-op while disabled. */
+    public static void event(String line) {
+        if (!isEnabled()) {
+            return;
+        }
+        appendLine(new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(new java.util.Date()) + " " + line);
+    }
+
     private static synchronized void appendLine(String line) {
         log.addLast(line);
         while (log.size() > MAX_LOG_LINES) {

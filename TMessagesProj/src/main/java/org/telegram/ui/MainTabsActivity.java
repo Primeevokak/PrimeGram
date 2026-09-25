@@ -887,7 +887,7 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
 
             state.fragment.setParentLayout(getParentLayout());
             if (state.fragment.getFragmentView() == null) {
-                state.fragment.createView(context);
+                state.fragment.performCreateView(context);
                 if (!state.fragment.hasOwnBackground() && state.fragment.getFragmentView().getBackground() == null) {
                     state.fragment.getFragmentView().setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
                 }

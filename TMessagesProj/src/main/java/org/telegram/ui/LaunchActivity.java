@@ -7679,7 +7679,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
                 }
             } else if (reason == 3) {
-                if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.address)) {
+                if (org.telegram.messenger.SharedConfig.currentProxy != null && "127.0.0.1".equals(org.telegram.messenger.SharedConfig.currentProxy.settings.getAddress())) {
                     org.telegram.messenger.FileLog.d("LaunchActivity: Suppressing proxy error dialog for local proxy. Restarting service.");
                     // Only if the user still wants it. Restarting unconditionally brought the
                     // server back up behind a switch that said off, and everything downstream -

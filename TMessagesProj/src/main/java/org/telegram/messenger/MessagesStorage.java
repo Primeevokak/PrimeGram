@@ -288,6 +288,13 @@ public class MessagesStorage extends BaseController {
         }
     }
 
+    /** PrimeGram: memory-mapped reads only in a 64-bit process. A 32-bit one has ~3 GB of address
+     *  space in total, and mapping several accounts' multi-gigabyte cache4.db files takes it from
+     *  bitmaps, video and native libraries - an out-of-memory crash rather than a speed-up. */
+    private static boolean primeUseMmap() {
+        return android.os.Build.VERSION.SDK_INT >= 23 && android.os.Process.is64Bit();
+    }
+
     public SQLiteDatabase getDatabase() {
         return database;
     }
@@ -387,7 +394,7 @@ public class MessagesStorage extends BaseController {
             // cold-start dialog query, which hits a page cache that's cold right after
             // install/update - see the "Cold Start Optimization" plan's Part 2.
             database.executeFast("PRAGMA cache_size = -20000").stepThis().dispose();
-            database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
+            if (primeUseMmap()) database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
 
             if (createTable) {
                 if (BuildVars.LOGS_ENABLED) {
@@ -508,7 +515,7 @@ public class MessagesStorage extends BaseController {
                 database.executeFast("PRAGMA synchronous = NORMAL").stepThis().dispose();
                 database.executeFast("PRAGMA journal_size_limit = 10485760").stepThis().dispose();
                 database.executeFast("PRAGMA cache_size = -20000").stepThis().dispose();
-                database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
+                if (primeUseMmap()) database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
             } catch (SQLiteException e) {
                 FileLog.e(new Exception(e));
                 restored = false;
@@ -9065,6 +9072,97 @@ public class MessagesStorage extends BaseController {
         });
     }
 
+    /**
+     * PrimeGram: whether a messages_v2 row holds a different message than the one it is filed
+     * under. The loader below overwrites the deserialized id with the row's mid and the date with
+     * the row's date column, so such a row used to render as "post N" with another post's text and
+     * media - and a comments button that opened the real post N. Only sent messages are checked:
+     * a message still being sent keeps its local (negative) id inside the blob by design.
+     */
+    private static boolean primeIsForeignCacheRow(long dialogId, int mid, TLRPC.Message blob) {
+        if (blob == null || mid <= 0 || blob.id <= 0) {
+            return false;
+        }
+        if (blob.id != mid) {
+            FileLog.e("cache row mismatch: dialog " + dialogId + " mid " + mid + " holds message " + blob.id + " of peer " + MessageObject.getPeerId(blob.peer_id));
+            return true;
+        }
+        if (DialogObject.isChatDialog(dialogId) && blob.peer_id != null) {
+            final long blobDialogId = MessageObject.getPeerId(blob.peer_id);
+            if (blobDialogId != 0 && blobDialogId != dialogId) {
+                FileLog.e("cache row mismatch: dialog " + dialogId + " mid " + mid + " holds a message of peer " + blobDialogId);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * PrimeGram: catches the rows {@link #primeIsForeignCacheRow} cannot - a stale copy filed under
+     * a post's id that already carries that id. Channel posts are numbered in publishing order, so
+     * among posts a higher id can never be a day older than a lower one; a post from last year
+     * sitting between two from this week is not a post of that id. Compared against the newest
+     * date seen among lower ids that passed, so one bad row can't condemn the rows after it.
+     */
+    private static ArrayList<Integer> primeFindOutOfOrderPosts(long dialogId, ArrayList<TLRPC.Message> messages, ArrayList<Integer> found) {
+        final ArrayList<TLRPC.Message> posts = new ArrayList<>();
+        for (int a = 0; a < messages.size(); a++) {
+            final TLRPC.Message m = messages.get(a);
+            if (m != null && m.post && m.id > 0 && m.date > 0) {
+                posts.add(m);
+            }
+        }
+        if (posts.size() < 2) {
+            return found;
+        }
+        Collections.sort(posts, (l, r) -> Integer.compare(l.id, r.id));
+        final int tolerance = 24 * 60 * 60;
+        int newestLowerDate = posts.get(0).date;
+        for (int a = 1; a < posts.size(); a++) {
+            final TLRPC.Message m = posts.get(a);
+            if (m.date < newestLowerDate - tolerance) {
+                FileLog.e("cache row out of order: dialog " + dialogId + " mid " + m.id + " dated " + m.date + ", a lower id is dated " + newestLowerDate);
+                if (found == null) {
+                    found = new ArrayList<>();
+                }
+                found.add(m.id);
+            } else {
+                newestLowerDate = Math.max(newestLowerDate, m.date);
+            }
+        }
+        return found;
+    }
+
+    /** Removes rows found by {@link #primeIsForeignCacheRow} and records each as a hole, so the
+     *  next load of that range goes to the server instead of trusting the cache. Storage queue only. */
+    private void primeDropForeignCacheRows(long dialogId, ArrayList<Integer> mids) {
+        try {
+            final String ids = TextUtils.join(",", mids);
+            database.executeFast(String.format(Locale.US, "DELETE FROM messages_v2 WHERE uid = %d AND mid IN(%s)", dialogId, ids)).stepThis().dispose();
+            database.executeFast(String.format(Locale.US, "DELETE FROM media_v4 WHERE uid = %d AND mid IN(%s)", dialogId, ids)).stepThis().dispose();
+            // INSERT OR IGNORE, never REPLACE: the key is (uid, start), and replacing a wider hole
+            // that happens to start at mid - 1 would shrink it and make a real gap look cached.
+            final SQLitePreparedStatement state = database.executeFast("INSERT OR IGNORE INTO messages_holes VALUES(?, ?, ?)");
+            for (int mid : mids) {
+                final SQLiteCursor covered = database.queryFinalized(String.format(Locale.US, "SELECT 1 FROM messages_holes WHERE uid = %d AND start < %d AND end > %d LIMIT 1", dialogId, mid, mid));
+                final boolean alreadyHole = covered.next();
+                covered.dispose();
+                if (alreadyHole) {
+                    continue;
+                }
+                // A hole (start, end) stands for the ids strictly between the two.
+                state.requery();
+                state.bindLong(1, dialogId);
+                state.bindInteger(2, mid - 1);
+                state.bindInteger(3, mid + 1);
+                state.step();
+            }
+            state.dispose();
+        } catch (Exception e) {
+            checkSQLException(e);
+        }
+    }
+
     public Runnable getMessagesInternal(long dialogId, long mergeDialogId, int count, int max_id, int offset_date, int minDate, int classGuid, int load_type, int mode, long threadMessageId, int loadIndex, boolean processMessages, boolean isTopic, Timer loaderLogger) {
         TLRPC.TL_messages_messages res = new TLRPC.TL_messages_messages();
         long currentUserId = getUserConfig().clientUserId;
@@ -9803,6 +9901,7 @@ public class MessagesStorage extends BaseController {
                 int minId = Integer.MAX_VALUE;
                 int maxId = Integer.MIN_VALUE;
                 ArrayList<Long> messageIdsToFix = null;
+                ArrayList<Integer> primeForeignMids = null;
 
                 if (cursor != null) {
                     while (cursor.next()) {
@@ -9818,6 +9917,14 @@ public class MessagesStorage extends BaseController {
                         TLRPC.Message message = TLRPC.Message.TLdeserialize(data, data.readInt32(false), false);
                         message.send_state = cursor.intValue(2);
                         long fullMid = cursor.longValue(3);
+                        if (threadMessageId == 0 && primeIsForeignCacheRow(dialogId, (int) fullMid, message)) {
+                            if (primeForeignMids == null) {
+                                primeForeignMids = new ArrayList<>();
+                            }
+                            primeForeignMids.add((int) fullMid);
+                            data.reuse();
+                            continue;
+                        }
                         message.id = (int) fullMid;
                         if ((fullMid & 0xffffffff00000000L) == 0xffffffff00000000L && message.id > 0) {
                             if (messageIdsToFix == null) {
@@ -9931,6 +10038,21 @@ public class MessagesStorage extends BaseController {
                     }
                     cursor.dispose();
                     cursor = null;
+                }
+
+                if (threadMessageId == 0 && DialogObject.isChatDialog(dialogId)) {
+                    primeForeignMids = primeFindOutOfOrderPosts(dialogId, res.messages, primeForeignMids);
+                }
+                if (primeForeignMids != null) {
+                    // A row that holds some other message cannot be shown: its id is ours but its
+                    // text, media and date belong elsewhere, which is how days of a channel turned
+                    // into posts from last year. Drop the rows, mark them as holes and hand back
+                    // nothing, so this range is fetched from the server and rewritten correctly.
+                    primeDropForeignCacheRows(dialogId, primeForeignMids);
+                    res.messages.clear();
+                    messagesCount = 0;
+                    minId = Integer.MAX_VALUE;
+                    maxId = Integer.MIN_VALUE;
                 }
 
                 if (withEphemeralMessages && dialogId < 0) {

@@ -418,10 +418,6 @@ public class ApplicationLoader extends Application {
         // need to look it up.
         org.telegram.ui.Cells.PrimeE2EHandshakeCell.register();
 
-        // Must run before any GIF/round-video decoder is created this process,
-        // so it can catch "hw_accel crashed last run" before the feature gets
-        // a chance to crash again. See CrashSafeToggle's javadoc.
-        org.telegram.ui.Components.AnimatedFileNative.armHwAccelForThisSession();
 
         // Off the main thread on purpose: this is pure object construction (an HTTP client,
         // some repositories) for a proxy nobody has asked to use yet - there is no tunnel here,

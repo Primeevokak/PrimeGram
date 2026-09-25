@@ -230,7 +230,7 @@ public final class PrimeVpnGuard {
                         final SharedPreferences globalPrefs = MessagesController.getGlobalMainSettings();
                         globalPrefs.edit().putBoolean("proxy_enabled", true).apply();
                         final SharedConfig.ProxyInfo p = SharedConfig.currentProxy;
-                        org.telegram.tgnet.ConnectionsManager.setProxySettings(true, p.address, p.port, p.username, p.password, p.secret);
+                        org.telegram.tgnet.ConnectionsManager.setProxySettings(true, p.settings);
                         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
                     }
                 }

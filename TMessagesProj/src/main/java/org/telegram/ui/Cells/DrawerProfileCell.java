@@ -154,7 +154,7 @@ public class DrawerProfileCell extends FrameLayout implements NotificationCenter
 
         boolean playDrawable = sunDrawable == null;
         if (playDrawable) {
-            sunDrawable = new RLottieDrawable(R.raw.sun, "" + R.raw.sun, AndroidUtilities.dp(28), AndroidUtilities.dp(28), true, null);
+            sunDrawable = new RLottieDrawable(R.raw.sun, AndroidUtilities.dp(28), AndroidUtilities.dp(28), true, null);
             sunDrawable.setPlayInDirectionOfCustomEndFrame(true);
             if (Theme.isCurrentThemeDay()) {
                 sunDrawable.setCustomEndFrame(0);

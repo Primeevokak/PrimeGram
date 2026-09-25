@@ -11,7 +11,7 @@ import android.os.Looper;
  * GcmPushListenerService, a real FirebaseMessagingService registered in the manifest) arrive
  * through Google's FCM entirely independently of this service, so they keep working either way.
  *
- * <p>Off by default - current always-on behavior is unchanged unless a user opts in. When on:
+ * <p>On by default (see {@link #isBackgroundWorkDisabled}). When on:
  * <ul>
  *   <li>the proxy is stopped a grace period after the app is backgrounded, not instantly - a
  *   momentary pause (a system permission dialog, switching apps for a second) must not tear down
@@ -37,16 +37,11 @@ public final class PrimeBackgroundProxy {
     };
 
     public static boolean isBackgroundWorkDisabled() {
-        // Off by default (matches the class doc). A prior version of this comment argued for
-        // defaulting to true so the battery win reached typical users automatically - but that
-        // default also makes shouldSkipColdStart() skip TgWsProxyService's cold-start autostart on
-        // EVERY fresh install/launch (mainInterfacePaused is true until LaunchActivity.onResume(),
-        // which runs after postInitApplication() already tried ConnectionsManager.init() with no
-        // proxy configured yet). For users whose network blocks Telegram's real DC IPs at the
-        // DPI/IP level, that is not a battery tradeoff - it is the app failing to connect at all
-        // until something else (a resume, a network change) happens to start the proxy late. This
-        // toggle must stay opt-in.
-        return prefs().getBoolean(KEY, false);
+        // On by default since FCM pushes work: the tunnel no longer has to stay up in the
+        // background for messages to arrive, so it runs while the app is open and stops a grace
+        // period after it is closed. A cold start the user opened still gets the proxy - the
+        // first LaunchActivity.onResume() starts it through onAppResumed().
+        return prefs().getBoolean(KEY, true);
     }
 
     public static void setBackgroundWorkDisabled(boolean disabled) {

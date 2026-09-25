@@ -114,8 +114,7 @@ public class PrimeRoundVideoSender {
                         false,
                         entry.hasSpoiler,
                         entry.caption,
-                        chatActivity.quickReplyShortcut,
-                        chatActivity.getQuickReplyId(),
+                        chatActivity.getMessageChatSendParams(),
                         0,
                         0
                 );

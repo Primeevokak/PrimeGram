@@ -6275,6 +6275,9 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
         if (topCommentTextView != null) {
             topCommentTextView.onDestroy();
         }
+        if (mentionContainer != null && mentionContainer.getAdapter() != null) {
+            mentionContainer.getAdapter().onDestroy();
+        }
     }
 
     @Override

@@ -23,9 +23,9 @@
         <item name="android:navigationBarColor">#000000</item>
         <item name="android:forceDarkAllowed">false</item>
         <!-- PrimeGram: same identity as values-v31/styles.xml - default launch is dark, so this
-             uses icon_foreground_sa_white (light linework on transparent) against black, not the
-             original dark-on-white artwork which would disappear against this background. -->
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/icon_foreground_sa_white</item>
+             uses prime_logo_white (the vector mark in light linework) against black, not the
+             dark version which would disappear against this background. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/prime_logo_white</item>
         <item name="android:windowSplashScreenAnimationDuration">@integer/splash_screen_duration</item>
         <item name="android:windowSplashScreenBackground">@android:color/black</item>
     </style>

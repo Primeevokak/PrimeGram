@@ -42,14 +42,14 @@ public final class PrimePluginSend {
                                  ArrayList<TLRPC.MessageEntity> entities) {
         SendMessagesHelper.prepareSendingPhoto(
                 account(account), path, null, dialogId, null, null, null, caption, entities,
-                null, null, 0, null, true, 0, 0, null, 0);
+                null, null, 0, null, true, 0, 0, null);
     }
 
     public static void sendVideo(int account, long dialogId, String path, String caption,
                                  ArrayList<TLRPC.MessageEntity> entities) {
         SendMessagesHelper.prepareSendingVideo(
                 account(account), path, null, null, null, dialogId, null, null, null, null,
-                entities, 0, null, true, 0, 0, false, false, caption, null, 0, 0, 0);
+                entities, 0, null, true, 0, 0, false, false, caption, null, 0, 0);
     }
 
     /**
@@ -60,7 +60,7 @@ public final class PrimePluginSend {
     public static void sendDocument(int account, long dialogId, String path, String caption) {
         SendMessagesHelper.prepareSendingDocument(
                 account(account), path, path, null, caption, null, dialogId, null, null, null,
-                null, null, true, 0, null, null, 0, false);
+                null, null, true, 0, null, null, false);
     }
 
     /**

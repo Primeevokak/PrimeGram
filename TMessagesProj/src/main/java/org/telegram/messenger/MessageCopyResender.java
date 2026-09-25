@@ -86,7 +86,7 @@ public class MessageCopyResender {
             AndroidUtilities.runOnUIThread(() -> SendMessagesHelper.prepareSendingPhoto(
                     accountInstance, path, null, toDialogId,
                     null, null, null, caption, null, null, null, 0,
-                    null, true, 0, 0, null, 0
+                    null, true, 0, 0, null
             ));
             return true;
         }
@@ -102,7 +102,7 @@ public class MessageCopyResender {
         final String finalMime = mime;
         AndroidUtilities.runOnUIThread(() -> SendMessagesHelper.prepareSendingDocument(
                 accountInstance, path, path, null, caption, finalMime, toDialogId,
-                null, null, null, null, null, true, 0, null, null, 0, false
+                null, null, null, null, null, true, 0, null, null, false
         ));
         return true;
     }
