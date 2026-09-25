@@ -353,3 +353,102 @@ def get_client(account=None):
     if client is None:
         client = _clients[acc] = AccountClient(acc)
     return client
+
+
+# ---------------------------------------------------------------------------
+# Short notices. The implementation lives in ui.bulletin; plugins look for these two names here.
+
+def show_info_bulletin(message, fragment=None):
+    from ui.bulletin import BulletinHelper
+    BulletinHelper.show_info(message, fragment)
+
+
+def show_error_bulletin(message, fragment=None):
+    from ui.bulletin import BulletinHelper
+    BulletinHelper.show_error(message, fragment)
+
+
+# ---------------------------------------------------------------------------
+# Listening to the client's own events (NotificationCenter).
+
+class NotificationObserver(dynamic_proxy(NotificationCenter.NotificationCenterDelegate)):
+    """Calls ``fn(event_id, account, args)`` for the NotificationCenter events it is started on.
+
+    Events arrive on the UI thread, so the callback must be quick; an exception in it is logged
+    and dropped rather than crashing the app. Always stop what you start - in on_plugin_unload -
+    or the observer keeps the plugin's objects alive after it is switched off::
+
+        self.observer = NotificationObserver(self.on_event)
+        self.observer.start(NotificationCenter.messagesDidLoad)
+    """
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+        self._subscriptions = []
+
+    def didReceivedNotification(self, event_id, account, args):
+        try:
+            self._fn(int(event_id), int(account), list(args) if args is not None else [])
+        except Exception as e:
+            from android_utils import log
+            log("notification observer failed: %r" % (e,))
+
+    def _center(self, account, is_global):
+        return NotificationCenter.getGlobalInstance() if is_global else get_notification_center(account)
+
+    def start(self, event_id, account=None, is_global=False):
+        center = self._center(account, is_global)
+        center.addObserver(self, int(event_id))
+        self._subscriptions.append((center, int(event_id)))
+        return self
+
+    def stop(self, event_id=None):
+        """Stops one event, or all of them when called without an id."""
+        keep = []
+        for center, subscribed in self._subscriptions:
+            if event_id is None or subscribed == int(event_id):
+                try:
+                    center.removeObserver(self, subscribed)
+                except Exception:
+                    pass
+            else:
+                keep.append((center, subscribed))
+        self._subscriptions = keep
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Temporary files - for handing something to send_photo/send_document without a permanent copy.
+
+def tempdir():
+    """A private folder for short-lived files, created on demand, inside the app's cache."""
+    import os
+    from org.telegram.messenger import ApplicationLoader
+    path = os.path.join(str(ApplicationLoader.applicationContext.getCacheDir().getAbsolutePath()), "plugin_tmp")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def write_temp_file(filename, content, mode="wb", delete_after=0):
+    """Writes ``content`` to a fresh file in tempdir() and returns its path.
+
+    The name keeps ``filename``'s last part (so the extension survives for the receiving side),
+    with a random prefix so two plugins can never overwrite each other. ``delete_after`` seconds
+    later the file is removed; 0 leaves it to the system's cache cleanup.
+    """
+    import os
+    import tempfile
+    if mode not in ("w", "wb"):
+        raise ValueError("write_temp_file only writes: mode must be 'w' or 'wb'")
+    handle, path = tempfile.mkstemp(prefix="p_", suffix="_" + os.path.basename(str(filename)), dir=tempdir())
+    with os.fdopen(handle, mode, **({} if "b" in mode else {"encoding": "utf-8"})) as out:
+        out.write(content)
+    if delete_after and delete_after > 0:
+        def _remove():
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        run_on_queue(_remove, delay=int(delete_after * 1000))
+    return path

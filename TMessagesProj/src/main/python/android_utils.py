@@ -59,6 +59,116 @@ class OnLongClickListener(dynamic_proxy(View.OnLongClickListener)):
         return True if result is None else bool(result)
 
 
+def safe_call(fn, *args, default=None, **kwargs):
+    """Calls ``fn`` and returns ``default`` instead of letting an exception out.
+
+    For code a plugin passes into Java itself - its own ``dynamic_proxy`` classes, handlers,
+    anything Android calls back. An exception left to escape there lands on the UI thread and
+    closes the whole app, not just the plugin. The error still goes to the log. ``fn`` being None
+    is not an error: dialog buttons use that to mean "no action".
+    """
+    if fn is None:
+        return default
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        import traceback
+        log("plugin callback failed: %r %s" % (e, traceback.format_exc()))
+        return default
+
+
+def _call_flexible(fn, *args, default=None):
+    # Plugins pass callbacks written with and without the Android arguments; both are accepted.
+    try:
+        return fn(*args)
+    except TypeError:
+        return safe_call(fn, default=default)
+    except Exception as e:
+        log("plugin callback failed: %r" % (e,))
+        return default
+
+
+class OnTouchListener(dynamic_proxy(View.OnTouchListener)):
+    """``fn(view, event)`` -> bool. A failure reports the event as not handled."""
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    def onTouch(self, view, event):
+        return bool(_call_flexible(self._fn, view, event, default=False))
+
+
+class OnKeyListener(dynamic_proxy(View.OnKeyListener)):
+    """``fn(view, key_code, event)`` -> bool. A failure reports the key as not handled."""
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    def onKey(self, view, key_code, event):
+        return bool(_call_flexible(self._fn, view, key_code, event, default=False))
+
+
+class OnSeekBarChangeListener(dynamic_proxy(jclass("android.widget.SeekBar$OnSeekBarChangeListener"))):
+    """Any of ``on_progress(seek_bar, progress, from_user)``, ``on_start(seek_bar)``,
+    ``on_stop(seek_bar)`` - the ones left out are simply not called."""
+
+    def __init__(self, on_progress=None, on_start=None, on_stop=None):
+        super().__init__()
+        self._progress = on_progress
+        self._start = on_start
+        self._stop = on_stop
+
+    def onProgressChanged(self, seek_bar, progress, from_user):
+        if self._progress is not None:
+            _call_flexible(self._progress, seek_bar, int(progress), bool(from_user))
+
+    def onStartTrackingTouch(self, seek_bar):
+        if self._start is not None:
+            _call_flexible(self._start, seek_bar)
+
+    def onStopTrackingTouch(self, seek_bar):
+        if self._stop is not None:
+            _call_flexible(self._stop, seek_bar)
+
+
+class TextWatcher(dynamic_proxy(jclass("android.text.TextWatcher"))):
+    """``on_changed(text)`` after every edit, with the new text as a Python str."""
+
+    def __init__(self, on_changed=None, before=None, during=None):
+        super().__init__()
+        self._after = on_changed
+        self._before = before
+        self._during = during
+
+    def beforeTextChanged(self, s, start, count, after):
+        if self._before is not None:
+            _call_flexible(self._before, str(s), int(start), int(count), int(after))
+
+    def onTextChanged(self, s, start, before, count):
+        if self._during is not None:
+            _call_flexible(self._during, str(s), int(start), int(before), int(count))
+
+    def afterTextChanged(self, s):
+        if self._after is not None:
+            _call_flexible(self._after, str(s))
+
+
+def get_context():
+    """The application context - always there, even before any screen exists."""
+    return jclass("org.telegram.messenger.ApplicationLoader").applicationContext
+
+
+def get_activity():
+    """The activity on screen, or None when there is none (a plugin may run in the background)."""
+    try:
+        fragment = jclass("org.telegram.ui.LaunchActivity").getLastFragment()
+        return fragment.getParentActivity() if fragment is not None else None
+    except Exception:
+        return None
+
+
 def run_on_ui_thread(func, delay=0):
     """Runs on the main thread. Anything touching a View must go through here."""
     AndroidUtilities.runOnUIThread(_Runnable(func), int(delay))

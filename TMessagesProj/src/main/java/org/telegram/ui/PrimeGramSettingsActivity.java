@@ -395,9 +395,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ADVANCED_DIAGNOSTICS, ID_CRASH_LOG_ENABLED,
                 "Запись крашей",
                 "Тоже новое, и отдельно от подробных логов диагностики выше. Пишет исключительно реальные крахи приложения — никогда не запишет обычный выход из аккаунта или закрытие сессии как ошибку.\n\nНа новых установках включена сразу по умолчанию; у тех, кто уже пользовался приложением до появления этой функции, остаётся выключенной, пока не включите сами — чтобы не начать втихую собирать данные без вашего ведома."));
-        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ADVANCED_EXPERIMENTAL, ID_HW_ACCEL,
-                "Аппаратное ускорение видео",
-                "Способно заметно экономить батарею при просмотре видео, но ведёт себя нестабильно на части устройств и прошивок. Есть встроенная страховка: если приложение упало именно при включённом ускорении, при следующем запуске оно само отключит эту настройку и объяснит почему. Изменение требует перезапуска приложения."));
+        if (org.telegram.ui.Components.AnimatedFileNative.isHardwareDecodingAvailable()) {
+            steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_ADVANCED_EXPERIMENTAL, ID_HW_ACCEL,
+                    "Аппаратное ускорение видео",
+                    "Способно заметно экономить батарею при просмотре видео, но ведёт себя нестабильно на части устройств и прошивок. Есть встроенная страховка: если приложение упало именно при включённом ускорении, при следующем запуске оно само отключит эту настройку и объяснит почему. Изменение требует перезапуска приложения."));
+        }
 
         // ── Premium и о приложении ──────────────────────────────────────────────────────
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_PREMIUM, 0,
@@ -1865,8 +1867,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Быстродействие", "Оптимизации PrimeGram"));
             items.add(section(SECTION_ADVANCED_DIAGNOSTICS, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
                     "Диагностика", "Логи, трасса запуска, батарея, push"));
-            items.add(section(SECTION_ADVANCED_EXPERIMENTAL, IconBackgroundColors.RED, R.drawable.msg_maxvideo,
-                    "Эксперименты", "Аппаратное ускорение видео"));
+            // Hidden until hardware decoding is rebuilt for the 12.10 decoder: the switch would
+            // do nothing and the stress test would compare the software path with itself.
+            if (org.telegram.ui.Components.AnimatedFileNative.isHardwareDecodingAvailable()) {
+                items.add(section(SECTION_ADVANCED_EXPERIMENTAL, IconBackgroundColors.RED, R.drawable.msg_maxvideo,
+                        "Эксперименты", "Аппаратное ускорение видео"));
+            }
             items.add(UItem.asShadow(null));
         }
 

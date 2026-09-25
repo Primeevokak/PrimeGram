@@ -197,9 +197,20 @@ public class PrimeCheckCell extends FrameLayout implements Theme.Colorable {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        super.onMeasure(
-                MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(dp(twoLines ? 64 : 52), MeasureSpec.EXACTLY));
+        final int width = MeasureSpec.getSize(widthMeasureSpec);
+        // The value is laid out before the weighted text column, so left alone it takes all the
+        // width it wants and the title is what gets squeezed - "экспорт и отправка" broke
+        // "Энергопотребление" mid-word. Capping it makes the value the thing that ellipsizes.
+        final int valueMax = (int) (width * 0.36f);
+        if (valueView.getMaxWidth() != valueMax) {
+            valueView.setMaxWidth(valueMax);
+        }
+        // Grow with the text instead of a fixed height: a two-line title plus a two-line subtitle
+        // used to be cut off at the bottom. The old heights stay as the minimum.
+        final int widthSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY);
+        super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+        final int height = Math.max(dp(twoLines ? 64 : 52), getMeasuredHeight() + dp(16));
+        super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
     }
 
     @Override

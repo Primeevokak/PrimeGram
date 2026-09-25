@@ -79,6 +79,7 @@ public final class PrimePluginXposed {
             return null;
         }
         try {
+            PrimeHookPreinstall.prepare(member);
             return XposedBridge.hookMethod(member, new Forwarder(priority, callback));
         } catch (Throwable t) {
             FileLog.e("PrimePluginXposed.hookMethod " + member, new Exception(t));
@@ -92,6 +93,7 @@ public final class PrimePluginXposed {
             return new ArrayList<>();
         }
         try {
+            PrimeHookPreinstall.prepareMethods(clazz, methodName);
             final Set<XC_MethodHook.Unhook> hooks =
                     XposedBridge.hookAllMethods(clazz, methodName, new Forwarder(priority, callback));
             return new ArrayList<>(hooks);
@@ -107,6 +109,7 @@ public final class PrimePluginXposed {
             return new ArrayList<>();
         }
         try {
+            PrimeHookPreinstall.prepareConstructors(clazz);
             final Set<XC_MethodHook.Unhook> hooks =
                     XposedBridge.hookAllConstructors(clazz, new Forwarder(priority, callback));
             return new ArrayList<>(hooks);

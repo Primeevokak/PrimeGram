@@ -236,6 +236,12 @@ public class LruCache<T> {
     /**
      * Clear the cache, calling {@link #entryRemoved} on each removed entry.
      */
+    /** PrimeGram: shrink to {@code size} (least recently used first) without changing maxSize,
+     *  for memory-pressure callbacks. Entries still in use are protected by entryRemoved(). */
+    public final void trimTo(int size) {
+        trimToSize(Math.max(size, 0), null);
+    }
+
     public final void evictAll() {
         trimToSize(-1, null); // -1 will evict 0-sized elements
     }

@@ -559,6 +559,16 @@ public class ApplicationLoader extends Application {
         PrimeStartupTrace.startMainThreadWatchdog();
     }
 
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        try {
+            ImageLoader.getInstance().onTrimMemory(level);
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+    }
+
     public static void applyXrayProxyToConnectionsManager() {
         ConnectionsManager.setProxySettings(
                 true,

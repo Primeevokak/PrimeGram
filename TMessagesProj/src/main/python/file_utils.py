@@ -18,6 +18,38 @@ def get_plugins_dir():
     return str(PrimePluginsController.pluginsDir().getAbsolutePath())
 
 
+def _calling_plugin_id(plugin_id):
+    if plugin_id:
+        return str(plugin_id)
+    from extera_utils import get_plugin_id
+    return get_plugin_id()
+
+
+def get_plugin_dir(plugin_id=None):
+    """A folder of the plugin's own for anything it keeps between launches, created on demand.
+
+    Kept under the plugins folder in ``.data/<id>`` - the leading dot keeps the plugin scanner,
+    which only looks at files, away from it - and removed together with the plugin's data. Called
+    from plugin code the id is found automatically. None when no plugin can be identified.
+    """
+    plugin_id = _calling_plugin_id(plugin_id)
+    if not plugin_id:
+        return None
+    path = os.path.join(get_plugins_dir(), ".data", plugin_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def get_plugin_cache_dir(plugin_id=None):
+    """Like get_plugin_dir, but in the app cache: the system may clear it when space runs low."""
+    plugin_id = _calling_plugin_id(plugin_id)
+    if not plugin_id:
+        return None
+    path = os.path.join(get_cache_dir(), "plugins", plugin_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def get_cache_dir():
     return str(ApplicationLoader.applicationContext.getCacheDir().getAbsolutePath())
 

@@ -1391,20 +1391,6 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     private CountdownTimer pollCountDownTimer;
     private StaticLayout loadingProgressLayout;
     private long loadingProgressLayoutHash;
-    // PrimeGram: odometer-style counting for the "X / Y MB" download/upload text - a steady,
-    // humanly-visible tick-up rate (~1 MB every 500ms - slow enough to actually watch each MB
-    // land, not just a blur) that chases whatever the latest real progress value is, completely
-    // decoupled from how often/rarely real network updates actually arrive. A raw update just
-    // moves the target; the displayed number keeps counting toward it at its own constant pace on
-    // every draw frame, so a big real jump (e.g. 12MB -> 24MB reported in one network callback)
-    // still reads as the file visibly filling up rather than a snap - and if the real download
-    // finishes before the counter catches up, the counter simply keeps ticking until it reaches
-    // the real total. See primeSetLoadingProgress/primeTickLoadingProgressAnimation.
-    private static final float PRIME_PROGRESS_TICK_BYTES_PER_MS = (1024f * 1024f) / 500f;
-    private long primeAnimatedLoadedSize;
-    private long primeLoadProgressAnimTargetSize;
-    private long primeLoadProgressAnimTargetTotal;
-    private long primeLoadProgressAnimLastFrameTime;
     private int infoX;
     private int infoWidth;
 
@@ -2060,6 +2046,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         blurredPhotoImage.setAllowLoadingOnAttachedOnly(true);
         blurredPhotoImage.setUseRoundForThumbDrawable(true);
         radialProgress = new RadialProgress2(this, resourcesProvider);
+        primeProgressLayer = new PrimeProgressLayer(context, this);
+        addView(primeProgressLayer);
+        radialProgress.setParent(primeProgressLayer);
         videoRadialProgress = new RadialProgress2(this, resourcesProvider);
         videoRadialProgress.setDrawBackground(false);
         videoRadialProgress.setCircleRadius(dp(15));
@@ -13864,6 +13853,13 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     @SuppressLint("DrawAllocation")
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        if (primeProgressLayer != null) {
+            final int w = right - left, h = bottom - top;
+            if (primeProgressLayer.getMeasuredWidth() != w || primeProgressLayer.getMeasuredHeight() != h) {
+                primeProgressLayer.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY));
+            }
+            primeProgressLayer.layout(0, 0, w, h);
+        }
         if (currentMessageObject == null) {
             return;
         }
@@ -15226,7 +15222,6 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     canvas.save();
                     canvas.translate(x, subtitleY);
                     if (buttonState == 1 && loadingProgressLayout != null) {
-                        primeTickLoadingProgressAnimation();
                         loadingProgressLayout.draw(canvas);
                     } else {
                         infoLayout.draw(canvas);
@@ -18418,71 +18413,31 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             loadedSize = currentMessageObject.loadedFileSize;
             totalSize = document.size;
         }
-        // PrimeGram: a (re)bind, not a live progress tick - show the real value immediately, no
-        // easing, but keep the animation state in sync so the next real onProgressDownload/Upload
-        // call eases from here instead of wherever a previously-bound message left off.
-        primeAnimatedLoadedSize = loadedSize;
-        primeLoadProgressAnimTargetSize = loadedSize;
-        primeLoadProgressAnimTargetTotal = totalSize;
         createLoadingProgressLayout(loadedSize, totalSize);
     }
 
     /**
-     * PrimeGram: entry point for a live progress update (as opposed to a cell (re)bind) - just
-     * moves the target. The displayed number's own steady tick-up (primeTickLoadingProgressAnimation)
-     * chases it independently on every draw frame, so a real update arriving as one big jump (or
-     * arriving rarely) doesn't change how the counter looks - it always counts up at its own pace.
+     * PrimeGram: this used to animate the size counting up between progress events - rebuilding
+     * the text layout and invalidating the whole cell on every frame until it caught up, even
+     * after the download had finished. On a long post with several photos loading that was dozens
+     * of full redraws of a huge cell per second: the "lags until the pictures load" report. The
+     * text now moves only when real progress arrives, the way upstream does it.
      */
     private void primeSetLoadingProgress(long loadedSize, long totalSize) {
-        if (totalSize <= 0) {
-            primeAnimatedLoadedSize = loadedSize;
-            primeLoadProgressAnimTargetSize = loadedSize;
-            primeLoadProgressAnimTargetTotal = totalSize;
-            createLoadingProgressLayout(loadedSize, totalSize);
-            return;
+        final String before = primeLoadingProgressText;
+        createLoadingProgressLayout(loadedSize, totalSize);
+        // The circle redraws on its own layer; the size text is drawn by the cell, so the cell
+        // redraws only when that text actually changed, at most five times a second.
+        if (primeLoadingProgressText != null && !primeLoadingProgressText.equals(before)) {
+            final long now = android.os.SystemClock.uptimeMillis();
+            if (now - primeLastProgressTextRedraw >= 200) {
+                primeLastProgressTextRedraw = now;
+                invalidate();
+            }
         }
-        if (primeLoadProgressAnimTargetTotal != totalSize || primeAnimatedLoadedSize > loadedSize) {
-            // Different file, or progress moved backward (retry/restart) - nothing sensible to
-            // count up from, snap immediately rather than count in reverse.
-            primeAnimatedLoadedSize = loadedSize;
-            createLoadingProgressLayout(loadedSize, totalSize);
-        }
-        primeLoadProgressAnimTargetSize = loadedSize;
-        primeLoadProgressAnimTargetTotal = totalSize;
-        primeLoadProgressAnimLastFrameTime = System.currentTimeMillis();
-        invalidate();
     }
 
-    /**
-     * PrimeGram: advances the displayed value one tick closer to the target at the fixed
-     * PRIME_PROGRESS_TICK_BYTES_PER_MS pace and rebuilds the text layout if it moved - call right
-     * before drawing loadingProgressLayout. Keeps invalidating (and therefore keeps counting) for
-     * as long as it's behind the target, including after the real download has already finished.
-     */
-    private void primeTickLoadingProgressAnimation() {
-        if (primeLoadProgressAnimTargetTotal <= 0 || primeAnimatedLoadedSize >= primeLoadProgressAnimTargetSize) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        long dt = now - primeLoadProgressAnimLastFrameTime;
-        if (dt <= 0) {
-            dt = 1;
-        } else if (dt > 100) {
-            // The cell was off-screen or the thread stalled for a while - clamp so it doesn't
-            // leap ahead to "catch up" on return, it just resumes ticking from here.
-            dt = 100;
-        }
-        primeLoadProgressAnimLastFrameTime = now;
-        long step = (long) (PRIME_PROGRESS_TICK_BYTES_PER_MS * dt);
-        if (step < 1) {
-            step = 1;
-        }
-        primeAnimatedLoadedSize = Math.min(primeLoadProgressAnimTargetSize, primeAnimatedLoadedSize + step);
-        createLoadingProgressLayout(primeAnimatedLoadedSize, primeLoadProgressAnimTargetTotal);
-        if (primeAnimatedLoadedSize < primeLoadProgressAnimTargetSize) {
-            invalidate();
-        }
-    }
+    private long primeLastProgressTextRedraw;
 
     private void createLoadingProgressLayout(long loadedSize, long totalSize) {
         if (totalSize <= 0 || documentAttach == null) {
@@ -18543,8 +18498,15 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             }
             w = (int) Math.ceil(Theme.chat_infoPaint.measureText(str));
         }
+        if (loadingProgressLayout != null && str.equals(primeLoadingProgressText) && loadingProgressLayout.getWidth() == w) {
+            // Consecutive chunks usually round to the same "1.2 MB / 5 MB"; nothing to rebuild.
+            return;
+        }
+        primeLoadingProgressText = str;
         loadingProgressLayout = new StaticLayout(str, Theme.chat_infoPaint, w, Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
     }
+
+    private String primeLoadingProgressText;
 
 
     @Override
@@ -20535,7 +20497,14 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         }
 
         if ((!autoPlayingMedia || !MediaController.getInstance().isPlayingMessageAndReadyToDraw(currentMessageObject) || isRoundVideo) && !transitionParams.animateBackgroundBoundsInner && !(currentMessageObject != null && currentMessageObject.preview)) {
+            primeProgressRequested = false;
             drawOverlays(canvas);
+            if (!primeProgressRequested) {
+                primeHideProgressLayer();
+            }
+        } else if (!transitionParams.animateBackgroundBoundsInner) {
+            // Overlays are skipped this frame (autoplaying video, preview): so is the circle.
+            primeHideProgressLayer();
         }
         if ((drawTime || !mediaBackground) && !forceNotDrawTime && !transitionParams.animateBackgroundBoundsInner && !(enterTransitionInProgress && !currentMessageObject.isVoice()) && (!currentMessageObject.isQuickReply() || currentMessageObject.isSendError())) {
             drawTime(canvas, 1f, false);
@@ -25319,7 +25288,6 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                                     canvas.translate(0, dp(14.3f * alpha));
                                 }
 //                            loadingProgressLayout.copyStylesFrom(Theme.chat_infoPaint);
-                                primeTickLoadingProgressAnimation();
                                 loadingProgressLayout.draw(canvas);
                                 canvas.restore();
                             } else if (drawDocTitleLayout) {
@@ -26639,9 +26607,108 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         return y + btn.height + dp(13);
     }
 
+    /**
+     * PrimeGram: the download/upload progress circle of a photo, video or GIF lives in a child
+     * view of its own. The circle animates every frame while a file loads, and each frame used to
+     * invalidate this whole cell - and for albums also the chat list and its blurred header, since
+     * a group's overlays are drawn by the list - re-recording long captions, backgrounds and every
+     * visible message 60-120 times a second until the pictures arrived. A child view has its own
+     * display list: invalidating it re-records only the circle.
+     */
+    private PrimeProgressLayer primeProgressLayer;
+    private boolean primeProgressOnLayer;
+
+    private boolean primeProgressRequested;
+
+    private void primeHideProgressLayer() {
+        if (primeProgressOnLayer) {
+            primeProgressOnLayer = false;
+            primeProgressLayer.invalidateSelf();
+        }
+    }
+
+    private boolean primeProgressOnLayerEligible() {
+        if (currentMessageObject == null || drawingToBitmap || drawFromPinchToZoom || !drawPhotoImage) {
+            return false;
+        }
+        final int type = currentMessageObject.type;
+        if (type != MessageObject.TYPE_PHOTO && type != MessageObject.TYPE_VIDEO && type != MessageObject.TYPE_GIF) {
+            return false;
+        }
+        // The special cases keep the original path: they fade, scale or blur the circle together
+        // with the rest of the cell.
+        return !currentMessageObject.isRoundVideo() && !currentMessageObject.isRoundOnce()
+                && !currentMessageObject.needDrawBluredPreview() && !currentMessageObject.hasMediaSpoilers();
+    }
+
+    private void primeDrawProgressOnLayer(Canvas canvas) {
+        if (!primeProgressOnLayer || currentMessageObject == null) {
+            return;
+        }
+        canvas.save();
+        canvas.clipRect(photoImage.getImageX(), photoImage.getImageY(), photoImage.getImageX2(), photoImage.getImageY2());
+        radialProgress.iconScale = 1f;
+        radialProgress.draw(canvas);
+        canvas.restore();
+    }
+
+    private static final class PrimeProgressLayer extends View {
+        private final ChatMessageCell cell;
+
+        PrimeProgressLayer(Context context, ChatMessageCell cell) {
+            super(context);
+            this.cell = cell;
+            setWillNotDraw(false);
+            setClickable(false);
+            setFocusable(false);
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+
+        void invalidateSelf() {
+            super.invalidate();
+        }
+
+        // Everything that used to invalidate the cell for the circle's sake lands here. When the
+        // circle is drawn by the cell (special cases), the cell must still redraw.
+        @Override
+        public void invalidate() {
+            if (cell.primeProgressOnLayer) {
+                super.invalidate();
+            } else {
+                cell.invalidate();
+            }
+        }
+
+        @Override
+        public void invalidate(int l, int t, int r, int b) {
+            invalidate();
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+            return false;
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            cell.primeDrawProgressOnLayer(canvas);
+        }
+    }
+
     private Paint clipPaint;
     protected float radialProgressAlpha = 1f;
     protected void drawRadialProgress(Canvas canvas) {
+        primeProgressRequested = true;
+        final boolean onLayer = primeProgressOnLayerEligible();
+        if (onLayer != primeProgressOnLayer) {
+            primeProgressOnLayer = onLayer;
+            primeProgressLayer.invalidateSelf();
+        }
+        if (onLayer) {
+            // Drawn by primeProgressLayer instead, so its animation frames stop redrawing this
+            // cell - and, for an album, the whole chat list that draws the group's overlays.
+            return;
+        }
         final boolean withPeriod = currentMessageObject.isRoundOnce();
         if (withPeriod) {
             AndroidUtilities.rectTmp.set(radialProgress.getProgressRect());

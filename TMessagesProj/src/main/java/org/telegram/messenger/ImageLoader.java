@@ -2139,7 +2139,10 @@ public class ImageLoader {
         // metadata and rebuilds it from scratch, synchronously. Giving a roomy device more of its
         // own memory turns that cycle into a cache hit. The floor is the stock value, so nothing
         // small gets worse.
-        final int lottieCacheSize = Math.max(512 * 512 * 2 * 4 * 5, Math.min(64, memoryClass / 5) * 1024 * 1024);
+        // On a phone under 3 GB of RAM the same headroom is memory the system reclaims by killing
+        // the app, so the ceiling there is lower.
+        final int lottieCeilingMb = SharedConfig.getDevicePerformanceClass() == SharedConfig.PERFORMANCE_CLASS_HIGH && !primeLowRam() ? 64 : 24;
+        final int lottieCacheSize = Math.max(512 * 512 * 2 * 4 * 5, Math.min(lottieCeilingMb, memoryClass / 5) * 1024 * 1024);
         lottieMemCache = new LruCache<BitmapDrawable>(DEBUG_MODE ? 1 : lottieCacheSize) {
 
             @Override
@@ -2784,6 +2787,41 @@ public class ImageLoader {
             return getFromLottieCache(key) != null;
         } else {
             return getFromMemCache(key) != null;
+        }
+    }
+
+    /**
+     * PrimeGram: gives memory back when the system asks. Stock Telegram only reacts to
+     * onLowMemory, which is sent at the very end; on a 2 GB phone the process is usually killed
+     * before that, and every cache is lost anyway along with the chats list. Trimming earlier keeps
+     * the process alive, so reopening the app shows what was there instead of loading it again.
+     * Bitmaps still shown on screen are not freed: entryRemoved() only recycles unused ones.
+     */
+    /** PrimeGram: under 3 GB of RAM or flagged low-RAM by the system. */
+    static boolean primeLowRam() {
+        try {
+            final ActivityManager am = (ActivityManager) ApplicationLoader.applicationContext.getSystemService(Context.ACTIVITY_SERVICE);
+            final ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(info);
+            return am.isLowRamDevice() || info.totalMem < 3L * 1024 * 1024 * 1024;
+        } catch (Throwable ignore) {
+            return false;
+        }
+    }
+
+    public void onTrimMemory(int level) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            clearMemory();
+            inu_strippedCache.evictAll();
+        } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            // Nothing is on screen: animations are the cheapest to rebuild, photos keep half.
+            lottieMemCache.evictAll();
+            memCache.trimTo(memCache.maxSize() / 2);
+            inu_strippedCache.evictAll();
+        } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            // Still in front of the user, but the system is short: keep what a scroll needs.
+            lottieMemCache.trimTo(lottieMemCache.maxSize() / 4);
+            memCache.trimTo(memCache.maxSize() / 2);
         }
     }
 

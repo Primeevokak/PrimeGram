@@ -291,6 +291,22 @@ public class MessagesStorage extends BaseController {
     /** PrimeGram: memory-mapped reads only in a 64-bit process. A 32-bit one has ~3 GB of address
      *  space in total, and mapping several accounts' multi-gigabyte cache4.db files takes it from
      *  bitmaps, video and native libraries - an out-of-memory crash rather than a speed-up. */
+    /** PrimeGram: SQLite page cache per account, negative = KiB. 20 MB each is right on a roomy
+     *  phone, but on a 2 GB one several accounts' worth is memory the system then takes back by
+     *  killing the app. Low-RAM devices get 4 MB, which still holds a chat's hot pages. */
+    private static int primeCacheSizePragma() {
+        try {
+            final android.app.ActivityManager am = (android.app.ActivityManager) ApplicationLoader.applicationContext.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            final android.app.ActivityManager.MemoryInfo info = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(info);
+            if (am.isLowRamDevice() || info.totalMem < 3L * 1024 * 1024 * 1024) {
+                return -4000;
+            }
+        } catch (Throwable ignore) {
+        }
+        return -20000;
+    }
+
     private static boolean primeUseMmap() {
         return android.os.Build.VERSION.SDK_INT >= 23 && android.os.Process.is64Bit();
     }
@@ -393,7 +409,7 @@ public class MessagesStorage extends BaseController {
             // PrimeGram: a bigger page cache + memory-mapped reads meaningfully help the
             // cold-start dialog query, which hits a page cache that's cold right after
             // install/update - see the "Cold Start Optimization" plan's Part 2.
-            database.executeFast("PRAGMA cache_size = -20000").stepThis().dispose();
+            database.executeFast("PRAGMA cache_size = " + primeCacheSizePragma()).stepThis().dispose();
             if (primeUseMmap()) database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
 
             if (createTable) {
@@ -514,7 +530,7 @@ public class MessagesStorage extends BaseController {
                 database.executeFast("PRAGMA journal_mode = WAL").stepThis().dispose();
                 database.executeFast("PRAGMA synchronous = NORMAL").stepThis().dispose();
                 database.executeFast("PRAGMA journal_size_limit = 10485760").stepThis().dispose();
-                database.executeFast("PRAGMA cache_size = -20000").stepThis().dispose();
+                database.executeFast("PRAGMA cache_size = " + primeCacheSizePragma()).stepThis().dispose();
                 if (primeUseMmap()) database.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
             } catch (SQLiteException e) {
                 FileLog.e(new Exception(e));

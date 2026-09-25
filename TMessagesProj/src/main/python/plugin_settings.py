@@ -72,3 +72,23 @@ def set_all_settings(plugin_id, settings):
 def forget(plugin_id):
     """Drops the cache without touching storage - used when a plugin is unloaded."""
     _cache.pop(plugin_id, None)
+
+
+def remove_setting(plugin_id, key):
+    """Deletes one key; returns the value it had, or None."""
+    value = _settings(plugin_id).pop(key, None)
+    _flush(plugin_id)
+    return value
+
+
+def get_settings(plugin_id):
+    """Same as get_all_settings - both names are used by plugins in the wild."""
+    return get_all_settings(plugin_id)
+
+
+def invalidate(plugin_id=None):
+    """Forgets cached values so the next read comes from storage (all plugins when no id)."""
+    if plugin_id is None:
+        _cache.clear()
+    else:
+        _cache.pop(plugin_id, None)

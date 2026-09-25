@@ -217,6 +217,30 @@ public final class PrimePluginInstallDialog {
                 root.addView(requirements, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 21, 10, 21, 0));
             }
 
+            if (compatible) {
+                // Filled in once the scan finishes; a 4 MB plugin is too much regex for the UI
+                // thread, and the sheet is useful before the answer arrives.
+                final TextView capabilitiesView = new TextView(context);
+                capabilitiesView.setGravity(Gravity.LEFT);
+                capabilitiesView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+                capabilitiesView.setLineSpacing(AndroidUtilities.dp(2), 1f);
+                capabilitiesView.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlackText));
+                capabilitiesView.setVisibility(View.GONE);
+                root.addView(capabilitiesView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 21, 16, 21, 0));
+                org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> {
+                    final org.telegram.messenger.plugins.PrimePluginCapabilities scan =
+                            org.telegram.messenger.plugins.PrimePluginCapabilities.scan(file);
+                    final CharSequence text = describeCapabilities(scan);
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (text == null) {
+                            return;
+                        }
+                        capabilitiesView.setText(text);
+                        capabilitiesView.setVisibility(View.VISIBLE);
+                    });
+                });
+            }
+
             final TextView warning = new TextView(context);
             warning.setGravity(Gravity.LEFT);
             warning.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
@@ -241,6 +265,34 @@ public final class PrimePluginInstallDialog {
             final ScrollView scrollView = new ScrollView(context);
             scrollView.addView(frame);
             setCustomView(scrollView);
+        }
+
+        /** "What this plugin can do" as the sheet shows it: capabilities as a list, then a red
+         *  block if the code looks deliberately hidden. Null when there was nothing to read. */
+        private CharSequence describeCapabilities(org.telegram.messenger.plugins.PrimePluginCapabilities scan) {
+            if (!scan.scanned) {
+                return null;
+            }
+            final android.text.SpannableStringBuilder out = new android.text.SpannableStringBuilder();
+            final int headerStart = out.length();
+            out.append(scan.capabilities.isEmpty()
+                    ? "Судя по коду, плагин не обращается к сети, файлам, сообщениям и аккаунту."
+                    : "Судя по коду, плагин может:");
+            out.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), headerStart, out.length(), 0);
+            for (org.telegram.messenger.plugins.PrimePluginCapabilities.Capability capability : scan.capabilities) {
+                out.append("\n•  ").append(capability.title);
+            }
+            if (!scan.obfuscation.isEmpty()) {
+                out.append("\n\n");
+                final int redStart = out.length();
+                out.append("Код плагина скрыт от проверки:");
+                for (String reason : scan.obfuscation) {
+                    out.append("\n•  ").append(reason);
+                }
+                out.append("\nЧто он делает на самом деле, по тексту узнать нельзя. Устанавливайте, только если доверяете автору.");
+                out.setSpan(new android.text.style.ForegroundColorSpan(getThemedColor(Theme.key_text_RedRegular)), redStart, out.length(), 0);
+            }
+            return out;
         }
 
         private void onButtonClick() {
