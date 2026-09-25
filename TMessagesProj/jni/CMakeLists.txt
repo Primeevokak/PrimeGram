@@ -200,7 +200,6 @@ add_library(tgnet STATIC
         tgnet/MTProtoScheme.cpp
         tgnet/NativeByteBuffer.cpp
         tgnet/Request.cpp
-        tgnet/ThreadPool.cpp
         tgnet/Timer.cpp
         tgnet/TLObject.cpp
         tgnet/ProxyCheckInfo.cpp

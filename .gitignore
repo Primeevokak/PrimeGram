@@ -19,12 +19,6 @@ TMessagesProj_AppHuawei/afat/
 *.apk
 *.log
 
-# PrimeGram: throwaway scratch project for iterating on a Flutter screen's design via
-# `flutter run` (hot reload, desktop/Chrome targets) without the heavy Android/Gradle
-# build - never meant to be committed, unlike prime_flutter_module (the real add-to-app
-# integration).
-/flutter_scratch/
-
 # Python bytecode from the plugin SDK: written next to the sources whenever anything imports
 # them, and nothing in the build reads it — Chaquopy compiles its own copy into the APK.
 __pycache__/

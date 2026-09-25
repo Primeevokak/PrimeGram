@@ -17,16 +17,3 @@ buildscript {
 repositories {
     google()
 }
-
-// PrimeGram: every existing module already declares its own repositories block, but the
-// dynamically-included ':flutter' project (settings.gradle's include_flutter.groovy) is a
-// generated file we don't hand-edit and ships with none of its own - without this, its
-// classpath (androidx.lifecycle/fragment/core/etc., transitive deps of
-// io.flutter:flutter_embedding_release) fails to resolve. allprojects here reaches it the
-// same way it would any other subproject that forgot its own repositories block.
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}

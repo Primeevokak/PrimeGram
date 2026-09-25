@@ -722,7 +722,10 @@ public class ConnectionsManager extends BaseController {
         String proxySecret = preferences.getString("proxy_secret", "");
         int proxyPort = preferences.getInt("proxy_port", 1080);
 
-        if (preferences.getBoolean("proxy_enabled", false) && !TextUtils.isEmpty(proxyAddress)) {
+        final Object[] runtimeProxy = lastProxySettings;
+        if (runtimeProxy != null) {
+            applyProxySettings(currentAccount, runtimeProxy);
+        } else if (preferences.getBoolean("proxy_enabled", false) && !TextUtils.isEmpty(proxyAddress)) {
             native_setProxySettings(currentAccount, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
         }
         String installer = "";
@@ -759,7 +762,9 @@ public class ConnectionsManager extends BaseController {
     public static void setLangCode(String langCode) {
         langCode = langCode.replace('_', '-').toLowerCase();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            native_setLangCode(a, langCode);
+            if (Instance[a] != null) {
+                native_setLangCode(a, langCode);
+            }
         }
     }
 
@@ -776,14 +781,18 @@ public class ConnectionsManager extends BaseController {
             pushString = SharedConfig.pushStringStatus = "__" + tag + "_GENERATING_SINCE_" + getInstance(0).getCurrentTime() + "__";
         }
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            native_setRegId(a, pushString);
+            if (Instance[a] != null) {
+                native_setRegId(a, pushString);
+            }
         }
     }
 
     public static void setSystemLangCode(String langCode) {
         langCode = langCode.replace('_', '-').toLowerCase();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            native_setSystemLangCode(a, langCode);
+            if (Instance[a] != null) {
+                native_setSystemLangCode(a, langCode);
+            }
         }
     }
 
@@ -1051,6 +1060,14 @@ public class ConnectionsManager extends BaseController {
         KeepAliveJob.startJob();
     }
 
+    // PrimeGram: last proxy passed to setProxySettings(), or null if it was never called this
+    // process. Accounts are initialised lazily, so a slot can come up after the proxy was set.
+    private static volatile Object[] lastProxySettings;
+
+    private static void applyProxySettings(int account, Object[] p) {
+        native_setProxySettings(account, (String) p[0], (Integer) p[1], (String) p[2], (String) p[3], (String) p[4]);
+    }
+
     public static void setProxySettings(boolean enabled, String address, int port, String username, String password, String secret) {
         if (address == null) {
             address = "";
@@ -1065,15 +1082,23 @@ public class ConnectionsManager extends BaseController {
             secret = "";
         }
 
-        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            if (enabled && !TextUtils.isEmpty(address)) {
-                native_setProxySettings(a, address, port, username, password, secret);
-            } else {
-                native_setProxySettings(a, "", 1080, "", "", "");
+        final Object[] settings = enabled && !TextUtils.isEmpty(address)
+                ? new Object[]{address, port, username, password, secret}
+                : new Object[]{"", 1080, "", "", ""};
+        // Same lock getInstance() constructs under: a slot is either already built (and gets the
+        // settings here) or is built afterwards and reads lastProxySettings in its constructor.
+        // Slots that don't exist yet are skipped - calling into native would build their stack.
+        synchronized (ConnectionsManager.class) {
+            lastProxySettings = settings;
+            for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                if (Instance[a] != null) {
+                    applyProxySettings(a, settings);
+                }
             }
-            AccountInstance accountInstance = AccountInstance.getInstance(a);
-            if (accountInstance.getUserConfig().isClientActivated()) {
-                accountInstance.getMessagesController().checkPromoInfo(true);
+        }
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            if (UserConfig.getInstance(a).isClientActivated()) {
+                AccountInstance.getInstance(a).getMessagesController().checkPromoInfo(true);
             }
         }
     }

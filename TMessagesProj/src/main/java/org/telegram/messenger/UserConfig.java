@@ -399,24 +399,12 @@ public class UserConfig extends BaseController {
                 }
             }
             if (currentUser != null) {
-                java.io.File filesDir = ApplicationLoader.getFilesDirFixed();
-                if (currentAccount != 0) {
-                    filesDir = new java.io.File(filesDir, "account" + currentAccount + "/");
-                }
-                java.io.File cacheFile = new java.io.File(filesDir, "cache4.db");
-                // Проверяем, был ли XML-файл настроек восстановлен из резервной копии (или уже существовал до этой сессии).
-                // Если файла cache4.db нет, но у нас есть данные пользователя в префах, это баг автобэкапа ТОЛЬКО если
-                // префы были созданы в прошлых запусках, а не прямо сейчас при авторизации.
-                boolean isCleanInstall = !preferences.contains("loginTime");
-                if (!cacheFile.exists() && !isCleanInstall) {
-                    FileLog.d("Google Auto-Backup corrupted restore detected! currentUser is not null, but cache4.db does not exist. Clearing config for account " + currentAccount);
-                    currentUser = null;
-                    clientUserId = 0;
-                    clearConfig();
-                } else {
-                    checkPremiumSelf(null, currentUser);
-                    clientUserId = currentUser.id;
-                }
+                // PrimeGram: a check used to sit here that wiped the account whenever cache4.db was
+                // missing, meant for Google Auto-Backup restores. allowBackup is false, so it never
+                // fired for that - but Telegram itself deletes and recreates cache4.db (corruption
+                // recovery, "clear local database"), and each of those silently logged the user out.
+                checkPremiumSelf(null, currentUser);
+                clientUserId = currentUser.id;
             }
             configLoaded = true;
         }

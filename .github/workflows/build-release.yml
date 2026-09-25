@@ -44,29 +44,6 @@ jobs:
           # TMessagesProj_AppStandalone/build.gradle) so zipalign's format matches what AGP itself uses.
           ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --install "build-tools;35.0.0"
 
-      # PrimeGram: the embedded Flutter engine (prime_flutter_module/, org.telegram.ui.
-      # PrimeFlutterActivity). Pinned to the exact version development builds against, not
-      # "stable" - the release-mode Dart AOT snapshot (libapp.so) and the engine .so
-      # (libflutter.so) have to come from the same Flutter build, and letting the channel
-      # drift on CI is exactly the kind of thing that silently reproduces the "engine loads,
-      # no compiled Dart code to run" crash this fork already hit once locally.
-      #
-      # `flutter pub get` here is not optional bookkeeping: settings.gradle's
-      # include_flutter.groovy evaluates prime_flutter_module/.android/include_flutter.groovy,
-      # and that whole .android/ directory is gitignored (regenerated, not committed) - on a
-      # fresh checkout it does not exist yet, and Gradle configuration fails immediately,
-      # for every build on this workflow, not just ones touching Flutter code.
-      - name: Set up Flutter SDK
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.41.8'
-          channel: 'stable'
-          cache: true
-
-      - name: Bootstrap the Flutter module (regenerates the gitignored .android/ shadow project)
-        run: flutter pub get
-        working-directory: prime_flutter_module
-
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
 

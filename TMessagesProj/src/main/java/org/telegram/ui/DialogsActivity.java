@@ -7587,21 +7587,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             AndroidUtilities.runOnUIThread(this::showPrimePromoDialog, 3 * 60 * 1000L);
         }
 
-        // PrimeGram: pre-warm the embedded Flutter engine here rather than at app startup
-        // (see PrimeFlutterEngineHolder's own doc comment) - well past the cold-start-critical
-        // path, but early enough that the settings row opening it doesn't stall on first tap.
-        // warmUp() is idempotent, so this firing on every resume of the chats list is fine.
-        // Re-added after the earlier crash traced back to a missing libapp.so (AOT-compiled
-        // Dart code) never reaching the packaged APK - a genuine packaging bug, fixed in
-        // TMessagesProj_AppStandalone/build.gradle's extractFlutterNativeLibs task - not
-        // anything about warming the engine early, which was reverted at the time only
-        // because it was the most recent change and the actual cause wasn't yet known.
-        AndroidUtilities.runOnUIThread(() -> {
-            Context ctx = getContext();
-            if (ctx != null) {
-                org.telegram.messenger.PrimeFlutterEngineHolder.warmUp(ctx);
-            }
-        }, 4000);
         if (dialogStoriesCell != null) {
             dialogStoriesCell.onResume();
         }

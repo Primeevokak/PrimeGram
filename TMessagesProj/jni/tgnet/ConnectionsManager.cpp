@@ -33,9 +33,6 @@
 #include "Config.h"
 #include "ProxyCheckInfo.h"
 #include "Handshake.h"
-#include "ThreadPool.h"
-
-static ThreadPool threadPool(4);
 
 #ifdef ANDROID
 #include <jni.h>
@@ -488,6 +485,12 @@ void ConnectionsManager::saveConfigInternal(NativeByteBuffer *buffer) {
 }
 
 void ConnectionsManager::saveConfig() {
+    // PrimeGram: accounts are initialised lazily, so setters can reach a slot before init() gave it
+    // a config path. Creating Config here would cache a relative "tgnet.dat" and init() would then
+    // load the account from that instead of its real file, starting it with no auth keys.
+    if (currentConfigPath.empty()) {
+        return;
+    }
     if (config == nullptr) {
         config = new Config(instanceNum, "tgnet.dat");
     }
@@ -944,103 +947,75 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
                 length -= padding;
             }
         }
-        if (length < 24 + 32 || (!connection->allowsCustomPadding() && (length - 24) % 16 != 0)) {
-            if (LOGS_ENABLED) DEBUG_E("connection(%p) error padding", connection);
+        if (length < 24 + 32 || (!connection->allowsCustomPadding() && (length - 24) % 16 != 0) || !datacenter->decryptServerResponse(keyId, data->bytes() + mark + 8, data->bytes() + mark + 24, length - 24, connection)) {
+            if (LOGS_ENABLED) DEBUG_E("connection(%p) unable to decrypt server response", connection);
             connection->reconnect();
             return;
         }
+        data->position(mark + 24);
 
-        NativeByteBuffer *packetData = BuffersStorage::getInstance().getFreeBuffer(length);
-        packetData->writeBytes(data->bytes() + mark, length);
-        packetData->rewind();
+        int64_t messageServerSalt = data->readInt64(&error);
+        int64_t messageSessionId = data->readInt64(&error);
 
-        int32_t instanceNum = this->instanceNum;
+        if (messageSessionId != connection->getSessionId()) {
+            if (LOGS_ENABLED) DEBUG_E("connection(%p) received invalid message session id (0x%" PRIx64 " instead of 0x%" PRIx64 ")", connection, (uint64_t) messageSessionId, (uint64_t) connection->getSessionId());
+            return;
+        }
 
-        threadPool.enqueue([this, connection, datacenter, keyId, length, packetData, instanceNum]() {
-            if (!datacenter->decryptServerResponse(keyId, packetData->bytes() + 8, packetData->bytes() + 24, length - 24, connection)) {
-                ConnectionsManager::getInstance(instanceNum).scheduleTask([connection, packetData]() {
-                    if (LOGS_ENABLED) DEBUG_E("connection(%p) unable to decrypt server response", connection);
+        int64_t messageId = data->readInt64(&error);
+        int32_t messageSeqNo = data->readInt32(&error);
+        uint32_t messageLength = data->readUint32(&error);
+
+        int32_t processedStatus = connection->isMessageIdProcessed(messageId);
+
+        if (messageSeqNo % 2 != 0) {
+            connection->addMessageToConfirm(messageId);
+        }
+
+        TLObject *object = nullptr;
+
+        long req_msg_id = 0;
+        if (processedStatus != 1) {
+            deserializingDatacenter = datacenter;
+            object = TLdeserialize(nullptr, messageLength, data);
+            TL_rpc_result* res = dynamic_cast<TL_rpc_result*>(object);
+            if (res != nullptr) {
+                req_msg_id = res->req_msg_id;
+            }
+            if (processedStatus == 2) {
+                if (object == nullptr) {
+                    connection->recreateSession();
                     connection->reconnect();
-                    packetData->reuse();
-                });
-                return;
-            }
-
-            packetData->position(24);
-
-            bool error = false;
-            int64_t messageServerSalt = packetData->readInt64(&error);
-            int64_t messageSessionId = packetData->readInt64(&error);
-
-            if (messageSessionId != connection->getSessionId()) {
-                ConnectionsManager::getInstance(instanceNum).scheduleTask([connection, packetData, messageSessionId]() {
-                    if (LOGS_ENABLED) DEBUG_E("connection(%p) received invalid message session id 0x%" PRIx64 ", expected 0x%" PRIx64, connection, messageSessionId, connection->getSessionId());
-                    packetData->reuse();
-                });
-                return;
-            }
-
-            int64_t messageId = packetData->readInt64(&error);
-            int32_t messageSeqNo = packetData->readInt32(&error);
-            uint32_t messageLength = packetData->readUint32(&error);
-
-            ConnectionsManager::getInstance(instanceNum).deserializingDatacenter = datacenter;
-            TLObject *object = ConnectionsManager::getInstance(instanceNum).TLdeserialize(nullptr, messageLength, packetData);
-
-            ConnectionsManager::getInstance(instanceNum).scheduleTask([this, connection, datacenter, instanceNum, packetData, object, messageId, messageSeqNo, messageServerSalt]() mutable {
-                int32_t processedStatus = connection->isMessageIdProcessed(messageId);
-
-                if (messageSeqNo % 2 != 0) {
-                    connection->addMessageToConfirm(messageId);
-                }
-
-                long req_msg_id = 0;
-                if (processedStatus != 1) {
-                    TL_rpc_result* res = dynamic_cast<TL_rpc_result*>(object);
-                    if (res != nullptr) {
-                        req_msg_id = res->req_msg_id;
-                    }
-                    if (processedStatus == 2) {
-                        if (object == nullptr) {
-                            connection->recreateSession();
-                            connection->reconnect();
-                            packetData->reuse();
-                            return;
-                        } else {
-                            delete object;
-                            object = nullptr;
-                        }
-                    }
-                }
-
-                if (!processedStatus) {
-                    if (object != nullptr) {
-                        lastProtocolUsefullData = true;
-                        connection->setHasUsefullData();
-                        if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) received object %s", connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), typeid(*object).name());
-                        processServerResponse(object, messageId, messageSeqNo, messageServerSalt, connection, 0, 0);
-                        connection->addProcessedMessageId(messageId);
-                        delete object;
-                        if (connection->getConnectionType() == ConnectionTypePush) {
-                            std::vector<std::unique_ptr<NetworkMessage>> messages;
-                            sendMessagesToConnectionWithConfirmation(messages, connection, false);
-                        }
-                    } else {
-                        if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) received unparsed packet on 0x%" PRIx64, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), req_msg_id);
-                        if (delegate != nullptr) {
-                            delegate->onUnparsedMessageReceived(messageId, packetData, connection->getConnectionType(), instanceNum);
-                        }
-                    }
+                    return;
                 } else {
-                    if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) received unprocessed packet on 0x%" PRIx64, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), req_msg_id);
+                    delete object;
+                    object = nullptr;
+                }
+            }
+        }
+        if (!processedStatus) {
+            if (object != nullptr) {
+                lastProtocolUsefullData = true;
+                connection->setHasUsefullData();
+                if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) received object %s", connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), typeid(*object).name());
+                processServerResponse(object, messageId, messageSeqNo, messageServerSalt, connection, 0, 0);
+                connection->addProcessedMessageId(messageId);
+                delete object;
+                if (connection->getConnectionType() == ConnectionTypePush) {
                     std::vector<std::unique_ptr<NetworkMessage>> messages;
                     sendMessagesToConnectionWithConfirmation(messages, connection, false);
                 }
-                packetData->reuse();
-            });
-        });
-
-        data->position(mark + length);
+            } else {
+                if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) received unparsed packet on 0x%" PRIx64, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), req_msg_id);
+                if (delegate != nullptr) {
+                    delegate->onUnparsedMessageReceived(messageId, data, connection->getConnectionType(), instanceNum);
+                }
+            }
+        } else {
+            if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) received unprocessed packet on 0x%" PRIx64, connection, instanceNum, datacenter->getDatacenterId(), connection->getConnectionType(), req_msg_id);
+            std::vector<std::unique_ptr<NetworkMessage>> messages;
+            sendMessagesToConnectionWithConfirmation(messages, connection, false);
+        }
     }
 }
 
@@ -3720,6 +3695,11 @@ void ConnectionsManager::init(uint32_t version, int32_t layer, int32_t apiId, st
 
     if (!currentConfigPath.empty() && currentConfigPath.find_last_of('/') != currentConfigPath.size() - 1) {
         currentConfigPath += "/";
+    }
+
+    if (config != nullptr) {
+        delete config;
+        config = nullptr;
     }
 
     if (!logPath.empty()) {

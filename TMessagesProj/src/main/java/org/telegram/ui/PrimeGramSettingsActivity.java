@@ -166,8 +166,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_DOUBLE_TAP_REACTION = 101;
     private static final int ID_STICKER_SIZE_SLIDER = 102;
     private static final int ID_SIDEBAR_ZONE = 103;
-    /** Proof-of-life row for the embedded Flutter engine - opens PrimeFlutterActivity. */
-    private static final int ID_FLUTTER_DEMO = 174;
     private static final int ID_PLUGINS = 104;
     private static final int ID_BLOCKS = 119;
     private static final int ID_TGWS_SETTINGS = 105;
@@ -1312,10 +1310,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 row(button(ID_SIDEBAR_ZONE, IconBackgroundColors.BLUE_LIGHT, R.drawable.msg_select,
                         "Зона активации", org.telegram.messenger.PrimeSidebarZone.describe()));
             }
-            if (org.telegram.messenger.PrimeFlutterSupport.isSupported()) {
-                row(button(ID_FLUTTER_DEMO, IconBackgroundColors.PURPLE, R.drawable.msg_calls,
-                        "Flutter-экран (демо)", "Проверка встроенного движка"));
-            }
             endCard(items);
             items.add(UItem.asShadow("Вертикальная панель на главном экране: переключение аккаунтов, кошелёк, прокси и настройки в одно движение от края экрана.\n\nЗона активации — часть экрана, где панель отзывается на свайп. По умолчанию это вся левая треть, и она спорит с листанием вкладок; её можно сузить и сдвинуть туда, куда дотягивается палец."));
 
@@ -2325,10 +2319,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
         } else if (item.id == ID_SIDEBAR_ZONE) {
             showSidebarZoneSheet();
-        } else if (item.id == ID_FLUTTER_DEMO) {
-            if (getContext() != null) {
-                getContext().startActivity(org.telegram.ui.PrimeFlutterActivity.createIntent(getContext()));
-            }
         } else if (item.id == ID_EMERGENCY_PROXY) {
             if (VpnSDK.isProxyRunning()) {
                 VpnSDK.stopProxy();

@@ -24,19 +24,6 @@ dependencies {
     implementation 'androidx.core:core:1.16.0'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     implementation files('../TMessagesProj/libs/libgsaverification-client.aar')
-
-    // PrimeGram: the Flutter Gradle plugin's own libapp.so packaging (a custom Jar task's
-    // output added as an "api" dependency on the :flutter project itself - see
-    // FlutterPluginUtils.addApiDependencies in the Flutter SDK) was not propagating through
-    // TMessagesProj (a library module) to reach this module's final APK - confirmed missing
-    // via `unzip -l` even after a fully clean rebuild, while TMessagesProj/build.gradle's own
-    // ':flutter' dependency (needed there for PrimeFlutterActivity/PrimeFlutterEngineHolder's
-    // Java compile-time access to io.flutter.* classes) resolves fine on the compile
-    // classpath. Depending on it directly here too - the actual APK-producing module, and
-    // the one gradle.properties' flutter.hostAppProjectName names - is the standard,
-    // best-tested add-to-app setup (app module depends on :flutter directly); TMessagesProj's
-    // own dependency stays for the Java compile-time need.
-    implementation project(':flutter')
 }
 
 android {
@@ -48,20 +35,6 @@ android {
     // srcDir(), not "srcDirs = [...]" - the assignment form replaces the whole source-dir
     // list rather than adding to it.
     sourceSets.main.jniLibs.srcDir('../TMessagesProj/jni/')
-
-    // PrimeGram: libapp.so - the AOT-compiled Dart code for PrimeFlutterActivity - was
-    // missing from the final APK (confirmed via `unzip -l`, reproduced after a fully clean
-    // rebuild, and with `implementation project(':flutter')` declared directly on this
-    // module). The Flutter Gradle plugin packages it into a plain libs.jar and adds that as
-    // an "api" dependency on the :flutter project itself (FlutterPluginUtils.
-    // addApiDependencies in the Flutter SDK) - AGP's native-lib merge is documented to scan
-    // AAR dependencies for embedded native libs, but a raw (non-AAR) jar reached via a
-    // same-project "api" config apparently isn't picked up the same way in this multi-module
-    // setup. Extracting it ourselves into a real jniLibs source directory - the exact
-    // mechanism the line above already uses successfully - sidesteps the question of why
-    // rather than chasing it further. AGP's jniLibs.srcDir convention is
-    // "<srcDir>/<abi>/*.so" (no "lib/" prefix), which is why the Sync task below strips it.
-    sourceSets.main.jniLibs.srcDir("$buildDir/flutterNativeLibs")
 
     lintOptions {
         disable 'MissingTranslation'
@@ -224,35 +197,5 @@ android {
 
 apply plugin: 'com.google.gms.google-services'
 
-// PrimeGram: see the doc comment on sourceSets.main.jniLibs.srcDir("$buildDir/
-// flutterNativeLibs") above - unpacks libapp.so (and its armeabi-v7a/x86_64 siblings) out of
-// the Flutter Gradle plugin's own libs.jar into the plain per-ABI directory layout AGP's
-// jniLibs source sets expect, since depending on ':flutter' directly wasn't enough to get
-// AGP's native-lib merge to pick it up on its own.
-//
-// Hardcoded to the "release" variant's libs.jar - this app currently only exercises that
-// build type for real testing (see the "standalone"/HA_* build types' own matchingFallbacks
-// in TMessagesProj/build.gradle, all pointed at :flutter's "release" too), and a debug build
-// picking up the release Dart AOT snapshot is a harmless, known tradeoff (no debug build of
-// the Flutter module is wired up at all yet) rather than a silent breakage.
-tasks.register('extractFlutterNativeLibs', Sync) {
-    def libsJar = file("$rootDir/prime_flutter_module/.android/Flutter/build/intermediates/flutter/release/libs.jar")
-    // packJniLibsflutterBuildRelease is registered dynamically inside :flutter's own
-    // android.libraryVariants.all { ... } callback and isn't reliably resolvable by name
-    // from here at configuration time - assembleRelease is a standard AGP lifecycle task
-    // that's always present and transitively depends on it (it's an api dependency of the
-    // release variant), so depending on that instead sidesteps the ordering problem.
-    dependsOn ':flutter:assembleRelease'
-    from({ zipTree(libsJar) }) {
-        include 'lib/**/*.so'
-        eachFile { details ->
-            // "lib/arm64-v8a/libapp.so" -> "arm64-v8a/libapp.so"
-            details.path = details.path.replaceFirst('^lib/', '')
-        }
-        includeEmptyDirs = false
-    }
-    into "$buildDir/flutterNativeLibs"
-}
-tasks.named('preBuild').configure { dependsOn 'extractFlutterNativeLibs' }
 
 

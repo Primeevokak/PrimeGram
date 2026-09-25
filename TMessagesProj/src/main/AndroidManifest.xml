@@ -139,13 +139,6 @@
     >
         <!-- usesCleartextTraffic for browser supporting opening http:// links -->
 
-        <!-- PrimeGram: required once, app-wide, by the embedded Flutter engine
-             (org.telegram.ui.PrimeFlutterActivity) - selects Flutter's current (v2)
-             Android embedding API. -->
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
-
         <activity-alias
             android:enabled="true"
             android:name="org.telegram.messenger.DefaultIcon"
@@ -432,12 +425,6 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode|smallestScreenSize|screenLayout"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
-            android:exported="false"/>
-        <activity
-            android:name="org.telegram.ui.PrimeFlutterActivity"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
 
         <receiver
