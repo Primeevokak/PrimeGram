@@ -657,7 +657,9 @@ public class TopicsController extends BaseController {
                 countsTmp[0] += topic.unread_count > 0 ? 1 : 0;
                 countsTmp[1] += topic.unread_mentions_count > 0 ? 1 : 0;
                 countsTmp[2] += topic.unread_reactions_count > 0 ? 1 : 0;
-                if (!getMessagesController().isDialogMuted(-chatId, topic.id)) {
+                // PrimeGram: a topic with nothing unread adds 0 either way; skip the mute lookup
+                // (a SharedPreferences read per topic) that dominated this on large forums.
+                if (topic.unread_count > 0 && !getMessagesController().isDialogMuted(-chatId, topic.id)) {
                     countsTmp[3] += topic.unread_count;
                 }
                 countsTmp[4] += topic.unread_poll_votes_count;

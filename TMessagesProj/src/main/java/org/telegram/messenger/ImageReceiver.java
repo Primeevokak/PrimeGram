@@ -1761,6 +1761,9 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
                         } else {
                             drawable.draw(canvas);
                         }
+                    } else if (svgDrawable != null && primeShimmerFrameTrigger != null
+                            && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && canvas.isHardwareAccelerated()) {
+                        primeDrawSvgThroughNode(canvas, drawable);
                     } else {
                         drawable.draw(canvas);
                     }
@@ -2318,6 +2321,92 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
     }
 
     public final Runnable invalidateRunnable = this::invalidate;
+    // ---- PrimeGram: the loading shimmer on its own RenderNode ----
+    //
+    // An SvgDrawable placeholder shimmers by moving its gradient every frame and invalidating this
+    // receiver - which invalidates the whole parent view. In a chat that parent is the message
+    // cell, so every frame a sticker or photo is still loading re-recorded the entire message
+    // (text, reactions, bubble) just to slide one gradient: the measured single biggest source of
+    // redraws while scrolling through unloaded media. When the parent supplies a cheap view to
+    // schedule frames with (primeShimmerFrameTrigger), the placeholder is recorded into its own
+    // RenderNode instead; a shimmer tick re-records only that node, and the parent's display list,
+    // which merely references the node, stays valid. Hardware canvases on API 29+ only - anything
+    // else draws exactly as before.
+    public Runnable primeShimmerFrameTrigger;
+    private android.graphics.RenderNode primeSvgNode;
+    private Drawable primeSvgNodeDrawable;
+    private boolean primeSvgRefreshPosted;
+    private final Runnable primeSvgRefresh = this::primeRefreshSvgNode;
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
+    private void primeDrawSvgThroughNode(Canvas canvas, Drawable drawable) {
+        if (primeSvgNode == null) {
+            primeSvgNode = new android.graphics.RenderNode("primeSvgThumb");
+            primeSvgNode.setClipToBounds(false);
+        }
+        primeSvgNodeDrawable = drawable;
+        primeRecordSvgNode(drawable);
+        canvas.drawRenderNode(primeSvgNode);
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
+    private void primeRecordSvgNode(Drawable drawable) {
+        final Rect bounds = drawable.getBounds();
+        primeSvgNode.setPosition(0, 0, Math.max(1, bounds.right), Math.max(1, bounds.bottom));
+        final Canvas recording = primeSvgNode.beginRecording();
+        try {
+            drawable.draw(recording);
+        } finally {
+            primeSvgNode.endRecording();
+        }
+    }
+
+    /** What an SvgDrawable's shimmer calls instead of {@link #invalidate()}. */
+    public void primeInvalidateShimmer() {
+        if (primeSvgNodeDrawable == null || primeShimmerFrameTrigger == null || parentView == null) {
+            invalidate();
+            return;
+        }
+        if (!primeSvgRefreshPosted) {
+            primeSvgRefreshPosted = true;
+            parentView.postOnAnimation(primeSvgRefresh);
+        }
+    }
+
+    private void primeRefreshSvgNode() {
+        primeSvgRefreshPosted = false;
+        final Drawable drawable = primeSvgNodeDrawable;
+        final boolean stillShown = drawable != null && (drawable == currentThumbDrawable || drawable == staticThumbDrawable
+                || drawable == currentImageDrawable || drawable == currentMediaDrawable);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || primeSvgNode == null || !stillShown
+                || parentView == null || !parentView.isAttachedToWindow() || !isVisible) {
+            // Replaced by the real image, scrolled away or hidden: stop, and let one ordinary
+            // redraw put the parent's display list back in charge.
+            primeSvgNodeDrawable = null;
+            if (stillShown) {
+                invalidate();
+            }
+            return;
+        }
+        SvgHelper.SvgDrawable svg = null;
+        if (drawable instanceof SvgHelper.SvgDrawable) {
+            svg = (SvgHelper.SvgDrawable) drawable;
+        } else if (drawable instanceof ClipRoundedDrawable && ((ClipRoundedDrawable) drawable).getDrawable() instanceof SvgHelper.SvgDrawable) {
+            svg = (SvgHelper.SvgDrawable) ((ClipRoundedDrawable) drawable).getDrawable();
+        }
+        if (svg != null) {
+            svg.setParent(this);
+        }
+        try {
+            primeRecordSvgNode(drawable);
+        } finally {
+            if (svg != null) {
+                svg.setParent(null);
+            }
+        }
+        primeShimmerFrameTrigger.run();
+    }
+
     public void invalidate() {
         if (parentView == null) {
             return;

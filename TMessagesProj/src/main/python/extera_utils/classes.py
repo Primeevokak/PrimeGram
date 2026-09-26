@@ -133,6 +133,10 @@ def _resolve_java_type(type_string):
     """
     if type_string == "void":
         return None
+    if not isinstance(type_string, str):
+        # Plugins also pass the Java class itself (``@jconstructor([View])``). Chaquopy converts
+        # its class proxy to java.lang.Class at every Java call, so it is usable as it is.
+        return type_string
     from java import jclass
     wrapper = _PRIMITIVE_WRAPPERS.get(type_string)
     if wrapper is not None:
@@ -291,7 +295,7 @@ def _java_signature(java_name, arg_type_strings):
     actually arrives with."""
     parts = [java_name]
     for type_string in arg_type_strings:
-        parts.append(_resolve_java_type(type_string).getName())
+        parts.append(PrimeClassProxy.nameOf(_resolve_java_type(type_string)))
     return ":".join(parts)
 
 
@@ -352,6 +356,84 @@ def _collect_preconstructors(cls):
     return specs, preconstructors
 
 
+def _lenient_type_name(type_string):
+    """The JVM name of a type given the way plugin authors write them, or None if it cannot be
+    found. Nested classes are written with dots (``Theme.ResourcesProvider``) where the JVM wants
+    ``$`` (``Theme$ResourcesProvider``), so the trailing segments are retried as nested ones."""
+    if not isinstance(type_string, str):
+        return PrimeClassProxy.nameOf(type_string)
+    if type_string in _PRIMITIVE_WRAPPERS:
+        return type_string
+    from java import jclass
+    parts = type_string.split(".")
+    for nested in range(0, len(parts)):
+        candidate = ".".join(parts[:len(parts) - nested])
+        if nested:
+            candidate += "$" + "$".join(parts[len(parts) - nested:])
+        try:
+            return PrimeClassProxy.nameOf(jclass(candidate))
+        except Exception:
+            continue
+    return None
+
+
+def _positional_arity(fn):
+    """How many arguments after ``self`` ``fn`` accepts, or None if it takes ``*args``."""
+    import inspect
+    try:
+        params = list(inspect.signature(fn).parameters.values())[1:]
+    except (TypeError, ValueError):
+        return None
+    count = 0
+    for param in params:
+        if param.kind == param.VAR_POSITIONAL:
+            return None
+        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
+            count += 1
+    return count
+
+
+def _collect_constructors(cls, java_class):
+    """Every ``@jconstructor(...)``-tagged method in ``cls`` or a base of it, as a
+    ``{"<init>:...": (function, arity)}`` map ``_ConstructorHandler`` runs in place of ``__init__``
+    when the Java constructor with that signature is the one being called.
+
+    Matching is as forgiving as exteraGram's, because real plugins rely on it: a type that does not
+    resolve (a typo such as ``Theme.ResourceProvider``) acts as a wildcard, and the constructor is
+    taken if exactly one of the superclass's constructors fits the rest. The generated class mirrors
+    the superclass's constructors, so nothing else could ever be called - an ambiguous or impossible
+    declaration is reported here, at ``extends`` time, not on first instantiation."""
+    available = [sig.split(":") for sig in PrimeClassProxy.constructorSignatures(java_class)]
+    seen = set()
+    constructors = {}
+    for klass in cls.__mro__:
+        if klass is object or klass is Base:
+            continue
+        for name, value in vars(klass).items():
+            tag = getattr(value, "__jconstructor__", None)
+            if tag is None or name in seen:
+                continue
+            seen.add(name)
+            (arg_types,) = tag
+            if arg_types is None:
+                arg_types = _infer_arg_types(value)
+            wanted = [_lenient_type_name(t) for t in arg_types]
+            matches = [sig for sig in available if len(sig) == len(wanted) + 1
+                       and all(w is None or w == got for w, got in zip(wanted, sig[1:]))]
+            if len(matches) != 1:
+                # exteraGram skips a hook whose signature fits no constructor rather than failing
+                # the class, and plugins ship such hooks (usually debug leftovers) - so do we.
+                try:
+                    from android_utils import log
+                    log("@jconstructor %s on %s: %s matching constructor, hook skipped" % (
+                        list(arg_types), PrimeClassProxy.nameOf(java_class), "no" if not matches else "more than one"))
+                except Exception:
+                    pass
+                continue
+            constructors.setdefault(":".join(matches[0]), []).append((value, _positional_arity(value)))
+    return constructors
+
+
 class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
     """One of these per class ``extends`` builds. Chaquopy calls ``run`` for every constructor and
     every overridden method on every instance of that class; the signature's method name is enough
@@ -364,11 +446,12 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
     to a plain function instead, called as ``fn(python_class, args)``.
     """
 
-    def __init__(self, python_class, java_to_python=None, preconstructors=None):
+    def __init__(self, python_class, java_to_python=None, preconstructors=None, constructors=None):
         super().__init__()
         self._python_class = python_class
         self._java_to_python = java_to_python or {}
         self._preconstructors = preconstructors or {}
+        self._constructors = constructors or {}
 
     def run(self, instance, signature, args):
         call_args = list(args) if args is not None else []
@@ -387,8 +470,14 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
             peer = self._python_class.__new__(self._python_class)
             peer._prime_java = instance
             try:
+                # exteraGram's documented order: Java constructor -> __init__ -> @jconstructor
+                # hooks -> on_post_init. A hook adds to __init__, it does not replace it.
                 peer.on_pre_init(*call_args)
                 self._python_class.__init__(peer, *call_args)
+                for fn, arity in self._constructors.get(signature, ()):
+                    # A hook may declare fewer parameters than the constructor has (real plugins
+                    # do); it gets the leading ones rather than a TypeError.
+                    fn(peer, *(call_args if arity is None or arity > len(call_args) else call_args[:arity]))
                 peer.on_post_init(*call_args)
             except Exception:
                 self._report_crash(signature)
@@ -513,18 +602,19 @@ class Base:
         # exercised for a populated one. Building real `java.util.ArrayList` instances
         # instead removes the guesswork entirely - an ArrayList already *is* a List,
         # nothing left for Chaquopy to convert.
+        constructors = _collect_constructors(cls, java_class)
         proxy_class = PrimeClassProxy.createProxyClassFull(
             java_class, _java_list(interfaces), _java_list(methods), _java_list(fields),
             _java_list(mvel_methods), _java_list(new_methods), _java_list(overloads),
             _java_list(preconstructors),
-            _ConstructorHandler(cls, java_to_python, preconstructor_fns))
+            _ConstructorHandler(cls, java_to_python, preconstructor_fns, constructors))
         cls.__jproxy_class__ = proxy_class
         return proxy_class
 
     @classmethod
     def bind(cls, java_class, *interfaces, **kwargs):
         """Binds this Python class to a Java *interface*, which Chaquopy does natively."""
-        if not java_class.isInterface():
+        if not PrimeClassProxy.isInterface(java_class):
             raise UnsupportedInThisBuild("binding to class %s" % java_class)
         return dynamic_proxy(java_class)
 
@@ -581,11 +671,30 @@ def _unsupported(name):
 
 
 # @joverride, @jfield/@jgetmethod/@jsetmethod, jMVELmethod/jMVELoverride, @jmethod, @joverload,
-# @jpreconstructor are real now. Still not: @jconstructor - its distinct meaning next to
-# @jpreconstructor is not pinned down by anything checked so far, so it stays a stub rather than a
-# guess; @jclassbuilder, which wants the raw DexMaker object handed to Python for arbitrary bytecode
-# changes. Neither is hard to imagine, both are moderate work on top of what PrimeClassProxy already
-# does - they are just not done yet.
+# @jpreconstructor, @jconstructor are real now. Still not: @jclassbuilder, which wants the raw
+# DexMaker object handed to Python for arbitrary bytecode changes.
+def jconstructor(*signature, arg_types=None):
+    """The body of one Java constructor, picked by its argument types - runs on the fresh Python
+    peer in place of ``__init__`` when that constructor is the one called, after ``super(...)``
+    has already run with the same arguments. Real plugins write ``@jconstructor([View])``; the
+    types may also be given loose (``@jconstructor(View)``), as ``arg_types=``, or left to the
+    method's own parameter annotations (bare ``@jconstructor`` or ``@jconstructor()``)."""
+    import inspect
+    if len(signature) == 1 and arg_types is None and inspect.isfunction(signature[0]):
+        signature[0].__jconstructor__ = (None,)
+        return signature[0]
+    if arg_types is None and signature:
+        if len(signature) == 1 and isinstance(signature[0], (list, tuple)):
+            arg_types = list(signature[0])
+        else:
+            arg_types = list(signature)
+
+    def decorator(fn):
+        fn.__jconstructor__ = (arg_types,)
+        return fn
+    return decorator
+
+
 def jpreconstructor(arg_types=None):
     """Rewrites a constructor's arguments before ``super(...)`` runs, picking the matching overload
     by ``arg_types`` (explicit, or inferred from the method's own parameter annotations, same as
@@ -696,7 +805,7 @@ class JHelper:
     both spellings reach the same function, since plugins in the wild use either."""
     Overload = staticmethod(joverload)
     Method = staticmethod(jmethod)
-    Constructor = staticmethod(_unsupported("@jconstructor"))
+    Constructor = staticmethod(jconstructor)
     PreConstructor = staticmethod(jpreconstructor)
     ClassBuilder = staticmethod(_unsupported("@jclassbuilder"))
     MVELMethod = staticmethod(jMVELmethod)
@@ -707,7 +816,6 @@ class JHelper:
     SetMethod = staticmethod(jsetmethod)
 
 
-jconstructor = JHelper.Constructor
 jclassbuilder = JHelper.ClassBuilder
 
 

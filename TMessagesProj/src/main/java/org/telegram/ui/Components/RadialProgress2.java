@@ -258,7 +258,11 @@ public class RadialProgress2 {
         if (ifSame && icon == mediaActionDrawable.getCurrentIcon()) {
             return;
         }
-        mediaActionDrawable.setIcon(icon, animated);
+        // PrimeGram: setIcon reports whether anything changed; most calls from a cell's bind path
+        // pass ifSame=false and the same icon, and each one redrew the whole message for nothing.
+        if (!mediaActionDrawable.setIcon(icon, animated)) {
+            return;
+        }
         if (parent != null) {
             if (!animated) {
                 parent.invalidate();
@@ -279,10 +283,14 @@ public class RadialProgress2 {
         if (ifSame && icon == miniMediaActionDrawable.getCurrentIcon()) {
             return;
         }
-        miniMediaActionDrawable.setIcon(icon, animated);
+        final boolean changed = miniMediaActionDrawable.setIcon(icon, animated);
+        final boolean wasDrawingMiniIcon = drawMiniIcon;
         drawMiniIcon = icon != MediaActionDrawable.ICON_NONE || miniMediaActionDrawable.getTransitionProgress() < 1.0f;
         if (drawMiniIcon) {
             initMiniIcons();
+        }
+        if (!changed && wasDrawingMiniIcon == drawMiniIcon) {
+            return; // PrimeGram: see setIcon
         }
         if (!animated) {
             parent.invalidate();

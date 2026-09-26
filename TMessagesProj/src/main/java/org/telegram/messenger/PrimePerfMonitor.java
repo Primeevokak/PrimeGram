@@ -189,14 +189,182 @@ public final class PrimePerfMonitor {
     private static final java.util.Map<String, Integer> hotSpots = new java.util.HashMap<>();
     private static int hotSpotSamples;
 
+    // What the main thread was doing in each sample: nothing (parked in the looper), waiting on
+    // something else (a lock, a latch, disk, SQLite, a Binder call into the system), or actually
+    // computing. The split answers "is the UI slow, or is it stuck behind someone" directly.
+    // STATE_RENDER is its own bucket: in HardwareRenderer.nSyncAndDrawFrame the main thread is
+    // blocked on the RenderThread still issuing the previous frame's GPU commands - the "cmd"
+    // phase - so a big share there means frames are too heavy to draw, not to build.
+    private static final int STATE_IDLE = 0, STATE_WAITING = 1, STATE_WORKING = 2, STATE_RENDER = 3;
+    private static final int[] stateSamples = new int[4];
+
+    private static int classify(Thread thread, StackTraceElement[] trace) {
+        final String top = trace[0].getClassName() + '.' + trace[0].getMethodName();
+        if (top.equals("android.os.MessageQueue.nativePollOnce")) {
+            return STATE_IDLE;
+        }
+        if (top.equals("android.graphics.HardwareRenderer.nSyncAndDrawFrame")) {
+            return STATE_RENDER;
+        }
+        final Thread.State state = thread.getState();
+        if (state == Thread.State.BLOCKED || state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING) {
+            return STATE_WAITING;
+        }
+        // Native blocking calls report RUNNABLE, so the stack has to say it.
+        final int depth = Math.min(trace.length, 4);
+        for (int i = 0; i < depth; i++) {
+            final String cls = trace[i].getClassName();
+            final String method = trace[i].getMethodName();
+            if (cls.startsWith("org.telegram.SQLite.") || cls.startsWith("libcore.io.")
+                    || cls.equals("android.os.BinderProxy") || cls.equals("java.io.FileDescriptor")
+                    || cls.equals("sun.misc.Unsafe") || cls.equals("jdk.internal.misc.Unsafe")
+                    || method.equals("park") || method.equals("sleep") || method.equals("wait")) {
+                return STATE_WAITING;
+            }
+        }
+        return STATE_WORKING;
+    }
+
+    // Inclusive time per app method: in how many busy samples the method was anywhere on the
+    // stack. Hot spots above key on the top frames, and drawing a chat spreads its time over
+    // hundreds of distinct leaves (a text run, a clip, an image) - no single leaf clears the bar,
+    // so the report came back empty exactly when it mattered. Counting every app frame answers
+    // "which of our methods is the time spent under", the way a profiler's call tree does.
+    private static final java.util.Map<String, Integer> inclusive = new java.util.HashMap<>();
+    private static final java.util.HashSet<String> sampleMethods = new java.util.HashSet<>();
+    private static final int INCLUSIVE_MIN_PERCENT = 5;
+    private static final int INCLUSIVE_MAX_REPORTED = 10;
+
+    private static void recordInclusive(StackTraceElement[] trace) {
+        synchronized (PrimePerfMonitor.class) {
+            sampleMethods.clear();
+            for (StackTraceElement frame : trace) {
+                final String cls = frame.getClassName();
+                if (!cls.startsWith("org.telegram.") || cls.startsWith("org.telegram.messenger.PrimePerfMonitor")) {
+                    continue;
+                }
+                // Lambdas and synthetic classes are renamed by R8; the enclosing class is enough.
+                final int synthetic = cls.indexOf("$$");
+                final String name = (synthetic > 0 ? cls.substring(13, synthetic) : cls.substring(13)) + '.' + frame.getMethodName();
+                if (sampleMethods.add(name)) {
+                    inclusive.merge(name, 1, Integer::sum);
+                }
+            }
+        }
+    }
+
+    // ---- who redraws message cells ----
+    //
+    // Scrolling a hardware-rendered list only moves recorded display lists; a cell's onDraw runs
+    // again only if something invalidated it. When onDraw dominates a scroll, the question is
+    // who keeps invalidating - so every few invalidates the caller's stack is kept and tallied.
+    public static volatile boolean trackingInvalidates;
+    private static int cellInvalidates;
+    private static int cellDraws;
+    private static final java.util.Map<String, Integer> invalidators = new java.util.HashMap<>();
+    private static final int INVALIDATE_SAMPLE_EVERY = 8;
+    private static final int INVALIDATOR_DEPTH = 4;
+
+    public static void noteCellDraw() {
+        synchronized (PrimePerfMonitor.class) {
+            cellDraws++;
+        }
+    }
+
+    public static void noteCellInvalidate() {
+        final boolean sample;
+        synchronized (PrimePerfMonitor.class) {
+            sample = cellInvalidates++ % INVALIDATE_SAMPLE_EVERY == 0;
+        }
+        if (!sample) {
+            return;
+        }
+        final StackTraceElement[] trace = new Throwable().getStackTrace();
+        // Skip this method and the cell's own invalidate(); start at whoever called it.
+        int i = 0;
+        while (i < trace.length && (trace[i].getClassName().equals("org.telegram.messenger.PrimePerfMonitor")
+                || trace[i].getMethodName().equals("invalidate"))) {
+            i++;
+        }
+        final StringBuilder key = new StringBuilder();
+        for (int n = 0; i < trace.length && n < INVALIDATOR_DEPTH; i++, n++) {
+            if (n > 0) {
+                key.append(" < ");
+            }
+            String cls = trace[i].getClassName();
+            if (cls.startsWith("org.telegram.")) {
+                cls = cls.substring(13);
+            }
+            key.append(cls).append('.').append(trace[i].getMethodName());
+        }
+        synchronized (PrimePerfMonitor.class) {
+            invalidators.merge(key.toString(), 1, Integer::sum);
+        }
+    }
+
+    private static void appendInvalidateLines(long elapsedMs) {
+        if (cellInvalidates == 0 && cellDraws == 0) {
+            return;
+        }
+        final double seconds = elapsedMs / 1000.0;
+        appendLine(String.format(Locale.US, "    сообщения: перерисовано %.0f/сек, invalidate %.0f/сек",
+                cellDraws / seconds, cellInvalidates / seconds));
+        if (invalidators.isEmpty()) {
+            return;
+        }
+        int sampled = 0;
+        for (int v : invalidators.values()) {
+            sampled += v;
+        }
+        final java.util.List<java.util.Map.Entry<String, Integer>> sorted = new java.util.ArrayList<>(invalidators.entrySet());
+        sorted.sort((a, b) -> b.getValue() - a.getValue());
+        for (int k = 0; k < Math.min(4, sorted.size()); k++) {
+            final int pct = Math.round(100f * sorted.get(k).getValue() / sampled);
+            if (pct < 5) {
+                break;
+            }
+            appendLine(String.format(Locale.US, "    кто перерисовывает %d%%: %s", pct, sorted.get(k).getKey()));
+        }
+    }
+
+    private static void appendInclusiveLines() {
+        if (hotSpotSamples <= 0 || inclusive.isEmpty()) {
+            return;
+        }
+        final java.util.List<java.util.Map.Entry<String, Integer>> sorted = new java.util.ArrayList<>(inclusive.entrySet());
+        sorted.sort((a, b) -> b.getValue() - a.getValue());
+        final StringBuilder sb = new StringBuilder("    время внутри:");
+        int reported = 0;
+        for (java.util.Map.Entry<String, Integer> entry : sorted) {
+            final int pct = Math.round(100f * entry.getValue() / hotSpotSamples);
+            if (pct < INCLUSIVE_MIN_PERCENT || reported >= INCLUSIVE_MAX_REPORTED) {
+                break;
+            }
+            sb.append(reported == 0 ? " " : ", ").append(entry.getKey()).append(' ').append(pct).append('%');
+            reported++;
+        }
+        if (reported > 0) {
+            appendLine(sb.toString());
+        }
+    }
+
     private static void recordHotSpotSample() {
         try {
-            final StackTraceElement[] trace = Looper.getMainLooper().getThread().getStackTrace();
+            final Thread main = Looper.getMainLooper().getThread();
+            final StackTraceElement[] trace = main.getStackTrace();
             if (trace.length == 0) {
                 return;
             }
+            final int kind = classify(main, trace);
+            synchronized (PrimePerfMonitor.class) {
+                stateSamples[kind]++;
+            }
+            if (kind == STATE_IDLE) {
+                return; // an idle looper is not a hot spot
+            }
+            recordInclusive(trace);
             final int depth = Math.min(trace.length, HOTSPOT_KEY_DEPTH);
-            final StringBuilder key = new StringBuilder();
+            final StringBuilder key = new StringBuilder(kind == STATE_WAITING ? "[ждёт] " : kind == STATE_RENDER ? "[ждёт отрисовку] " : "[считает] ");
             for (int i = 0; i < depth; i++) {
                 if (i > 0) {
                     key.append(" < ");
@@ -274,6 +442,7 @@ public final class PrimePerfMonitor {
             return;
         }
         samplerRunning = true;
+        trackingInvalidates = true;
         samplerThread = new Thread(() -> {
             while (samplerRunning) {
                 try {
@@ -316,6 +485,7 @@ public final class PrimePerfMonitor {
             metricsThread = null;
         }
         samplerRunning = false;
+        trackingInvalidates = false;
         if (samplerThread != null) {
             samplerThread.interrupt();
             samplerThread = null;
@@ -333,6 +503,11 @@ public final class PrimePerfMonitor {
         worstFrameStack = "";
         hotSpots.clear();
         hotSpotSamples = 0;
+        stateSamples[0] = stateSamples[1] = stateSamples[2] = stateSamples[3] = 0;
+        inclusive.clear();
+        cellInvalidates = 0;
+        cellDraws = 0;
+        invalidators.clear();
     }
 
     private static synchronized void flush() {
@@ -376,7 +551,17 @@ public final class PrimePerfMonitor {
         if (!worstFrameStack.isEmpty() && worstMs > JANK_THRESHOLD_NS / 1_000_000.0) {
             appendLine("    худший кадр (" + worstFrameScreen + "): " + worstFrameStack);
         }
+        final int totalStates = stateSamples[0] + stateSamples[1] + stateSamples[2] + stateSamples[3];
+        if (totalStates > 0) {
+            appendLine(String.format(Locale.US, "    главный поток: считает %d%%  ждёт отрисовку %d%%  ждёт прочее %d%%  простаивает %d%%",
+                    Math.round(100f * stateSamples[STATE_WORKING] / totalStates),
+                    Math.round(100f * stateSamples[STATE_RENDER] / totalStates),
+                    Math.round(100f * stateSamples[STATE_WAITING] / totalStates),
+                    Math.round(100f * stateSamples[STATE_IDLE] / totalStates)));
+        }
         appendHotSpotLines();
+        appendInclusiveLines();
+        appendInvalidateLines(elapsedMs);
 
         resetWindow();
     }

@@ -230,7 +230,9 @@ public class SvgHelper {
                     placeholderGradient[index].setLocalMatrix(placeholderMatrix[index]);
 
                     if (parentImageReceiver != null && !drawInBackground) {
-                        parentImageReceiver.invalidate();
+                        // PrimeGram: refreshes only the placeholder's own RenderNode when the
+                        // parent allows it (see ImageReceiver.primeInvalidateShimmer).
+                        parentImageReceiver.primeInvalidateShimmer();
                     }
                 }
             }

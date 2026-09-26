@@ -296,6 +296,44 @@ public final class PrimeClassProxy {
      * (an earlier fix attempt) narrowed the symptom but did not resolve it. A distinctly-named
      * method has exactly one candidate, so Chaquopy has nothing left to disambiguate.
      */
+    /** {@code cls.getName()}, for Python. Chaquopy turns a {@code Class} into its Python class
+     *  proxy in both directions, and on the proxy {@code getName} resolves as a static member of
+     *  the class itself, not as {@code java.lang.Class#getName} - so Python cannot ask directly. */
+    public static String nameOf(Class<?> cls) {
+        return cls.getName();
+    }
+
+    /** A field declared on {@code cls} or any superclass of it, made accessible, or null - for
+     *  Python, which cannot walk a {@code Class}'s hierarchy itself (see {@link #nameOf}). */
+    public static Field findDeclaredField(Class<?> cls, String name) {
+        for (Class<?> c = cls; c != null; c = c.getSuperclass()) {
+            try {
+                final Field field = c.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException ignored) {
+            }
+        }
+        return null;
+    }
+
+    /** {@code cls.isInterface()}, for Python - see {@link #nameOf}. */
+    public static boolean isInterface(Class<?> cls) {
+        return cls.isInterface();
+    }
+
+    /** The {@code "<init>:param.Type:..."} signature of every constructor the generated class
+     *  mirrors (see {@link #createProxyClass}), in the same form the handler receives. */
+    public static String[] constructorSignatures(Class<?> cls) {
+        final ArrayList<String> result = new ArrayList<>();
+        for (Constructor<?> constructor : cls.getDeclaredConstructors()) {
+            if (!Modifier.isPrivate(constructor.getModifiers())) {
+                result.add(signature("<init>", constructor.getParameterTypes()));
+            }
+        }
+        return result.toArray(new String[0]);
+    }
+
     public static Class<?> createProxyClassFull(Class<?> superClass, List<Class<?>> interfaces,
                                                   List<String> methodNames, List<FieldSpec> fields,
                                                   List<MvelMethodSpec> mvelMethods, List<NewMethodSpec> newMethods,
@@ -524,14 +562,12 @@ public final class PrimeClassProxy {
         }
 
         // Every local this constructor could ever need is reserved here, before the first
-        // real instruction. DexMaker locks its local table the instant an invoke-direct to
-        // super's <init> is emitted below (it has to pin the "uninitialized this" register
-        // layout across that call) - any newLocal() call after that point throws "Cannot
-        // allocate locals after adding instructions", which is exactly what crashed real
-        // plugins the moment their proxied superclass had a constructor worth generating
-        // more than a bare super() call for. Reserving slots costs nothing at the verifier
-        // level; what actually has to stay in order are the *instructions* using them further
-        // down - self is genuinely unusable before the super call itself.
+        // real instruction. DexMaker assigns registers the first time any instruction touches
+        // a local (Local.spec() -> Code.initializeLocals()), and from then on newLocal() throws
+        // "Cannot allocate locals after adding instructions". That holds for every generated
+        // method, not only constructors - each generator in this class allocates up front for
+        // this reason. Reserving slots costs nothing at the verifier level; what has to stay in
+        // order are the *instructions* using them - self is unusable before the super call.
         final Local preHandler = preSpec != null ? code.newLocal(callbackType) : null;
         final Local preNullSelf = preSpec != null ? code.newLocal(object) : null;
         final Local preSig = preSpec != null ? code.newLocal(TypeId.STRING) : null;
@@ -640,30 +676,30 @@ public final class PrimeClassProxy {
             params[i] = code.getParameter(i, paramTypeIds[i]);
         }
 
+        // All locals first - see generateConstructor for why.
+        final boolean isVoid = returnType.equals(TypeId.VOID);
         final Local handler = code.newLocal(callbackType);
-        code.sget(handlerField, handler);
         final Local selfBoxed = code.newLocal(object);
-        code.cast(selfBoxed, self);
         final Local sig = code.newLocal(TypeId.STRING);
-        code.loadConstant(sig, signature(name, paramTypes));
-        final Local args = boxArgs(code, params, paramTypes);
+        final Local argsLength = code.newLocal(TypeId.INT);
+        final Local argsArray = code.newLocal(TypeId.get(Object[].class));
+        final Local argsIndex = code.newLocal(TypeId.INT);
+        final Local argsBoxedElem = code.newLocal(object);
         final Local resultBoxed = code.newLocal(object);
+        final Local result = isVoid ? null : code.newLocal(returnType);
+
+        code.sget(handlerField, handler);
+        code.cast(selfBoxed, self);
+        code.loadConstant(sig, signature(name, paramTypes));
+        final Local args = boxArgsInto(code, params, paramTypes, argsLength, argsArray, argsIndex, argsBoxedElem);
         code.invokeInterface(run, resultBoxed, handler, selfBoxed, sig, args);
 
-        if (returnType.equals(TypeId.VOID)) {
+        if (isVoid) {
             code.returnVoid();
             return;
         }
-        if (returnClass.isPrimitive()) {
-            final Local result = code.newLocal(returnType);
-            code.invokeStatic(TypeId.get(TypeHelper.class).getMethod(returnType, "unbox" + capitalize(returnClass), object),
-                    result, resultBoxed);
-            code.returnValue(result);
-        } else {
-            final Local result = code.newLocal(returnType);
-            code.cast(result, resultBoxed);
-            code.returnValue(result);
-        }
+        unboxInto(code, result, resultBoxed, returnClass);
+        code.returnValue(result);
     }
 
     /** {@code fieldType getterName()}: reads the field, nothing else. */
@@ -701,76 +737,54 @@ public final class PrimeClassProxy {
             params[i] = code.getParameter(i, paramTypeIds[i]);
         }
 
+        // All locals first - see generateConstructor for why.
+        final boolean isVoid = returnType.equals(TypeId.VOID);
         final Local codeConst = code.newLocal(TypeId.STRING);
-        code.loadConstant(codeConst, mvelCode);
         final Local selfBoxed = code.newLocal(object);
-        code.cast(selfBoxed, self);
-        final Local namesArray = stringArrayConstant(code, paramNames, paramTypes.length);
-        final Local argsBoxed = boxArgs(code, params, paramTypes);
+        final Local namesLength = code.newLocal(TypeId.INT);
+        final Local namesArray = code.newLocal(TypeId.get(String[].class));
+        final Local namesValue = code.newLocal(TypeId.STRING);
+        final Local argsLength = code.newLocal(TypeId.INT);
+        final Local argsArray = code.newLocal(TypeId.get(Object[].class));
+        final Local index = code.newLocal(TypeId.INT);
+        final Local argsBoxedElem = code.newLocal(object);
         final Local resultBoxed = code.newLocal(object);
+        final Local result = isVoid ? null : code.newLocal(returnType);
+
+        code.loadConstant(codeConst, mvelCode);
+        code.cast(selfBoxed, self);
+        stringArrayInto(code, paramNames, paramTypes.length, namesLength, namesArray, index, namesValue);
+        final Local argsBoxed = boxArgsInto(code, params, paramTypes, argsLength, argsArray, index, argsBoxedElem);
         code.invokeStatic(TypeId.get(PrimeClassProxy.class).getMethod(object, "executeMvel",
                         TypeId.STRING, object, TypeId.get(String[].class), TypeId.get(Object[].class)),
                 resultBoxed, codeConst, selfBoxed, namesArray, argsBoxed);
 
-        if (returnType.equals(TypeId.VOID)) {
+        if (isVoid) {
             code.returnVoid();
             return;
         }
-        if (returnClass.isPrimitive()) {
-            final Local result = code.newLocal(returnType);
-            code.invokeStatic(TypeId.get(TypeHelper.class).getMethod(returnType, "unbox" + capitalize(returnClass), object),
-                    result, resultBoxed);
-            code.returnValue(result);
-        } else {
-            final Local result = code.newLocal(returnType);
-            code.cast(result, resultBoxed);
-            code.returnValue(result);
-        }
+        unboxInto(code, result, resultBoxed, returnClass);
+        code.returnValue(result);
     }
 
-    /** A {@code String[]} local built from {@code names} (padded/truncated to {@code length}), or
-     *  one holding only {@code null}s if {@code names} was not given - {@link #executeMvel} treats
-     *  a {@code null} entry as "no variable for this argument", so an absent name list still lets
-     *  the call through. */
-    private static Local stringArrayConstant(Code code, String[] names, int length) {
-        final TypeId stringArray = TypeId.get(String[].class);
-        final Local lengthLocal = code.newLocal(TypeId.INT);
+    /** Fills {@code array} with {@code names} (padded/truncated to {@code length}), or with only
+     *  {@code null}s if {@code names} was not given - {@link #executeMvel} treats a {@code null}
+     *  entry as "no variable for this argument", so an absent name list still lets the call
+     *  through. Writes into caller-supplied locals, like {@link #boxArgsInto}. */
+    private static void stringArrayInto(Code code, String[] names, int length,
+                                        Local lengthLocal, Local array, Local index, Local value) {
         code.loadConstant(lengthLocal, length);
-        final Local array = code.newLocal(stringArray);
         code.newArray(array, lengthLocal);
-        final Local index = code.newLocal(TypeId.INT);
-        final Local value = code.newLocal(TypeId.STRING);
         for (int i = 0; i < length; i++) {
             code.loadConstant(index, i);
             code.loadConstant(value, names != null && i < names.length ? names[i] : null);
             code.aput(array, index, value);
         }
-        return array;
     }
 
-    /** Builds an {@code Object[]} of {@code params}, boxing whichever ones are primitive. */
-    private static Local boxArgs(Code code, Local[] params, Class<?>[] paramTypes) {
-        final TypeId object = TypeId.OBJECT;
-        final TypeId objectArray = TypeId.get(Object[].class);
-        final Local length = code.newLocal(TypeId.INT);
-        code.loadConstant(length, params.length);
-        final Local args = code.newLocal(objectArray);
-        code.newArray(args, length);
-        final Local index = code.newLocal(TypeId.INT);
-        for (int i = 0; i < params.length; i++) {
-            final Local boxed = code.newLocal(object);
-            final TypeId paramType = TypeId.get(paramTypes[i]);
-            code.invokeStatic(TypeId.get(TypeHelper.class).getMethod(object, "box",
-                    paramTypes[i].isPrimitive() ? paramType : object), boxed, params[i]);
-            code.loadConstant(index, i);
-            code.aput(args, index, boxed);
-        }
-        return args;
-    }
-
-    /** {@link #boxArgs}, writing into caller-supplied locals instead of allocating its own -
-     *  used by {@link #generateConstructor}, where every local has to be reserved before the
-     *  super-constructor call locks DexMaker's local table (see the comment there). */
+    /** Builds an {@code Object[]} of {@code params}, boxing whichever ones are primitive, into
+     *  caller-supplied locals. DexMaker freezes a method's local table the moment the first
+     *  instruction touches a local, so no helper that emits code may allocate its own. */
     private static Local boxArgsInto(Code code, Local[] params, Class<?>[] paramTypes,
                                       Local length, Local args, Local index, Local boxed) {
         final TypeId object = TypeId.OBJECT;

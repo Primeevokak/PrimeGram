@@ -21,15 +21,13 @@ def find_class(name):
 
 
 def _declared_field(clazz, name):
-    current = clazz
-    while current is not None:
-        try:
-            field = current.getDeclaredField(name)
-            field.setAccessible(True)
-            return field
-        except Exception:
-            current = current.getSuperclass()
-    raise AttributeError("no field %r on %s" % (name, clazz.getName()))
+    # Walked in Java: Chaquopy hands a java.lang.Class to Python as the class's own proxy, where
+    # getDeclaredField/getSuperclass/getName are not reachable as java.lang.Class methods.
+    from org.telegram.messenger.plugins import PrimeClassProxy
+    field = PrimeClassProxy.findDeclaredField(clazz, name)
+    if field is None:
+        raise AttributeError("no field %r on %s" % (name, PrimeClassProxy.nameOf(clazz)))
+    return field
 
 
 def get_private_field(obj, field_name):

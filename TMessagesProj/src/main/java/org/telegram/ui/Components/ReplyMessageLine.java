@@ -235,6 +235,17 @@ public class ReplyMessageLine {
     public static final int TYPE_CONTACT = 4;
 
     public int check(MessageObject messageObject, TLRPC.User currentUser, TLRPC.Chat currentChat, Theme.ResourcesProvider resourcesProvider, final int type) {
+        final int result = checkInternal(messageObject, currentUser, currentChat, resourcesProvider, type);
+        if (skipNextTransition) {
+            // PrimeGram: see resetAnimation - the new message's colors are known only now.
+            skipNextTransition = false;
+            forceColors();
+            return nameColor;
+        }
+        return result;
+    }
+
+    private int checkInternal(MessageObject messageObject, TLRPC.User currentUser, TLRPC.Chat currentChat, Theme.ResourcesProvider resourcesProvider, final int type) {
         final boolean dark = resourcesProvider != null ? resourcesProvider.isDark() : Theme.isCurrentThemeDark();
         if (messageObject != null && !(messageObject.isOutOwner() || type == TYPE_CODE) && messageObject.overrideLinkPeerColor != null) {
             return resolveCollectionColor(messageObject, messageObject.overrideLinkPeerColor, resourcesProvider);
@@ -493,15 +504,29 @@ public class ReplyMessageLine {
     }
 
 
+    // PrimeGram: a recycled cell calls resetAnimation when it is rebound to another message, but
+    // before check() has computed that message's colors - so the reset snapped to the *previous*
+    // message's colors and the next check() started a 400ms transition to the new ones, redrawing
+    // the whole cell every frame of it for each cell scrolled into view. The reset now also marks
+    // the next check() to apply its result without a transition.
+    private boolean skipNextTransition;
+
     public void resetAnimation() {
-        color1Animated.set(color1, true);
-        color2Animated.set(color2, true);
-        color2Alpha.set(hasColor2, true);
-        nameColorAnimated.set(nameColor, true);
-        backgroundColorAnimated.set(backgroundColor, true);
+        forceColors();
+        skipNextTransition = true;
         if (emoji != null) {
             emoji.resetAnimation();
         }
+    }
+
+    private void forceColors() {
+        color1Animated.set(color1, true);
+        color2Animated.set(color2, true);
+        color3Animated.set(color3, true);
+        color2Alpha.set(hasColor2, true);
+        color3Alpha.set(hasColor3, true);
+        nameColorAnimated.set(nameColor, true);
+        backgroundColorAnimated.set(backgroundColor, true);
     }
 
     private boolean reversedOut;

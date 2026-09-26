@@ -2049,6 +2049,10 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         primeProgressLayer = new PrimeProgressLayer(context, this);
         addView(primeProgressLayer);
         radialProgress.setParent(primeProgressLayer);
+        // The loading shimmer of a sticker/media placeholder re-records only its own RenderNode;
+        // invalidating this small child view is what gets that picked up on the next frame
+        // without re-recording the whole message (see ImageReceiver.primeInvalidateShimmer).
+        photoImage.primeShimmerFrameTrigger = primeProgressLayer::invalidateSelf;
         videoRadialProgress = new RadialProgress2(this, resourcesProvider);
         videoRadialProgress.setDrawBackground(false);
         videoRadialProgress.setCircleRadius(dp(15));
@@ -11381,6 +11385,20 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             if (replyLine != null) {
                 replyLine.resetAnimation();
             }
+            // PrimeGram: the other accent lines are reused across messages the same way; without a
+            // reset each one animated from the previous message's colors on every rebind.
+            if (linkLine != null) {
+                linkLine.resetAnimation();
+            }
+            if (quoteLine != null) {
+                quoteLine.resetAnimation();
+            }
+            if (factCheckLine != null) {
+                factCheckLine.resetAnimation();
+            }
+            if (contactLine != null) {
+                contactLine.resetAnimation();
+            }
             quoteHighlight = null;
         }
         if (transcribeButton != null) {
@@ -12536,6 +12554,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     public void invalidate() {
         if (currentMessageObject == null) {
             return;
+        }
+        if (org.telegram.messenger.PrimePerfMonitor.trackingInvalidates) {
+            org.telegram.messenger.PrimePerfMonitor.noteCellInvalidate();
         }
         if (super.invalidateCallback != null) {
             super.invalidateCallback.run();
@@ -20307,6 +20328,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     @SuppressLint("WrongCall")
     @Override
     protected void onDraw(Canvas canvas) {
+        if (org.telegram.messenger.PrimePerfMonitor.trackingInvalidates) {
+            org.telegram.messenger.PrimePerfMonitor.noteCellDraw();
+        }
         // PrimeGram: a message the sender deleted stays in place, faded, instead of vanishing.
         final boolean primeDim = PrimeMessageMarks.shouldDim(currentMessageObject);
         int primeRestore = -1;
