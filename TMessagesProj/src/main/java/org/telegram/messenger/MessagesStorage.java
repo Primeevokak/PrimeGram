@@ -12530,7 +12530,9 @@ public class MessagesStorage extends BaseController {
                             cursor = null;
                             dialogsReadMax.put(message.dialog_id, currentMaxId);
                         }
-                        FileLog.d("update messageRead currentMaxId = " + currentMaxId + " dialogId = " + message.dialog_id);
+                        if (BuildVars.LOGS_ENABLED) {
+                            FileLog.d("update messageRead currentMaxId = " + currentMaxId + " dialogId = " + message.dialog_id);
+                        }
                         if (message.id < 0 || currentMaxId < message.id) {
                             StringBuilder messageIds = messageIdsMap.get(message.dialog_id);
                             if (messageIds == null) {

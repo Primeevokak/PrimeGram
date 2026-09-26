@@ -1291,7 +1291,18 @@ public class DownloadController extends BaseController implements NotificationCe
                 messageObjects = new ArrayList<>();
                 loadingFileMessagesObservers.put(fileName, messageObjects);
             }
-            messageObjects.add(messageObject);
+            // PrimeGram: every updateButtonState of a cell comes through here, so the same object
+            // was appended again on each bind and the list grew for as long as the chat scrolled.
+            boolean known = false;
+            for (int i = 0, n = messageObjects.size(); i < n; i++) {
+                if (messageObjects.get(i) == messageObject) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                messageObjects.add(messageObject);
+            }
         }
 
         observersByTag.put(observer.getObserverTag(), fileName);

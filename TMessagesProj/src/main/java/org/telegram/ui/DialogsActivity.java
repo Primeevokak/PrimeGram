@@ -11203,6 +11203,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             return;
         }
         if (id == NotificationCenter.dialogsNeedReload) {
+            // PrimeGram: the archive-folder filter cache is keyed on the source list's size, and a
+            // new message reorders the list without changing it - so a reload must drop it.
+            primeArchiveFilterCacheResult = null;
             if (viewPages == null || dialogsListFrozen) {
                 return;
             }

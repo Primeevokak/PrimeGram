@@ -132,8 +132,9 @@ public class PrimeTranslator {
                     final String source = sources.get(index);
                     final TLRPC.TL_textWithEntities out = new TLRPC.TL_textWithEntities();
                     out.entities = new ArrayList<>();
-                    if (source.isEmpty()) {
-                        out.text = "";
+                    final String cached = source.isEmpty() ? "" : cacheGet(target, source);
+                    if (cached != null) {
+                        out.text = cached;
                     } else if (provider == PROVIDER_MULTIPLAY) {
                         // Index parity still splits the load across both hosts for a real batch,
                         // but with only one text (every "translate before send" call - the
@@ -150,7 +151,18 @@ public class PrimeTranslator {
                             out.text = primary == PROVIDER_YANDEX ? google(source, target) : yandex(source, target);
                         }
                     } else {
-                        out.text = provider == PROVIDER_YANDEX ? yandex(source, target) : google(source, target);
+                        // The chosen provider first; if it cannot answer at all (rate limit, host
+                        // unreachable from this network) the other keyless one rather than an
+                        // error - the user asked for a translation, not for a specific server.
+                        try {
+                            out.text = provider == PROVIDER_YANDEX ? yandex(source, target) : google(source, target);
+                        } catch (Throwable primaryError) {
+                            FileLog.e(primaryError);
+                            out.text = provider == PROVIDER_YANDEX ? google(source, target) : yandex(source, target);
+                        }
+                    }
+                    if (cached == null && !source.isEmpty()) {
+                        cachePut(target, source, out.text);
                     }
                     resultsArr[index] = out;
                 } catch (Throwable t) {
@@ -182,26 +194,66 @@ public class PrimeTranslator {
     /**
      * The endpoint the Google Translate web widget uses. No key, no account, and it answers with
      * the sentences already split, which is why the reply has to be stitched back together.
+     *
+     * <p>Sent as a POST: the text used to travel in the URL, and a long post simply did not fit.
+     * Throttling (429) and server hiccups are retried with a short backoff, under the second
+     * client id the endpoint accepts, and - when the built-in VLESS proxy is running - once more
+     * through it, for networks where Google itself is what is blocked.
      */
     private static String google(String source, String toLang) throws Exception {
-        final String url = "https://translate.googleapis.com/translate_a/single?dj=1&q="
-                + URLEncoder.encode(source, "UTF-8")
-                + "&sl=auto&tl=" + URLEncoder.encode(toLang, "UTF-8")
-                + "&ie=UTF-8&oe=UTF-8&client=at&dt=t&otf=2";
+        final byte[] body = ("q=" + URLEncoder.encode(source, "UTF-8")).getBytes("UTF-8");
+        final String[] clients = {"gtx", "at"};
+        Exception last = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            final String client = clients[attempt % clients.length];
+            try {
+                return joinSentences(googleOnce(body, toLang, client, null));
+            } catch (RetryableException e) {
+                last = e;
+                Thread.sleep(attempt == 0 ? 400 : 1200);
+            } catch (java.io.IOException e) {
+                last = e;
+                break;
+            }
+        }
+        final java.net.Proxy proxy = vlessProxy();
+        if (proxy != null) {
+            return joinSentences(googleOnce(body, toLang, "gtx", proxy));
+        }
+        throw last != null ? last : new Exception("google failed");
+    }
 
+    private static final class RetryableException extends Exception {
+        RetryableException(String message) {
+            super(message);
+        }
+    }
+
+    private static String googleOnce(byte[] body, String toLang, String client, java.net.Proxy proxy) throws Exception {
+        final String url = "https://translate.googleapis.com/translate_a/single?dj=1&sl=auto&tl="
+                + URLEncoder.encode(toLang, "UTF-8")
+                + "&ie=UTF-8&oe=UTF-8&client=" + client + "&dt=t&otf=2";
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setConnectTimeout(10000);
+            connection = (HttpURLConnection) (proxy != null ? new URL(url).openConnection(proxy) : new URL(url).openConnection());
+            connection.setConnectTimeout(8000);
             connection.setReadTimeout(15000);
-            connection.setInstanceFollowRedirects(true);
+            connection.setDoOutput(true);
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
             connection.setRequestProperty("User-Agent",
                     "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36");
+            try (java.io.OutputStream out = connection.getOutputStream()) {
+                out.write(body);
+            }
             final int code = connection.getResponseCode();
+            if (code == 429 || code >= 500) {
+                throw new RetryableException("HTTP " + code);
+            }
             if (code != 200) {
                 throw new Exception("HTTP " + code);
             }
-            return joinSentences(read(connection.getInputStream()));
+            return read(connection.getInputStream());
         } finally {
             if (connection != null) {
                 try {
@@ -209,6 +261,38 @@ public class PrimeTranslator {
                 } catch (Throwable ignore) {
                 }
             }
+        }
+    }
+
+    /** The built-in VLESS proxy's local SOCKS endpoint, or null when it is not running. */
+    private static java.net.Proxy vlessProxy() {
+        try {
+            if (!vpn.sdk.VpnSDK.isProxyRunning()) {
+                return null;
+            }
+            return new java.net.Proxy(java.net.Proxy.Type.SOCKS,
+                    java.net.InetSocketAddress.createUnresolved(vpn.sdk.VpnSDK.getProxySocksHost(), vpn.sdk.VpnSDK.getProxySocksPort()));
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
+    // Recently translated texts, so scrolling back over a translated chat or re-opening it does not
+    // send the same requests again - repeated identical requests are what trips the rate limit.
+    private static final android.util.LruCache<String, String> cache = new android.util.LruCache<String, String>(512 * 1024) {
+        @Override
+        protected int sizeOf(String key, String value) {
+            return key.length() + value.length();
+        }
+    };
+
+    private static String cacheGet(String toLang, String source) {
+        return cache.get(toLang + '\u0000' + source);
+    }
+
+    private static void cachePut(String toLang, String source, String translated) {
+        if (translated != null && !translated.isEmpty()) {
+            cache.put(toLang + '\u0000' + source, translated);
         }
     }
 

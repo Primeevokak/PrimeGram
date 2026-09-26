@@ -25,11 +25,43 @@ public final class PrimeChatPin {
         return "dlg" + dialogId;
     }
 
+    // Asked for every row of the chat list on every bind; a prefs read plus a string concat each
+    // time. The set of locked ids is read once and kept in step by setLockedFlag, its only writer.
+    private static volatile java.util.Set<Long> lockedIds;
+
+    private static java.util.Set<Long> lockedIds() {
+        java.util.Set<Long> ids = lockedIds;
+        if (ids == null) {
+            synchronized (PrimeChatPin.class) {
+                ids = lockedIds;
+                if (ids == null) {
+                    ids = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+                    for (java.util.Map.Entry<String, ?> entry : MessagesController.getGlobalMainSettings().getAll().entrySet()) {
+                        if (entry.getKey().startsWith(FLAG_PREFIX) && Boolean.TRUE.equals(entry.getValue())) {
+                            try {
+                                ids.add(Long.parseLong(entry.getKey().substring(FLAG_PREFIX.length())));
+                            } catch (NumberFormatException ignore) {
+                            }
+                        }
+                    }
+                    lockedIds = ids;
+                }
+            }
+        }
+        return ids;
+    }
+
     public static boolean isLocked(long dialogId) {
-        return MessagesController.getGlobalMainSettings().getBoolean(FLAG_PREFIX + dialogId, false);
+        final java.util.Set<Long> ids = lockedIds();
+        return !ids.isEmpty() && ids.contains(dialogId);
     }
 
     private static void setLockedFlag(long dialogId, boolean locked) {
+        if (locked) {
+            lockedIds().add(dialogId);
+        } else {
+            lockedIds().remove(dialogId);
+        }
         android.content.SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
         if (locked) {
             editor.putBoolean(FLAG_PREFIX + dialogId, true).apply();

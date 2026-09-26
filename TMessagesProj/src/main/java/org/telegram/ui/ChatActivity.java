@@ -22826,6 +22826,12 @@ public class ChatActivity extends BaseFragment implements
                     for (int a = 0, size2 = messages.size(); a < size2; a++) {
                         MessageObject obj = messages.get(a);
                         if (obj.isOut() && obj.getId() > 0 && obj.getId() <= messageId) {
+                            // PrimeGram: reads only move forward, so the first own message already
+                            // marked read means every older one is too - the inbox loop above stops
+                            // the same way. This walked every loaded outgoing message per receipt.
+                            if (!obj.isUnread()) {
+                                break;
+                            }
                             obj.setIsRead();
                             if (chatAdapter != null) {
                                 chatAdapter.invalidateRowWithMessageObject(obj);
@@ -23189,7 +23195,15 @@ public class ChatActivity extends BaseFragment implements
                 // Every post here is from a different channel, so there's no single currentChat
                 // this notification could match below - but any channel's ChatFull arriving is
                 // exactly what the per-post comment-button lookup in the adapter is waiting on.
-                if (chatAdapter != null) {
+                // Only the posts of the channel whose info arrived are rebound - any chat's info
+                // loading in the background used to rebind the whole feed.
+                if (chatAdapter != null && !chatAdapter.isFiltered) {
+                    for (int i = 0, n = messages.size(); i < n; i++) {
+                        if (messages.get(i).getDialogId() == -chatFull.id) {
+                            chatAdapter.notifyItemChanged(chatAdapter.messagesStartRow + i);
+                        }
+                    }
+                } else if (chatAdapter != null) {
                     chatAdapter.notifyDataSetChanged(true);
                 }
             }
@@ -34323,7 +34337,15 @@ public class ChatActivity extends BaseFragment implements
                     group.messages.get(i).reactionsChanged = true;
                 }
             }
-            chatAdapter.notifyDataSetChanged(true);
+            // PrimeGram: rebind only the album's own rows, as replaceMessageObjects already does
+            // for groups - a reaction on a popular channel album rebound every visible message.
+            final int groupIndex = chatAdapter.isFiltered || group.messages.isEmpty() ? -1
+                    : messages.indexOf(group.messages.get(group.messages.size() - 1));
+            if (groupIndex >= 0) {
+                chatAdapter.notifyItemRangeChanged(groupIndex + chatAdapter.messagesStartRow, group.messages.size());
+            } else {
+                chatAdapter.notifyDataSetChanged(true);
+            }
         } else {
             MessageObject messageInList = messagesDict[0].get(message.getId());
             if (updateReactions) {

@@ -1307,11 +1307,28 @@ public class MessagesController extends BaseController implements NotificationCe
             return includesDialog(accountInstance, dialogId, dialog);
         }
 
+        // PrimeGram: hash views of neverShow/alwaysShow, valid only for the duration of one pass
+        // over all dialogs (see primeBeginLookup). ArrayList.contains per dialog was n x m.
+        private java.util.HashSet<Long> primeNeverShowSet;
+        private java.util.HashSet<Long> primeAlwaysShowSet;
+
+        void primeBeginLookup() {
+            primeNeverShowSet = new java.util.HashSet<>(neverShow);
+            primeAlwaysShowSet = new java.util.HashSet<>(alwaysShow);
+        }
+
+        void primeEndLookup() {
+            primeNeverShowSet = null;
+            primeAlwaysShowSet = null;
+        }
+
         public boolean includesDialog(AccountInstance accountInstance, long dialogId, TLRPC.Dialog d) {
-            if (neverShow.contains(dialogId)) {
+            final java.util.HashSet<Long> never = primeNeverShowSet;
+            final java.util.HashSet<Long> always = primeAlwaysShowSet;
+            if (never != null ? never.contains(dialogId) : neverShow.contains(dialogId)) {
                 return false;
             }
-            if (alwaysShow.contains(dialogId)) {
+            if (always != null ? always.contains(dialogId) : alwaysShow.contains(dialogId)) {
                 return true;
             }
             if (d.folder_id != 0 && (flags & DIALOG_FILTER_FLAG_EXCLUDE_ARCHIVED) != 0) {
@@ -16945,10 +16962,15 @@ public class MessagesController extends BaseController implements NotificationCe
                                 }
 
                                 AndroidUtilities.runOnUIThread(() -> {
-                                    for (int a = 0; a < messages.size(); a++) {
-                                        long key = messages.keyAt(a);
-                                        ArrayList<MessageObject> value = messages.valueAt(a);
-                                        updateInterfaceWithMessages(key, value, 0);
+                                    primeBeginSortBatch();
+                                    try {
+                                        for (int a = 0; a < messages.size(); a++) {
+                                            long key = messages.keyAt(a);
+                                            ArrayList<MessageObject> value = messages.valueAt(a);
+                                            updateInterfaceWithMessages(key, value, 0);
+                                        }
+                                    } finally {
+                                        primeEndSortBatch();
                                     }
                                     getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
                                 });
@@ -21059,12 +21081,17 @@ public class MessagesController extends BaseController implements NotificationCe
             boolean updateDialogs = false;
             if (messagesFinal != null) {
                 boolean sorted = false;
-                for (int a = 0, size = messagesFinal.size(); a < size; a++) {
-                    long key = messagesFinal.keyAt(a);
-                    ArrayList<MessageObject> value = messagesFinal.valueAt(a);
-                    if (updateInterfaceWithMessages(key, value, 0)) {
-                        sorted = true;
+                primeBeginSortBatch();
+                try {
+                    for (int a = 0, size = messagesFinal.size(); a < size; a++) {
+                        long key = messagesFinal.keyAt(a);
+                        ArrayList<MessageObject> value = messagesFinal.valueAt(a);
+                        if (updateInterfaceWithMessages(key, value, 0)) {
+                            sorted = true;
+                        }
                     }
+                } finally {
+                    primeEndSortBatch();
                 }
                 boolean applied = applyFoldersUpdates(folderUpdatesFinal);
                 if (applied || !sorted && forceDialogsUpdate) {
@@ -21079,10 +21106,15 @@ public class MessagesController extends BaseController implements NotificationCe
                 }
             }
             if (scheduledMessagesFinal != null) {
-                for (int a = 0, size = scheduledMessagesFinal.size(); a < size; a++) {
-                    long key = scheduledMessagesFinal.keyAt(a);
-                    ArrayList<MessageObject> value = scheduledMessagesFinal.valueAt(a);
-                    updateInterfaceWithMessages(key, value, ChatActivity.MODE_SCHEDULED);
+                primeBeginSortBatch();
+                try {
+                    for (int a = 0, size = scheduledMessagesFinal.size(); a < size; a++) {
+                        long key = scheduledMessagesFinal.keyAt(a);
+                        ArrayList<MessageObject> value = scheduledMessagesFinal.valueAt(a);
+                        updateInterfaceWithMessages(key, value, ChatActivity.MODE_SCHEDULED);
+                    }
+                } finally {
+                    primeEndSortBatch();
                 }
             }
             if (editingMessagesFinal != null) {
@@ -21204,7 +21236,10 @@ public class MessagesController extends BaseController implements NotificationCe
                 getNotificationCenter().postNotificationName(NotificationCenter.messagesRead, markAsReadMessagesInboxFinal, markAsReadMessagesOutboxFinal);
                 if (markAsReadMessagesInboxFinal != null) {
                     getNotificationsController().processReadMessages(markAsReadMessagesInboxFinal, 0, 0, 0, false);
-                    SharedPreferences.Editor editor = notificationsPreferences.edit();
+                    // PrimeGram: was commit() - a synchronous rewrite of the whole notifications prefs
+                    // file on the UI thread for every batch of reads, including removes of keys that
+                    // were not there. Only real removes now, written in the background.
+                    SharedPreferences.Editor editor = null;
                     for (int b = 0, size = markAsReadMessagesInboxFinal.size(); b < size; b++) {
                         long key = markAsReadMessagesInboxFinal.keyAt(b);
                         int messageId = markAsReadMessagesInboxFinal.valueAt(b);
@@ -21222,11 +21257,20 @@ public class MessagesController extends BaseController implements NotificationCe
                             }
                         }
                         if (key != getUserConfig().getClientUserId()) {
-                            editor.remove("diditem" + key);
-                            editor.remove("diditemo" + key);
+                            final String item = "diditem" + key;
+                            final String itemOffset = "diditemo" + key;
+                            if (notificationsPreferences.contains(item) || notificationsPreferences.contains(itemOffset)) {
+                                if (editor == null) {
+                                    editor = notificationsPreferences.edit();
+                                }
+                                editor.remove(item);
+                                editor.remove(itemOffset);
+                            }
                         }
                     }
-                    editor.commit();
+                    if (editor != null) {
+                        editor.apply();
+                    }
                 }
                 if (markAsReadMessagesOutboxFinal != null) {
                     for (int b = 0, size = markAsReadMessagesOutboxFinal.size(); b < size; b++) {
@@ -22492,7 +22536,32 @@ public class MessagesController extends BaseController implements NotificationCe
     }
     
     
+    /**
+     * PrimeGram: sortDialogs() rebuilds every derived dialog list - a pass over all dialogs with
+     * several lookups each - and processUpdateArray used to trigger it once per chat that received
+     * messages. Catching up after the app was in the background (a hundred chats with news) meant a
+     * hundred full rebuilds back to back on the UI thread: O(chats x dialogs). Inside a batch a
+     * request is only remembered, and the rebuild runs once when the batch ends.
+     */
+    private int primeSortBatchDepth;
+    private boolean primeSortPending;
+
+    private void primeBeginSortBatch() {
+        primeSortBatchDepth++;
+    }
+
+    private void primeEndSortBatch() {
+        if (--primeSortBatchDepth == 0 && primeSortPending) {
+            primeSortPending = false;
+            sortDialogs(null);
+        }
+    }
+
     public void sortDialogs(LongSparseArray<TLRPC.Chat> chatsDict) {
+        if (chatsDict == null && primeSortBatchDepth > 0) {
+            primeSortPending = true;
+            return;
+        }
         if (chatsDict == null && ApplicationLoader.mainInterfacePaused) {
             return;
         }
@@ -22531,6 +22600,7 @@ public class MessagesController extends BaseController implements NotificationCe
                 ArrayList<TLRPC.Dialog> dialogsForward = sortingDialogFilter.dialogsForward;
                 dialogs.clear();
                 dialogsForward.clear();
+                sortingDialogFilter.primeBeginLookup();
                 try {
                     Collections.sort(allDialogs, dialogDateComparator);
                 } catch (Exception e) {
@@ -22562,6 +22632,7 @@ public class MessagesController extends BaseController implements NotificationCe
                         }
                     }
                 }
+                sortingDialogFilter.primeEndLookup();
             }
         }
 

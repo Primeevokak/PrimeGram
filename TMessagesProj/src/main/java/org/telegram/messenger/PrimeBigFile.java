@@ -282,8 +282,10 @@ public final class PrimeBigFile {
         }
     }
 
+    private static final String HEADER_PREFIX = "[" + MARKER + " ";
+
     public static Header parse(String chunkName) {
-        if (chunkName == null || !chunkName.startsWith("[" + MARKER + " ")) {
+        if (chunkName == null || !chunkName.startsWith(HEADER_PREFIX)) {
             return null;
         }
         final Matcher matcher = HEADER.matcher(chunkName);

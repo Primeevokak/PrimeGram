@@ -1562,9 +1562,13 @@ public class FileLoader extends BaseController {
         }
     }
 
+    // PrimeGram: compiled once. String.replaceAll compiles a new Pattern on every call, and this runs
+    // for every Document deserialized - every sticker of every set, every media message.
+    private static final java.util.regex.Pattern FILE_NAME_FORBIDDEN = java.util.regex.Pattern.compile("[\u0001-\u001f<>\u202E:\"/\\\\|?*\u007f]+");
+
     public static String fixFileName(String fileName) {
         if (fileName != null) {
-            fileName = fileName.replaceAll("[\u0001-\u001f<>\u202E:\"/\\\\|?*\u007f]+", "").trim();
+            fileName = FILE_NAME_FORBIDDEN.matcher(fileName).replaceAll("").trim();
         }
         return fileName;
     }
