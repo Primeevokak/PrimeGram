@@ -283,3 +283,9 @@ class FilesController:
             # The plugin claimed the file and then broke. Opening it the ordinary way now would
             # be a surprise, so the tap simply does nothing and the log says why.
             return True
+
+
+def get_data_dir():
+    """The app's private data directory (``/data/data/<package>``), the parent of its files and
+    cache directories."""
+    return ApplicationLoader.applicationContext.getApplicationInfo().dataDir

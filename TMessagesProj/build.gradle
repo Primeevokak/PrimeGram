@@ -178,6 +178,11 @@ android {
 
         vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']
 
+        // Library modules get no VERSION_NAME/VERSION_CODE in BuildConfig; exteraGram plugins read
+        // them from org.telegram.messenger.BuildConfig to report the client version.
+        buildConfigField "String", "VERSION_NAME", "\"" + APP_VERSION_NAME + "\""
+        buildConfigField "int", "VERSION_CODE", APP_VERSION_CODE
+
         multiDexEnabled true
 
         // PrimeGram's own api_id and api_hash, taken from wherever they are configured and never

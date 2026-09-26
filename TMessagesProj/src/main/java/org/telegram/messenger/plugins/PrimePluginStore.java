@@ -38,6 +38,17 @@ public final class PrimePluginStore {
 
     public static void setSettingsJson(String pluginId, String json) {
         prefs().edit().putString(SETTINGS_PREFIX + pluginId, json == null ? "{}" : json).apply();
+        versions.merge(pluginId, 1, Integer::sum);
+    }
+
+    // Bumped on every write, whoever makes it. plugin_settings.py keeps a parsed copy per plugin
+    // and compares against this before trusting it, so a value written from Java - the settings
+    // screen, or a plugin going through exteraGram's preferences - is seen by Python at once.
+    private static final java.util.concurrent.ConcurrentHashMap<String, Integer> versions = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static int version(String pluginId) {
+        final Integer v = pluginId == null ? null : versions.get(pluginId);
+        return v == null ? 0 : v;
     }
 
     /**
@@ -70,6 +81,15 @@ public final class PrimePluginStore {
         try {
             final org.json.JSONObject json = new org.json.JSONObject(getSettingsJson(pluginId));
             return json.has(key) ? json.getString(key) : fallback;
+        } catch (Throwable e) {
+            return fallback;
+        }
+    }
+
+    public static double getDouble(String pluginId, String key, double fallback) {
+        try {
+            final org.json.JSONObject json = new org.json.JSONObject(getSettingsJson(pluginId));
+            return json.has(key) ? json.getDouble(key) : fallback;
         } catch (Throwable e) {
             return fallback;
         }

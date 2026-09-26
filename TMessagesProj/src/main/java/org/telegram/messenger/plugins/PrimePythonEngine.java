@@ -25,7 +25,15 @@ public final class PrimePythonEngine {
 
     private static volatile PrimePythonEngine instance;
 
-    private final DispatchQueue queue = new DispatchQueue("primePlugins");
+    private final DispatchQueue queue = createQueue();
+
+    // One queue under both names: exteraGram plugins post to Utilities.pluginsQueue and expect to
+    // land on the same thread as their own hooks.
+    private static DispatchQueue createQueue() {
+        final DispatchQueue q = new DispatchQueue("primePlugins");
+        org.telegram.messenger.Utilities.pluginsQueue = q;
+        return q;
+    }
     private volatile boolean started;
     private volatile Throwable startError;
 

@@ -90,6 +90,8 @@ public final class PrimePluginMenuItems {
             FileLog.e(e);
         }
         items = parsed;
+        org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> org.telegram.messenger.NotificationCenter
+                .getGlobalInstance().postNotificationName(org.telegram.messenger.NotificationCenter.pluginMenuItemsUpdated));
     }
 
     private static int resolveIcon(String name) {

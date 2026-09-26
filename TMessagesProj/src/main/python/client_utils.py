@@ -452,3 +452,9 @@ def write_temp_file(filename, content, mode="wb", delete_after=0):
                 pass
         run_on_queue(_remove, delay=int(delete_after * 1000))
     return path
+
+
+def log(data):
+    """Same as ``android_utils.log``; some plugins import it from here."""
+    from android_utils import log as _log
+    return _log(data)

@@ -85,6 +85,21 @@ public class UItem extends AdapterWithDiffUtils.Item {
         i.intValue = LayoutHelper.MATCH_PARENT;
         return i;
     }
+    // region exteraGram additions plugins use
+    /** A plugin's marker for its own row in a shared settings list (e.g. a HeaderSetting). */
+    public Object settingItem;
+    /** exteraGram's setter for the existing {@link #transparent} flag. */
+    public UItem setTransparent(boolean transparent) {
+        this.transparent = transparent;
+        return this;
+    }
+
+    public static UItem asPlugin(int id, com.exteragram.messenger.plugins.Plugin plugin,
+                                 com.exteragram.messenger.plugins.ui.components.PluginCellDelegate delegate) {
+        return com.exteragram.messenger.plugins.ui.components.PluginCell.Factory.asPlugin(id, plugin, delegate);
+    }
+    // endregion
+
     public static UItem asCustom(View view) {
         UItem i = new UItem(UniversalAdapter.VIEW_TYPE_CUSTOM, false);
         i.view = view;

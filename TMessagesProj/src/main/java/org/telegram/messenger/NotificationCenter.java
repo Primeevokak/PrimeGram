@@ -384,6 +384,10 @@ public class NotificationCenter {
     public static final int communityPendingRequestsUpdate = totalEvents++;
     public static final int communitySwitchedCollapsed = totalEvents++;
     public static final int pluginsDidUpdate = totalEvents++;
+    // exteraGram's names, observed by plugins directly.
+    public static final int pluginsUpdated = pluginsDidUpdate;
+    public static final int pluginSettingsRegistered = totalEvents++;
+    public static final int pluginMenuItemsUpdated = totalEvents++;
     public static final int blocksDidUpdate = totalEvents++;
     /** PrimeGram: local (non-synced) archive folders changed - see PrimeArchiveFolders. */
     public static final int primeArchiveFoldersChanged = totalEvents++;

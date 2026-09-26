@@ -25,6 +25,8 @@ public class BuildVars {
     public static boolean CHECK_UPDATES = true;
     public static boolean NO_SCOPED_STORAGE = Build.VERSION.SDK_INT <= 29;
     public static String BUILD_VERSION_STRING = BuildConfig.BUILD_VERSION_STRING;
+    /** The version code, under the name older Telegram builds (and plugins) used. */
+    public static int BUILD_VERSION = BuildConfig.VERSION_CODE;
 
     public static int APP_ID = BuildConfig.APP_ID;
     public static String APP_HASH = BuildConfig.APP_HASH;

@@ -39,7 +39,9 @@ public final class PluginsController {
 
     private PluginsController() {
         pluginsDir = PrimePluginsController.pluginsDir();
-        preferences = MessagesController.getGlobalMainSettings();
+        // exteraGram's plugin_setting_<id>_<key> keys, mapped onto PrimeGram's settings store;
+        // everything else is the app's main settings as before.
+        preferences = new org.telegram.messenger.plugins.PrimeExteraPreferences(MessagesController.getGlobalMainSettings());
     }
 
     public static PluginsController getInstance() {
@@ -238,11 +240,24 @@ public final class PluginsController {
         return new File(pluginsDir, id + PrimePluginsController.EXTENSION).getAbsolutePath();
     }
 
+    /** Plugin stores and managers install through this. Opens PrimeGram's own install sheet -
+     *  the same one a tapped .plugin file gets, capability scan and all; {@code trusted} does not
+     *  skip anything, because a plugin vouching for another plugin is not a reason to. */
     public void showInstallDialog(Object fragment, String filePath, boolean trusted) {
-        FileLog.d("PluginsController.showInstallDialog (compat, no-op): " + filePath);
+        if (filePath == null) {
+            return;
+        }
+        org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> new com.exteragram.messenger.plugins.ui.components.InstallPluginBottomSheet(
+                fragment instanceof org.telegram.ui.ActionBar.BaseFragment ? (org.telegram.ui.ActionBar.BaseFragment) fragment : null,
+                null, new com.exteragram.messenger.plugins.ui.components.InstallPluginBottomSheet.PluginInstallParams(filePath, trusted)).show());
     }
 
     public void showInstallDialog(Object fragment, Object messageObject) {
+        final String path = messageObject instanceof org.telegram.messenger.MessageObject
+                ? org.telegram.messenger.FileLoader.getInstance(((org.telegram.messenger.MessageObject) messageObject).currentAccount)
+                        .getPathToMessage(((org.telegram.messenger.MessageObject) messageObject).messageOwner).getAbsolutePath()
+                : null;
+        showInstallDialog(fragment, path, false);
     }
 
     // region plugin settings - routed to PrimePluginStore

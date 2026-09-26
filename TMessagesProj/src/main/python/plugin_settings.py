@@ -22,9 +22,16 @@ def init(plugins_dir_path=None, all_shared_prefs=None):
     _cache.clear()
 
 
+_versions = {}
+
+
 def _settings(plugin_id):
     cached = _cache.get(plugin_id)
+    version = PrimePluginStore.version(plugin_id)
+    if cached is not None and _versions.get(plugin_id) != version:
+        cached = None  # written from Java since we parsed it
     if cached is None:
+        _versions[plugin_id] = version
         raw = PrimePluginStore.getSettingsJson(plugin_id)
         try:
             cached = json.loads(raw) if raw else {}
@@ -41,6 +48,7 @@ def _settings(plugin_id):
 def _flush(plugin_id):
     try:
         PrimePluginStore.setSettingsJson(plugin_id, json.dumps(_cache.get(plugin_id, {})))
+        _versions[plugin_id] = PrimePluginStore.version(plugin_id)  # our own write: still current
     except Exception:
         pass
 

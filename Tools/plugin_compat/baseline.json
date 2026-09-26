@@ -1,0 +1,46 @@
+{
+  "_comment": "Known, accepted gaps. check_corpus.py fails only on gaps NOT listed here. Remove an entry once it is closed.",
+  "missing_sdk_modules": {
+    "elyxcore": "internal module of the ELYX build tool's own runtime, imported inside try/except",
+    "elyxcore._plugin_engine": "same",
+    "elyxcore._plugin": "same"
+  },
+  "missing_sdk_names": {
+    "client_utils._prepare_document": "private helper of exteraGram's client_utils; the one plugin falls back to send_audio",
+    "elyx.get_environment": "ELYX builder internal, guarded by the plugin",
+    "hook_utils.*": "star import, not a name"
+  },
+  "missing_java_classes": {
+    "com.exteragram.messenger.api.dto.BadgeDTO": "exteraGram profile badges: PrimeGram draws none, so hooks on them could never fire; plugins guard with find_class",
+    "com.exteragram.messenger.badges.BadgesController": "same",
+    "com.exteragram.messenger.api.model.ProfileStatus": "same",
+    "com.exteragram.messenger.badges.source.ApiBadgeSource": "same",
+    "com.exteragram.messenger.badges.source.BadgeInfo": "same",
+    "com.exteragram.messenger.R$drawable": "exteraGram's own resources",
+    "com.exteragram.messenger.ai.AiController": "exteraGram feature PrimeGram does not have",
+    "com.exteragram.messenger.drawer.DrawerAccountPickerView$AccountRowView": "exteraGram UI internals, reached by reflection to restyle exteraGram's drawer",
+    "com.exteragram.messenger.drawer.DrawerHeaderView": "same",
+    "com.exteragram.messenger.feed.ads.FeedAdController": "exteraGram feed ads",
+    "com.exteragram.messenger.feed.ads.FeedAdInjector": "same",
+    "com.exteragram.messenger.feed.ads.FeedAdParser": "same",
+    "com.exteragram.messenger.icons.ExteraResources": "exteraGram icon packs",
+    "com.exteragram.messenger.nowplaying.NowPlayingController": "exteraGram UI internals",
+    "com.exteragram.messenger.pillstack.core.PillRegistry": "exteraGram pill stack; PrimeGram's is PrimePillStack with a different model",
+    "com.exteragram.messenger.pillstack.core.PillRegistry$PillCreator": "same",
+    "com.exteragram.messenger.pillstack.core.PillRegistry$PillInfo": "same",
+    "com.exteragram.messenger.pillstack.core.PillStackConfig": "same",
+    "com.exteragram.messenger.pillstack.ui.pills.weather.WeatherPill": "same",
+    "com.exteragram.messenger.preferences.GeneralPreferencesActivity": "exteraGram settings screen internals",
+    "org.telegram.messenger.BuildConfig": "generated at build time (VERSION_NAME/VERSION_CODE added in TMessagesProj/build.gradle); not a source file",
+    "org.telegram.ui.ChatActivity$SparseArrayWithTouch": "removed by Telegram itself"
+  },
+  "missing_java_members": {
+    "TLRPC.TL_keyboardButtonCallback": "Telegram 12.10 moved keyboard buttons to tl/TL_keyboard with a new layer; old-layer objects must not be built",
+    "TLRPC.TL_keyboardButtonRow": "same",
+    "TLRPC.TL_keyboardButtonCopy": "same",
+    "TLRPC.TL_keyboardButtonUrl": "same",
+    "TLRPC.TL_account_updateProfile": "moved to TL_account.updateProfile; the plugin uses the new name when present",
+    "TLRPC.TL_inputMessageID": "not in Telegram for many releases",
+    "ActionBarPopupWindow.INPUT_METHOD_NOT_NEEDED": "inherited from android.widget.PopupWindow; the checker only sees our sources"
+  }
+}

@@ -72,6 +72,20 @@ class AppEvent(Enum):
     PAUSE = "pause"
     RESUME = "resume"
 
+    # Some plugins compare the event against exteraGram's Java enum
+    # (find_class("com.exteragram.messenger.plugins.AppEvent").START) instead of this one; both are
+    # the same event, so they compare equal by name.
+    def __eq__(self, other):
+        if isinstance(other, AppEvent):
+            return self is other
+        try:
+            return other is not None and str(other.name()) == self.name
+        except Exception:
+            return False
+
+    def __hash__(self):
+        return hash(self.name)
+
 
 class MenuItemType(Enum):
     MESSAGE_CONTEXT_MENU = "message_context_menu"
@@ -802,3 +816,18 @@ class BasePlugin:
         if removed:
             registry.publish_pills()
         return removed
+
+
+class _PluginsControllerHandle:
+    """``from base_plugin import PluginsController`` - exteraGram's plugins controller class,
+    resolved on first use so importing base_plugin stays free of the Java lookup."""
+    _cls = None
+
+    def __getattr__(self, name):
+        if _PluginsControllerHandle._cls is None:
+            from java import jclass
+            _PluginsControllerHandle._cls = jclass("com.exteragram.messenger.plugins.PluginsController")
+        return getattr(_PluginsControllerHandle._cls, name)
+
+
+PluginsController = _PluginsControllerHandle()

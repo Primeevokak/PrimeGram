@@ -21,6 +21,7 @@ TYPE_HEADER = "header"
 TYPE_DIVIDER = "divider"
 TYPE_EDIT_TEXT = "edit_text"
 TYPE_CUSTOM = "custom"
+TYPE_SLIDER = "slider"
 
 
 @dataclass
@@ -34,6 +35,32 @@ class Switch:
     type: str = field(default=TYPE_SWITCH, init=False)
     on_long_click: Callable[[Any], None] = field(default=None, compare=False, repr=False)
     link_alias: str = ""
+
+
+@dataclass
+class Slider:
+    """A value picked on a bar between ``min`` and ``max``, in steps of ``step``. ``on_change``
+    gets the new value each time it lands on a different step while the user drags."""
+    key: str
+    text: str
+    default: float = 0
+    min: float = 0
+    max: float = 100
+    step: float = 1
+    subtext: str = ""
+    icon: str = ""
+    on_change: Callable[[float], None] = field(default=None, compare=False, repr=False)
+    on_long_click: Callable[[Any], None] = field(default=None, compare=False, repr=False)
+    link_alias: str = ""
+    type: str = field(default=TYPE_SLIDER, init=False)
+
+    def __post_init__(self):
+        import math
+        values = (self.default, self.min, self.max, self.step)
+        if not all(isinstance(v, (int, float)) and math.isfinite(float(v)) for v in values):
+            raise ValueError("Slider values must be finite numbers")
+        if self.max <= self.min or self.step <= 0:
+            raise ValueError("Slider needs max > min and step > 0")
 
 
 @dataclass

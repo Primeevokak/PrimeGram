@@ -181,6 +181,9 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
                 case "custom":
                     addCustomRow(items, id, row, i);
                     break;
+                case "slider":
+                    items.add(UItem.asCustom(sliderView(id, row, i)));
+                    break;
                 default:
                     break;
             }
@@ -188,6 +191,44 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
         if (isRoot()) {
             addDeleteRow(items);
         }
+    }
+
+    private final android.util.SparseArray<com.exteragram.messenger.preferences.components.AltSeekbar> sliderViews = new android.util.SparseArray<>();
+
+    /**
+     * The SDK's {@code Slider} row: exteraGram's labelled seek bar. Values snap to {@code step};
+     * each new step is stored at once and reported to the plugin's {@code on_change}, so dragging
+     * feels live without calling into Python for every pixel of movement.
+     */
+    private View sliderView(int id, JSONObject row, int index) {
+        com.exteragram.messenger.preferences.components.AltSeekbar view = sliderViews.get(id);
+        final double min = row.optDouble("min", 0), max = row.optDouble("max", 100);
+        final double step = row.optDouble("step", 1) > 0 ? row.optDouble("step", 1) : 1;
+        final String key = row.optString("key");
+        final double stored = PrimePluginStore.getDouble(plugin.id(), key, row.optDouble("default", min));
+        if (view == null) {
+            final double[] last = {stored};
+            final boolean integral = step == Math.rint(step) && min == Math.rint(min);
+            view = new com.exteragram.messenger.preferences.components.AltSeekbar(getContext(), value -> {
+                double snapped = min + Math.round((value - min) / step) * step;
+                snapped = Math.max(min, Math.min(max, snapped));
+                if (snapped == last[0]) {
+                    return;
+                }
+                last[0] = snapped;
+                final Object boxed = integral ? (Object) (long) snapped : (Object) snapped;
+                PrimePluginStore.put(plugin.id(), key, boxed);
+                PrimePluginsController.getInstance().notifySettingChanged(plugin.id(), path, index, String.valueOf(boxed));
+            }, (int) Math.floor(min), (int) Math.ceil(max), row.optString("text"), trimNumber(min), trimNumber(max));
+            view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite, getResourceProvider()));
+            sliderViews.put(id, view);
+        }
+        view.setProgress((float) stored);
+        return view;
+    }
+
+    private static String trimNumber(double v) {
+        return v == Math.rint(v) ? String.valueOf((long) v) : String.valueOf(v);
     }
 
     /**

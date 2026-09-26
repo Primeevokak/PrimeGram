@@ -617,6 +617,11 @@ public final class PrimePluginsController {
             final String error = result == null || result.toJava(Object.class) == null ? null : result.toString();
             if (TextUtils.isEmpty(error)) {
                 plugin.setError(null);
+                // exteraGram posts this once a plugin is up and its settings can be asked for;
+                // plugins observe it to refresh screens that list other plugins' settings.
+                final String loadedId = plugin.id();
+                AndroidUtilities.runOnUIThread(() -> NotificationCenter.getGlobalInstance()
+                        .postNotificationName(NotificationCenter.pluginSettingsRegistered, loadedId));
             } else {
                 String fullTraceback = null;
                 try {

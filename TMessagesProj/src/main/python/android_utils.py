@@ -235,3 +235,17 @@ class _Resources:
 
 
 R = _Resources()
+
+
+class Callback(dynamic_proxy(jclass("org.telegram.messenger.Utilities$Callback"))):
+    """``Utilities.Callback`` around a Python function - the one-argument callback half of
+    Telegram's own APIs take. A failure in ``fn`` is logged, not thrown back into Java."""
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__()
+        self._fn = fn
+        self._args = args
+        self._kwargs = kwargs
+
+    def run(self, arg):
+        return safe_call(self._fn, arg, *self._args, **self._kwargs)

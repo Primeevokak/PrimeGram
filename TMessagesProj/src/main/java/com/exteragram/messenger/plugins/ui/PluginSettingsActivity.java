@@ -9,20 +9,30 @@ import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.PrimePluginsActivity;
 
 /**
- * PrimeGram: compatibility shim for
- * {@code com.exteragram.messenger.plugins.ui.PluginSettingsActivity} - see
- * {@link PluginsActivity} for the reasoning. PrimeGram has no per-plugin settings screen
- * addressed by exteraGram's own {@link Plugin} identity, so this redirects to the plugins list
- * rather than a specific plugin's settings - closer than a crash, not the same screen.
+ * PrimeGram: compatibility shim for {@code com.exteragram.messenger.plugins.ui.PluginSettingsActivity}.
+ * Plugins open another plugin's settings with {@link #of(String)} (or construct this with its
+ * {@link Plugin}); either way it becomes PrimeGram's own settings screen for that plugin id, and
+ * falls back to the plugins list only when no such plugin is installed.
  */
 public class PluginSettingsActivity extends BaseFragment {
 
+    private final String pluginId;
+
     public PluginSettingsActivity(Plugin plugin) {
         super();
+        this.pluginId = plugin == null ? null : plugin.getId();
     }
 
     public PluginSettingsActivity(Object plugin) {
         super();
+        this.pluginId = plugin instanceof Plugin ? ((Plugin) plugin).getId() : plugin instanceof String ? (String) plugin : null;
+    }
+
+    /** exteraGram: the settings screen of the plugin with this id, ready to present. */
+    public static BaseFragment of(String pluginId) {
+        final org.telegram.messenger.plugins.PrimePlugin plugin = pluginId == null ? null
+                : org.telegram.messenger.plugins.PrimePluginsController.getInstance().findById(pluginId);
+        return plugin != null ? new org.telegram.ui.PrimePluginSettingsActivity(plugin) : new PrimePluginsActivity();
     }
 
     @Override
@@ -31,7 +41,7 @@ public class PluginSettingsActivity extends BaseFragment {
         org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
             try {
                 if (getParentActivity() != null) {
-                    presentFragment(new PrimePluginsActivity(), true);
+                    presentFragment(of(pluginId), true);
                 }
             } catch (Throwable ignore) {
             }

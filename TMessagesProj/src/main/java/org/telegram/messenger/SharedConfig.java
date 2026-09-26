@@ -1552,8 +1552,14 @@ public class SharedConfig {
         return proxyInfo;
     }
 
+    /** exteraGram exposes this as a field and plugins read and assign it. Here it mirrors the
+     *  "proxy_enabled" preference, which stays the source of truth: it is refreshed on every
+     *  {@link #isProxyEnabled()} call, so a plugin's own assignment cannot drift the app's state. */
+    public static boolean proxyEnabled;
+
     public static boolean isProxyEnabled() {
-        return MessagesController.getGlobalMainSettings().getBoolean("proxy_enabled", false) && currentProxy != null;
+        proxyEnabled = MessagesController.getGlobalMainSettings().getBoolean("proxy_enabled", false);
+        return proxyEnabled && currentProxy != null;
     }
 
     public static void deleteProxy(ProxyInfo proxyInfo) {

@@ -2069,6 +2069,11 @@ public class ChatObject {
         return dialogId < 0 && isCommunity(MessagesController.getInstance(currentAccount).getChat(-dialogId));
     }
 
+    /** exteraGram helper plugins call; null-safe. */
+    public static String getTitle(TLRPC.Chat chat) {
+        return chat == null || chat.title == null ? "" : chat.title;
+    }
+
     public static boolean isChannel(TLRPC.Chat chat) {
         return chat instanceof TLRPC.TL_channel || chat instanceof TLRPC.TL_channelForbidden
             || isCommunity(chat);

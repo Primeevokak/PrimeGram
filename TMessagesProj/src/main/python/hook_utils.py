@@ -48,3 +48,19 @@ def set_static_private_field(clazz, field_name, value):
     if isinstance(clazz, str):
         clazz = jclass(clazz)
     _declared_field(clazz, field_name).set(None, value)
+
+
+from java import jarray  # noqa: E402 - re-exported; plugins import it from here
+
+
+def get_field(obj, name, default=None):
+    """A field of a Java object by name - public ones directly, anything else by reflection
+    (walking superclasses, like ``get_private_field``). ``default`` when there is no such field."""
+    try:
+        return getattr(obj, name)
+    except Exception:
+        pass
+    try:
+        return get_private_field(obj, name)
+    except Exception:
+        return default
