@@ -639,7 +639,12 @@ class Base:
         proxy_class = cls.java_class()
         if proxy_class is None:
             raise UnsupportedInThisBuild("new_java_instance before extends()")
-        return proxy_class(*args)
+        # The generated class comes back from Java as a java.lang.Class object, not a Chaquopy
+        # proxy type; calling it makes Chaquopy look for a functional interface on the Class
+        # ("Class is not callable because it implements no functional interfaces").
+        if isinstance(proxy_class, type):
+            return proxy_class(*args)
+        return PrimeClassProxy.newInstance(proxy_class, list(args))
 
     @classmethod
     def new_instance(cls, *args, **kwargs):

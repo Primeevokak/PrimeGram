@@ -159,6 +159,7 @@ public class AudioPlayerAlert extends BottomSheet implements NotificationCenter.
     private ActionBarMenuSubItem castItem;
     private CastMediaRouteButton castItemButton;
     private boolean castAvailable;
+    private boolean primeCastSelectorSet;
     private LineProgressView progressView;
     private SeekBarView seekBarView;
     private SimpleTextView timeTextView;
@@ -1097,13 +1098,8 @@ public class AudioPlayerAlert extends BottomSheet implements NotificationCenter.
                 }
             }
         };
+        // PrimeGram: set up when the options menu is built, not with the player (CastSync.ensureReady).
         castAvailable = true;
-        try {
-            castItemButton.setRouteSelector(CastContext.getSharedInstance(context).getMergedSelector());
-        } catch (Exception e) {
-            FileLog.e(e);
-            castAvailable = false;
-        }
         castItemButton.setVisibility(View.INVISIBLE);
         if (optionsIcon != null) {
             optionsIcon.setCasting(CastSync.isActive(), true);
@@ -2893,6 +2889,19 @@ public class AudioPlayerAlert extends BottomSheet implements NotificationCenter.
             o.dismiss();
             onSubItemClick(4);
         });
+        if (castAvailable && !primeCastSelectorSet) {
+            primeCastSelectorSet = true;
+            try {
+                if (CastSync.ensureReady(getContext())) {
+                    castItemButton.setRouteSelector(CastContext.getSharedInstance(getContext()).getMergedSelector());
+                } else {
+                    castAvailable = false;
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+                castAvailable = false;
+            }
+        }
         if (castAvailable) {
             castItem = o.add();
             castItem.setTextAndIcon(getString(R.string.VideoPlayerChromecast), R.drawable.menu_video_chromecast);

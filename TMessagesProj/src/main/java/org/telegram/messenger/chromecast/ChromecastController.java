@@ -120,6 +120,12 @@ public class ChromecastController implements SessionManagerListener<CastSession>
 
     private static volatile ChromecastController Instance = null;
 
+    /** PrimeGram: whether anything is being cast, without bringing up CastContext to find out
+     *  (see {@code CastSync.ensureReady}). */
+    public static boolean isCastingNow() {
+        return org.telegram.ui.CastSync.isReady() && getInstance().isCasting();
+    }
+
     public static ChromecastController getInstance() {
         ChromecastController localInstance = Instance;
         if (localInstance == null) {

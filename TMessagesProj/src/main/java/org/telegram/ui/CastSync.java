@@ -42,10 +42,35 @@ public class CastSync {
         return context;
     }
 
+    // PrimeGram: CastContext is brought up only once someone actually reaches for casting (opens
+    // the cast item). Its first initialisation starts MediaRouter, which scans every installed
+    // package over Binder on the main thread - a measured 500 ms freeze that used to land on the
+    // first open of any photo or avatar, just because the viewer set up its cast button. Until it
+    // is up no cast session can exist, so every query below can answer "not casting" for free.
+    private static volatile boolean primeReady;
+
+    public static boolean isReady() {
+        return primeReady;
+    }
+
+    public static boolean ensureReady(Context context) {
+        if (primeReady) {
+            return true;
+        }
+        try {
+            if (context != null && CastContext.getSharedInstance(context) != null) {
+                primeReady = true;
+            }
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+        return primeReady;
+    }
+
     private static boolean listened;
     public static void check(int type) {
         CastSync.type = type;
-        if (listened) return;
+        if (listened || !primeReady) return;
         try {
             final Context context = getContext();
             if (context == null) return;
@@ -135,7 +160,7 @@ public class CastSync {
 
     public static void stop() {
         final Context context = getContext();
-        if (context == null) return;
+        if (context == null || !primeReady) return;
         try {
             final CastContext castContext = CastContext.getSharedInstance(getContext());
             if (castContext == null) return;
@@ -147,7 +172,7 @@ public class CastSync {
 
     public static boolean isActive() {
         final Context context = getContext();
-        if (context == null) return false;
+        if (context == null || !primeReady) return false;
         try {
             final CastContext castContext = CastContext.getSharedInstance(getContext());
             if (castContext == null) return false;
@@ -161,7 +186,7 @@ public class CastSync {
 
     public static RemoteMediaClient getClient() {
         final Context context = getContext();
-        if (context == null) return null;
+        if (context == null || !primeReady) return null;
         try {
             final CastContext castContext = CastContext.getSharedInstance(getContext());
             if (castContext == null) return null;

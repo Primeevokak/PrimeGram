@@ -9599,26 +9599,36 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         }
     }
 
+    // PrimeGram: as a main tab this fragment is resumed on the first frame of a swipe towards it,
+    // and rebinding the whole list there was the hitch felt when swiping between tabs. For a tab
+    // that rebind waits for the page to settle (onBecomeFullyVisible); the header is still laid
+    // out immediately, and a profile opened the usual way is unchanged.
+    private boolean primeResumeRefreshPending;
+
     @Override
     public void onResume() {
         super.onResume();
-        if (sharedMediaLayout != null) {
-            sharedMediaLayout.onResume();
-        }
-        invalidateIsInLandscapeMode();
-        if (listAdapter != null) {
-            // saveScrollPosition();
-            firstLayout = true;
-            listAdapter.notifyDataSetChanged();
-        }
         if (!parentLayout.isInPreviewMode() && blurredView != null && blurredView.getVisibility() == View.VISIBLE) {
             blurredView.setVisibility(View.GONE);
             blurredView.setBackground(null);
         }
-
         if (imageUpdater != null) {
             imageUpdater.onResume();
             setParentActivityTitle(LocaleController.getString(R.string.Settings));
+        }
+        if (flagSecure != null) {
+            flagSecure.attach();
+        }
+        if (sharedMediaLayout != null) {
+            sharedMediaLayout.onResume();
+        }
+        invalidateIsInLandscapeMode();
+        // Only the list rebind waits for a tab to settle; the header layout below is what the
+        // page shows while it slides in, so it has to be right before the first frame.
+        if (hasMainTabs && !fullyVisible) {
+            primeResumeRefreshPending = true;
+        } else {
+            primeRebindList();
         }
 
         updateProfileData(true);
@@ -9641,11 +9651,17 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 }
             }
         }
-        if (flagSecure != null) {
-            flagSecure.attach();
-        }
         updateItemsUsername();
         needLayout(false);
+    }
+
+    private void primeRebindList() {
+        primeResumeRefreshPending = false;
+        if (listAdapter != null) {
+            // saveScrollPosition();
+            firstLayout = true;
+            listAdapter.notifyDataSetChanged();
+        }
     }
 
     @Override
@@ -15687,8 +15703,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onBecomeFullyVisible() {
         super.onBecomeFullyVisible();
-        writeButtonSetBackground();
         fullyVisible = true;
+        if (primeResumeRefreshPending && !isPaused) {
+            primeRebindList();
+        }
+        writeButtonSetBackground();
         createBirthdayEffect();
     }
 

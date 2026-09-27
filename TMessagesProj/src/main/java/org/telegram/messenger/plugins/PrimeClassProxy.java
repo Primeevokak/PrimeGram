@@ -317,6 +317,69 @@ public final class PrimeClassProxy {
         return null;
     }
 
+    /** Constructs {@code cls} with {@code args}, for Python: a generated class reaches Python as a
+     *  {@code java.lang.Class} object, and calling that object makes Chaquopy look for a functional
+     *  interface on it ("Class is not callable") instead of running a constructor. The first
+     *  non-private constructor whose parameters accept the arguments is used; Python numbers,
+     *  which arrive boxed as whatever width Chaquopy chose, are narrowed to the parameter type. */
+    public static Object newInstance(Class<?> cls, Object[] args) throws Throwable {
+        if (args == null) {
+            args = new Object[0];
+        }
+        for (Constructor<?> constructor : cls.getDeclaredConstructors()) {
+            if (Modifier.isPrivate(constructor.getModifiers())) {
+                continue;
+            }
+            final Class<?>[] params = constructor.getParameterTypes();
+            if (params.length != args.length) {
+                continue;
+            }
+            final Object[] converted = new Object[args.length];
+            boolean fits = true;
+            for (int i = 0; i < params.length && fits; i++) {
+                converted[i] = coerce(params[i], args[i]);
+                fits = converted[i] != NO_FIT;
+            }
+            if (!fits) {
+                continue;
+            }
+            constructor.setAccessible(true);
+            try {
+                return constructor.newInstance(converted);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                throw e.getCause() != null ? e.getCause() : e;
+            }
+        }
+        throw new IllegalArgumentException("no constructor of " + cls.getName() + " accepts " + args.length + " argument(s) of these types");
+    }
+
+    private static final Object NO_FIT = new Object();
+
+    private static Object coerce(Class<?> type, Object value) {
+        if (!type.isPrimitive()) {
+            return value == null || type.isInstance(value) ? value : NO_FIT;
+        }
+        if (type == boolean.class) {
+            return value instanceof Boolean ? value : NO_FIT;
+        }
+        if (type == char.class) {
+            if (value instanceof Character) return value;
+            if (value instanceof String && ((String) value).length() == 1) return ((String) value).charAt(0);
+            return NO_FIT;
+        }
+        if (!(value instanceof Number)) {
+            return NO_FIT;
+        }
+        final Number n = (Number) value;
+        if (type == int.class) return n.intValue();
+        if (type == long.class) return n.longValue();
+        if (type == float.class) return n.floatValue();
+        if (type == double.class) return n.doubleValue();
+        if (type == short.class) return n.shortValue();
+        if (type == byte.class) return n.byteValue();
+        return NO_FIT;
+    }
+
     /** {@code cls.isInterface()}, for Python - see {@link #nameOf}. */
     public static boolean isInterface(Class<?> cls) {
         return cls.isInterface();

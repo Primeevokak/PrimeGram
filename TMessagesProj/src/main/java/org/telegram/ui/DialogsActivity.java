@@ -7615,10 +7615,14 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             blurredView.setVisibility(View.GONE);
             blurredView.setBackground(null);
         }
-        if (viewPages != null) {
-            for (int a = 0; a < viewPages.length; a++) {
-                viewPages[a].dialogsAdapter.notifyDataSetChanged();
-            }
+        // PrimeGram: as a main tab this runs on the first frame of a swipe back to Chats (and at
+        // the start of the animation back from a chat), and rebinding every row of every folder
+        // page there was the hitch felt on that swipe. The list keeps itself current while hidden
+        // (ALLOW_UPDATE_IN_BACKGROUND), so for a tab the rebind waits for the page to settle.
+        if (hasMainTabs && !primeFullyVisible) {
+            primeRebindPending = true;
+        } else {
+            primeRebindAllPages();
         }
         if (commentView != null) {
             commentView.onResume();
@@ -7933,13 +7937,30 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             blurredView.setBackground(null);
         }
         super.onBecomeFullyHidden();
+        primeFullyVisible = false;
         checkUi_mainTabsVisible();
         canShowStoryHint = true;
+    }
+
+    private boolean primeFullyVisible;
+    private boolean primeRebindPending;
+
+    private void primeRebindAllPages() {
+        primeRebindPending = false;
+        if (viewPages != null) {
+            for (int a = 0; a < viewPages.length; a++) {
+                viewPages[a].dialogsAdapter.notifyDataSetChanged();
+            }
+        }
     }
 
     @Override
     public void onBecomeFullyVisible() {
         super.onBecomeFullyVisible();
+        primeFullyVisible = true;
+        if (primeRebindPending && !isPaused) {
+            primeRebindAllPages();
+        }
         if (isArchive()) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             boolean showArchiveHint = preferences.getBoolean("archivehint", true);

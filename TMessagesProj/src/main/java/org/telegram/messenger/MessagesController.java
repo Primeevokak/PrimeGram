@@ -13486,6 +13486,11 @@ public class MessagesController extends BaseController implements NotificationCe
 
     public void processLoadedDialogs(final TLRPC.messages_Dialogs dialogsRes, ArrayList<TLRPC.EncryptedChat> encChats, ArrayList<TLRPC.UserFull> fullUsers, int folderId, int offset, int count, int loadType, boolean resetEnd, boolean migrate, boolean fromCache) {
         Utilities.stageQueue.postRunnable(() -> {
+            if (loadType == DIALOGS_LOAD_TYPE_CACHE) {
+                // Splits "handed to controller" -> "dialogsNeedReload": time waiting for the
+                // processing queue vs. time spent in here.
+                PrimeStartupTrace.mark("processLoadedDialogs (cache) started on stageQueue (account " + currentAccount + ", " + dialogsRes.dialogs.size() + " dialogs)");
+            }
             if (!firstGettingTask) {
                 getNewDeleteTask(null, null);
                 firstGettingTask = true;
@@ -13741,7 +13746,13 @@ public class MessagesController extends BaseController implements NotificationCe
             }
 
             TLRPC.Message lastMessageFinal = lastMessage;
+            if (loadType == DIALOGS_LOAD_TYPE_CACHE) {
+                PrimeStartupTrace.mark("processLoadedDialogs (cache) done on stageQueue, posting to UI (account " + currentAccount + ")");
+            }
             AndroidUtilities.runOnUIThread(() -> {
+                if (loadType == DIALOGS_LOAD_TYPE_CACHE) {
+                    PrimeStartupTrace.mark("processLoadedDialogs (cache) applying on UI (account " + currentAccount + ")");
+                }
                 if (lastMessageFinal != null) {
                     dialogsLoadedTillDate = Math.min(dialogsLoadedTillDate, lastMessageFinal.date);
                 } else {

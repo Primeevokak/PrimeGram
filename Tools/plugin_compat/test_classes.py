@@ -69,6 +69,8 @@ class PrimeClassProxy:
     @staticmethod
     def isInterface(c): return False
     @staticmethod
+    def newInstance(c, args): return c(*args)
+    @staticmethod
     def constructorSignatures(c):
         return [":".join(["<init>"] + [p.name for p in ctor]) for ctor in real(c).ctors]
     @staticmethod

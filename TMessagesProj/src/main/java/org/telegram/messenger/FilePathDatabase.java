@@ -205,10 +205,24 @@ public class FilePathDatabase {
                         }
                     }
                 }
+                // Cached here too: a UI-thread caller may have stopped waiting (below).
+                cache.putIfAbsent(key, res[0] != null ? res[0] : NULL_PATH);
                 syncLatch.countDown();
             });
             try {
-                syncLatch.await();
+                if (Thread.currentThread() == android.os.Looper.getMainLooper().getThread()) {
+                    // PrimeGram: this queue also records the path of every file being downloaded,
+                    // so while media loads a cell bind here used to wait behind that bookkeeping -
+                    // the scroll hitch seen only while media is still downloading. The UI waits a
+                    // few ms at most; a slower answer still lands in the cache for the next bind,
+                    // and meanwhile the default cache location is assumed, as for an unknown file.
+                    if (!syncLatch.await(4, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                        final String late = cache.get(key);
+                        return late == null || late == NULL_PATH ? null : late;
+                    }
+                } else {
+                    syncLatch.await();
+                }
             } catch (Exception ignore) {
             }
             if (res[0] != null) {

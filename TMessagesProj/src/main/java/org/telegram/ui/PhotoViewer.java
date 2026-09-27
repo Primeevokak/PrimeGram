@@ -917,6 +917,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
     private ActionBarMenuItem deleteItem;
     private ActionBarMenuSubItem castItem;
     private CastMediaRouteButton castItemButton;
+    private boolean primeCastSelectorSet;
     private LinearLayout itemsLayout;
     private SpeedButtonsLayout chooseSpeedLayout;
     private ChooseDownloadQualityLayout chooseDownloadQualityLayout;
@@ -5915,13 +5916,34 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                 }
             }
         };
+        // PrimeGram: the route selector (and with it CastContext) is set up when the video menu is
+        // first opened, not while the viewer is being created - see CastSync.ensureReady.
         boolean castAvailable = true;
-        try {
-            castItemButton.setRouteSelector(CastContext.getSharedInstance(activityContext).getMergedSelector());
-        } catch (Exception e) {
-            FileLog.e(e);
-            castAvailable = false;
-        }
+        videoItem.setSubMenuDelegate(new ActionBarMenuItem.ActionBarSubMenuItemDelegate() {
+            @Override
+            public void onShowSubMenu() {
+                if (primeCastSelectorSet || castItemButton == null) {
+                    return;
+                }
+                primeCastSelectorSet = true;
+                try {
+                    if (CastSync.ensureReady(activityContext)) {
+                        castItemButton.setRouteSelector(CastContext.getSharedInstance(activityContext).getMergedSelector());
+                    } else if (castItem != null) {
+                        castItem.setVisibility(View.GONE);
+                    }
+                } catch (Exception e) {
+                    FileLog.e(e);
+                    if (castItem != null) {
+                        castItem.setVisibility(View.GONE);
+                    }
+                }
+            }
+
+            @Override
+            public void onHideSubMenu() {
+            }
+        });
         castItemButton.setVisibility(View.INVISIBLE);
         if (castAvailable) {
             castItem = videoItem.addSubItem(gallery_menu_chromecast, R.drawable.menu_video_chromecast, getString(R.string.VideoPlayerChromecast));
@@ -8592,7 +8614,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         videoItem.toggleSubMenu();
         try {
             CastSync.check(CastSync.TYPE_PHOTOVIEWER);
-            if (ChromecastController.getInstance().isCasting()) {
+            if (ChromecastController.isCastingNow()) {
                 ChromecastController.getInstance().setCurrentMediaAndCastIfNeeded(getCurrentChromecastMedia());
             }
             if (videoPlayer != null) {
@@ -8804,7 +8826,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         if (lastQualityIndexSelected != qualityIndexSelected) {
             try {
                 CastSync.check(CastSync.TYPE_PHOTOVIEWER);
-                if (ChromecastController.getInstance().isCasting()) {
+                if (ChromecastController.isCastingNow()) {
                     ChromecastController.getInstance().setCurrentMediaAndCastIfNeeded(getCurrentChromecastMedia());
                 }
                 if (videoPlayer != null) {
@@ -14547,7 +14569,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         lastQualityIndexSelected = videoPlayer != null ? videoPlayer.getCurrentQualityIndex() : -1;
         try {
             CastSync.check(CastSync.TYPE_PHOTOVIEWER);
-            if (ChromecastController.getInstance().isCasting()) {
+            if (ChromecastController.isCastingNow()) {
                 ChromecastController.getInstance().setCurrentMediaAndCastIfNeeded(getCurrentChromecastMedia());
             }
             if (videoPlayer != null) {
@@ -19537,7 +19559,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
 
         try {
             CastSync.check(CastSync.TYPE_PHOTOVIEWER);
-            if (ChromecastController.getInstance().isCasting()) {
+            if (ChromecastController.isCastingNow()) {
                 ChromecastController.getInstance().setCurrentMediaAndCastIfNeeded(getCurrentChromecastMedia());
             }
         } catch (Exception e) {

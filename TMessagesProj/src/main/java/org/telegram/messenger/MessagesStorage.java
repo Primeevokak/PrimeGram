@@ -141,10 +141,11 @@ public class MessagesStorage extends BaseController {
             final SQLiteDatabase read = new SQLiteDatabase(file.getPath());
             read.executeFast("PRAGMA busy_timeout = 3000").stepThis().dispose();
             read.executeFast("PRAGMA temp_store = MEMORY").stepThis().dispose();
-            read.executeFast("PRAGMA cache_size = -2000").stepThis().dispose();
+            read.executeFast("PRAGMA cache_size = " + primeCacheSizePragma()).stepThis().dispose();
             if (primeUseMmap()) read.executeFast("PRAGMA mmap_size = 268435456").stepThis().dispose();
             primeReadDatabase = read;
             primeReadGeneration = generation;
+            PrimeStartupTrace.mark("MessagesStorage read connection open (account " + currentAccount + ")");
             return read;
         } catch (Throwable e) {
             FileLog.e(e);
@@ -639,6 +640,11 @@ public class MessagesStorage extends BaseController {
         }
 
         PrimeStartupTrace.mark("MessagesStorage.openDatabase end (account " + currentAccount + ")");
+        if (primeParallelReads) {
+            // Opened ahead of the first read (the cached dialog list at startup), which would
+            // otherwise pay for opening the connection itself.
+            primeGetReadQueue().postRunnable(this::primeReadDb);
+        }
         AndroidUtilities.runOnUIThread(() -> {
             //TODO add progress view and uncomment
             showClearDatabaseAlert = false;//getDatabaseSize() > 150 * 1024 * 1024;
