@@ -63,7 +63,8 @@ def _overridable_names(cls):
                 continue
             if (getattr(value, "__jnewmethod__", None) is not None
                     or getattr(value, "__joverload__", None) is not None
-                    or getattr(value, "__jpreconstructor__", None) is not None):
+                    or getattr(value, "__jpreconstructor__", None) is not None
+                    or getattr(value, "__jconstructor__", None) is not None):
                 continue
             target = getattr(value, "__joverride_target__", name)
             java_names.add(target)
@@ -722,15 +723,24 @@ def joverload(name=None, arg_types=None):
     return decorator
 
 
-def jmethod(name=None, return_type=None, arg_types=None):
+def jmethod(*signature, name=None, return_type=None, arg_types=None, modifiers="public", throws=None):
     """A new method on the generated class with no superclass method of the same signature to
     override - plain Python behaviour, reachable from Java code (including other plugins' classes)
     that only sees the generated class. ``return_type``/``arg_types`` are type strings the same way
     ``jfield``'s is; left out, they are inferred from the method's own annotations, the way
     exteraGram's docs write the example (``def f(self, value: "int") -> "java.lang.String":``).
+    The signature may also be given positionally, as exteraGram accepts it: name, return type,
+    argument type list. Bare ``@jmethod`` works as well.
     """
+    if len(signature) == 1 and getattr(signature[0], "__code__", None) is not None:
+        fn = signature[0]
+        fn.__jnewmethod__ = (None, None, None)
+        return fn
+    pos_name, pos_return, pos_types = _split_signature(signature)
+    final = (name or pos_name, return_type or pos_return, arg_types if arg_types is not None else pos_types)
+
     def decorator(fn):
-        fn.__jnewmethod__ = (name, return_type, arg_types)
+        fn.__jnewmethod__ = final
         return fn
     return decorator
 
@@ -789,13 +799,45 @@ def java_subclass(java_class, *interfaces, custom_name=None):
     return decorator
 
 
-def joverride(java_method_name=None):
-    """Marks a method as overriding ``java_method_name`` on the Java side (the method's own name,
-    if not given) - for when the Python name has to differ, most often because it collides with a
-    Python builtin or keyword the Java method's name is not (``equals_`` for ``equals``, and so
-    on). ``extends`` reads this when it decides what to override and how to route calls back."""
+def _split_signature(signature):
+    """exteraGram's decorators take their Java signature positionally, loosely: a method name
+    string, then optionally the argument types as a list/tuple (and for jmethod a return type
+    string before them). Returns (name, return_type, arg_types)."""
+    name = return_type = arg_types = None
+    for part in signature:
+        if isinstance(part, (list, tuple)):
+            arg_types = list(part)
+        elif isinstance(part, str):
+            if name is None:
+                name = part
+            elif return_type is None:
+                return_type = part
+        elif part is not None:
+            # a Java class given as a type: the argument list written without brackets
+            arg_types = (arg_types or []) + [part]
+    return name, return_type, arg_types
+
+
+def joverride(*signature, arg_types=None, modifiers="public", throws=None, name=None):
+    """Marks a method as overriding a Java method: its own name by default, or the name given
+    (``@joverride("equals")`` on an ``equals_``), for when the Python name has to differ. Given
+    argument types too - ``@joverride("getItemOffsets", ["android.graphics.Rect", ...])`` - it
+    overrides only that overload, exactly like ``joverload``. Bare ``@joverride`` works as well.
+    ``modifiers``/``throws`` are accepted for exteraGram's signature; the generated method is always
+    public and declares nothing."""
+    if len(signature) == 1 and callable(signature[0]) and not isinstance(signature[0], str)             and getattr(signature[0], "__code__", None) is not None and arg_types is None and name is None:
+        fn = signature[0]
+        fn.__joverride_target__ = fn.__name__
+        return fn
+    java_name, _, positional_types = _split_signature(signature)
+    java_name = name or java_name
+    types = arg_types if arg_types is not None else positional_types
+
     def decorator(fn):
-        fn.__joverride_target__ = java_method_name or fn.__name__
+        if types is not None:
+            fn.__joverload__ = (java_name or fn.__name__, list(types))
+        else:
+            fn.__joverride_target__ = java_name or fn.__name__
         return fn
     return decorator
 

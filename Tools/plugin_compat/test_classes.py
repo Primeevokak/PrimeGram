@@ -162,6 +162,31 @@ Ordered.new_java_instance()
 print(calls)
 print("peer body ran:", getattr(inst, "prime_peer", None) or [v for v in vars(inst).values()][0].ready)
 
+from extera_utils.classes import joverride, jmethod
+RECT = reg(JClass("android.graphics.Rect")); STATE = reg(JClass("androidx.recyclerview.widget.RecyclerView$State"))
+DECO = reg(JClass("androidx.recyclerview.widget.RecyclerView$ItemDecoration", ctors=[[]]))
+captured = {}
+_orig_create = PrimeClassProxy.createProxyClassFull
+def _spy(sup, interfaces, methods, fields, mvel, new_methods, overloads, pre, handler):
+    captured["methods"] = list(methods); captured["overloads"] = len(overloads)
+    return _orig_create(sup, interfaces, methods, fields, mvel, new_methods, overloads, pre, handler)
+PrimeClassProxy.createProxyClassFull = staticmethod(_spy)
+@java_subclass(proxy(DECO))
+class Spacing(Base):
+    @joverride("getItemOffsets", ["android.graphics.Rect", "android.view.View", "androidx.recyclerview.widget.RecyclerView$State"])
+    def offsets(self, rect, view, state): pass
+    @joverride("onDraw")
+    def draw_it(self, c): pass
+    @joverride()
+    def onDrawOver(self, c): pass
+    @joverride
+    def getOffsets(self): pass
+    @jmethod("helper", "int", ["int"])
+    def helper(self, x): return x
+assert captured["overloads"] == 1, captured
+assert set(captured["methods"]) == {"onDraw", "onDrawOver", "getOffsets"}, captured
+PrimeClassProxy.createProxyClassFull = staticmethod(_orig_create)
+
 assert calls == [("PageViewHolder", "the-view"), ("Sheet", "ctx", True), ("Bg",), ("PlatformSheet", "ctx", False),
                  ("NestedDots", 3), "__init__", "hook", "post"], calls
 print("OK")
