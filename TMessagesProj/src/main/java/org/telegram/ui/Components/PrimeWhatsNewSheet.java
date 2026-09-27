@@ -139,7 +139,10 @@ public class PrimeWhatsNewSheet {
         final ScrollView scroll = new ScrollView(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                final int cap = (int) (AndroidUtilities.displaySize.y * 0.58f);
+                // Everything between the header and the button: the sheet may take most of the
+                // screen, and a fixed fraction left the list cramped over empty space.
+                final int cap = Math.max(dp(160), (int) (AndroidUtilities.displaySize.y * 0.92f)
+                        - header.getMeasuredHeight() - dp(68) - AndroidUtilities.statusBarHeight);
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST));
             }
         };
@@ -321,7 +324,7 @@ public class PrimeWhatsNewSheet {
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
         titleView.setTypeface(AndroidUtilities.bold());
         titleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText, rp));
-        titleView.setText(entry.action != null ? entry.title + "  ›" : entry.title);
+        titleView.setText(entry.title);
         texts.addView(titleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         final TextView textView = new TextView(context);
@@ -332,7 +335,14 @@ public class PrimeWhatsNewSheet {
         texts.addView(textView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 2, 0, 0));
 
         container.addView(texts, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
-                Gravity.LEFT | Gravity.TOP, 52, 0, 0, 0));
+                Gravity.LEFT | Gravity.TOP, 52, 0, entry.action != null ? 28 : 0, 0));
+        if (entry.action != null) {
+            final ImageView chevron = new ImageView(context);
+            chevron.setImageResource(R.drawable.arrow_more);
+            chevron.setRotation(-90f);
+            chevron.setColorFilter(new PorterDuffColorFilter(section.color, PorterDuff.Mode.SRC_IN));
+            container.addView(chevron, LayoutHelper.createFrame(22, 22, Gravity.RIGHT | Gravity.CENTER_VERTICAL));
+        }
         return container;
     }
 

@@ -1498,6 +1498,14 @@ public class LocaleController {
     }
 
     private String getStringInternal(String key, String fallback, int res) {
+        // PrimeGram: the app's name is ours everywhere. Telegram's downloaded language packs carry
+        // their own AppName / AppNameLauncher = "Telegram", which replaced it as soon as a pack
+        // loaded - in the main title, dialog titles, notifications. Only emergency mode, where the
+        // app has to pass for a stock client, answers "Telegram".
+        if (res == R.string.AppName || res == R.string.AppNameLauncher
+                || "AppName".equals(key) || "AppNameLauncher".equals(key)) {
+            return PrimeDecoyState.isActive() ? "Telegram" : "PrimeGram";
+        }
         final String value = getStringV2(key, res, fallback);
         if (value == null) {
             return "LOC_ERR:" + key;

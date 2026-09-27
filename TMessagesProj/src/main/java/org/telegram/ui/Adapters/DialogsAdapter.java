@@ -546,7 +546,12 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
 
     boolean isCalculatingDiff;
     boolean updateListPending;
-    private final static boolean ALLOW_UPDATE_IN_BACKGROUND = BuildVars.DEBUG_PRIVATE_VERSION;
+    // PrimeGram: on in release. Telegram shipped the background diff for debug builds only; the
+    // hazard it had is fixed below - updateItemList() also changes onlineContacts, dialogsCount,
+    // hasChatlistHint and isEmpty, which fixPosition() and binding read by position, and those used
+    // to switch to the new list's values while the screen still showed the old list. They are now
+    // held back and applied together with the list itself.
+    private final static boolean ALLOW_UPDATE_IN_BACKGROUND = true;
 
     public void updateList(Runnable saveScrollPosition) {
         if (isCalculatingDiff) {
@@ -556,9 +561,23 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
         isCalculatingDiff = true;
         oldItems = new ArrayList<>();
         oldItems.addAll(itemInternals);
+        final ArrayList<TLRPC.TL_contact> oldOnlineContacts = onlineContacts;
+        final int oldDialogsCount = dialogsCount;
+        final boolean oldHasChatlistHint = hasChatlistHint;
+        final boolean oldIsEmpty = isEmpty;
         updateItemList();
         ArrayList<ItemInternal> newItems = new ArrayList<>(itemInternals);
         itemInternals = oldItems;
+        final ArrayList<TLRPC.TL_contact> newOnlineContacts = onlineContacts;
+        final int newDialogsCount = dialogsCount;
+        final boolean newHasChatlistHint = hasChatlistHint;
+        final boolean newIsEmpty = isEmpty;
+        final Runnable applyNewState = () -> {
+            onlineContacts = newOnlineContacts;
+            dialogsCount = newDialogsCount;
+            hasChatlistHint = newHasChatlistHint;
+            isEmpty = newIsEmpty;
+        };
 
         DiffUtil.Callback callback = new DiffUtil.Callback() {
             @Override
@@ -588,8 +607,14 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
                 saveScrollPosition.run();
             }
             itemInternals = newItems;
+            applyNewState.run();
             result.dispatchUpdatesTo(this);
         } else {
+            // Until the diff lands, the adapter keeps describing what is on screen.
+            onlineContacts = oldOnlineContacts;
+            dialogsCount = oldDialogsCount;
+            hasChatlistHint = oldHasChatlistHint;
+            isEmpty = oldIsEmpty;
             Utilities.searchQueue.postRunnable(() -> {
                 DiffUtil.DiffResult result = DiffUtil.calculateDiff(callback);
                 AndroidUtilities.runOnUIThread(() -> {
@@ -601,6 +626,7 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
                         saveScrollPosition.run();
                     }
                     itemInternals = newItems;
+                    applyNewState.run();
                     result.dispatchUpdatesTo(this);
                     if (updateListPending) {
                         updateListPending = false;
@@ -618,6 +644,8 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
             itemInternals = new ArrayList<>();
         }
         isCalculatingDiff = false;
+        // A full rebuild from current data supersedes any update queued behind a running diff.
+        updateListPending = false;
         updateItemList();
         super.notifyDataSetChanged();
     }
@@ -1804,7 +1832,12 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
                 }
             }
 
-            if (communityId == 0 && !forceShowEmptyCell && dialogsType != 7 && dialogsType != 8 && !MessagesController.getInstance(currentAccount).isDialogsEndReached(folderId)) {
+            // PrimeGram: inside a local archive folder the list is a filter over the Archive; the
+            // Archive still paging in behind it is not something this view is waiting on, so no
+            // "loading" row under chats that are already all there.
+            final boolean primeLocalFolder = parentFragment != null && parentFragment.primeLocalArchiveFolderSelected();
+            if (communityId == 0 && !forceShowEmptyCell && dialogsType != 7 && dialogsType != 8 && !primeLocalFolder
+                    && !MessagesController.getInstance(currentAccount).isDialogsEndReached(folderId)) {
                 if (dialogsCount != 0) {
                     itemInternals.add(new ItemInternal(VIEW_TYPE_FLICKER));
                 }

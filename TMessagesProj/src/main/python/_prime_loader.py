@@ -538,7 +538,9 @@ def _row_to_dict(index, row):
             if isinstance(value, (list, tuple)):
                 value = [str(item) for item in value]
             data[name] = value
-    data["clickable"] = getattr(row, "on_click", None) is not None
+    factory = getattr(row, "factory", None)
+    data["clickable"] = getattr(row, "on_click", None) is not None or (
+        factory is not None and _is_java_setting_factory(factory) and _factory_clickable(factory))
     data["long_clickable"] = getattr(row, "on_long_click", None) is not None
     data["has_sub_fragment"] = getattr(row, "create_sub_fragment", None) is not None
     return data
@@ -623,9 +625,67 @@ def build_custom_view(plugin_id, path, index):
         return None
     from org.telegram.messenger import ApplicationLoader
     context = ApplicationLoader.applicationContext
+    if _is_java_setting_factory(factory):
+        return _build_java_factory_view(plugin_id, row, factory, context, index)
     build = getattr(factory, "create", factory)
     try:
         return build(context, getattr(row, "factory_args", None))
+    except Exception:
+        log("plugin %s: фабрика настройки #%s упала при создании view:\n%s" %
+            (plugin_id, index, traceback.format_exc()))
+        return None
+
+
+_JAVA_FACTORY_CLASS = None
+
+
+def _factory_clickable(factory):
+    try:
+        return bool(factory.isClickable())
+    except Exception:
+        return False
+
+
+def _is_java_setting_factory(obj):
+    """A plugin's own subclass of exteraGram's CustomSetting.Factory (made with java_subclass)."""
+    global _JAVA_FACTORY_CLASS
+    try:
+        if _JAVA_FACTORY_CLASS is None:
+            from java import jclass
+            _JAVA_FACTORY_CLASS = jclass("com.exteragram.messenger.plugins.models.CustomSetting$Factory")
+        return isinstance(obj, _JAVA_FACTORY_CLASS)
+    except Exception:
+        return False
+
+
+def _exteragram_plugin(plugin_id):
+    try:
+        from com.exteragram.messenger.plugins import PluginsController
+        return PluginsController.getInstance().getPlugins().get(plugin_id)
+    except Exception:
+        return None
+
+
+def _build_java_factory_view(plugin_id, row, factory, context, index):
+    """exteraGram's order for a factory row: register it, ask it for the row's item (create), then
+    build and bind the view. The item is kept on the row so a click can hand it back."""
+    from com.exteragram.messenger.plugins.models import CustomSetting
+    from org.telegram.ui.Components import UItem
+    from org.telegram.messenger import UserConfig
+    try:
+        CustomSetting.register(factory)
+        setting = CustomSetting(factory, getattr(row, "factory_args", None), None, None, None, None)
+        plugin = _exteragram_plugin(plugin_id)
+        item = factory.create(plugin, setting, getattr(row, "factory_args", None))
+        if item is None:
+            item = UItem.ofFactory(factory.getClass())
+        item.settingItem = setting
+        view = factory.createView(context, None, UserConfig.selectedAccount, 0, None)
+        if view is not None:
+            factory.bindView(view, item, False, None, None)
+        row._prime_java_item = item
+        row._prime_java_view = view
+        return view
     except Exception:
         log("plugin %s: фабрика настройки #%s упала при создании view:\n%s" %
             (plugin_id, index, traceback.format_exc()))
@@ -654,6 +714,14 @@ def on_setting_changed(plugin_id, path, index, value_json):
 def on_setting_clicked(plugin_id, path, index):
     row = _row(plugin_id, path, index)
     if row is None:
+        return
+    factory = getattr(row, "factory", None)
+    if factory is not None and _is_java_setting_factory(factory) and getattr(row, "on_click", None) is None:
+        try:
+            factory.onClick(_exteragram_plugin(plugin_id), getattr(row, "_prime_java_item", None),
+                            getattr(row, "_prime_java_view", None))
+        except Exception:
+            log("plugin %s factory onClick failed:\n%s" % (plugin_id, traceback.format_exc()))
         return
     handler = getattr(row, "on_click", None)
     if handler is None:

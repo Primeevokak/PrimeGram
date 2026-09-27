@@ -327,6 +327,166 @@ public final class PrimePerfMonitor {
         }
     }
 
+    // ---- notification storms and long UI-thread tasks ----
+    //
+    // The UI should only ever draw; everything it waits on or computes for someone else is a leak
+    // across the UI / processing boundary. These two tallies name the leaks: which notifications
+    // cost the main thread the most (and in which observer), and which posted tasks ran longer
+    // than a frame's budget.
+    private static final java.util.Map<String, long[]> notificationCost = new java.util.HashMap<>(); // {count, ns}
+    private static final java.util.Map<Integer, Integer> notificationCount = new java.util.HashMap<>();
+    private static android.util.SparseArray<String> notificationNames;
+    private static final java.util.Map<String, long[]> longTasks = new java.util.HashMap<>(); // {count, ns, maxNs}
+    private static final long LONG_TASK_NS = 8_000_000L;
+    private static long taskStartNs;
+    private static String taskLabel;
+
+    private static synchronized String notificationName(int id) {
+        if (notificationNames == null) {
+            notificationNames = new android.util.SparseArray<>();
+            for (java.lang.reflect.Field f : NotificationCenter.class.getFields()) {
+                try {
+                    if (f.getType() == int.class && java.lang.reflect.Modifier.isStatic(f.getModifiers())
+                            && notificationNames.get(f.getInt(null)) == null && !f.getName().equals("totalEvents")) {
+                        notificationNames.put(f.getInt(null), f.getName());
+                    }
+                } catch (Throwable ignore) {
+                }
+            }
+        }
+        final String name = notificationNames.get(id);
+        return name != null ? name : ("#" + id);
+    }
+
+    private static String shortClassName(Object o) {
+        if (o == null) {
+            return "?";
+        }
+        final String name = o.getClass().getName();
+        final String trimmed = name.startsWith("org.telegram.") ? name.substring(13) : name.substring(name.lastIndexOf('.') + 1);
+        final int synthetic = trimmed.indexOf("$$");
+        return synthetic > 0 ? trimmed.substring(0, synthetic) : trimmed;
+    }
+
+    public static void noteNotification(int id, Object observer, long ns) {
+        final String key = notificationName(id) + " -> " + shortClassName(observer);
+        synchronized (PrimePerfMonitor.class) {
+            final long[] c = notificationCost.get(key);
+            if (c == null) {
+                notificationCost.put(key, new long[]{1, ns});
+            } else {
+                c[0]++;
+                c[1] += ns;
+            }
+            notificationCount.merge(id, 1, Integer::sum);
+        }
+    }
+
+    /** Looper's own message log, parsed only for its start/end markers. Installed on the main
+     *  looper while monitoring and removed after; costs one string per message meanwhile. */
+    private static final android.util.Printer looperPrinter = line -> {
+        if (line.startsWith(">>>>>")) {
+            taskStartNs = System.nanoTime();
+            taskLabel = line;
+        } else if (line.startsWith("<<<<<") && taskLabel != null) {
+            final long ns = System.nanoTime() - taskStartNs;
+            if (ns >= LONG_TASK_NS) {
+                final String key = taskKey(taskLabel);
+                synchronized (PrimePerfMonitor.class) {
+                    final long[] c = longTasks.get(key);
+                    if (c == null) {
+                        longTasks.put(key, new long[]{1, ns, ns});
+                    } else {
+                        c[0]++;
+                        c[1] += ns;
+                        c[2] = Math.max(c[2], ns);
+                    }
+                }
+            }
+            taskLabel = null;
+        }
+    };
+
+    /** ">>>>> Dispatching to Handler (x.y.H) {hash} x.y.Callback@1f: 0" -> "H: Callback". */
+    private static String taskKey(String line) {
+        String handler = "?";
+        final int open = line.indexOf('(');
+        final int close = open < 0 ? -1 : line.indexOf(')', open + 1);
+        if (close > open) {
+            handler = line.substring(open + 1, close);
+            handler = handler.substring(handler.lastIndexOf('.') + 1);
+        }
+        String callback = "";
+        final int brace = line.indexOf('}', Math.max(close, 0));
+        if (brace > 0) {
+            String rest = line.substring(brace + 1).trim();
+            final int at = rest.indexOf('@');
+            if (at > 0) {
+                rest = rest.substring(0, at);
+            } else {
+                final int colon = rest.lastIndexOf(':');
+                if (colon > 0) {
+                    rest = rest.substring(0, colon);
+                }
+            }
+            if (!rest.isEmpty() && !rest.equals("null")) {
+                callback = rest.startsWith("org.telegram.") ? rest.substring(13) : rest.substring(rest.lastIndexOf('.') + 1);
+                final int synthetic = callback.indexOf("$$");
+                if (synthetic > 0) {
+                    callback = callback.substring(0, synthetic) + " (лямбда)";
+                }
+            }
+        }
+        if (callback.contains("FrameDisplayEventReceiver")) {
+            return "кадр (измерение/раскладка/отрисовка)";
+        }
+        return callback.isEmpty() ? handler : handler + ": " + callback;
+    }
+
+    private static void appendBoundaryLines(long elapsedMs) {
+        final double seconds = elapsedMs / 1000.0;
+        if (!longTasks.isEmpty()) {
+            final java.util.List<java.util.Map.Entry<String, long[]>> sorted = new java.util.ArrayList<>(longTasks.entrySet());
+            sorted.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+            long totalNs = 0;
+            long total = 0;
+            for (java.util.Map.Entry<String, long[]> e : sorted) {
+                totalNs += e.getValue()[1];
+                total += e.getValue()[0];
+            }
+            appendLine(String.format(Locale.US, "    долгие задачи UI (>8мс): %d шт, %.0fмс", total, totalNs / 1e6));
+            for (int i = 0; i < Math.min(4, sorted.size()); i++) {
+                final long[] c = sorted.get(i).getValue();
+                appendLine(String.format(Locale.US, "      %s x%d, всего %.0fмс, макс %.0fмс", sorted.get(i).getKey(), c[0], c[1] / 1e6, c[2] / 1e6));
+            }
+        }
+        if (!notificationCost.isEmpty()) {
+            final java.util.List<java.util.Map.Entry<String, long[]>> sorted = new java.util.ArrayList<>(notificationCost.entrySet());
+            sorted.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+            final StringBuilder sb = new StringBuilder("    уведомления, дороже всего:");
+            int shown = 0;
+            for (java.util.Map.Entry<String, long[]> e : sorted) {
+                final double ms = e.getValue()[1] / 1e6;
+                if (ms < 1 || shown >= 5) {
+                    break;
+                }
+                sb.append(shown == 0 ? " " : "; ").append(e.getKey()).append(String.format(Locale.US, " x%d %.1fмс", e.getValue()[0], ms));
+                shown++;
+            }
+            if (shown > 0) {
+                appendLine(sb.toString());
+            }
+            final java.util.List<java.util.Map.Entry<Integer, Integer>> counts = new java.util.ArrayList<>(notificationCount.entrySet());
+            counts.sort((a, b) -> b.getValue() - a.getValue());
+            final StringBuilder cb = new StringBuilder("    уведомления, чаще всего (/сек):");
+            for (int i = 0; i < Math.min(5, counts.size()); i++) {
+                cb.append(i == 0 ? " " : ", ").append(notificationName(counts.get(i).getKey()))
+                        .append(String.format(Locale.US, " %.0f", counts.get(i).getValue() / seconds));
+            }
+            appendLine(cb.toString());
+        }
+    }
+
     private static void appendInclusiveLines() {
         if (hotSpotSamples <= 0 || inclusive.isEmpty()) {
             return;
@@ -443,6 +603,7 @@ public final class PrimePerfMonitor {
         }
         samplerRunning = true;
         trackingInvalidates = true;
+        Looper.getMainLooper().setMessageLogging(looperPrinter);
         samplerThread = new Thread(() -> {
             while (samplerRunning) {
                 try {
@@ -486,6 +647,7 @@ public final class PrimePerfMonitor {
         }
         samplerRunning = false;
         trackingInvalidates = false;
+        Looper.getMainLooper().setMessageLogging(null);
         if (samplerThread != null) {
             samplerThread.interrupt();
             samplerThread = null;
@@ -508,6 +670,9 @@ public final class PrimePerfMonitor {
         cellInvalidates = 0;
         cellDraws = 0;
         invalidators.clear();
+        notificationCost.clear();
+        notificationCount.clear();
+        longTasks.clear();
     }
 
     private static synchronized void flush() {
@@ -562,6 +727,7 @@ public final class PrimePerfMonitor {
         appendHotSpotLines();
         appendInclusiveLines();
         appendInvalidateLines(elapsedMs);
+        appendBoundaryLines(elapsedMs);
 
         resetWindow();
     }

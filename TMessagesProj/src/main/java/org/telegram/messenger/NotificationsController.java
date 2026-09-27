@@ -4264,7 +4264,8 @@ public class NotificationsController extends BaseController implements Notificat
                     // PrimeGram: AppName is deliberately kept as "Telegram" for protocol/service
                     // accuracy elsewhere (see strings.xml's own comment) - this is the app's own
                     // notification title, which should say the fork's name, not Telegram's.
-                    name = LocaleController.getString(R.string.AppNameLauncher);
+                    // App resources, not the downloaded language pack (which says "Telegram").
+                    name = PrimeDecoyState.isActive() ? "Telegram" : ApplicationLoader.applicationContext.getString(R.string.AppNameLauncher);
                 }
                 replace = false;
             } else {

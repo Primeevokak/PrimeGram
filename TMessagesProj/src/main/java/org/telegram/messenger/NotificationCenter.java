@@ -642,7 +642,7 @@ public class NotificationCenter {
         }
         if (shouldDebounce(id, args) && BuildVars.DEBUG_VERSION) {
             postNotificationDebounced(id, args);
-        } else {
+        } else if (!primeCoalesceUpdateInterfaces(id, allowDuringAnimation, args)) {
             postNotificationNameInternal(id, allowDuringAnimation, args);
         }
 
@@ -652,6 +652,50 @@ public class NotificationCenter {
             }
         }
     }
+
+    // region PrimeGram: one updateInterfaces per frame
+    //
+    // updateInterfaces is posted for every status, typing, avatar, read-state change - dozens a
+    // second in a busy account - and every open screen re-walks its visible rows for each one.
+    // Telegram debounces it only in debug builds. Here every post within one frame is merged into
+    // a single delivery just before the next frame: the masks are OR-ed (observers test bits, so
+    // the union asks for exactly the work the separate posts asked for), nothing is dropped, and
+    // the delay is at most one frame. The UI does the work once per frame instead of once per event.
+    public static boolean primeCoalesceEnabled = true;
+    private int primePendingMask;
+    private boolean primePendingAllowDuringAnimation;
+    private boolean primeFlushScheduled;
+    private boolean primeFlushing;
+
+    private boolean primeCoalesceUpdateInterfaces(int id, boolean allowDuringAnimation, Object[] args) {
+        if (id != updateInterfaces || !primeCoalesceEnabled || primeFlushing
+                || args == null || args.length != 1 || !(args[0] instanceof Integer)
+                || android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            return false;
+        }
+        primePendingMask |= (Integer) args[0];
+        primePendingAllowDuringAnimation |= allowDuringAnimation;
+        if (!primeFlushScheduled) {
+            primeFlushScheduled = true;
+            android.view.Choreographer.getInstance().postFrameCallback(frameTimeNanos -> primeFlushUpdateInterfaces());
+        }
+        return true;
+    }
+
+    private void primeFlushUpdateInterfaces() {
+        primeFlushScheduled = false;
+        final int mask = primePendingMask;
+        final boolean allow = primePendingAllowDuringAnimation;
+        primePendingMask = 0;
+        primePendingAllowDuringAnimation = false;
+        primeFlushing = true;
+        try {
+            postNotificationNameInternal(updateInterfaces, allow, mask);
+        } finally {
+            primeFlushing = false;
+        }
+    }
+    // endregion
 
     SparseArray<Runnable> alreadyPostedRunnubles = new SparseArray<>();
 
@@ -696,9 +740,18 @@ public class NotificationCenter {
         broadcasting++;
         ArrayList<NotificationCenterDelegate> objects = observers.get(id);
         if (objects != null && !objects.isEmpty()) {
+            // PrimeGram: with the performance monitor on, each observer's handling time is
+            // attributed to (notification, observer) - which event storms cost the UI thread most.
+            final boolean primeTrack = PrimePerfMonitor.trackingInvalidates;
             for (int a = 0; a < objects.size(); a++) {
                 NotificationCenterDelegate obj = objects.get(a);
-                obj.didReceivedNotification(id, currentAccount, args);
+                if (primeTrack) {
+                    final long t0 = System.nanoTime();
+                    obj.didReceivedNotification(id, currentAccount, args);
+                    PrimePerfMonitor.noteNotification(id, obj, System.nanoTime() - t0);
+                } else {
+                    obj.didReceivedNotification(id, currentAccount, args);
+                }
             }
         }
         broadcasting--;

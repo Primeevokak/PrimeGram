@@ -523,6 +523,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     public FilterTabsView filterTabsView;
     /** PrimeGram: which local archive folder (see PrimeArchiveFolders) is selected, 0 = "Все". */
     private int primeSelectedArchiveFolderId;
+
+    /** A local archive folder is showing - a filtered view, not the paged Archive list. */
+    public boolean primeLocalArchiveFolderSelected() {
+        return isArchive() && primeSelectedArchiveFolderId != 0;
+    }
     // PrimeGram: getDialogsArray()'s local-archive-folder filter used to allocate a new ArrayList
     // and do a full linear scan on EVERY call - including from checkListLoad(), which runs on
     // every scroll tick, up to twice per tick. The filtered set only actually changes when the
@@ -3163,7 +3168,12 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             // "Telegram" as an ImageSpan - PrimeGram has no equivalent wordmark art, and a
             // hand-drawn vector logotype would look worse than just naming the app, so this is
             // plain text instead of a fabricated logo image.
-            titleText = getString(R.string.AppNameLauncher);
+            // Read from the app's own resources, not through LocaleController: a language pack
+            // downloaded from Telegram's servers carries its own "AppNameLauncher" = "Telegram",
+            // which replaced ours as soon as it loaded. "Telegram" belongs to emergency mode only,
+            // where the app must pass for a stock client.
+            titleText = org.telegram.messenger.PrimeDecoyState.isActive()
+                    ? "Telegram" : ApplicationLoader.applicationContext.getString(R.string.AppNameLauncher);
         }
         actionBar.setTitle(titleText, statusDrawable);
         updateStatus(selfUser, false);
@@ -3194,7 +3204,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 org.telegram.messenger.PrimeArchiveFolders.getInstance(currentAccount).getFolders();
         final int currentId = filterTabsView.isEmpty() ? 0 : filterTabsView.getCurrentTabId();
         filterTabsView.removeTabs();
-        filterTabsView.addTab(0, 0, LocaleController.getString(R.string.FilterAllChats), false, true, false);
+        // The first tab is the whole Archive, not "All chats" - it lists archived chats only.
+        filterTabsView.addTab(0, 0, "Все архивы", false, true, false);
         for (org.telegram.messenger.PrimeArchiveFolders.Folder folder : folders) {
             filterTabsView.addTab(folder.id, folder.id, folder.name, false, false, false);
         }
@@ -4165,6 +4176,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 public void onPageSelected(FilterTabsView.Tab tab, boolean forward) {
                     primeSelectedArchiveFolderId = tab.isDefault ? 0 : tab.id;
                     viewPages[0].dialogsAdapter.notifyDataSetChanged();
+                    // A local folder is a filter over the Archive: members not paged in yet would
+                    // be missing from it. Pull the rest of the Archive in now, quietly - the
+                    // folder's rows show at once and later arrivals simply join them.
+                    if (primeSelectedArchiveFolderId != 0 && (!getMessagesController().isDialogsEndReached(1)
+                            || !getMessagesController().isServerDialogsEndReached(1))) {
+                        getMessagesController().loadDialogs(1, -1, 100, !getMessagesController().isDialogsEndReached(1));
+                    }
                 }
 
                 @Override
