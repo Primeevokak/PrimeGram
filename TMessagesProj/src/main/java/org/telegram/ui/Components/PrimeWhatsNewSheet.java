@@ -141,8 +141,10 @@ public class PrimeWhatsNewSheet {
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 // Everything between the header and the button: the sheet may take most of the
                 // screen, and a fixed fraction left the list cramped over empty space.
-                final int cap = Math.max(dp(160), (int) (AndroidUtilities.displaySize.y * 0.92f)
-                        - header.getMeasuredHeight() - dp(68) - AndroidUtilities.statusBarHeight);
+                // The whole usable height minus the header, the button row and the sheet's own
+                // top padding - the button sits at the bottom, the list takes everything else.
+                final int cap = Math.max(dp(160), AndroidUtilities.displaySize.y
+                        - header.getMeasuredHeight() - dp(68) - dp(16));
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST));
             }
         };

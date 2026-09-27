@@ -48936,6 +48936,11 @@ public class ChatActivity extends BaseFragment implements
      *  the "⋮" popup. */
     private static final long BLUR_MIN_INTERVAL_MS = 32;
     private long lastBlurInvalidateMs;
+    private boolean primeBlurTrailingPosted;
+    private final Runnable primeBlurTrailing = () -> {
+        primeBlurTrailingPosted = false;
+        invalidateMergedVisibleBlurredPositionsAndSourcesImpl(0);
+    };
 
     private void invalidateMergedVisibleBlurredPositionsAndSourcesImpl(int flags) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null) {
@@ -48953,6 +48958,12 @@ public class ChatActivity extends BaseFragment implements
 
         final long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastBlurInvalidateMs < BLUR_MIN_INTERVAL_MS) {
+            // PrimeGram: a trailing capture, so the glass lands on where scrolling stopped rather
+            // than resting on whichever frame last passed the throttle.
+            if (!primeBlurTrailingPosted && contentView != null) {
+                primeBlurTrailingPosted = true;
+                contentView.postDelayed(primeBlurTrailing, BLUR_MIN_INTERVAL_MS - (now - lastBlurInvalidateMs));
+            }
             return;
         }
         lastBlurInvalidateMs = now;

@@ -437,7 +437,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         @Override
         public void setTranslationY(float translationY) {
             if (getTranslationY() != translationY) {
-                blur3_InvalidateBlur();
+                blur3_InvalidateBlurThrottled();
             }
             super.setTranslationY(translationY);
         }
@@ -452,7 +452,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                         filterTabsView.selectTabWithId(viewPages[1].selectedType, scrollProgress);
                     }
                 }
-                blur3_InvalidateBlur();
+                blur3_InvalidateBlurThrottled();
             }
         }
 
@@ -910,10 +910,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
         private Rect blurBounds = new Rect();
 
-        /** See the comment in {@link #dispatchDraw} - throttles how often the live glass/blur
-         *  backdrop actually re-renders, independent of how often this view itself draws. */
-        private static final long BLUR3_MIN_INTERVAL_MS = 32;
-        private long lastBlur3InvalidateMs;
 
         @Override
         protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
@@ -995,11 +991,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 // and was the main-thread/GPU backpressure a popup window's synchronous
                 // WindowManager relayout call was stalling behind - see the "⋮ tapped mid-scroll"
                 // investigation this fixes.
-                final long now = android.os.SystemClock.elapsedRealtime();
-                if (now - lastBlur3InvalidateMs >= BLUR3_MIN_INTERVAL_MS) {
-                    lastBlur3InvalidateMs = now;
-                    blur3_InvalidateBlur();
-                }
+                blur3_InvalidateBlurThrottled();
             }
 
             if (invalidateScrollY && (rightSlidingDialogContainer == null || !rightSlidingDialogContainer.hasFragment()) && progressToActionMode == 0) {
@@ -5027,7 +5019,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                         }
                     }
                     if (fragmentView != null) {
-                        blur3_InvalidateBlur();
+                        blur3_InvalidateBlurThrottled();
                     }
                     if (rightSlidingDialogContainer != null && rightSlidingDialogContainer.hasFragment() && viewPage.listView != null) {
                         viewPage.listView.invalidate();
@@ -14974,6 +14966,35 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private final RectF iBlur3PositionMainTabs = new RectF(); {
         iBlur3Positions.add(iBlur3PositionActionBar);
         iBlur3Positions.add(iBlur3PositionMainTabs);
+    }
+
+    // PrimeGram: one cadence for every high-frequency caller of blur3_InvalidateBlur - scrolling,
+    // page drags and the content view's own draw. Each call re-captures the dialogs list into a
+    // RenderNode and rebuilds the GPU blur chain; the throttle in dispatchDraw alone was bypassed by
+    // onScrolled, which invalidated on every scroll step, so a fling rebuilt the glass every frame
+    // (8-14% of the main thread in measured scroll logs). ~30 updates a second is not visibly
+    // different behind frosted glass; a trailing update lands the glass on the final position when
+    // motion stops, so it never rests on an in-between frame. One-off state changes still call
+    // blur3_InvalidateBlur directly.
+    private static final long PRIME_BLUR_MIN_INTERVAL_MS = 32;
+    private long primeBlurLastMs;
+    private boolean primeBlurTrailingPosted;
+    private final Runnable primeBlurTrailing = () -> {
+        primeBlurTrailingPosted = false;
+        primeBlurLastMs = android.os.SystemClock.elapsedRealtime();
+        blur3_InvalidateBlur();
+    };
+
+    private void blur3_InvalidateBlurThrottled() {
+        final long now = android.os.SystemClock.elapsedRealtime();
+        final long since = now - primeBlurLastMs;
+        if (since >= PRIME_BLUR_MIN_INTERVAL_MS) {
+            primeBlurLastMs = now;
+            blur3_InvalidateBlur();
+        } else if (!primeBlurTrailingPosted && fragmentView != null) {
+            primeBlurTrailingPosted = true;
+            fragmentView.postDelayed(primeBlurTrailing, PRIME_BLUR_MIN_INTERVAL_MS - since);
+        }
     }
 
     private void blur3_InvalidateBlur() {
