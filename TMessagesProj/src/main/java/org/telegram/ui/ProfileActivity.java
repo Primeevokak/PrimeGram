@@ -2170,7 +2170,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             currentChat = getMessagesController().getChat(chatId);
             if (currentChat == null) {
                 final CountDownLatch countDownLatch = new CountDownLatch(1);
-                getMessagesStorage().getStorageQueue().postRunnable(() -> {
+                getMessagesStorage().getReadQueue().postRunnable(() -> {
                     currentChat = getMessagesStorage().getChat(chatId);
                     countDownLatch.countDown();
                 });

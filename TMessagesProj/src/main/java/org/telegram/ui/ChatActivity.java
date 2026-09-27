@@ -2798,7 +2798,7 @@ public class ChatActivity extends BaseFragment implements
             if (currentChat == null) {
                 final CountDownLatch countDownLatch = new CountDownLatch(1);
                 final MessagesStorage messagesStorage = getMessagesStorage();
-                messagesStorage.getStorageQueue().postRunnable(() -> {
+                messagesStorage.getReadQueue().postRunnable(() -> {
                     currentChat = messagesStorage.getChat(chatId);
                     countDownLatch.countDown();
                 });
@@ -2836,7 +2836,7 @@ public class ChatActivity extends BaseFragment implements
             if (currentUser == null) {
                 final MessagesStorage messagesStorage = getMessagesStorage();
                 final CountDownLatch countDownLatch = new CountDownLatch(1);
-                messagesStorage.getStorageQueue().postRunnable(() -> {
+                messagesStorage.getReadQueue().postRunnable(() -> {
                     currentUser = messagesStorage.getUser(userId);
                     countDownLatch.countDown();
                 });
@@ -2871,7 +2871,7 @@ public class ChatActivity extends BaseFragment implements
             final MessagesStorage messagesStorage = getMessagesStorage();
             if (currentEncryptedChat == null) {
                 final CountDownLatch countDownLatch = new CountDownLatch(1);
-                messagesStorage.getStorageQueue().postRunnable(() -> {
+                messagesStorage.getReadQueue().postRunnable(() -> {
                     currentEncryptedChat = messagesStorage.getEncryptedChat(encId);
                     countDownLatch.countDown();
                 });
@@ -2889,7 +2889,7 @@ public class ChatActivity extends BaseFragment implements
             currentUser = getMessagesController().getUser(currentEncryptedChat.user_id);
             if (currentUser == null) {
                 final CountDownLatch countDownLatch = new CountDownLatch(1);
-                messagesStorage.getStorageQueue().postRunnable(() -> {
+                messagesStorage.getReadQueue().postRunnable(() -> {
                     currentUser = messagesStorage.getUser(currentEncryptedChat.user_id);
                     countDownLatch.countDown();
                 });

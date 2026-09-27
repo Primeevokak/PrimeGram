@@ -4583,7 +4583,7 @@ public class MediaDataController extends BaseController {
     }
 
     private void getMediaCountDatabase(long dialogId, long topicId, int type, int classGuid) {
-        getMessagesStorage().getStorageQueue().postRunnable(() -> {
+        getMessagesStorage().getReadQueue().postRunnable(() -> {
             try {
                 int count = -1;
                 int old = 0;
@@ -4878,7 +4878,8 @@ public class MediaDataController extends BaseController {
             }
         };
         MessagesStorage messagesStorage = getMessagesStorage();
-        messagesStorage.getStorageQueue().postRunnable(runnable);
+        // PrimeGram: shared media is a read; it no longer waits behind queued writes.
+        messagesStorage.getReadQueue().postRunnable(runnable);
         messagesStorage.bindTaskToGuid(runnable, classGuid);
     }
 

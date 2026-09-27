@@ -467,8 +467,12 @@ public class MessagesStorage extends BaseController {
         if (arrayList == null) {
             return;
         }
+        final DispatchQueue readQueue = primeReadQueue;
         for (int a = 0, N = arrayList.size(); a < N; a++) {
             storageQueue.cancelRunnable(arrayList.get(a));
+            if (readQueue != null) {
+                readQueue.cancelRunnable(arrayList.get(a)); // bound reads may live on the read queue
+            }
         }
         tasks.remove(guid);
     }
@@ -18677,10 +18681,20 @@ public class MessagesStorage extends BaseController {
         return pts[0];
     }
 
+    /** Where to post a read that must not wait behind queued writes (see primeReadQueue). */
+    public DispatchQueue getReadQueue() {
+        return primeParallelReads ? primeGetReadQueue() : storageQueue;
+    }
+
     public TLRPC.User getUserSync(long userId) {
+        if (primeOnReadThread()) {
+            return getUser(userId);
+        }
         CountDownLatch countDownLatch = new CountDownLatch(1);
         TLRPC.User[] user = new TLRPC.User[1];
-        storageQueue.postRunnable(() -> {
+        // PrimeGram: the read queue - the caller (usually a screen being opened on the UI thread)
+        // waits only for this lookup, not for every write queued ahead of it.
+        getReadQueue().postRunnable(() -> {
             user[0] = getUser(userId);
             countDownLatch.countDown();
         });
@@ -18693,9 +18707,12 @@ public class MessagesStorage extends BaseController {
     }
 
     public TLRPC.Chat getChatSync(long chatId) {
+        if (primeOnReadThread()) {
+            return getChat(chatId);
+        }
         CountDownLatch countDownLatch = new CountDownLatch(1);
         TLRPC.Chat[] chat = new TLRPC.Chat[1];
-        storageQueue.postRunnable(() -> {
+        getReadQueue().postRunnable(() -> {
             chat[0] = getChat(chatId);
             countDownLatch.countDown();
         });

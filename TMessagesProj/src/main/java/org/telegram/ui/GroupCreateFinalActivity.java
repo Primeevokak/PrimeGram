@@ -166,7 +166,7 @@ public class GroupCreateFinalActivity extends BaseFragment implements Notificati
         if (!usersToLoad.isEmpty()) {
             final CountDownLatch countDownLatch = new CountDownLatch(1);
             final ArrayList<TLRPC.User> users = new ArrayList<>();
-            MessagesStorage.getInstance(currentAccount).getStorageQueue().postRunnable(() -> {
+            MessagesStorage.getInstance(currentAccount).getReadQueue().postRunnable(() -> {
                 users.addAll(MessagesStorage.getInstance(currentAccount).getUsers(usersToLoad));
                 countDownLatch.countDown();
             });
