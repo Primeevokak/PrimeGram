@@ -620,7 +620,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                         SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                         SharedPreferences.Editor editor = preferences.edit();
                         editor.clear();
-                        editor.commit();
+                        editor.apply();
                         exceptionChats.clear();
                         exceptionUsers.clear();
                         adapter.notifyDataSetChanged();
@@ -643,39 +643,39 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableInAppSounds", true);
                 editor.putBoolean("EnableInAppSounds", !enabled);
-                editor.commit();
+                editor.apply();
             } else if (position == inappVibrateRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableInAppVibrate", true);
                 editor.putBoolean("EnableInAppVibrate", !enabled);
-                editor.commit();
+                editor.apply();
             } else if (position == inappPreviewRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableInAppPreview", true);
                 editor.putBoolean("EnableInAppPreview", !enabled);
-                editor.commit();
+                editor.apply();
             } else if (position == inchatSoundRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableInChatSound", true);
                 editor.putBoolean("EnableInChatSound", !enabled);
-                editor.commit();
+                editor.apply();
                 getNotificationsController().setInChatSoundEnabled(!enabled);
             } else if (position == inappPriorityRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableInAppPopup", true);
                 editor.putBoolean("EnableInAppPopup", !enabled);
-                editor.commit();
+                editor.apply();
             } else if (position == contactJoinedRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableContactJoined", true);
                 MessagesController.getInstance(currentAccount).enableJoined = !enabled;
                 editor.putBoolean("EnableContactJoined", !enabled);
-                editor.commit();
+                editor.apply();
                 TL_account.setContactSignUpNotification req = new TL_account.setContactSignUpNotification();
                 req.silent = enabled;
                 ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
@@ -686,27 +686,27 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableAllStories", true);
                 editor.putBoolean("EnableAllStories", !enabled);
-                editor.commit();
+                editor.apply();
                 getNotificationsController().updateServerNotificationsSettings(NotificationsController.TYPE_PRIVATE);
             } */else if (position == pinnedMessageRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("PinnedMessages", true);
                 editor.putBoolean("PinnedMessages", !enabled);
-                editor.commit();
+                editor.apply();
             } else if (position == androidAutoAlertRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = preferences.getBoolean("EnableAutoNotifications", false);
                 editor.putBoolean("EnableAutoNotifications", !enabled);
-                editor.commit();
+                editor.apply();
             } else if (position == badgeNumberShowRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 SharedPreferences.Editor editor = preferences.edit();
                 enabled = getNotificationsController().showBadgeNumber;
                 getNotificationsController().showBadgeNumber = !enabled;
                 editor.putBoolean("badgeNumber", getNotificationsController().showBadgeNumber);
-                editor.commit();
+                editor.apply();
                 getNotificationsController().updateBadge();
             } else if (position == badgeNumberMutedRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
@@ -714,7 +714,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 enabled = getNotificationsController().showBadgeMuted;
                 getNotificationsController().showBadgeMuted = !enabled;
                 editor.putBoolean("badgeNumberMuted", getNotificationsController().showBadgeMuted);
-                editor.commit();
+                editor.apply();
                 getNotificationsController().updateBadge();
                 getMessagesStorage().updateMutedDialogsFiltersCounters();
             } else if (position == badgeNumberMessagesRow) {
@@ -723,14 +723,14 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 enabled = getNotificationsController().showBadgeMessages;
                 getNotificationsController().showBadgeMessages = !enabled;
                 editor.putBoolean("badgeNumberMessages", getNotificationsController().showBadgeMessages);
-                editor.commit();
+                editor.apply();
                 getNotificationsController().updateBadge();
             } else if (position == notificationsServiceConnectionRow) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                 enabled = preferences.getBoolean("pushConnection", true);
                 SharedPreferences.Editor editor = preferences.edit();
                 editor.putBoolean("pushConnection", !enabled);
-                editor.commit();
+                editor.apply();
                 if (!enabled) {
                     ConnectionsManager.getInstance(currentAccount).setPushConnectionEnabled(true);
                 } else {
@@ -741,7 +741,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 enabled = preferences.getBoolean("AllAccounts", true);
                 SharedPreferences.Editor editor = preferences.edit();
                 editor.putBoolean("AllAccounts", !enabled);
-                editor.commit();
+                editor.apply();
                 SharedConfig.showNotificationsForAllAccounts = !enabled;
                 for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
                     if (SharedConfig.showNotificationsForAllAccounts) {
@@ -759,7 +759,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 enabled = preferences.getBoolean("pushService", getMessagesController().keepAliveService);
                 SharedPreferences.Editor editor = preferences.edit();
                 editor.putBoolean("pushService", !enabled);
-                editor.commit();
+                editor.apply();
                 ApplicationLoader.startPushService();
             } else if (position == callsVibrateRow) {
                 if (getParentActivity() == null) {
@@ -800,7 +800,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                         minutes = 60 * 4;
                     }
                     SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-                    preferences.edit().putInt("repeat_messages", minutes).commit();
+                    preferences.edit().putInt("repeat_messages", minutes).apply();
                     updateRepeatNotifications = true;
                     adapter.notifyItemChanged(position);
                 });
@@ -853,7 +853,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 }
                 updateRingtone = true;
             }
-            editor.commit();
+            editor.apply();
             adapter.notifyItemChanged(requestCode);
         }
     }

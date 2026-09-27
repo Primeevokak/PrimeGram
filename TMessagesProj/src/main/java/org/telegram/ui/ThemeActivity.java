@@ -466,7 +466,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             SharedPreferences.Editor editor = preferences.edit();
             editor.putInt("bubbleRadius", SharedConfig.bubbleRadius);
-            editor.commit();
+            editor.apply();
 
             RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(textSizeRow);
             if (holder != null && holder.itemView instanceof TextSizeCell) {
@@ -505,7 +505,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
             }
             SharedPreferences.Editor editor = preferences.edit();
             editor.putInt("fons_size", SharedConfig.fontSize);
-            editor.commit();
+            editor.apply();
 
             Theme.createCommonMessageResources();
 
@@ -1109,7 +1109,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                 SharedPreferences.Editor editor = preferences.edit();
                 editor.putBoolean("view_animations", !animations);
                 SharedConfig.setAnimationsEnabled(!animations);
-                editor.commit();
+                editor.apply();
                 if (view instanceof TextCheckCell) {
                     ((TextCheckCell) view).setChecked(!animations);
                 }
@@ -1122,7 +1122,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                 boolean send = preferences.getBoolean("send_by_enter", false);
                 SharedPreferences.Editor editor = preferences.edit();
                 editor.putBoolean("send_by_enter", !send);
-                editor.commit();
+                editor.apply();
                 if (view instanceof TextCheckCell) {
                     ((TextCheckCell) view).setChecked(!send);
                 }
@@ -1363,7 +1363,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                     SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                     SharedPreferences.Editor editor = preferences.edit();
                     editor.putInt("sortContactsBy", which);
-                    editor.commit();
+                    editor.apply();
                     if (listAdapter != null) {
                         listAdapter.notifyItemChanged(position);
                     }

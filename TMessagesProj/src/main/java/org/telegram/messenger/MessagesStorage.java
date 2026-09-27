@@ -17496,7 +17496,7 @@ public class MessagesStorage extends BaseController {
         } else {
             draftsDialogIds = null;
         }
-        storageQueue.postRunnable(() -> {
+        final Runnable primeRead = () -> {
             // Reached the front of the storage queue: the gap from the "enqueued" mark above is
             // pure queue wait, which is the thing to measure when four accounts share it.
             PrimeStartupTrace.mark("MessagesStorage.getDialogs started (account " + currentAccount + ")");
@@ -17820,7 +17820,16 @@ public class MessagesStorage extends BaseController {
                     cursor.dispose();
                 }
             }
-        });
+        };
+        if (primeParallelReads) {
+            // PrimeGram: the cache pages of the list depend on the writes queued before this call,
+            // so storageQueue is only passed through - once everything queued ahead has been
+            // written, the read itself moves to the read connection. Writes queued after it no
+            // longer wait for a long dialogs query, and it no longer waits for them.
+            storageQueue.postRunnable(() -> primeGetReadQueue().postRunnable(primeRead));
+        } else {
+            storageQueue.postRunnable(primeRead);
+        }
     }
 
     public static void createFirstHoles(long did, SQLitePreparedStatement state5, SQLitePreparedStatement state6, int messageId, long topicId) throws Exception {

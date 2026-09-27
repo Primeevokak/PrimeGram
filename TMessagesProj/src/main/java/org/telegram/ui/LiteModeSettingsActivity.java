@@ -145,7 +145,7 @@ public class LiteModeSettingsActivity extends BaseFragment {
                     SharedPreferences.Editor editor = preferences.edit();
                     editor.putBoolean("view_animations", !animations);
                     SharedConfig.setAnimationsEnabled(!animations);
-                    editor.commit();
+                    editor.apply();
                     ((TextCell) view).setChecked(!animations);
                 }
             }

@@ -69,6 +69,7 @@ public class ReplyMessageLine {
     public final AnimatedFloat color2Alpha;
     public final AnimatedFloat color3Alpha;
     public final AnimatedFloat emojiLoadedT;
+    private boolean primeEmojiFreshBind;
     public final AnimatedFloat loadingStateT;
     public final AnimatedFloat switchStateT;
 
@@ -209,6 +210,7 @@ public class ReplyMessageLine {
         if (emoji != null) {
             if (emoji.set(emojiDocumentId, true)) {
                 emojiLoaded = false;
+                primeEmojiFreshBind = true;
             }
         }
         emojiColor = nameColor;
@@ -465,6 +467,7 @@ public class ReplyMessageLine {
         if (emoji != null) {
             if (emoji.set(emojiDocumentId, true)) {
                 emojiLoaded = false;
+                primeEmojiFreshBind = true;
             }
         }
         if (sticker != null) {
@@ -493,6 +496,7 @@ public class ReplyMessageLine {
         if (emoji != null) {
             if (emoji.set(emojiDocumentId, true)) {
                 emojiLoaded = false;
+                primeEmojiFreshBind = true;
             }
         }
         emojiColor = getColor();
@@ -689,7 +693,17 @@ public class ReplyMessageLine {
         }
 
         if (emoji != null) {
-            final float loadedScale = emojiLoadedT.set(isEmojiLoaded());
+            // PrimeGram: the pattern fades in over 440ms, redrawing the whole message cell every
+            // frame of it. A cell rebound while scrolling nearly always finds its pattern already in
+            // memory; then it is simply shown. Only a pattern that is really still loading fades in.
+            final boolean primeLoaded = isEmojiLoaded();
+            if (primeEmojiFreshBind) {
+                primeEmojiFreshBind = false;
+                if (primeLoaded) {
+                    emojiLoadedT.set(1f, true);
+                }
+            }
+            final float loadedScale = emojiLoadedT.set(primeLoaded);
 
             if (loadedScale > 0 && emojiAlpha > 0) {
                 if (iconCoords == null) {

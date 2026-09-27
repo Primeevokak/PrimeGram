@@ -1810,7 +1810,7 @@ public class VideoPlayer implements Player.Listener, VideoListener, AnalyticsLis
                 if (cause.toString().contains("av1") || cause.toString().contains("av01")) {
                     FileLog.e(error);
                     FileLog.e("av1 codec failed, we think this codec is not supported");
-                    MessagesController.getGlobalMainSettings().edit().putBoolean("unsupport_video/av01", true).commit();
+                    MessagesController.getGlobalMainSettings().edit().putBoolean("unsupport_video/av01", true).apply();
                     if (cachedSupportedCodec != null) {
                         cachedSupportedCodec.clear();
                     }

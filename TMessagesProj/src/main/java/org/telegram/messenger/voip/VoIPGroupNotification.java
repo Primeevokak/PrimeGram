@@ -205,7 +205,7 @@ public class VoIPGroupNotification {
                 }
                 nm.deleteNotificationChannel("incoming_calls4" + chanIndex);
                 chanIndex++;
-                nprefs.edit().putInt("calls_notification_channel", chanIndex).commit();
+                nprefs.edit().putInt("calls_notification_channel", chanIndex).apply();
             } else {
                 needCreate = false;
             }

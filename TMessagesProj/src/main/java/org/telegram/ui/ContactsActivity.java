@@ -710,7 +710,7 @@ public class ContactsActivity extends BaseFragment implements FactorAnimator.Tar
                                 presentFragment(new ChannelCreateActivity(args));
                             } else {
                                 presentFragment(new ActionIntroActivity(ActionIntroActivity.ACTION_TYPE_CHANNEL_CREATE));
-                                preferences.edit().putBoolean("channel_intro", true).commit();
+                                preferences.edit().putBoolean("channel_intro", true).apply();
                             }
                         }
                     }
@@ -1288,7 +1288,7 @@ public class ContactsActivity extends BaseFragment implements FactorAnimator.Tar
         }
         if (alert && askAboutContacts) {
             AlertDialog.Builder builder = AlertsCreator.createContactsPermissionDialog(activity, param -> {
-                MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askAboutContacts2", false).commit();
+                MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askAboutContacts2", false).apply();
                 NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.contactsPermissionBadgeCheck);
                 askAboutContacts = param != 0;
                 if (param == 0) {

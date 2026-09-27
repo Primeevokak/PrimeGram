@@ -115,6 +115,7 @@ import org.telegram.messenger.DocumentObject;
 import org.telegram.messenger.DownloadController;
 import org.telegram.messenger.Emoji;
 import org.telegram.messenger.FileLoader;
+import org.telegram.messenger.PrimeFileExistence;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.FlagSecureReason;
 import org.telegram.messenger.ImageLoader;
@@ -6273,7 +6274,19 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             );
         } else if (currentMessageObject != null && photoNotSet) {
             File cacheFile = FileLoader.getInstance(currentAccount).getPathToMessage(currentMessageObject.messageOwner);
-            return cacheFile.exists();
+            // PrimeGram: answered from memory; an unknown file is checked off the UI thread and the
+            // cell rebuilt if it turns out to be there.
+            final Boolean known = PrimeFileExistence.peek(cacheFile);
+            if (known != null) {
+                return known;
+            }
+            final MessageObject expected = currentMessageObject;
+            PrimeFileExistence.check(cacheFile, () -> {
+                if (currentMessageObject == expected && photoNotSet) {
+                    forceResetMessageObject();
+                }
+            });
+            return false;
         }
         return false;
     }

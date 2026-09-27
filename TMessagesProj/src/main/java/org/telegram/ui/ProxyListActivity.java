@@ -536,7 +536,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                         if (!useProxySettings) {
                             SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
                             SharedConfig.currentProxy.settings.toSharedPreferences(editor);
-                            editor.commit();
+                            editor.apply();
                         }
                     } else {
                         presentFragment(new ProxySettingsActivity());
@@ -553,7 +553,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
 
                 SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
                 editor.putBoolean("proxy_enabled", useProxySettings);
-                editor.commit();
+                editor.apply();
 
                 ConnectionsManager.setProxySettings(useProxySettings, SharedConfig.currentProxy.settings);
                 NotificationCenter.getGlobalInstance().removeObserver(ProxyListActivity.this, NotificationCenter.proxySettingsChanged);
@@ -584,7 +584,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
                 info.settings.toSharedPreferences(editor);
                 editor.putBoolean("proxy_enabled", useProxySettings);
-                editor.commit();
+                editor.apply();
                 SharedConfig.currentProxy = info;
                 for (int a = proxyStartRow; a < proxyEndRow; a++) {
                     RecyclerListView.Holder holder = (RecyclerListView.Holder) listView.findViewHolderForAdapterPosition(a);

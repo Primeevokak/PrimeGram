@@ -1696,7 +1696,7 @@ public class PrivacyControlActivity extends BaseFragment implements Notification
                 builder.setTitle(LocaleController.getString(R.string.AppName));
                 builder.setPositiveButton(LocaleController.getString(R.string.OK), (dialogInterface, i) -> {
                     applyCurrentPrivacySettings();
-                    preferences.edit().putBoolean("privacyAlertShowed", true).commit();
+                    preferences.edit().putBoolean("privacyAlertShowed", true).apply();
                 });
                 builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
                 showDialog(builder.create());

@@ -2230,7 +2230,7 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
         }, e -> {
             if (e != null && "INVITE_REQUEST_SENT".equals(e.text)) {
                 SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-                preferences.edit().putLong("dialog_join_requested_time_" + -chatId, System.currentTimeMillis()).commit();
+                preferences.edit().putLong("dialog_join_requested_time_" + -chatId, System.currentTimeMillis()).apply();
                 JoinGroupAlert.showBulletin(getContext(), this, ChatObject.isChannelAndNotMegaGroup(getCurrentChat()));
                 updateChatInfo(true);
                 return false;

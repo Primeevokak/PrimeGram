@@ -4892,7 +4892,7 @@ public class AndroidUtilities {
             SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
             editor.putBoolean("proxy_enabled", true);
             settings.toSharedPreferences(editor);
-            editor.commit();
+            editor.apply();
 
             final SharedConfig.ProxyInfo info = new SharedConfig.ProxyInfo(settings);
             SharedConfig.currentProxy = SharedConfig.addProxy(info);

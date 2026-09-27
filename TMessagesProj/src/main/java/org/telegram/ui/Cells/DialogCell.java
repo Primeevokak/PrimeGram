@@ -3249,7 +3249,59 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
         return update(mask, true);
     }
 
+    // PrimeGram: after every change to the dialogs list the list asks every visible cell for a full
+    // update(0) - avatar setImage, buildLayout, the lot - although a new message usually changes one
+    // row. The state a full update reads is summarised here; a cell whose summary did not change since
+    // its last full update has nothing to rebuild. Folders, forums, topics, communities and custom
+    // cells read more than this covers and always update.
+    private Object[] primeUpdateSignature;
+
+    private Object[] primeComputeUpdateSignature() {
+        if (customDialog != null || !isDialogCell || isTopic || currentDialogFolderId != 0 || currentDialogCommunityId != 0 || isForumCell()) {
+            return null;
+        }
+        final MessagesController controller = MessagesController.getInstance(currentAccount);
+        final TLRPC.Dialog dialog = controller.dialogs_dict.get(currentDialogId);
+        if (dialog == null || dialog instanceof TLRPC.TL_dialogFolder || dialog instanceof TLRPC.TL_dialogCommunity) {
+            return null;
+        }
+        final TLRPC.Chat localChat = currentDialogId < 0 ? controller.getChat(-currentDialogId) : null;
+        if (localChat != null && (localChat.forum || localChat.monoforum)) {
+            return null;
+        }
+        final TLRPC.User localUser = currentDialogId > 0 ? controller.getUser(currentDialogId) : null;
+        final ArrayList<MessageObject> messages = controller.dialogMessage.get(currentDialogId);
+        final MessageObject m = messages != null && !messages.isEmpty() ? messages.get(0) : null;
+        return new Object[] {
+            currentDialogId, dialog,
+            dialog.top_message, dialog.unread_count, dialog.unread_mentions_count, dialog.unread_reactions_count,
+            dialog.unread_poll_votes_count, dialog.read_inbox_max_id, dialog.read_outbox_max_id, dialog.pinned,
+            dialog.folder_id, dialog.last_message_date, dialog.unread_mark, dialog.ttl_period,
+            messages, messages != null ? messages.size() : 0,
+            m, m != null ? m.getId() : 0, m != null ? m.messageOwner : null, m != null ? m.messageText : null,
+            m != null && m.messageOwner != null ? m.messageOwner.edit_date : 0,
+            m != null && m.messageOwner != null ? m.messageOwner.send_state : 0,
+            m != null && m.isUnread(), m != null && m.messageOwner != null ? m.messageOwner.reactions : null,
+            localUser, localUser != null ? localUser.status : null, localUser != null && localUser.status != null ? localUser.status.expires : 0,
+            localChat, localChat != null && localChat.call_active, localChat != null && localChat.call_not_empty,
+            controller.isDialogMuted(currentDialogId, 0), controller.isClearingDialog(currentDialogId),
+            MediaDataController.getInstance(currentAccount).getDraft(currentDialogId, 0),
+            controller.getPrintingString(currentDialogId, 0, true),
+            getMeasuredWidth(), Theme.getActiveTheme(), LocaleController.getInstance().getCurrentLocaleInfo()
+        };
+    }
+
+    /** The list's mass refresh: a full update only when something this cell shows changed. */
+    public boolean primeUpdateIfChanged(boolean animated) {
+        final Object[] signature = primeComputeUpdateSignature();
+        if (signature != null && primeUpdateSignature != null && java.util.Arrays.equals(signature, primeUpdateSignature)) {
+            return false;
+        }
+        return update(0, animated);
+    }
+
     public boolean update(int mask, boolean animated) {
+        primeUpdateSignature = mask == 0 ? primeComputeUpdateSignature() : null;
         boolean requestLayout = false;
         boolean rebuildLayout = false;
         boolean invalidate = false;

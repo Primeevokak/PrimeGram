@@ -368,6 +368,22 @@ public final class PrimePerfMonitor {
         return synthetic > 0 ? trimmed.substring(0, synthetic) : trimmed;
     }
 
+    private static final java.util.Map<String, long[]> updateSections = new java.util.HashMap<>(); // {count, ns, max}
+
+    /** Time spent applying one kind of incoming update on the UI thread. */
+    public static void noteUpdateSection(String key, long ns) {
+        synchronized (PrimePerfMonitor.class) {
+            final long[] c = updateSections.get(key);
+            if (c == null) {
+                updateSections.put(key, new long[]{1, ns, ns});
+            } else {
+                c[0]++;
+                c[1] += ns;
+                c[2] = Math.max(c[2], ns);
+            }
+        }
+    }
+
     public static void noteNotification(int id, Object observer, long ns) {
         final String key = notificationName(id) + " -> " + shortClassName(observer);
         synchronized (PrimePerfMonitor.class) {
@@ -458,6 +474,23 @@ public final class PrimePerfMonitor {
             for (int i = 0; i < Math.min(4, sorted.size()); i++) {
                 final long[] c = sorted.get(i).getValue();
                 appendLine(String.format(Locale.US, "      %s x%d, всего %.0fмс, макс %.0fмс", sorted.get(i).getKey(), c[0], c[1] / 1e6, c[2] / 1e6));
+            }
+        }
+        if (!updateSections.isEmpty()) {
+            final java.util.List<java.util.Map.Entry<String, long[]>> sorted = new java.util.ArrayList<>(updateSections.entrySet());
+            sorted.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+            final StringBuilder sb = new StringBuilder("    обновления на UI, дороже всего:");
+            int shown = 0;
+            for (java.util.Map.Entry<String, long[]> e : sorted) {
+                final double ms = e.getValue()[1] / 1e6;
+                if (ms < 0.5 || shown >= 6) {
+                    break;
+                }
+                sb.append(shown == 0 ? " " : "; ").append(e.getKey()).append(String.format(Locale.US, " x%d %.1fмс (макс %.1f)", e.getValue()[0], ms, e.getValue()[2] / 1e6));
+                shown++;
+            }
+            if (shown > 0) {
+                appendLine(sb.toString());
             }
         }
         if (!notificationCost.isEmpty()) {
@@ -671,6 +704,7 @@ public final class PrimePerfMonitor {
         cellDraws = 0;
         invalidators.clear();
         notificationCost.clear();
+        updateSections.clear();
         notificationCount.clear();
         longTasks.clear();
     }

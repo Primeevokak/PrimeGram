@@ -585,7 +585,7 @@ public class MediaDataController extends BaseController {
             attachMenuBots = bots;
             menuBotsUpdateHash = hash;
         }
-        getMessagesController().getMainSettings().edit().putInt("menuBotsUpdateDate", menuBotsUpdateDate = date).commit();
+        getMessagesController().getMainSettings().edit().putInt("menuBotsUpdateDate", menuBotsUpdateDate = date).apply();
         menuBotsUpdatedLocal = true;
         boolean forceReload = false;
         if (bots != null) {
@@ -2609,7 +2609,7 @@ public class MediaDataController extends BaseController {
                     TLRPC.TL_messages_archivedStickers res = (TLRPC.TL_messages_archivedStickers) response;
                     archivedStickersCount[type] = res.count;
                     SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-                    preferences.edit().putInt("archivedStickersCount" + type, res.count).commit();
+                    preferences.edit().putInt("archivedStickersCount" + type, res.count).apply();
                     getNotificationCenter().postNotificationName(NotificationCenter.archivedStickersCountDidLoad, type);
                 }
             }));
@@ -5015,7 +5015,7 @@ public class MediaDataController extends BaseController {
             try {
                 if (SharedConfig.directShareHash == null) {
                     SharedConfig.directShareHash = UUID.randomUUID().toString();
-                    ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE).edit().putString("directShareHash2", SharedConfig.directShareHash).commit();
+                    ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE).edit().putString("directShareHash2", SharedConfig.directShareHash).apply();
                 }
 
                 ArrayList<String> shortcutsToUpdate = new ArrayList<>();
@@ -7981,9 +7981,9 @@ public class MediaDataController extends BaseController {
                 }
             }
             if (threadId == 0) {
-                draftPreferences.edit().remove("" + dialogId).remove("r_" + dialogId).commit();
+                draftPreferences.edit().remove("" + dialogId).remove("r_" + dialogId).apply();
             } else {
-                draftPreferences.edit().remove("t_" + dialogId + "_" + threadId).remove("rt_" + dialogId + "_" + threadId).commit();
+                draftPreferences.edit().remove("t_" + dialogId + "_" + threadId).remove("rt_" + dialogId + "_" + threadId).apply();
             }
             messagesController.removeDraftDialogIfNeed(dialogId);
         } else {
@@ -8044,7 +8044,7 @@ public class MediaDataController extends BaseController {
                 FileLog.e(e);
             }
         }
-        editor.commit();
+        editor.apply();
         if (fromServer && (threadId == 0 || getMessagesController().isForum(dialogId))) {
             if (draft != null && draft.reply_to != null && draft.reply_to.reply_to_msg_id != 0 && (replyToMessage == null || replyToMessage.reply_to instanceof TLRPC.TL_messageReplyHeader && replyToMessage.replyMessage == null)) {
                 final long replyDialogId = (draft.reply_to.flags & 2) != 0 ? DialogObject.getPeerDialogId(draft.reply_to.reply_to_peer_id) : dialogId;
@@ -8153,7 +8153,7 @@ public class MediaDataController extends BaseController {
                 threads2.put(threadId, message);
                 SerializedData serializedData = new SerializedData(message.getObjectSize());
                 message.serializeToStream(serializedData);
-                draftPreferences.edit().putString(threadId == 0 ? ("r_" + dialogId) : ("rt_" + dialogId + "_" + threadId), Utilities.bytesToHex(serializedData.toByteArray())).commit();
+                draftPreferences.edit().putString(threadId == 0 ? ("r_" + dialogId) : ("rt_" + dialogId + "_" + threadId), Utilities.bytesToHex(serializedData.toByteArray())).apply();
                 getNotificationCenter().postNotificationName(NotificationCenter.newDraftReceived, dialogId);
                 serializedData.cleanup();
             }
@@ -8164,7 +8164,7 @@ public class MediaDataController extends BaseController {
         drafts.clear();
         draftMessages.clear();
         draftsFolderIds.clear();
-        draftPreferences.edit().clear().commit();
+        draftPreferences.edit().clear().apply();
         if (notify) {
             getMessagesController().sortDialogs(null);
             getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
@@ -8197,11 +8197,11 @@ public class MediaDataController extends BaseController {
                 }
             }
             if (threadId == 0) {
-                draftPreferences.edit().remove("" + dialogId).remove("r_" + dialogId).commit();
+                draftPreferences.edit().remove("" + dialogId).remove("r_" + dialogId).apply();
                 getMessagesController().sortDialogs(null);
                 getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
             } else {
-                draftPreferences.edit().remove("t_" + dialogId + "_" + threadId).remove("rt_" + dialogId + "_" + threadId).commit();
+                draftPreferences.edit().remove("t_" + dialogId + "_" + threadId).remove("rt_" + dialogId + "_" + threadId).apply();
             }
         } else if (draftMessage.reply_to == null || draftMessage.reply_to.reply_to_msg_id != 0) {
             if (draftMessage.reply_to != null) {

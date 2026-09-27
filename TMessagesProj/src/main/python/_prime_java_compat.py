@@ -108,7 +108,15 @@ class _CompatLoader(Loader):
             # would.
             found = cache.get(name)
             if found is None:
-                found = type(name, (_Placeholder,), {"__module__": spec.name})
+                # A real class wins. This module is only reached when Chaquopy did not recognise
+                # the package as Java - which happens for a package none of whose classes has
+                # been loaded yet - and answering a placeholder then hid classes PrimeGram does
+                # ship (CustomSetting, HeaderSetting, ...) from every plugin that asked first.
+                try:
+                    from java import jclass
+                    found = jclass(spec.name + "." + name)
+                except Exception:
+                    found = type(name, (_Placeholder,), {"__module__": spec.name})
                 cache[name] = found
             return found
 

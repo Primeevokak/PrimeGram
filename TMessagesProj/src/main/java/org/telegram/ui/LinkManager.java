@@ -211,7 +211,7 @@ public class LinkManager {
                     presentFragment(new ChannelCreateActivity(args));
                 } else {
                     presentFragment(new ActionIntroActivity(ActionIntroActivity.ACTION_TYPE_CHANNEL_CREATE));
-                    preferences.edit().putBoolean("channel_intro", true).commit();
+                    preferences.edit().putBoolean("channel_intro", true).apply();
                 }
                 return true;
             }

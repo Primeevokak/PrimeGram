@@ -4194,7 +4194,7 @@ public class StoryRecorder implements NotificationCenter.NotificationCenterDeleg
             if (useDisplayFlashlight() && frontfaceFlashModes != null && !frontfaceFlashModes.isEmpty()) {
                 final String mode = frontfaceFlashModes.get(frontfaceFlashMode);
                 SharedPreferences sharedPreferences = ApplicationLoader.applicationContext.getSharedPreferences("camera", Activity.MODE_PRIVATE);
-                sharedPreferences.edit().putString("flashMode", mode).commit();
+                sharedPreferences.edit().putString("flashMode", mode).apply();
             }
             cameraView.switchCamera();
             saveCameraFace(cameraView.isFrontface());

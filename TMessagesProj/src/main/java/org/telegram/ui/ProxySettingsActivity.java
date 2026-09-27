@@ -237,7 +237,7 @@ public class ProxySettingsActivity extends BaseFragment {
                         currentProxyInfo.settings.toSharedPreferences(editor);
                         ConnectionsManager.setProxySettings(enabled, currentProxyInfo.settings);
                     }
-                    editor.commit();
+                    editor.apply();
 
                     NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
 

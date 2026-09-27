@@ -162,6 +162,7 @@ import org.telegram.ui.Cells.ActiveGiftAuctionsHintCell;
 import org.telegram.ui.Cells.AnimatedStatusView;
 import org.telegram.ui.Cells.ArchiveHintInnerCell;
 import org.telegram.ui.Cells.DialogCell;
+import org.telegram.ui.Cells.PrimeDialogTextWarmer;
 import org.telegram.ui.Cells.DialogsEmptyCell;
 import org.telegram.ui.Cells.DialogsHintCell;
 import org.telegram.ui.Cells.GraySectionCell;
@@ -1928,7 +1929,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                         }
                     }
                     if (updateDialogsOnNextDraw) {
-                        if (dialogCell.update(0, true)) {
+                        if (dialogCell.primeUpdateIfChanged(true)) {
                             int p = getChildAdapterPosition(dialogCell);
                             if (p >= 0) {
                                 getAdapter().notifyItemChanged(p);
@@ -2665,7 +2666,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                             boolean hintShowed = preferences.getBoolean("archivehint_l", false) || SharedConfig.archiveHidden;
                             if (!hintShowed) {
-                                preferences.edit().putBoolean("archivehint_l", true).commit();
+                                preferences.edit().putBoolean("archivehint_l", true).apply();
                             }
                             final UndoView undoView = getUndoView();
                             if (undoView != null) {
@@ -4946,6 +4947,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                                 firstVisiblePosition = position;
                             }
                         }
+                    }
+                    if (dy != 0 && firstVisiblePosition >= 0 && viewPage.dialogsAdapter != null && recyclerView.getAdapter() == viewPage.dialogsAdapter) {
+                        final ArrayList<Object> ahead = new ArrayList<>();
+                        for (int k = 1; k <= 8; k++) {
+                            final Object item = viewPage.dialogsAdapter.getItem(dy > 0 ? lastVisiblePosition + k : firstVisiblePosition - k);
+                            if (item != null) {
+                                ahead.add(item);
+                            }
+                        }
+                        PrimeDialogTextWarmer.warm(currentAccount, ahead, PrimeDialogTextWarmer.textWidth(recyclerView.getMeasuredWidth()));
                     }
                     checkListLoad(viewPage);
                     invalidateScrollY = true;
@@ -7935,10 +7946,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             final boolean isEmpty = getDialogsArray(currentAccount, initialDialogsType, folderId, false).isEmpty();
             if (showArchiveHint && isEmpty) {
                 showArchiveHint = false;
-                MessagesController.getGlobalMainSettings().edit().putBoolean("archivehint", false).commit();
+                MessagesController.getGlobalMainSettings().edit().putBoolean("archivehint", false).apply();
             }
             if (showArchiveHint) {
-                preferences.edit().putBoolean("archivehint", false).commit();
+                preferences.edit().putBoolean("archivehint", false).apply();
                 showArchiveHelp();
             }
         }
@@ -9838,7 +9849,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                 boolean hintShowed = preferences.getBoolean("archivehint_l", false) || SharedConfig.archiveHidden;
                 if (!hintShowed) {
-                    preferences.edit().putBoolean("archivehint_l", true).commit();
+                    preferences.edit().putBoolean("archivehint_l", true).apply();
                 }
                 int undoAction;
                 if (hintShowed) {
@@ -11060,7 +11071,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             if (alert) {
                 AlertDialog.Builder builder = AlertsCreator.createContactsPermissionDialog(activity, param -> {
                     askAboutContacts = param != 0;
-                    MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askAboutContacts", askAboutContacts).commit();
+                    MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askAboutContacts", askAboutContacts).apply();
                     askForPermissons(false);
                 });
                 showDialog(permissionDialog = builder.create());
@@ -11134,7 +11145,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                             AndroidUtilities.runOnUIThread(() -> getNotificationCenter().postNotificationName(NotificationCenter.forceImportContactsStart));
                             getContactsController().forceImportContacts();
                         } else {
-                            MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askAboutContacts", askAboutContacts = false).commit();
+                            MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askAboutContacts", askAboutContacts = false).apply();
                         }
                         break;
                     case Manifest.permission.WRITE_EXTERNAL_STORAGE:

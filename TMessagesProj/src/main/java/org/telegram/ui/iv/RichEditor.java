@@ -2359,10 +2359,10 @@ public class RichEditor extends BaseFragment implements NotificationCenter.Notif
         if (keyboardVisible && keyboardContentHeight > dp(50) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet()) {
             if (AndroidUtilities.displaySize.x > AndroidUtilities.displaySize.y) {
                 keyboardHeightLand = keyboardContentHeight;
-                MessagesController.getGlobalEmojiSettings().edit().putInt("kbd_height_land3", keyboardHeightLand).commit();
+                MessagesController.getGlobalEmojiSettings().edit().putInt("kbd_height_land3", keyboardHeightLand).apply();
             } else {
                 keyboardHeight = keyboardContentHeight;
-                MessagesController.getGlobalEmojiSettings().edit().putInt("kbd_height", keyboardHeight).commit();
+                MessagesController.getGlobalEmojiSettings().edit().putInt("kbd_height", keyboardHeight).apply();
             }
         }
         if (keyboardVisible && !wasKeyboardVisible && emojiViewVisible && !emojiSearchOpened) {

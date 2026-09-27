@@ -2335,7 +2335,7 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
                     MessagesController.getInstance(applyingTheme.account).saveTheme(applyingTheme, null, false, false);
                     SharedPreferences.Editor editor = ApplicationLoader.applicationContext.getSharedPreferences("themeconfig", Activity.MODE_PRIVATE).edit();
                     editor.putString("lastDayTheme", applyingTheme.getKey());
-                    editor.commit();
+                    editor.apply();
                 }
                 BaseFragment lastFragment = getParentLayout().getFragmentStack().get(Math.max(0, getParentLayout().getFragmentStack().size() - 2));
                 finishFragment();
@@ -3984,7 +3984,7 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
             if (colorType != 3) {
                 return;
             }
-            preferences.edit().putBoolean("bganimationhint", true).commit();
+            preferences.edit().putBoolean("bganimationhint", true).apply();
             animationHint.showForView(messagesCheckBoxView[0], true);
         }, 500);
     }

@@ -208,7 +208,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
     private void deleteException(NotificationsSettingsActivity.NotificationException exception, View view, int position) {
         final String key = NotificationsController.getSharedPrefKey(exception.did, 0);
         final SharedPreferences prefs = getNotificationsSettings();
-        prefs.edit().remove("stories_" + key).commit();
+        prefs.edit().remove("stories_" + key).apply();
         if (autoExceptions != null) {
             autoExceptions.remove(exception);
         }
@@ -236,7 +236,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
         exception.notify = mute ? Integer.MAX_VALUE : 0;
         if (exception.auto) {
             exception.auto = false;
-            edit.putBoolean("stories_" + key, !mute).commit();
+            edit.putBoolean("stories_" + key, !mute).apply();
             if (autoExceptions != null) {
                 autoExceptions.remove(exception);
             }
@@ -248,12 +248,12 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
             // auto = false
             // (un)mute
         } else if (isTopPeer) {
-            edit.putBoolean("stories_" + key, !mute).commit();
+            edit.putBoolean("stories_" + key, !mute).apply();
         } else if (mute ? (storiesEnabled == null || !storiesEnabled) : (storiesEnabled != null && storiesEnabled)) {
             deleteException(exception, view, position);
             return;
         } else {
-            edit.putBoolean("stories_" + key, !mute).commit();
+            edit.putBoolean("stories_" + key, !mute).apply();
         }
 
         if (view instanceof UserCell) {
@@ -759,7 +759,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                             dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
                         }
                     }
-                    editor.commit();
+                    editor.apply();
                     for (int a = 0, N = exceptions.size(); a < N; a++) {
                         NotificationsSettingsActivity.NotificationException exception = exceptions.get(a);
                         getNotificationsController().updateServerNotificationsSettings(exception.did, topicId, false);
@@ -912,7 +912,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                 if (view instanceof TextCheckCell) {
                     ((TextCheckCell) view).setChecked(storiesAuto);
                 }
-                editor.commit();
+                editor.apply();
                 if (storiesAuto != showAutoExceptions) {
                     toggleShowAutoExceptions();
                 }
@@ -940,7 +940,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                     enabled = preferences.getBoolean("EnablePreviewChannel", true);
                     editor.putBoolean("EnablePreviewChannel", !enabled);
                 }
-                editor.commit();
+                editor.apply();
                 getNotificationsController().updateServerNotificationsSettings(currentType);
                 if (view instanceof TextCheckCell) {
                     ((TextCheckCell) view).setChecked(!enabled);
@@ -1609,7 +1609,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                 }
             }
             getNotificationsController().deleteNotificationChannelGlobal(currentType);
-            editor.commit();
+            editor.apply();
             getNotificationsController().updateServerNotificationsSettings(currentType);
             RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(requestCode);
             if (holder != null) {

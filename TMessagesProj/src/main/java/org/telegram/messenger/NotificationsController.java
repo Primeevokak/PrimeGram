@@ -279,7 +279,7 @@ public class NotificationsController extends BaseController implements Notificat
                 preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
             }
             OTHER_NOTIFICATIONS_CHANNEL = "Other" + Utilities.random.nextLong();
-            preferences.edit().putString("OtherKey", OTHER_NOTIFICATIONS_CHANNEL).commit();
+            preferences.edit().putString("OtherKey", OTHER_NOTIFICATIONS_CHANNEL).apply();
         }
         if (notificationChannel == null) {
             notificationChannel = new NotificationChannel(OTHER_NOTIFICATIONS_CHANNEL, "Internal notifications", NotificationManager.IMPORTANCE_DEFAULT);
@@ -399,7 +399,7 @@ public class NotificationsController extends BaseController implements Notificat
             SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
             SharedPreferences.Editor editor = preferences.edit();
             editor.clear();
-            editor.commit();
+            editor.apply();
 
             if (Build.VERSION.SDK_INT >= 26) {
                 try {
@@ -3463,7 +3463,7 @@ public class NotificationsController extends BaseController implements Notificat
                     }
                 }
             }
-            editor.commit();
+            editor.apply();
         } catch (Exception e) {
             FileLog.e(e);
         }
@@ -3553,7 +3553,7 @@ public class NotificationsController extends BaseController implements Notificat
                 overwriteKey = "overwrite_private";
             }
             editor.remove(overwriteKey);
-            editor.commit();
+            editor.apply();
         } catch (Exception e) {
             FileLog.e(e);
         }
@@ -3588,7 +3588,7 @@ public class NotificationsController extends BaseController implements Notificat
                         editor.remove(key);
                     }
                 }
-                editor.commit();
+                editor.apply();
             } catch (Exception e) {
                 FileLog.e(e);
             }
@@ -3725,12 +3725,12 @@ public class NotificationsController extends BaseController implements Notificat
                     }
                 }
                 if (editor != null) {
-                    editor.commit();
+                    editor.apply();
                 }
             } catch (Exception e) {
                 FileLog.e(e);
             }
-            preferences.edit().putBoolean("groupsCreated5", true).commit();
+            preferences.edit().putBoolean("groupsCreated5", true).apply();
             groupsCreated = true;
         }
         if (!channelGroupsCreated) {
@@ -4022,7 +4022,7 @@ public class NotificationsController extends BaseController implements Notificat
                             edited = true;
                         }
                         if (editor != null) {
-                            editor.commit();
+                            editor.apply();
                         }
                     }
                 }
@@ -4033,7 +4033,7 @@ public class NotificationsController extends BaseController implements Notificat
         }
 
         if (edited && newSettingsHash != null) {
-            preferences.edit().putString(key, channelId).putString(key + "_s", newSettingsHash).commit();
+            preferences.edit().putString(key, channelId).putString(key + "_s", newSettingsHash).apply();
             if (BuildVars.LOGS_ENABLED) {
                 FileLog.d("change edited channel " + channelId);
             }
@@ -4099,7 +4099,7 @@ public class NotificationsController extends BaseController implements Notificat
             }
             lastNotificationChannelCreateTime = SystemClock.elapsedRealtime();
             systemNotificationManager.createNotificationChannel(notificationChannel);
-            preferences.edit().putString(key, channelId).putString(key + "_s", newSettingsHash).commit();
+            preferences.edit().putString(key, channelId).putString(key + "_s", newSettingsHash).apply();
         }
         return channelId;
     }
@@ -4825,7 +4825,7 @@ public class NotificationsController extends BaseController implements Notificat
                 editor.putString("sound_path_" + NotificationsController.getSharedPrefKey(dialogId, topicId), newSound);
                 deleteNotificationChannelInternal(dialogId, topicId, -1);
             }
-            editor.commit();
+            editor.apply();
             sound = Settings.System.DEFAULT_RINGTONE_URI;
             notificationBuilder.setChannelId(validateChannelId(dialogId, topicId, chatName, vibrationPattern, ledColor, sound, importance, isDefault, isInApp, isSilent, chatType));
             notificationManager.notify(notificationId, notificationBuilder.build());
@@ -5998,7 +5998,7 @@ public class NotificationsController extends BaseController implements Notificat
         if (dialog != null) {
             dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
         }
-        editor.commit();
+        editor.apply();
         getNotificationsController().updateServerNotificationsSettings(did, topicId,true);
     }
 
@@ -6045,7 +6045,7 @@ public class NotificationsController extends BaseController implements Notificat
                 dialog.notify_settings.mute_until = untilTime;
             }
         }
-        editor.commit();
+        editor.apply();
         updateServerNotificationsSettings(dialog_id, topicId);
     }
 
@@ -6267,7 +6267,7 @@ public class NotificationsController extends BaseController implements Notificat
     }
 
     public void setGlobalNotificationsEnabled(int type, int time) {
-        getAccountInstance().getNotificationsSettings().edit().putInt(getGlobalNotificationsKey(type), time).commit();
+        getAccountInstance().getNotificationsSettings().edit().putInt(getGlobalNotificationsKey(type), time).apply();
         updateServerNotificationsSettings(type);
         getMessagesStorage().updateMutedDialogsFiltersCounters();
         deleteNotificationChannelGlobal(type);

@@ -3622,7 +3622,7 @@ public class SelectAnimatedEmojiDialog extends FrameLayout implements Notificati
         } else if (type == TYPE_EMOJI_STATUS_CHANNEL || type == TYPE_EMOJI_STATUS_CHANNEL_TOP) {
             if (MessagesController.getInstance(account).getMainSettings().getBoolean("resetemojipacks", true)) {
                 MediaDataController.getInstance(account).loadStickers(MediaDataController.TYPE_EMOJIPACKS, false, false);
-                MessagesController.getInstance(account).getMainSettings().edit().putBoolean("resetemojipacks", false).commit();
+                MessagesController.getInstance(account).getMainSettings().edit().putBoolean("resetemojipacks", false).apply();
             }
             MediaDataController.getInstance(account).fetchEmojiStatuses(2, false);
             MediaDataController.getInstance(account).loadRestrictedStatusEmojis();

@@ -5524,7 +5524,7 @@ public class EmojiView extends FrameLayout implements
         }
         if (currentPage != newPage) {
             currentPage = newPage;
-            MessagesController.getGlobalEmojiSettings().edit().putInt("selected_page", newPage).commit();
+            MessagesController.getGlobalEmojiSettings().edit().putInt("selected_page", newPage).apply();
         }
     }
 
@@ -6906,7 +6906,7 @@ public class EmojiView extends FrameLayout implements
                         MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
                         ArrayList<TLRPC.StickerSetCovered> featured = mediaDataController.getFeaturedStickerSets();
                         if (!featured.isEmpty()) {
-                            MessagesController.getEmojiSettings(currentAccount).edit().putLong("featured_hidden", featured.get(0).set.id).commit();
+                            MessagesController.getEmojiSettings(currentAccount).edit().putLong("featured_hidden", featured.get(0).set.id).apply();
                             if (stickersGridAdapter != null) {
                                 stickersGridAdapter.notifyItemRangeRemoved(1, 2);
                             }
@@ -7288,7 +7288,7 @@ public class EmojiView extends FrameLayout implements
                             return;
                         }
                         long lastSetId = featuredEmojiSets.get(0).set.id;
-                        MessagesController.getEmojiSettings(currentAccount).edit().putLong("emoji_featured_hidden", lastSetId).commit();
+                        MessagesController.getEmojiSettings(currentAccount).edit().putLong("emoji_featured_hidden", lastSetId).apply();
                         if (emojiAdapter != null) {
                             emojiAdapter.notifyItemRangeRemoved(1, 3);
                         }

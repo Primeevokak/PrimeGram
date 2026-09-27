@@ -6307,9 +6307,9 @@ public class PassportActivity extends BaseFragment implements NotificationCenter
         req.settings.allow_app_hash = PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices();
         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
         if (req.settings.allow_app_hash) {
-            preferences.edit().putString("sms_hash", BuildVars.getSmsHash()).commit();
+            preferences.edit().putString("sms_hash", BuildVars.getSmsHash()).apply();
         } else {
-            preferences.edit().remove("sms_hash").commit();
+            preferences.edit().remove("sms_hash").apply();
         }
         if (req.settings.allow_flashcall) {
             try {

@@ -804,7 +804,7 @@ public class ArticleViewer extends IArticleViewer implements NotificationCenter.
                         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                         SharedPreferences.Editor editor = preferences.edit();
                         editor.putInt("iv_font_size", SharedConfig.ivFontSize);
-                        editor.commit();
+                        editor.apply();
                         pages[0].getAdapter().searchTextOffset.clear();
                         updatePaintSize();
                         invalidate();
@@ -2675,7 +2675,7 @@ public class ArticleViewer extends IArticleViewer implements NotificationCenter.
         }
 
         public void updatePaintFonts(int selectedFont) {
-            ApplicationLoader.applicationContext.getSharedPreferences("articles", Activity.MODE_PRIVATE).edit().putInt("font_type", selectedFont).commit();
+            ApplicationLoader.applicationContext.getSharedPreferences("articles", Activity.MODE_PRIVATE).edit().putInt("font_type", selectedFont).apply();
             Typeface typefaceNormal = selectedFont == 0 ? Typeface.DEFAULT : Typeface.SERIF;
             Typeface typefaceItalic = selectedFont == 0 ? AndroidUtilities.getTypeface("fonts/ritalic.ttf") : Typeface.create("serif", Typeface.ITALIC);
             Typeface typefaceBold = selectedFont == 0 ? AndroidUtilities.bold() : Typeface.create("serif", Typeface.BOLD);
@@ -5629,7 +5629,7 @@ public class ArticleViewer extends IArticleViewer implements NotificationCenter.
                                 pagesStack.set(0, webPage);
                             }
                             if (pagesStack.size() == 1) {
-                                ApplicationLoader.applicationContext.getSharedPreferences("articles", Activity.MODE_PRIVATE).edit().remove("article" + webPage.id).commit();
+                                ApplicationLoader.applicationContext.getSharedPreferences("articles", Activity.MODE_PRIVATE).edit().remove("article" + webPage.id).apply();
                                 updateInterfaceForCurrentPage(webPage, false, openingAbove ? 1 : 0);
                                 if (anchorFinal != null) {
                                     scrollToAnchor(anchorFinal, false);
@@ -5868,7 +5868,7 @@ public class ArticleViewer extends IArticleViewer implements NotificationCenter.
             }
             SharedPreferences.Editor editor = ApplicationLoader.applicationContext.getSharedPreferences("articles", Activity.MODE_PRIVATE).edit();
             String key = "article" + pages[0].adapter.currentPage.id;
-            editor.putInt(key, position).putInt(key + "o", offset).putBoolean(key + "r", AndroidUtilities.displaySize.x > AndroidUtilities.displaySize.y).commit();
+            editor.putInt(key, position).putInt(key + "o", offset).putBoolean(key + "r", AndroidUtilities.displaySize.x > AndroidUtilities.displaySize.y).apply();
         }
     }
 
