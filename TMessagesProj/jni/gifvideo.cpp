@@ -15,6 +15,7 @@
 #include "c_utils.h"
 #include "gifvideo/sws_context_holder.h"
 #include "gifvideo/video_frame_reader.h"
+#include "gifvideo/mediacodec_frame_reader.h"
 #include <cmath>
 
 extern "C" {
@@ -110,7 +111,8 @@ typedef struct VideoInfo {
     AVStream *audio_stream = nullptr;
     AVCodecContext *video_dec_ctx = nullptr;
     // Borrows fmt_ctx and video_dec_ctx; must be deleted before them (see dtor).
-    VideoFrameReader *reader = nullptr;
+    // PrimeGram: hardware (MediaCodec) or software, see gifvideo/mediacodec_frame_reader.h.
+    FrameSource *reader = nullptr;
     bool stopped = false;
     bool seeking = false;
     bool afterEof = false;
@@ -523,7 +525,7 @@ static bool isStreamCanceled(VideoInfo *info) {
     return canceled;
 }
 
-extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nCreateDecoder(JNIEnv *env, jclass clazz, jstring src, jintArray data, jint account, jlong streamFileSize, jobject stream, jboolean preview) {
+extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nCreateDecoder(JNIEnv *env, jclass clazz, jstring src, jintArray data, jint account, jlong streamFileSize, jobject stream, jboolean preview, jboolean hwAccel) {
     VideoInfo *info = new VideoInfo();
 
     char const *srcString = env->GetStringUTFChars(src, 0);
@@ -594,7 +596,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileN
         return 0;
     }
 
-    info->reader = new VideoFrameReader(info->fmt_ctx, info->video_dec_ctx, info->video_stream_idx);
+    // Previews decode a frame or two; a hardware decoder is not worth its setup for that.
+    info->reader = new FrameSource(info->fmt_ctx, info->video_dec_ctx, info->video_stream_idx, hwAccel && !preview);
     VideoInfo *self = info;
     info->reader->shouldAbort = [self]() {
         // Covers nStopDecoder (stopped), nPrepareToSeek (seeking) and stream cancel.
@@ -662,6 +665,14 @@ extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNa
         }
     }
     delete info;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nIsHardware(JNIEnv *env, jclass clazz, jlong ptr) {
+    if (ptr == 0) {
+        return JNI_FALSE;
+    }
+    VideoInfo *info = (VideoInfo *) (intptr_t) ptr;
+    return info->reader != nullptr && info->reader->isHardware() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nStopDecoder(JNIEnv *env, jclass clazz, jlong ptr) {

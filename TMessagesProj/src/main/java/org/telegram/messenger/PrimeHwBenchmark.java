@@ -165,6 +165,12 @@ public class PrimeHwBenchmark {
             for (int i = 0; i < WARMUP_FRAMES; i++) {
                 decoder.getVideoFrame(bitmap, false, 0, 0, true);
             }
+            // The native side quietly falls back to software when the hardware decoder cannot be
+            // used; measured anyway, that would compare the software path with itself.
+            if (hwAccel && !decoder.isHardware()) {
+                pass.failure = "Аппаратный декодер не запустился для этого видео на этом устройстве (нужен H.264/HEVC от 480×360, Android 8+) — работает программный.";
+                return pass;
+            }
 
             long cpuStart = Process.getElapsedCpuTime();
             long wallStart = System.nanoTime();

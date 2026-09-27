@@ -1867,8 +1867,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Быстродействие", "Оптимизации PrimeGram"));
             items.add(section(SECTION_ADVANCED_DIAGNOSTICS, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
                     "Диагностика", "Логи, трасса запуска, батарея, push"));
-            // Hidden until hardware decoding is rebuilt for the 12.10 decoder: the switch would
-            // do nothing and the stress test would compare the software path with itself.
+            // Hardware decoding needs AImageReader, which is only reliable from Android 8.
             if (org.telegram.ui.Components.AnimatedFileNative.isHardwareDecodingAvailable()) {
                 items.add(section(SECTION_ADVANCED_EXPERIMENTAL, IconBackgroundColors.RED, R.drawable.msg_maxvideo,
                         "Эксперименты", "Аппаратное ускорение видео"));

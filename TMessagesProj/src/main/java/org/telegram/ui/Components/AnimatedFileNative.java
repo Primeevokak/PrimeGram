@@ -22,24 +22,55 @@ public class AnimatedFileNative {
     }
 
     public static AnimatedFileNative createDecoderFrom(String src, int[] params, int account, long streamFileSize, AnimatedFileDrawableStream readCallback, boolean preview) {
-        long ptr = createDecoder(src, params, account, streamFileSize, readCallback, preview);
+        return createDecoderFrom(src, params, account, streamFileSize, readCallback, preview, hardwareEnabled());
+    }
+
+    private static AnimatedFileNative createDecoderFrom(String src, int[] params, int account, long streamFileSize, AnimatedFileDrawableStream readCallback, boolean preview, boolean hwAccel) {
+        long ptr = createDecoder(src, params, account, streamFileSize, readCallback, preview, hwAccel);
         if (ptr == 0) {
             return null;
         }
         return new AnimatedFileNative(ptr, params);
     }
 
-    /**
-     * PrimeGram: benchmark entry point. The old surfaceless MediaCodec path was dropped with the
-     * 12.10 native rewrite and is being redone (MediaCodec -> ImageReader -> HardwareBuffer), so
-     * until then every decoder is the software one; {@link #isHardwareDecodingAvailable()} says so.
-     */
+    // PrimeGram: hardware decoding (MediaCodec into an ImageReader, native side in
+    // jni/gifvideo/mediacodec_frame_reader.h). The native side decides per file whether it applies
+    // (H.264/HEVC, large enough, a free decoder instance) and falls back to software on any failure.
+    private static final String HW_KEY = "primegram_hw_accel";
+    private static volatile Boolean hwEnabled;
+
+    private static boolean hardwareEnabled() {
+        Boolean enabled = hwEnabled;
+        if (enabled == null) {
+            synchronized (AnimatedFileNative.class) {
+                enabled = hwEnabled;
+                if (enabled == null) {
+                    // A crash of the process soon after the first hardware decoder turns the
+                    // setting off on the next launch (CrashSafeToggle), instead of crashing again.
+                    enabled = org.telegram.messenger.CrashSafeToggle.checkAndArm(HW_KEY);
+                    if (enabled) {
+                        org.telegram.messenger.CrashSafeToggle.beginAttempt(HW_KEY);
+                        org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> org.telegram.messenger.CrashSafeToggle.confirmSuccess(HW_KEY), 30000);
+                    }
+                    hwEnabled = enabled;
+                }
+            }
+        }
+        return enabled;
+    }
+
+    /** PrimeGram: benchmark entry point - the same decoder with hardware decoding forced on or off. */
     public static AnimatedFileNative createDecoderForBenchmark(String src, int[] params, boolean hwAccel) {
-        return createDecoderFrom(src, params, 0, 0, null, false);
+        return createDecoderFrom(src, params, 0, 0, null, false, hwAccel);
     }
 
     public static boolean isHardwareDecodingAvailable() {
-        return false;
+        return Build.VERSION.SDK_INT >= 26;
+    }
+
+    /** Whether this decoder is currently decoding in hardware (it may have fallen back since). */
+    public boolean isHardware() {
+        return mNativePtr != 0 && nIsHardware(mNativePtr);
     }
 
     public int getWidth() {
@@ -132,10 +163,10 @@ public class AnimatedFileNative {
         }
     }
 
-    private static long createDecoder(String src, int[] params, int account, long streamFileSize, AnimatedFileDrawableStream readCallback, boolean preview) {
+    private static long createDecoder(String src, int[] params, int account, long streamFileSize, AnimatedFileDrawableStream readCallback, boolean preview, boolean hwAccel) {
         Trace.beginSection("AnimatedFileNative#createDecoder");
         try {
-            return nCreateDecoder(src, params, account, streamFileSize, readCallback, preview);
+            return nCreateDecoder(src, params, account, streamFileSize, readCallback, preview, hwAccel);
         } finally {
             Trace.endSection();
         }
@@ -206,7 +237,9 @@ public class AnimatedFileNative {
 
 
 
-    private static native long nCreateDecoder(String src, int[] params, int account, long streamFileSize, Object readCallback, boolean preview);
+    private static native long nCreateDecoder(String src, int[] params, int account, long streamFileSize, Object readCallback, boolean preview, boolean hwAccel);
+
+    private static native boolean nIsHardware(long ptr);
 
     private static native void nDestroyDecoder(long ptr);
 
