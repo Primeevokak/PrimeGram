@@ -10471,7 +10471,7 @@ public class MessagesStorage extends BaseController {
             Timer.done(t2);
             final long primeQueried = primeTrace ? android.os.SystemClock.elapsedRealtime() : 0;
             Timer.Task t3 = Timer.start(loaderLogger, "MessagesStorage.getMessages: stageQueue.postRunnable");
-            Utilities.stageQueue.postRunnable(() -> {
+            (primeParallelReads ? Utilities.primeLoadQueue : Utilities.stageQueue).postRunnable(() -> {
                 Timer.done(t3);
                 if (primeTrace) {
                     PrimePerfMonitor.event("db " + dialogId + " load: очередь базы " + (primeStart - primePosted)

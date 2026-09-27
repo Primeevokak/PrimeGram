@@ -43,6 +43,9 @@ public class Utilities {
     /** PrimeGram: exteraGram's name for the plugin thread - plugins post to it directly. Created
      *  lazily by PrimePythonEngine, which runs every call into Python on it. */
     public static volatile DispatchQueue pluginsQueue;
+    /** PrimeGram: turns messages read from the local cache into displayable MessageObjects for an
+     *  opening chat - kept off stageQueue, where it used to queue behind update processing. */
+    public static volatile DispatchQueue primeLoadQueue = new DispatchQueue("primeLoadQueue");
     public static volatile DispatchQueue searchQueue = new DispatchQueue("searchQueue");
     public static volatile DispatchQueue phoneBookQueue = new DispatchQueue("phoneBookQueue");
     public static volatile DispatchQueue themeQueue = new DispatchQueue("themeQueue");

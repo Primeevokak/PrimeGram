@@ -1186,11 +1186,13 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void clearQueryTime() {
-        lastServerQueryTime.clear();
-        lastScheduledServerQueryTime.clear();
-        lastQuickReplyServerQueryTime.clear();
-        lastWelcomeMessagesServerQueryTime.clear();
-        lastSavedServerQueryTime.clear();
+        synchronized (primeQueryTimeLock) {
+            lastServerQueryTime.clear();
+            lastScheduledServerQueryTime.clear();
+            lastQuickReplyServerQueryTime.clear();
+            lastWelcomeMessagesServerQueryTime.clear();
+            lastSavedServerQueryTime.clear();
+        }
     }
 
     public static class DiceFrameSuccess {
@@ -6594,11 +6596,13 @@ public class MessagesController extends BaseController implements NotificationCe
             }
         }
 
-        lastScheduledServerQueryTime.clear();
-        lastQuickReplyServerQueryTime.clear();
-        lastWelcomeMessagesServerQueryTime.clear();
-        lastSavedServerQueryTime.clear();
-        lastServerQueryTime.clear();
+        synchronized (primeQueryTimeLock) {
+            lastScheduledServerQueryTime.clear();
+            lastQuickReplyServerQueryTime.clear();
+            lastWelcomeMessagesServerQueryTime.clear();
+            lastSavedServerQueryTime.clear();
+            lastServerQueryTime.clear();
+        }
         reloadingWebpages.clear();
         reloadingWebpagesPending.clear();
         reloadingScheduledWebpages.clear();
@@ -12128,6 +12132,9 @@ public class MessagesController extends BaseController implements NotificationCe
             extendUserChatFromMessage(dialogId, c, messagesRes.messages);
             chatsDict.put(c.id, c);
         }
+        // PrimeGram: cache loads are processed on primeLoadQueue while server loads and the UI touch
+        // the same query-time maps; they are plain LongSparseArrays, so every access holds this lock.
+        synchronized (primeQueryTimeLock) {
         if (mode == ChatActivity.MODE_SCHEDULED) {
             reload = ((SystemClock.elapsedRealtime() - lastScheduledServerQueryTime.get(dialogId, 0L)) > 60 * 1000);
         } else if (mode == ChatActivity.MODE_QUICK_REPLIES) {
@@ -12151,6 +12158,9 @@ public class MessagesController extends BaseController implements NotificationCe
             } else if (mode == ChatActivity.MODE_DEFAULT) {
                 lastServerQueryTime.put(dialogId, SystemClock.elapsedRealtime());
             }
+        }
+        }
+        if (!DialogObject.isEncryptedDialog(dialogId) && isCache && reload) {
             long hash = 0;
             if (mode == ChatActivity.MODE_SCHEDULED) {
                 for (int a = 0, N = messagesRes.messages.size(); a < N; a++) {
@@ -12398,11 +12408,15 @@ public class MessagesController extends BaseController implements NotificationCe
         });
     }
 
+    private final Object primeQueryTimeLock = new Object();
+
     public void forceNoReload(long dialogId, int mode) {
-        if (mode == ChatActivity.MODE_SCHEDULED) {
-            lastScheduledServerQueryTime.put(dialogId, SystemClock.elapsedRealtime());
-        } else if (mode == ChatActivity.MODE_DEFAULT) {
-            lastServerQueryTime.put(dialogId, SystemClock.elapsedRealtime());
+        synchronized (primeQueryTimeLock) {
+            if (mode == ChatActivity.MODE_SCHEDULED) {
+                lastScheduledServerQueryTime.put(dialogId, SystemClock.elapsedRealtime());
+            } else if (mode == ChatActivity.MODE_DEFAULT) {
+                lastServerQueryTime.put(dialogId, SystemClock.elapsedRealtime());
+            }
         }
     }
 
