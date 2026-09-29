@@ -196,6 +196,36 @@ public class MessagesStorage extends BaseController {
         }
     }
 
+    // Writes of a dialog's messages still waiting in storageQueue (new, sent, edited, loaded from
+    // the server). The read connection sees only what is written, so a chat opened meanwhile would
+    // miss e.g. a message that already shows in the chat list. A load for such a dialog first lets
+    // the writes queued before it land - the same pass-through the cached dialog list uses - and a
+    // dialog with nothing pending still reads at once.
+    private final java.util.concurrent.ConcurrentHashMap<Long, Integer> primePendingWrites = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void primePostDialogWrite(java.util.Collection<Long> dialogIds, Runnable write) {
+        if (!primeParallelReads || dialogIds == null || dialogIds.isEmpty()) {
+            storageQueue.postRunnable(write);
+            return;
+        }
+        for (Long did : dialogIds) {
+            primePendingWrites.merge(did, 1, Integer::sum);
+        }
+        storageQueue.postRunnable(() -> {
+            try {
+                write.run();
+            } finally {
+                for (Long did : dialogIds) {
+                    primePendingWrites.computeIfPresent(did, (k, v) -> v > 1 ? v - 1 : null);
+                }
+            }
+        });
+    }
+
+    private boolean primeHasPendingWrites(long dialogId, long mergeDialogId) {
+        return primePendingWrites.containsKey(dialogId) || mergeDialogId != 0 && primePendingWrites.containsKey(mergeDialogId);
+    }
+
     private int primeFilterPendingDeletes(long dialogId, ArrayList<TLRPC.Message> messages) {
         final java.util.Set<Integer> mids = primePendingDeletes.get(dialogId);
         final Integer upTo = primePendingDeleteUpTo.get(dialogId);
@@ -9710,28 +9740,42 @@ public class MessagesStorage extends BaseController {
                         }
                         if (cursor.next()) {
                             int mid = cursor.intValue(0);
+                            // PrimeGram: this load may run on the read connection. Writing there
+                            // while this cursor keeps a read transaction open fails at once with
+                            // SQLITE_BUSY_SNAPSHOT whenever storageQueue has written since, and
+                            // the whole load came back empty. Closed first, the write is its own
+                            // transaction and waits for the writer instead; the hole has to be
+                            // written here, not queued, because the query below reads it.
+                            cursor.dispose();
+                            cursor = null;
                             if (mid != 0) {
-                                SQLitePreparedStatement state;
-                                if (threadMessageId != 0) {
-                                    state = db().executeFast("REPLACE INTO messages_holes_topics VALUES(?, ?, ?, ?)");
-                                } else {
-                                    state = db().executeFast("REPLACE INTO messages_holes VALUES(?, ?, ?)");
+                                try {
+                                    SQLitePreparedStatement state;
+                                    if (threadMessageId != 0) {
+                                        state = db().executeFast("REPLACE INTO messages_holes_topics VALUES(?, ?, ?, ?)");
+                                    } else {
+                                        state = db().executeFast("REPLACE INTO messages_holes VALUES(?, ?, ?)");
+                                    }
+                                    int pointer = 1;
+                                    state.requery();
+                                    state.bindLong(pointer++, dialogId);
+                                    if (threadMessageId != 0) {
+                                        state.bindLong(pointer++, threadMessageId);
+                                    }
+                                    state.bindInteger(pointer++, 0);
+                                    state.bindInteger(pointer++, mid);
+                                    state.step();
+                                    state.dispose();
+                                } catch (Exception e) {
+                                    FileLog.e(e);
                                 }
-                                int pointer = 1;
-                                state.requery();
-                                state.bindLong(pointer++, dialogId);
-                                if (threadMessageId != 0) {
-                                    state.bindLong(pointer++, threadMessageId);
-                                }
-                                state.bindInteger(pointer++, 0);
-                                state.bindInteger(pointer++, mid);
-                                state.step();
-                                state.dispose();
                             }
                         }
                     }
-                    cursor.dispose();
-                    cursor = null;
+                    if (cursor != null) {
+                        cursor.dispose();
+                        cursor = null;
+                    }
 
                     if (load_type == LOAD_AROUND_MESSAGE || load_type == LOAD_AROUND_DATE || queryFromServer && load_type == LOAD_FROM_UNREAD) {
                         if (threadMessageId != 0) {
@@ -10477,7 +10521,7 @@ public class MessagesStorage extends BaseController {
         // processing queue - so a slow chat open says which layer to fix.
         final boolean primeTrace = PrimePerfMonitor.trackingInvalidates;
         final long primePosted = primeTrace ? android.os.SystemClock.elapsedRealtime() : 0;
-        (primeParallelReads ? primeGetReadQueue() : storageQueue).postRunnable(() -> {
+        final Runnable primeLoad = () -> {
             Timer.done(t1);
             final long primeStart = primeTrace ? android.os.SystemClock.elapsedRealtime() : 0;
             Timer.Task t2 = Timer.start(loaderLogger, "MessagesStorage.getMessages");
@@ -10494,7 +10538,14 @@ public class MessagesStorage extends BaseController {
                 }
                 processMessagesRunnable.run();
             });
-        });
+        };
+        if (!primeParallelReads) {
+            storageQueue.postRunnable(primeLoad);
+        } else if (primeHasPendingWrites(dialogId, mergeDialogId)) {
+            storageQueue.postRunnable(() -> primeGetReadQueue().postRunnable(primeLoad));
+        } else {
+            primeGetReadQueue().postRunnable(primeLoad);
+        }
     }
 
     public void clearSentMedia() {
@@ -13850,7 +13901,14 @@ public class MessagesStorage extends BaseController {
             return;
         }
         if (useQueue) {
-            storageQueue.postRunnable(() -> putMessagesInternal(messages, withTransaction, doNotUpdateDialogDate, downloadMask, ifNoLastMessage, mode, threadMessageId));
+            final java.util.HashSet<Long> dialogIds = new java.util.HashSet<>();
+            for (int a = 0; a < messages.size(); a++) {
+                final TLRPC.Message m = messages.get(a);
+                if (m != null) {
+                    dialogIds.add(MessageObject.getDialogId(m));
+                }
+            }
+            primePostDialogWrite(dialogIds, () -> putMessagesInternal(messages, withTransaction, doNotUpdateDialogDate, downloadMask, ifNoLastMessage, mode, threadMessageId));
         } else {
             putMessagesInternal(messages, withTransaction, doNotUpdateDialogDate, downloadMask, ifNoLastMessage, mode, threadMessageId);
         }
@@ -14630,7 +14688,7 @@ public class MessagesStorage extends BaseController {
 
     public long[] updateMessageStateAndId(long random_id, long dialogId, Integer _oldId, int newId, int date, boolean useQueue, int scheduled, int topicId) {
         if (useQueue) {
-            storageQueue.postRunnable(() -> updateMessageStateAndIdInternal(random_id, dialogId, _oldId, newId, date, scheduled, topicId));
+            primePostDialogWrite(java.util.Collections.singletonList(dialogId), () -> updateMessageStateAndIdInternal(random_id, dialogId, _oldId, newId, date, scheduled, topicId));
         } else {
             return updateMessageStateAndIdInternal(random_id, dialogId, _oldId, newId, date, scheduled, topicId);
         }
@@ -16641,7 +16699,7 @@ public class MessagesStorage extends BaseController {
 
     // put messages in data base while load history
     public void putMessages(TLRPC.messages_Messages messages, long dialogId, int load_type, int max_id, boolean createDialog, int mode, long threadMessageId) {
-        storageQueue.postRunnable(() -> {
+        primePostDialogWrite(java.util.Collections.singletonList(dialogId), () -> {
             SQLitePreparedStatement state_messages = null;
             SQLitePreparedStatement state_messages_topics = null;
             SQLitePreparedStatement state_media = null;

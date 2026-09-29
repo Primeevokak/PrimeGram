@@ -4651,28 +4651,38 @@ public class MediaDataController extends BaseController {
                                 }
                                 if (cursor.next()) {
                                     int mid = cursor.intValue(0);
+                                    // PrimeGram: runs on the read connection now - closed before
+                                    // writing, see the same spot in MessagesStorage.getMessagesInternal.
+                                    cursor.dispose();
+                                    cursor = null;
                                     if (mid != 0) {
-                                        SQLitePreparedStatement state;
-                                        if (topicId != 0) {
-                                            state = database.executeFast("REPLACE INTO media_holes_topics VALUES(?, ?, ?, ?, ?)");
-                                        } else {
-                                            state = database.executeFast("REPLACE INTO media_holes_v2 VALUES(?, ?, ?, ?)");
+                                        try {
+                                            SQLitePreparedStatement state;
+                                            if (topicId != 0) {
+                                                state = database.executeFast("REPLACE INTO media_holes_topics VALUES(?, ?, ?, ?, ?)");
+                                            } else {
+                                                state = database.executeFast("REPLACE INTO media_holes_v2 VALUES(?, ?, ?, ?)");
+                                            }
+                                            int pointer = 1;
+                                            state.requery();
+                                            state.bindLong(pointer++, uid);
+                                            if (topicId != 0) {
+                                                state.bindLong(pointer++, topicId);
+                                            }
+                                            state.bindInteger(pointer++, type);
+                                            state.bindInteger(pointer++, 0);
+                                            state.bindInteger(pointer++, mid);
+                                            state.step();
+                                            state.dispose();
+                                        } catch (Exception e) {
+                                            FileLog.e(e);
                                         }
-                                        int pointer = 1;
-                                        state.requery();
-                                        state.bindLong(pointer++, uid);
-                                        if (topicId != 0) {
-                                            state.bindLong(pointer++, topicId);
-                                        }
-                                        state.bindInteger(pointer++, type);
-                                        state.bindInteger(pointer++, 0);
-                                        state.bindInteger(pointer++, mid);
-                                        state.step();
-                                        state.dispose();
                                     }
                                 }
                             }
-                            cursor.dispose();
+                            if (cursor != null) {
+                                cursor.dispose();
+                            }
                         }
 
                         String beforeWhere = "";
