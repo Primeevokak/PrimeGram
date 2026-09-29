@@ -9307,6 +9307,14 @@ public class MessagesStorage extends BaseController {
     /** Removes rows found by {@link #primeIsForeignCacheRow} and records each as a hole, so the
      *  next load of that range goes to the server instead of trusting the cache. Storage queue only. */
     private void primeDropForeignCacheRows(long dialogId, ArrayList<Integer> mids) {
+        if (primeOnReadThread()) {
+            // Chat loads now read on their own connection; writes stay with storageQueue, the
+            // only writer. Queued now, the drop lands before the server reply that refills the
+            // range is written, so the order of the two is unchanged.
+            final ArrayList<Integer> copy = new ArrayList<>(mids);
+            storageQueue.postRunnable(() -> primeDropForeignCacheRows(dialogId, copy));
+            return;
+        }
         try {
             final String ids = TextUtils.join(",", mids);
             db().executeFast(String.format(Locale.US, "DELETE FROM messages_v2 WHERE uid = %d AND mid IN(%s)", dialogId, ids)).stepThis().dispose();
