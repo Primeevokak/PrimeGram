@@ -154,10 +154,16 @@ public class PrimeCheckCell extends FrameLayout implements Theme.Colorable {
         applyBackground();
     }
 
+    private int appliedDesignMode = Integer.MIN_VALUE;
+
     private void applyBackground() {
-        // createRadSelectorDrawable takes its radii in dp, not pixels.
-        final int top = position == POS_SINGLE || position == POS_TOP ? 12 : 0;
-        final int bottom = position == POS_SINGLE || position == POS_BOTTOM ? 12 : 0;
+        appliedDesignMode = org.telegram.messenger.PrimeTweaks.designMode();
+        // createRadSelectorDrawable takes its radii in dp, not pixels. The radius is the design
+        // system's settings-card token, so a switch reaches these rows too.
+        final int radius = Math.round(org.telegram.ui.Components.design.DesignSystem.current()
+                .cornerRadius(org.telegram.ui.Components.design.DesignSystem.Role.LIST_CARD));
+        final int top = position == POS_SINGLE || position == POS_TOP ? radius : 0;
+        final int bottom = position == POS_SINGLE || position == POS_BOTTOM ? radius : 0;
         content.setBackground(Theme.createRadSelectorDrawable(
                 Theme.getColor(Theme.key_windowBackgroundWhite, resourcesProvider),
                 Theme.getColor(Theme.key_listSelector, resourcesProvider),
@@ -215,6 +221,9 @@ public class PrimeCheckCell extends FrameLayout implements Theme.Colorable {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (appliedDesignMode != org.telegram.messenger.PrimeTweaks.designMode()) {
+            applyBackground();
+        }
         // The list draws its own pressed highlight behind the row, sized to the whole row - which
         // would show as a grey band in the margins on either side of the card. Painting the page
         // background here covers it, leaving the card's own ripple as the only feedback. The card

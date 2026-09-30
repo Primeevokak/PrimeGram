@@ -31,6 +31,22 @@ public class PrimeEqualizerGraphView extends View {
         void onBandChanged(int bandIndex, short level);
     }
 
+    /** Asked when the user grabs the graph while the equalizer is switched off. */
+    public interface OnEnableRequest {
+        void requestEnable();
+    }
+
+    private OnEnableRequest enableRequest;
+
+    public void setOnEnableRequest(OnEnableRequest enableRequest) {
+        this.enableRequest = enableRequest;
+    }
+
+    /** Whether a touch at (x, y) is on the graph area - the host keeps swipe-back off it. */
+    public boolean isTouchOnGraph(float x, float y) {
+        return freqHz.length > 0 && x >= 0 && y >= 0 && x <= getWidth() && y <= getHeight();
+    }
+
     private int[] freqHz = new int[0];
     private short[] levels = new short[0];
     private short minLevel;
@@ -234,8 +250,19 @@ public class PrimeEqualizerGraphView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (!graphEnabled || freqHz.length == 0) {
+        if (freqHz.length == 0) {
             return false;
+        }
+        if (!graphEnabled) {
+            // The equalizer starts switched off, and a dimmed graph that silently ignored the
+            // finger read as "the points can't be grabbed". Grabbing one now switches it on.
+            if (event.getActionMasked() != MotionEvent.ACTION_DOWN || enableRequest == null) {
+                return false;
+            }
+            enableRequest.requestEnable();
+            if (!graphEnabled) {
+                return false;
+            }
         }
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {

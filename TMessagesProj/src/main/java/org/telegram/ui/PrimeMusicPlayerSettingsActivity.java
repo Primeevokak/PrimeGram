@@ -29,6 +29,23 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
     private LinearLayout bandsContainer;
     private PrimeEqualizerGraphView graphView;
     private TextView emptyHint;
+    private Switch enableSwitch;
+
+    /**
+     * Dragging a band is a vertical-then-anything gesture; the fragment's swipe-back must not
+     * take it over when the finger drifts sideways on the graph.
+     */
+    @Override
+    public boolean isSwipeBackEnabled(android.view.MotionEvent event) {
+        if (graphView != null && event != null) {
+            final int[] loc = new int[2];
+            graphView.getLocationOnScreen(loc);
+            if (graphView.isTouchOnGraph(event.getRawX() - loc[0], event.getRawY() - loc[1])) {
+                return false;
+            }
+        }
+        return super.isSwipeBackEnabled(event);
+    }
 
     @Override
     public View createView(Context context) {
@@ -61,6 +78,7 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
         enableRow.addView(enableLabel, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
         Switch enableSwitch = new Switch(context);
+        this.enableSwitch = enableSwitch;
         enableSwitch.setChecked(PrimeEqualizer.isEnabled(), false);
         enableSwitch.setOnClickListener(v -> {
             boolean newState = !PrimeEqualizer.isEnabled();
@@ -105,6 +123,13 @@ public class PrimeMusicPlayerSettingsActivity extends BaseFragment {
         graphView.setBands(freqs, range[0], range[1], levels);
         graphView.setGraphEnabled(PrimeEqualizer.isEnabled());
         graphView.setListener((bandIndex, level) -> PrimeEqualizer.setBandLevel((short) bandIndex, level));
+        graphView.setOnEnableRequest(() -> {
+            PrimeEqualizer.setEnabled(true);
+            if (enableSwitch != null) {
+                enableSwitch.setChecked(true, true);
+            }
+            updateBandsEnabled();
+        });
         bandsContainer.addView(graphView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 8, 0, 0));
 
         TextView hint = new TextView(context);

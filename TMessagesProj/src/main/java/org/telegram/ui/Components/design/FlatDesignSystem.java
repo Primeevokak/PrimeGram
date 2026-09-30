@@ -57,6 +57,14 @@ public final class FlatDesignSystem implements DesignSystem {
                 return 8f;
             case DIALOG:
                 return 12f;
+            // PrimeGram settings: what they looked like before the design system reached them,
+            // so Flat changes nothing there.
+            case LIST_CARD:
+            case TILE:
+            case CONTROL:
+                return 12f;
+            case CHIP:
+                return PILL;
             case BOTTOM_BAR:
             case INPUT_FIELD:
             default:

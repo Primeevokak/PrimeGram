@@ -70,6 +70,14 @@ public final class MaterialDesignSystem implements DesignSystem {
                 return 16f;
             case INPUT_FIELD:
                 return 24f;
+            // M3: containers at "large", buttons and their groups rounder, filter chips at "small".
+            case LIST_CARD:
+                return 16f;
+            case TILE:
+            case CONTROL:
+                return 20f;
+            case CHIP:
+                return 8f;
             default:
                 return 12f;
         }
@@ -79,6 +87,7 @@ public final class MaterialDesignSystem implements DesignSystem {
     public ShadowSpec shadow(Role role) {
         switch (role) {
             case CARD:
+            case TILE:
                 return new ShadowSpec(4f, 0f, 1f, 60);
             case FAB:
                 return new ShadowSpec(6f, 0f, 3f, 90);

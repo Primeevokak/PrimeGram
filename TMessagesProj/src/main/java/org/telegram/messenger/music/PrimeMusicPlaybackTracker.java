@@ -32,7 +32,24 @@ public final class PrimeMusicPlaybackTracker implements NotificationCenter.Notif
     public static void register() {
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             NotificationCenter.getInstance(a).addObserver(instance, NotificationCenter.messagePlayingDidStart);
+            NotificationCenter.getInstance(a).addObserver(instance, NotificationCenter.messagePlayingProgressDidChanged);
+            NotificationCenter.getInstance(a).addObserver(instance, NotificationCenter.messagePlayingDidReset);
         }
+    }
+
+    // The play in progress: its history row, the message it came from and the furthest point
+    // reached. Finished (written with its outcome) when the next track starts or playback stops.
+    private long currentPlayRowId;
+    private int currentMessageId;
+    private long currentDialogId;
+    private float currentMaxProgress;
+
+    private void finishCurrentPlay() {
+        if (currentPlayRowId > 0) {
+            PrimeMusicLibrary.finishPlay(currentPlayRowId, currentMaxProgress);
+        }
+        currentPlayRowId = 0;
+        currentMaxProgress = 0;
     }
 
     private PrimeMusicPlaybackTracker() {
@@ -40,6 +57,18 @@ public final class PrimeMusicPlaybackTracker implements NotificationCenter.Notif
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.messagePlayingProgressDidChanged) {
+            // Only a float compare per progress tick: the max is what the outcome is read from.
+            if (currentPlayRowId > 0 && args.length > 1 && args[0] instanceof Integer
+                    && (Integer) args[0] == currentMessageId && args[1] instanceof Float) {
+                currentMaxProgress = Math.max(currentMaxProgress, (Float) args[1]);
+            }
+            return;
+        }
+        if (id == NotificationCenter.messagePlayingDidReset) {
+            finishCurrentPlay();
+            return;
+        }
         if (id != NotificationCenter.messagePlayingDidStart) {
             return;
         }
@@ -47,6 +76,11 @@ public final class PrimeMusicPlaybackTracker implements NotificationCenter.Notif
         if (messageObject == null || !messageObject.isMusic()) {
             return;
         }
+        if (currentPlayRowId > 0 && messageObject.getId() == currentMessageId && messageObject.getDialogId() == currentDialogId) {
+            // The same track resuming after a pause, not a new play.
+            return;
+        }
+        finishCurrentPlay();
         long trackId;
         Long localTrackId = PrimeMusicPlayback.resolveLocalTrackId(messageObject);
         if (localTrackId != null) {
@@ -59,7 +93,10 @@ public final class PrimeMusicPlaybackTracker implements NotificationCenter.Notif
                     messageObject.getMusicAuthor(),
                     (int) messageObject.getDuration());
         }
-        PrimeMusicLibrary.recordPlay(trackId);
+        currentPlayRowId = PrimeMusicLibrary.recordPlay(trackId);
+        currentMessageId = messageObject.getId();
+        currentDialogId = messageObject.getDialogId();
+        currentMaxProgress = 0;
 
         // PrimeGram Music: the single choke point every real playback start already
         // passes through - the right place to resolve the new track's accent color too,

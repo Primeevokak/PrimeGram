@@ -414,7 +414,6 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
     private ImageView waveNextBtn;
     private PrimeDislikeIconView waveDislikeIcon;
     private LinearLayout moodChipsLayout;
-    private String activeMoodTag = null;
 
     /** "Моя волна" card - featuring a high-fidelity living procedural background
      *  ({@link org.telegram.ui.Components.PrimeWaveBackgroundView}), interactive mood chips,
@@ -636,45 +635,77 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         return card;
     }
 
+    /**
+     * The wave's mood chips: everything, liked tracks, then the user's own moods, then "+".
+     *
+     * <p>The selection is read from the wave itself, not from a field here: the view is rebuilt
+     * whenever the tab is, and a local copy used to show "Всё подряд" while the wave kept
+     * filtering by the mood picked before.
+     */
     private void setupMoodChips(Context context) {
         moodChipsLayout.removeAllViews();
-        String[][] chips = {
-                {null, "Всё подряд"},
-                {"бодрое", "⚡ Бодрое"},
-                {"спокойное", "🌿 Спокойное"},
-                {"любимое", "❤️ Любимое"},
-                {"вечер", "🌙 Вечер"}
-        };
-
-        for (String[] chipData : chips) {
-            final String tag = chipData[0];
-            final String label = chipData[1];
-
-            TextView chip = new TextView(context);
-            chip.setText(label);
-            chip.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
-            chip.setTypeface(AndroidUtilities.bold());
-            chip.setPadding(dp(12), dp(6), dp(12), dp(6));
-            chip.setClickable(true);
-
-            boolean isSelected = (tag == null && activeMoodTag == null) || (tag != null && tag.equals(activeMoodTag));
-            styleMoodChip(chip, isSelected);
-
-            chip.setOnClickListener(v -> {
-                v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
-                activeMoodTag = tag;
-                if (tag == null) {
-                    org.telegram.messenger.music.PrimeMusicWave.setMoodFilter(null);
-                } else {
-                    List<String> list = new ArrayList<>();
-                    list.add(tag);
-                    org.telegram.messenger.music.PrimeMusicWave.setMoodFilter(list);
-                }
-                setupMoodChips(context);
-            });
-
-            moodChipsLayout.addView(chip, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 6, 0));
+        final List<String> active = org.telegram.messenger.music.PrimeMusicWave.getMoodFilter();
+        final String activeKey = active.isEmpty() ? null : active.get(0);
+        addMoodChip(context, null, "Всё подряд", activeKey == null, null);
+        addMoodChip(context, PrimeMusicLibrary.MOOD_LIKED, "❤️ Любимое",
+                PrimeMusicLibrary.MOOD_LIKED.equals(activeKey), null);
+        for (PrimeMusicLibrary.Mood mood : PrimeMusicLibrary.getMoods()) {
+            addMoodChip(context, mood.name, mood.trackCount > 0 ? mood.label() + " · " + mood.trackCount : mood.label(),
+                    mood.name.equals(activeKey), mood);
         }
+        final TextView add = new TextView(context);
+        add.setText("＋");
+        add.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+        add.setTypeface(AndroidUtilities.bold());
+        add.setPadding(dp(12), dp(5), dp(12), dp(5));
+        styleMoodChip(add, false);
+        add.setOnClickListener(v -> PrimeMusicTagEditor.showMoodEditor(AndroidUtilities.findActivity(getContext()), null,
+                () -> setupMoodChips(context)));
+        moodChipsLayout.addView(add, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 6, 0));
+    }
+
+    private void addMoodChip(Context context, String key, String label, boolean selected, PrimeMusicLibrary.Mood mood) {
+        final TextView chip = new TextView(context);
+        chip.setText(label);
+        chip.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
+        chip.setTypeface(AndroidUtilities.bold());
+        chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+        chip.setClickable(true);
+        styleMoodChip(chip, selected);
+        chip.setOnClickListener(v -> {
+            v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+            final List<String> filter = new ArrayList<>();
+            if (key != null) {
+                filter.add(key);
+            }
+            org.telegram.messenger.music.PrimeMusicWave.setMoodFilter(filter);
+            setupMoodChips(context);
+            if (key != null && !org.telegram.messenger.music.PrimeMusicWave.hasCandidates(filter)) {
+                explainEmptyMood(key, label);
+            }
+        });
+        if (mood != null) {
+            // A mood of the user's own: a long press edits or deletes it.
+            chip.setOnLongClickListener(v -> {
+                PrimeMusicTagEditor.showMoodEditor(AndroidUtilities.findActivity(getContext()), mood, () -> {
+                    final List<String> f = org.telegram.messenger.music.PrimeMusicWave.getMoodFilter();
+                    if (f.contains(mood.name)) {
+                        org.telegram.messenger.music.PrimeMusicWave.setMoodFilter(null);
+                    }
+                    setupMoodChips(context);
+                });
+                return true;
+            });
+        }
+        moodChipsLayout.addView(chip, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0, 0, 6, 0));
+    }
+
+    /** Why the wave would play nothing - instead of it silently not starting. */
+    private void explainEmptyMood(String key, String label) {
+        final String text = PrimeMusicLibrary.MOOD_LIKED.equals(key)
+                ? "Пока нет любимых треков — поставьте ❤ треку, и он попадёт сюда."
+                : "В настроении «" + label.replaceAll(" · \\d+$", "") + "» пока нет треков. Отметьте их: меню трека (⋯) → Настроение.";
+        android.widget.Toast.makeText(getContext(), text, android.widget.Toast.LENGTH_LONG).show();
     }
 
     private void styleMoodChip(TextView chip, boolean selected) {
@@ -727,7 +758,7 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
             MediaController.getInstance().playNextMessage();
             return;
         }
-        org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.next();
+        org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.skip();
         if (next != null) {
             org.telegram.messenger.music.PrimeMusicPlayback.playSingle(UserConfig.selectedAccount, next);
         }
@@ -762,6 +793,13 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
                 ? org.telegram.messenger.music.PrimeMusicWave.start()
                 : org.telegram.messenger.music.PrimeMusicWave.current();
         if (track == null) {
+            // Nothing eligible: say why rather than leave a tap that does nothing.
+            final List<String> filter = org.telegram.messenger.music.PrimeMusicWave.getMoodFilter();
+            if (!filter.isEmpty()) {
+                explainEmptyMood(filter.get(0), filter.get(0));
+            } else {
+                android.widget.Toast.makeText(getContext(), "В медиатеке пока нет треков для волны — добавьте музыку или синхронизируйте медиатеку.", android.widget.Toast.LENGTH_LONG).show();
+            }
             return;
         }
         org.telegram.messenger.music.PrimeMusicPlayback.playSingle(UserConfig.selectedAccount, track);

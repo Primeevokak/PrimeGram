@@ -48934,7 +48934,9 @@ public class ChatActivity extends BaseFragment implements
      *  eye notice. This is what caused the periodic freezes reported while scrolling channel
      *  posts - same mechanism as the dialogs-list one, just triggered from chat scroll instead of
      *  the "⋮" popup. */
-    private static final long BLUR_MIN_INTERVAL_MS = 32;
+    // Once per frame, not ~30 times a second: a 32 ms cap left the glass visibly lagging the
+    // list at 120 Hz (see DialogsActivity.PRIME_BLUR_MIN_INTERVAL_MS).
+    private static final long BLUR_MIN_INTERVAL_MS = 4;
     private long lastBlurInvalidateMs;
     private boolean primeBlurTrailingPosted;
     private final Runnable primeBlurTrailing = () -> {
@@ -48962,7 +48964,7 @@ public class ChatActivity extends BaseFragment implements
             // than resting on whichever frame last passed the throttle.
             if (!primeBlurTrailingPosted && contentView != null) {
                 primeBlurTrailingPosted = true;
-                contentView.postDelayed(primeBlurTrailing, BLUR_MIN_INTERVAL_MS - (now - lastBlurInvalidateMs));
+                contentView.postOnAnimation(primeBlurTrailing);
             }
             return;
         }

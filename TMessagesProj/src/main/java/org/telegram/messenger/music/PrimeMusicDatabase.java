@@ -101,6 +101,16 @@ public final class PrimeMusicDatabase {
         // hide it everywhere." A disliked track still shows up in the library/search,
         // it just stops being offered by the wave/recommendations.
         addColumnIfMissing("tracks", "disliked", "INTEGER");
+        // How a play ended: the furthest point reached (0..1) and a coarse outcome (see
+        // PrimeMusicLibrary.OUTCOME_*). Without it a skip after two seconds counted exactly
+        // like listening to the end, and the wave kept offering what the user kept skipping.
+        addColumnIfMissing("play_history", "progress", "REAL");
+        addColumnIfMissing("play_history", "outcome", "INTEGER");
+        // Moods are tags the user promoted to a category: shown as chips on the home screen,
+        // with an emoji, in the user's own order.
+        addColumnIfMissing("tags", "mood", "INTEGER");
+        addColumnIfMissing("tags", "emoji", "TEXT");
+        addColumnIfMissing("tags", "position", "INTEGER");
 
         database.executeFast("CREATE TABLE IF NOT EXISTS tags (" +
                 "id INTEGER PRIMARY KEY, " +

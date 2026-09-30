@@ -302,6 +302,85 @@ public final class PrimePerfMonitor {
         }
     }
 
+    // ---- who re-lays out the whole window ----
+    //
+    // Measured scroll logs kept showing DrawerLayoutContainer.onLayout / LaunchActivity.onLayout
+    // near the top: a requestLayout from some view deep in the tree climbed to the window root and
+    // re-laid out every screen in it. The chain of requestLayout frames starts at the view that
+    // asked; the first frame under it is the code that made it ask (a setText, a setVisibility...).
+    private static final java.util.Map<String, Integer> rootLayoutRequesters = new java.util.HashMap<>();
+    private static int rootLayoutRequests;
+    private static long lastRootLayoutSampleMs;
+
+    public static void noteRootLayoutRequest() {
+        final long now = android.os.SystemClock.uptimeMillis();
+        synchronized (PrimePerfMonitor.class) {
+            rootLayoutRequests++;
+            if (now - lastRootLayoutSampleMs < 50) {
+                return;
+            }
+            lastRootLayoutSampleMs = now;
+        }
+        final StackTraceElement[] trace = new Throwable().getStackTrace();
+        int i = 0;
+        String origin = null;
+        while (i < trace.length && (trace[i].getClassName().equals("org.telegram.messenger.PrimePerfMonitor")
+                || trace[i].getMethodName().equals("requestLayout"))) {
+            if (trace[i].getMethodName().equals("requestLayout")) {
+                origin = trace[i].getClassName();
+            }
+            i++;
+        }
+        final StringBuilder key = new StringBuilder();
+        if (origin != null) {
+            key.append(shortName(origin)).append(" ← ");
+        }
+        // The first app frame is the one to fix; the platform frames above it only say how.
+        int shown = 0;
+        boolean platformShown = false;
+        for (; i < trace.length && shown < 3; i++) {
+            final String cls = trace[i].getClassName();
+            if (shown == 0 && !cls.startsWith("org.telegram.") && i + 1 < trace.length) {
+                // Only the platform call closest to the request (setText, setVisibility...).
+                if (!platformShown) {
+                    platformShown = true;
+                    key.append(shortName(cls)).append('.').append(trace[i].getMethodName()).append(" < ");
+                }
+                continue;
+            }
+            if (shown > 0) {
+                key.append(" < ");
+            }
+            key.append(shortName(cls)).append('.').append(trace[i].getMethodName());
+            shown++;
+        }
+        synchronized (PrimePerfMonitor.class) {
+            rootLayoutRequesters.merge(key.toString(), 1, Integer::sum);
+        }
+    }
+
+    private static String shortName(String name) {
+        return name.startsWith("org.telegram.") ? name.substring(13) : name.substring(name.lastIndexOf('.') + 1);
+    }
+
+    private static void appendRootLayoutLines(long elapsedMs) {
+        if (rootLayoutRequests == 0) {
+            return;
+        }
+        final double seconds = elapsedMs / 1000.0;
+        final StringBuilder sb = new StringBuilder(String.format(Locale.US,
+                "    перекладка всего окна: %.1f/сек", rootLayoutRequests / seconds));
+        if (!rootLayoutRequesters.isEmpty()) {
+            final java.util.List<java.util.Map.Entry<String, Integer>> sorted = new java.util.ArrayList<>(rootLayoutRequesters.entrySet());
+            sorted.sort((a, b) -> b.getValue() - a.getValue());
+            sb.append(", кто:");
+            for (int k = 0; k < Math.min(3, sorted.size()); k++) {
+                sb.append(k == 0 ? " " : "; ").append(sorted.get(k).getKey()).append(" x").append(sorted.get(k).getValue());
+            }
+        }
+        appendLine(sb.toString());
+    }
+
     private static void appendInvalidateLines(long elapsedMs) {
         if (cellInvalidates == 0 && cellDraws == 0) {
             return;
@@ -703,6 +782,8 @@ public final class PrimePerfMonitor {
         cellInvalidates = 0;
         cellDraws = 0;
         invalidators.clear();
+        rootLayoutRequesters.clear();
+        rootLayoutRequests = 0;
         notificationCost.clear();
         updateSections.clear();
         notificationCount.clear();
@@ -761,6 +842,7 @@ public final class PrimePerfMonitor {
         appendHotSpotLines();
         appendInclusiveLines();
         appendInvalidateLines(elapsedMs);
+        appendRootLayoutLines(elapsedMs);
         appendBoundaryLines(elapsedMs);
 
         resetWindow();

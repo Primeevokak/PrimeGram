@@ -255,7 +255,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 "Добавляет «Забанить» и «Удалить все сообщения этого пользователя» прямо в меню долгого нажатия. Появляется только там, где у вас реально есть право банить, и только на сообщениях других людей — на постах от имени самого канала пункт не покажется. Оба действия переспрашивают перед выполнением, случайный тап их не запустит."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_APPEARANCE, ID_DESIGN_SYSTEM_CARDS,
                 "Дизайн-система (пилот)",
-                "Название обещает больше, чем пункт делает сейчас: на данный момент переключатель меняет только скругление углов у карточек-превью на этом самом экране настроек. Пузыри сообщений, остальной интерфейс — не затронуты. Это не баг и не недоделка, а честно обозначенная ранняя стадия функции, которая будет расти дальше."));
+                "Меняет визуальный язык настроек PrimeGram целиком: скругления и тени у карточек, плиток, переключателей и чипов. «Плоский» — как было, «Material» — крупнее формы и тени у плиток. Пузыри сообщений и остальной интерфейс Telegram пока не затронуты: они будут подключаться по одному."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_UI_APPEARANCE, ID_NON_ISLAND_UI,
                 "Классический плоский вид",
                 "Откатывает визуальный стиль на старый, плоский Telegram — панель ввода текста, вкладки снизу, шапки чатов и списка чатов теряют скругления и «стеклянный» эффект современных плавающих островков. Уже открытые экраны подхватят изменение при следующем заходе на них, пересоздавать вручную ничего не нужно."));
@@ -627,6 +627,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HIDE_CONTACTS_SUGGEST = 183;
     private static final int ID_STICKER_DYNAMIC_ORDER = 184;
     private static final int ID_HW_ACCEL_BANNER = 185;
+    private static final int ID_CALLS_BANNER = 186;
+    private static final int ID_NOTIFICATIONS_BANNER = 187;
     /** Tiles that open a whole section rather than toggling something. */
     private static final int TILE_SECTION_BASE = 10_000;
 
@@ -913,6 +915,34 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return tile(TILE_SECTION_BASE + section, colors, icon, title, status, false, false);
     }
 
+    // Sub-sections on a hub page, collected and then laid out two to a row.
+    private final ArrayList<org.telegram.ui.Components.primeui.PrimeTileRow.Tile> pendingHubTiles = new ArrayList<>();
+    private static final int ID_HUB_TILES_BASE = 20_000;
+
+    private void hubTile(int section, IconBackgroundColors colors, int icon, CharSequence title, CharSequence subtitle) {
+        pendingHubTiles.add(sectionTile(section, colors, icon, title, subtitle));
+    }
+
+    private void flushHubTiles(ArrayList<UItem> items) {
+        for (int i = 0; i < pendingHubTiles.size(); i += 2) {
+            final org.telegram.ui.Components.primeui.PrimeTileRow.Tile a = pendingHubTiles.get(i);
+            final int id = ID_HUB_TILES_BASE + i / 2;
+            if (i + 1 < pendingHubTiles.size()) {
+                items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(id, primeTileListener(), a, pendingHubTiles.get(i + 1)));
+            } else {
+                items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(id, primeTileListener(), a));
+            }
+        }
+        pendingHubTiles.clear();
+    }
+
+    /** Runs the same handling a tap on the row with this id would. */
+    private void primeClickById(int id) {
+        final UItem proxy = new UItem(0, false);
+        proxy.id = id;
+        onClick(proxy, listView, -1, 0, 0);
+    }
+
     /** Where a quick toggle's setting lives, for a long press on its tile. */
     private static int sectionOfQuickTile(int id) {
         if (id == ID_TGWS_PROXY) return SECTION_CONNECTION;
@@ -942,9 +972,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     }
                     return;
                 }
-                final UItem proxy = new UItem(0, false);
-                proxy.id = tile.id;
-                onClick(proxy, listView, -1, 0, 0);
+                primeClickById(tile.id);
             };
         }
         return primeTileListener;
@@ -1270,11 +1298,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return "родные иконки";
     }
 
-    private UItem section(int section, IconBackgroundColors colors, int icon, CharSequence title, CharSequence subtitle) {
-        return SettingsActivity.SettingCell.Factory.of(
-                ID_SECTION_BASE + section, colors.top, colors.bottom, icon, title, subtitle);
-    }
-
     // ---------------------------------------------------------------------------------------
     // Cards.
     //
@@ -1473,22 +1496,23 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             items.add(UItem.asShadow("Вертикальная панель на главном экране: переключение аккаунтов, кошелёк, прокси и настройки в одно движение от края экрана.\n\nЗона активации — часть экрана, где панель отзывается на свайп. По умолчанию это вся левая треть, и она спорит с листанием вкладок; её можно сузить и сдвинуть туда, куда дотягивается палец."));
 
             items.add(UItem.asHeader("Разделы"));
-            items.add(section(SECTION_UI_DIALOGS, IconBackgroundColors.BLUE, R.drawable.msg_folders,
-                    "Список чатов", "Истории, архив, вкладки, кнопка «Написать»"));
-            items.add(section(SECTION_UI_CHAT, IconBackgroundColors.GREEN, R.drawable.msg_msgbubble3,
-                    "В чатах", "Сообщения, стикеры, двойное нажатие, меню"));
-            items.add(section(SECTION_UI_APPEARANCE, IconBackgroundColors.PURPLE, R.drawable.msg_colors,
-                    "Оформление", "Заголовок, пузыри, аватарки, снег"));
-            items.add(section(SECTION_UI_REACTIONS, IconBackgroundColors.ORANGE, R.drawable.msg_reactions,
-                    "Реакции", "Где их показывать, а где нет"));
-            items.add(section(SECTION_UI_FORMAT, IconBackgroundColors.CYAN, R.drawable.msg_calendar2,
-                    "Даты и числа", "Время, секунды, округление"));
-            items.add(section(SECTION_UI_PROFILE, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_info,
-                    "Профиль", "ID и дата-центр собеседника"));
-            items.add(section(SECTION_UI_FEED, IconBackgroundColors.GRAY, R.drawable.msg_menu_stories,
-                    "Лента", "Отдельная вкладка с каналами"));
-            items.add(section(SECTION_UI_MUSIC, IconBackgroundColors.CYAN, R.drawable.msg_filled_data_music,
-                    "Музыка", "Отдельная вкладка с плеером"));
+            hubTile(SECTION_UI_DIALOGS, IconBackgroundColors.BLUE, R.drawable.msg_folders,
+                    "Список чатов", "Истории, архив, вкладки");
+            hubTile(SECTION_UI_CHAT, IconBackgroundColors.GREEN, R.drawable.msg_msgbubble3,
+                    "В чатах", "Сообщения, стикеры");
+            hubTile(SECTION_UI_APPEARANCE, IconBackgroundColors.PURPLE, R.drawable.msg_colors,
+                    "Оформление", "Пузыри, аватарки");
+            hubTile(SECTION_UI_REACTIONS, IconBackgroundColors.ORANGE, R.drawable.msg_reactions,
+                    "Реакции", "Где показывать");
+            hubTile(SECTION_UI_FORMAT, IconBackgroundColors.CYAN, R.drawable.msg_calendar2,
+                    "Даты и числа", "Время, округление");
+            hubTile(SECTION_UI_PROFILE, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_info,
+                    "Профиль", "ID и дата-центр");
+            hubTile(SECTION_UI_FEED, IconBackgroundColors.GRAY, R.drawable.msg_menu_stories,
+                    "Лента", "Вкладка каналов");
+            hubTile(SECTION_UI_MUSIC, IconBackgroundColors.CYAN, R.drawable.msg_filled_data_music,
+                    "Музыка", "Вкладка с плеером");
+            flushHubTiles(items);
             items.add(UItem.asShadow(null));
         }
 
@@ -1602,7 +1626,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             if (designSystemCards() != null) {
                 items.add(UItem.asCustom(ID_DESIGN_SYSTEM_CARDS, designSystemCards()));
             }
-            items.add(UItem.asShadow("Пока меняет скругление только карточек на этом экране настроек — проверка, что переключение вообще работает, прежде чем распространять его на весь интерфейс."));
+            items.add(UItem.asShadow("Меняет форму и тени элементов во всех настройках PrimeGram: карточек, плиток, переключателей, чипов. «Material» — крупнее скругления и тени у плиток. Чаты и остальной интерфейс Telegram пока не затронуты."));
 
             // The preview is not a row here - attachPinnedPreview() holds it above the list, so it
             // stays visible for every switch in the section rather than only the first few.
@@ -1758,8 +1782,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "PIN-код при запуске", pinEnrolled));
             if (pinEnrolled) {
                 boolean hasEmergency = org.telegram.messenger.PrimePinSession.hasEmergencyPin();
-                row(button(ID_PIN_LOCK_POLICY, IconBackgroundColors.CYAN, R.drawable.msg_recent,
-                        "Когда запрашивать", primePinPolicyLabel()));
+                row(primePinPolicyChips());
                 row(button(ID_PIN_EMERGENCY, IconBackgroundColors.RED, R.drawable.msg_delete,
                         "Аварийный PIN-код", hasEmergency ? "Изменить" : "Настроить"));
                 if (hasEmergency) {
@@ -1792,8 +1815,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             row(check(ID_AUTO_DELETE_ENABLE, IconBackgroundColors.GRAY, R.drawable.msg_delete,
                     "Автоудаление своих сообщений", autoDeleteEnabled));
             if (autoDeleteEnabled) {
-                row(button(ID_AUTO_DELETE_PERIOD, IconBackgroundColors.CYAN, R.drawable.msg_recent,
-                        "Удалять через", primeAutoDeletePeriodLabel()));
+                row(primeAutoDeletePeriodChips());
             }
             endCard(items);
             items.add(UItem.asShadow("Собственные сообщения (не пересланные, без медиа-само­уничтожения) в обычных чатах удаляются сами через заданное время после отправки. На секретные чаты не влияет — там уже есть свой таймер. Можно включить/выключить отдельно для конкретного чата в его меню."));
@@ -1812,14 +1834,15 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_TOOLS) {
-            items.add(section(SECTION_TOOLS_MAIN, IconBackgroundColors.BLUE, R.drawable.msg_customize,
-                    "Инструменты", "Форматирование, ссылки, поиск, боты"));
-            items.add(section(SECTION_TOOLS_TAGS, IconBackgroundColors.ORANGE, R.drawable.msg_pin,
-                    "Теги сообщений", "Пометки, видимые только вам"));
-            items.add(section(SECTION_TOOLS_STT, IconBackgroundColors.GREEN, R.drawable.msg_tabs_mic1,
-                    "Расшифровка голосовых", "Без Premium: на устройстве или через сервис"));
-            items.add(section(SECTION_TOOLS_BROWSER, IconBackgroundColors.CYAN, R.drawable.msg_instant,
-                    "Встроенный браузер", "Блокировка рекламы, свой DNS"));
+            hubTile(SECTION_TOOLS_MAIN, IconBackgroundColors.BLUE, R.drawable.msg_customize,
+                    "Инструменты", "Ссылки, поиск, боты");
+            hubTile(SECTION_TOOLS_TAGS, IconBackgroundColors.ORANGE, R.drawable.msg_pin,
+                    "Теги сообщений", "Видны только вам");
+            hubTile(SECTION_TOOLS_STT, IconBackgroundColors.GREEN, R.drawable.msg_tabs_mic1,
+                    "Расшифровка голосовых", "Без Premium");
+            hubTile(SECTION_TOOLS_BROWSER, IconBackgroundColors.CYAN, R.drawable.msg_instant,
+                    "Встроенный браузер", "Реклама, DNS");
+            flushHubTiles(items);
             items.add(UItem.asShadow(null));
         }
 
@@ -1880,8 +1903,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     row(button(ID_WHISPER_DOWNLOAD, IconBackgroundColors.CYAN, R.drawable.msg_download,
                             org.telegram.messenger.PrimeWhisper.isModelDownloaded(model) ? "Удалить модель" : "Загрузить модель",
                             org.telegram.messenger.PrimeWhisper.MODEL_DESCRIPTIONS[model], null));
-                    row(button(ID_WHISPER_LANGUAGE, IconBackgroundColors.ORANGE, R.drawable.msg_language,
-                            "Язык записи", whisperLanguageName()));
+                    row(primeWhisperLanguageChips());
                 }
                 endCard(items);
                 items.add(UItem.asShadow("Распознавание идёт прямо на телефоне: запись никуда не отправляется и работает без сети. Взамен нужно один раз скачать модель и подождать — на слабом телефоне минута речи разбирается заметно дольше, чем на сервере.\n\nЭтот переключатель и внешний сервис исключают друг друга: включение одного выключает другой."
@@ -1931,8 +1953,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             row(check(ID_DNS_ENABLED, IconBackgroundColors.CYAN, R.drawable.msg_satellite,
                     "Свой DNS (DNS-over-HTTPS)", org.telegram.messenger.browser.PrimeDns.isEnabled()));
             if (org.telegram.messenger.browser.PrimeDns.isEnabled()) {
-                row(button(ID_DNS_PRESET, IconBackgroundColors.BLUE, R.drawable.msg_link,
-                        "DNS-сервер", org.telegram.messenger.browser.PrimeDns.currentName()));
+                row(primeDnsChips());
                 row(check(ID_ADBLOCK_DNS, IconBackgroundColors.GREEN, R.drawable.msg_policy,
                         "Доверять вердикту DNS-сервера",
                         org.telegram.messenger.browser.PrimeAdBlock.isDnsBlockingEnabled()));
@@ -1942,16 +1963,17 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_MEDIA) {
-            items.add(section(SECTION_MEDIA_SEND, IconBackgroundColors.BLUE, R.drawable.msg_send,
-                    "Отправка и сохранение", "Без сжатия, кружочки и голосовые"));
-            items.add(section(SECTION_MEDIA_QUALITY, IconBackgroundColors.GREEN, R.drawable.msg_video,
-                    "Качество и загрузка", "Лимит качества видео, автозагрузка, кэш"));
-            items.add(section(SECTION_MEDIA_CAMERA, IconBackgroundColors.ORANGE, R.drawable.msg_camera,
-                    "Камера", "Кружочки и Camera2 API"));
-            items.add(section(SECTION_MEDIA_TRANSLATE, IconBackgroundColors.PURPLE, R.drawable.msg_translate,
-                    "Перевод", "Чем переводить сообщения"));
-            items.add(section(SECTION_MEDIA_MUSIC, IconBackgroundColors.CYAN, R.drawable.msg_filled_data_music,
-                    "Музыка", "Отправка текущего трека"));
+            hubTile(SECTION_MEDIA_SEND, IconBackgroundColors.BLUE, R.drawable.msg_send,
+                    "Отправка и сохранение", "Без сжатия");
+            hubTile(SECTION_MEDIA_QUALITY, IconBackgroundColors.GREEN, R.drawable.msg_video,
+                    "Качество и загрузка", "Видео, кэш");
+            hubTile(SECTION_MEDIA_CAMERA, IconBackgroundColors.ORANGE, R.drawable.msg_camera,
+                    "Камера", "Кружочки, Camera2");
+            hubTile(SECTION_MEDIA_TRANSLATE, IconBackgroundColors.PURPLE, R.drawable.msg_translate,
+                    "Перевод", "Чем переводить");
+            hubTile(SECTION_MEDIA_MUSIC, IconBackgroundColors.CYAN, R.drawable.msg_filled_data_music,
+                    "Музыка", "Текущий трек");
+            flushHubTiles(items);
             items.add(UItem.asShadow(null));
         }
 
@@ -2028,17 +2050,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_ADVANCED) {
-            items.add(section(SECTION_ADVANCED_UPDATES, IconBackgroundColors.GREEN, R.drawable.msg_download,
-                    "Обновления", "Автообновление, проверить сейчас"));
-            items.add(section(SECTION_ADVANCED_PERFORMANCE, IconBackgroundColors.ORANGE, R.drawable.msg_speed,
-                    "Быстродействие", "Оптимизации PrimeGram"));
-            items.add(section(SECTION_ADVANCED_DIAGNOSTICS, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
-                    "Диагностика", "Логи, трасса запуска, батарея, push"));
+            hubTile(SECTION_ADVANCED_UPDATES, IconBackgroundColors.GREEN, R.drawable.msg_download,
+                    "Обновления", "Автообновление");
+            hubTile(SECTION_ADVANCED_PERFORMANCE, IconBackgroundColors.ORANGE, R.drawable.msg_speed,
+                    "Быстродействие", "Оптимизации");
+            hubTile(SECTION_ADVANCED_DIAGNOSTICS, IconBackgroundColors.BLUE_DEEP, R.drawable.msg_stats,
+                    "Диагностика", "Логи, трасса");
             // Hardware decoding needs AImageReader, which is only reliable from Android 8.
             if (org.telegram.ui.Components.AnimatedFileNative.isHardwareDecodingAvailable()) {
-                items.add(section(SECTION_ADVANCED_EXPERIMENTAL, IconBackgroundColors.RED, R.drawable.msg_maxvideo,
-                        "Эксперименты", "Аппаратное ускорение видео"));
+                hubTile(SECTION_ADVANCED_EXPERIMENTAL, IconBackgroundColors.RED, R.drawable.msg_maxvideo,
+                        "Эксперименты", "Ускорение видео");
             }
+            flushHubTiles(items);
             items.add(UItem.asShadow(null));
         }
 
@@ -2131,12 +2154,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     ? "Сейчас включено: расширение функционала на этом устройстве — бесконечные реакции, эмодзи-статусы, значок в профиле и увеличенные лимиты ниже. "
                     : "Сейчас выключено — сервер по-прежнему не считает вас Premium-пользователем. ")
                     + "Включается в «Серой зоне»."));
-            items.add(section(SECTION_PREMIUM_CHATS, IconBackgroundColors.BLUE, R.drawable.msg_limit_folder,
-                    "Чаты и папки", "Папки, закреплённые чаты, каналы"));
-            items.add(section(SECTION_PREMIUM_MEDIA, IconBackgroundColors.ORANGE, R.drawable.msg_fave,
-                    "Медиа и стикеры", "GIF, избранные и недавние стикеры"));
-            items.add(section(SECTION_PREMIUM_PROFILE, IconBackgroundColors.GREEN, R.drawable.msg_limit_links,
-                    "Профиль и текст", "Ссылки, описание, био"));
+            hubTile(SECTION_PREMIUM_CHATS, IconBackgroundColors.BLUE, R.drawable.msg_limit_folder,
+                    "Чаты и папки", "Папки, закрепы");
+            hubTile(SECTION_PREMIUM_MEDIA, IconBackgroundColors.ORANGE, R.drawable.msg_fave,
+                    "Медиа и стикеры", "GIF, стикеры");
+            hubTile(SECTION_PREMIUM_PROFILE, IconBackgroundColors.GREEN, R.drawable.msg_limit_links,
+                    "Профиль и текст", "Ссылки, био");
+            flushHubTiles(items);
             items.add(UItem.asShadow(null));
         }
 
@@ -2178,6 +2202,20 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_ABOUT) {
+            // What is actually missing, up front and with the way to fix it - not as a grey value at
+            // the end of a row that reads like any other.
+            if (!androidx.core.app.NotificationManagerCompat.from(ApplicationLoader.applicationContext).areNotificationsEnabled()) {
+                items.add(org.telegram.ui.Components.primeui.PrimeBannerRow.Factory.of(ID_NOTIFICATIONS_BANNER,
+                        org.telegram.ui.Components.primeui.PrimeBannerRow.KIND_WARNING, R.drawable.msg_notifications,
+                        "Уведомления выключены — новые сообщения не будут показываться, пока приложение закрыто.",
+                        "Выдать разрешения", v -> primeClickById(ID_GRANT_PERMISSIONS)));
+            }
+            if ("Не разрешено".equals(primeLockScreenCallsStatus())) {
+                items.add(org.telegram.ui.Components.primeui.PrimeBannerRow.Factory.of(ID_CALLS_BANNER,
+                        org.telegram.ui.Components.primeui.PrimeBannerRow.KIND_WARNING, R.drawable.msg_calls,
+                        "На заблокированном телефоне входящий звонок придёт только уведомлением, без экрана вызова.",
+                        "Разрешить", v -> primeClickById(ID_LOCKSCREEN_CALLS)));
+            }
             row(button(ID_GRANT_PERMISSIONS, IconBackgroundColors.BLUE, R.drawable.msg_permissions,
                     "Выдать системные разрешения", "Контакты, звонки, память, уведомления", null));
             row(button(ID_LOCKSCREEN_CALLS, IconBackgroundColors.GREEN, R.drawable.msg_calls,
@@ -2194,6 +2232,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     @Override
     protected void onClick(UItem item, View view, int position, float x, float y) {
+        if (view instanceof org.telegram.ui.Components.primeui.PrimeCardRow) {
+            // Tiles, segments, chips, banners: the row knows which of its parts was tapped.
+            ((org.telegram.ui.Components.primeui.PrimeCardRow) view).clickAt(x, y, false);
+            return;
+        }
         if (item.id >= ID_SECTION_BASE) {
             presentFragment(new PrimeGramSettingsActivity(item.id - ID_SECTION_BASE));
             return;
@@ -2261,14 +2304,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         } else if (item.id == ID_STICKER_SIZE) {
             showStickerSizePicker();
-        } else if (item.id == ID_DOUBLE_TAP) {
-            showDoubleTapPicker();
-        } else if (item.id == ID_TRANSLATE_PROVIDER) {
-            showTranslateProviderPicker();
         } else if (item.id == ID_CACHE) {
             showCacheDialog();
-        } else if (item.id == ID_VIDEO_QUALITY) {
-            showVideoQualityPicker();
         } else if (item.id == ID_PRELOAD_VIDEO_MOBILE) {
             togglePreloadVideoOnMobile();
         } else if (item.id == ID_AUTODOWNLOAD) {
@@ -2299,8 +2336,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showWhisperModelPicker();
         } else if (item.id == ID_WHISPER_DOWNLOAD) {
             toggleWhisperModel();
-        } else if (item.id == ID_WHISPER_LANGUAGE) {
-            showWhisperLanguagePicker();
         } else if (item.id == ID_DOUBLE_TAP_REACTION) {
             presentFragment(new org.telegram.ui.ReactionsDoubleTapManageActivity());
         } else if (item.id == ID_UI_INSPECTOR) {
@@ -2433,8 +2468,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             org.telegram.messenger.PrimeBigFile.setExperimentalEnabled(
                     !org.telegram.messenger.PrimeBigFile.isExperimentalEnabled());
             listView.adapter.update(true);
-        } else if (item.id == ID_DNS_PRESET) {
-            showDnsPicker();
         } else if (item.id == ID_LIMIT_RECENT_STICKERS) {
             showRecentStickersPicker(messagesController);
         } else if (item.id == ID_SIDEBAR_ENABLED) {
@@ -2642,8 +2675,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             } else {
                 launchPinGate(null);
             }
-        } else if (item.id == ID_PIN_LOCK_POLICY) {
-            showPinLockPolicyDialog();
         } else if (item.id == ID_PIN_DISABLE) {
             launchPinGate(org.telegram.ui.PrimePinGateActivity.EXTRA_DISABLE_PIN);
         } else if (item.id == ID_PIN_EMERGENCY) {
@@ -2663,8 +2694,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_AUTO_DELETE_ENABLE) {
             org.telegram.messenger.PrimeAutoDelete.setGloballyEnabled(!org.telegram.messenger.PrimeAutoDelete.isGloballyEnabled());
             listView.adapter.update(true);
-        } else if (item.id == ID_AUTO_DELETE_PERIOD) {
-            showAutoDeletePeriodDialog();
         } else if (item.id == ID_ANON_FILENAMES) {
             org.telegram.messenger.PrimeFileNames.setEnabled(!org.telegram.messenger.PrimeFileNames.isEnabled());
             listView.adapter.update(true);
@@ -3298,30 +3327,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         "Определять сам", "Русский", "English", "Українська", "Deutsch", "Français", "Español"
     };
 
-    private CharSequence whisperLanguageName() {
-        final String current = org.telegram.messenger.PrimeWhisper.getLanguage();
-        for (int i = 0; i < WHISPER_LANGUAGE_CODES.length; i++) {
-            if (WHISPER_LANGUAGE_CODES[i].equals(current)) {
-                return WHISPER_LANGUAGE_NAMES[i];
-            }
-        }
-        return WHISPER_LANGUAGE_NAMES[0];
-    }
-
-    private void showWhisperLanguagePicker() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Язык записи");
-        builder.setItems(WHISPER_LANGUAGE_NAMES, (dialog, which) -> {
-            org.telegram.messenger.PrimeWhisper.setLanguage(WHISPER_LANGUAGE_CODES[which]);
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
-    }
-
     private void showWhisperModelPicker() {
         if (getParentActivity() == null) {
             return;
@@ -3446,40 +3451,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return 0;
     }
 
-    private void showVideoQualityPicker() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Качество видео");
-        builder.setItems(VIDEO_QUALITY_NAMES, (dialog, which) -> {
-            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.MAX_VIDEO_HEIGHT,
-                    VIDEO_QUALITY_VALUES[which]);
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
-    }
-
     private void togglePreloadVideoOnMobile() {
         final org.telegram.messenger.DownloadController controller =
                 org.telegram.messenger.DownloadController.getInstance(currentAccount);
         controller.primeSetMobilePreloadVideo(!controller.primeMobilePreloadVideo());
         listView.adapter.update(true);
-    }
-
-    private void showTranslateProviderPicker() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Чем переводить");
-        builder.setItems(TRANSLATE_PROVIDER_NAMES, (dialog, which) -> {
-            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.TRANSLATE_PROVIDER, which);
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
     }
 
     private static final String[] DOUBLE_TAP_NAMES = {"Реакция", "Ответить", "Ничего"};
@@ -3534,6 +3510,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     }
                     if (listView != null && listView.adapter != null) {
                         listView.adapter.update(true);
+                        // Rows that did not change content are not rebound; they re-read the
+                        // design tokens on their next draw, which this asks for.
+                        for (int i = 0; i < listView.getChildCount(); i++) {
+                            listView.getChildAt(i).invalidate();
+                        }
                     }
                 };
                 if (root instanceof android.view.ViewGroup) {
@@ -3755,20 +3736,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return doubleTapCards;
     }
 
-    private void showDoubleTapPicker() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Двойное нажатие по сообщению");
-        builder.setItems(DOUBLE_TAP_NAMES, (dialog, which) -> {
-            org.telegram.messenger.PrimeTweaks.setInt(org.telegram.messenger.PrimeTweaks.DOUBLE_TAP_ACTION, which);
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
-    }
-
     private void showVpnWhitelistPicker() {
         if (getParentActivity() == null) {
             return;
@@ -3851,29 +3818,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         showDialog(builder.create());
     }
 
-    private void showDnsPicker() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        final String[] presets = org.telegram.messenger.browser.PrimeDns.PRESET_NAMES;
-        final CharSequence[] options = new CharSequence[presets.length + 1];
-        System.arraycopy(presets, 0, options, 0, presets.length);
-        options[presets.length] = "Свой адрес…";
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("DNS-сервер");
-        builder.setItems(options, (dialog, which) -> {
-            if (which == presets.length) {
-                showCustomDnsDialog();
-            } else {
-                org.telegram.messenger.browser.PrimeDns.setPreset(which);
-                listView.adapter.update(true);
-            }
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
-    }
-
     private void showCustomDnsDialog() {
         if (getParentActivity() == null) {
             return;
@@ -3941,26 +3885,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         getParentActivity().startActivity(intent);
     }
 
-    private String primePinPolicyLabel() {
-        switch (org.telegram.messenger.PrimePinSession.getLockPolicy()) {
-            case ON_MINIMIZE:
-                return "При каждом сворачивании";
-            case INACTIVITY_10M:
-                return "После 10 минут бездействия";
-            case INACTIVITY_60M:
-                return "После 60 минут бездействия";
-            case ON_START:
-                return "Только при запуске приложения";
-            case ON_SCREEN_LOCK:
-            default:
-                return "При блокировке экрана";
-        }
-    }
-
-    private String primeAutoDeletePeriodLabel() {
-        return LocaleController.formatTTLString(org.telegram.messenger.PrimeAutoDelete.getPeriodHours() * 3600);
-    }
-
     private static String primeDownloadBoostModeLabel(int ordinal) {
         switch (org.telegram.messenger.PrimeDownloadBoost.Mode.fromOrdinal(ordinal)) {
             case FASTER:
@@ -3990,52 +3914,89 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         return downloadBoostSlider;
     }
 
-    private void showAutoDeletePeriodDialog() {
-        if (getParentActivity() == null) {
-            return;
+    // ---- choices shown in place (chips) instead of behind a dialog ---------------------------
+
+    private static final org.telegram.messenger.PrimePinLockPolicy[] PIN_POLICIES = {
+            org.telegram.messenger.PrimePinLockPolicy.ON_MINIMIZE,
+            org.telegram.messenger.PrimePinLockPolicy.ON_SCREEN_LOCK,
+            org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_10M,
+            org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_60M,
+            org.telegram.messenger.PrimePinLockPolicy.ON_START,
+    };
+    private static final String[] PIN_POLICY_CHIPS = {
+            "При сворачивании", "При блокировке экрана", "Через 10 минут", "Через 60 минут", "Только при запуске"};
+
+    private UItem primePinPolicyChips() {
+        final org.telegram.messenger.PrimePinLockPolicy current = org.telegram.messenger.PrimePinSession.getLockPolicy();
+        long mask = 0;
+        for (int i = 0; i < PIN_POLICIES.length; i++) {
+            if (PIN_POLICIES[i] == current) {
+                mask = 1L << i;
+            }
         }
-        final int[] hoursOptions = org.telegram.messenger.PrimeAutoDelete.PERIOD_OPTIONS_HOURS;
-        final String[] labels = new String[hoursOptions.length];
-        for (int i = 0; i < hoursOptions.length; i++) {
-            labels[i] = LocaleController.formatTTLString(hoursOptions[i] * 3600);
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Удалять через");
-        builder.setItems(labels, (dialog, which) -> {
-            org.telegram.messenger.PrimeAutoDelete.setPeriodHours(hoursOptions[which]);
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
+        return org.telegram.ui.Components.primeui.PrimeChipsRow.Factory.of(ID_PIN_LOCK_POLICY,
+                "Когда запрашивать PIN-код", PIN_POLICY_CHIPS, mask, index -> {
+                    org.telegram.messenger.PrimePinSession.setLockPolicy(PIN_POLICIES[index]);
+                    org.telegram.messenger.PrimePinSession.applyPolicyChange();
+                    listView.adapter.update(true);
+                });
     }
 
-    private void showPinLockPolicyDialog() {
-        if (getParentActivity() == null) {
-            return;
+    private UItem primeAutoDeletePeriodChips() {
+        final int[] hours = org.telegram.messenger.PrimeAutoDelete.PERIOD_OPTIONS_HOURS;
+        final String[] labels = new String[hours.length];
+        final int current = org.telegram.messenger.PrimeAutoDelete.getPeriodHours();
+        long mask = 0;
+        for (int i = 0; i < hours.length; i++) {
+            labels[i] = LocaleController.formatTTLString(hours[i] * 3600);
+            if (hours[i] == current) {
+                mask = 1L << i;
+            }
         }
-        final org.telegram.messenger.PrimePinLockPolicy[] policies = {
-                org.telegram.messenger.PrimePinLockPolicy.ON_MINIMIZE,
-                org.telegram.messenger.PrimePinLockPolicy.ON_SCREEN_LOCK,
-                org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_10M,
-                org.telegram.messenger.PrimePinLockPolicy.INACTIVITY_60M,
-                org.telegram.messenger.PrimePinLockPolicy.ON_START,
-        };
-        final String[] labels = {
-                "При каждом сворачивании",
-                "При блокировке экрана",
-                "После 10 минут бездействия",
-                "После 60 минут бездействия",
-                "Только при запуске приложения",
-        };
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-        builder.setTitle("Когда запрашивать PIN-код");
-        builder.setItems(labels, (dialog, which) -> {
-            org.telegram.messenger.PrimePinSession.setLockPolicy(policies[which]);
-            org.telegram.messenger.PrimePinSession.applyPolicyChange();
-            listView.adapter.update(true);
-        });
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        showDialog(builder.create());
+        return org.telegram.ui.Components.primeui.PrimeChipsRow.Factory.of(ID_AUTO_DELETE_PERIOD,
+                "Удалять через", labels, mask, index -> {
+                    org.telegram.messenger.PrimeAutoDelete.setPeriodHours(hours[index]);
+                    listView.adapter.update(true);
+                });
+    }
+
+    private UItem primeWhisperLanguageChips() {
+        final String current = org.telegram.messenger.PrimeWhisper.getLanguage();
+        long mask = 0;
+        for (int i = 0; i < WHISPER_LANGUAGE_CODES.length; i++) {
+            if (WHISPER_LANGUAGE_CODES[i].equals(current == null ? "" : current)) {
+                mask = 1L << i;
+            }
+        }
+        return org.telegram.ui.Components.primeui.PrimeChipsRow.Factory.of(ID_WHISPER_LANGUAGE,
+                "Язык записи", WHISPER_LANGUAGE_NAMES, mask, index -> {
+                    org.telegram.messenger.PrimeWhisper.setLanguage(WHISPER_LANGUAGE_CODES[index]);
+                    listView.adapter.update(true);
+                });
+    }
+
+    private UItem primeDnsChips() {
+        final String[] presets = org.telegram.messenger.browser.PrimeDns.PRESET_NAMES;
+        final String[] labels = new String[presets.length + 1];
+        for (int i = 0; i < presets.length; i++) {
+            // The preset names carry a description after the dash; the chip only needs the name.
+            final int dash = presets[i].indexOf(" — ");
+            labels[i] = dash > 0 ? presets[i].substring(0, dash) : presets[i];
+        }
+        labels[presets.length] = "Свой адрес…";
+        final int preset = org.telegram.messenger.browser.PrimeDns.getPreset();
+        final long mask = preset == org.telegram.messenger.browser.PrimeDns.PRESET_CUSTOM
+                ? 1L << presets.length
+                : preset >= 0 && preset < presets.length ? 1L << preset : 0;
+        return org.telegram.ui.Components.primeui.PrimeChipsRow.Factory.of(ID_DNS_PRESET,
+                "DNS-сервер · " + org.telegram.messenger.browser.PrimeDns.currentName(), labels, mask, index -> {
+                    if (index == presets.length) {
+                        showCustomDnsDialog();
+                    } else {
+                        org.telegram.messenger.browser.PrimeDns.setPreset(index);
+                        listView.adapter.update(true);
+                    }
+                });
     }
 
     private void showPhoneInputDialog() {
@@ -4090,6 +4051,13 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     @Override
     protected boolean onLongClick(UItem item, View view, int position, float x, float y) {
+        if (view instanceof org.telegram.ui.Components.primeui.PrimeCardRow) {
+            // A long press on a quick tile opens where its setting lives.
+            if (((org.telegram.ui.Components.primeui.PrimeCardRow) view).clickAt(x, y, true)) {
+                view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                return true;
+            }
+        }
         return false;
     }
 

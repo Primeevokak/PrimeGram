@@ -34,7 +34,6 @@ import java.util.Arrays;
 public class PrimeSegmentedRow extends PrimeCardRow {
 
     private static final int TRACK_HEIGHT = 40;
-    private static final int TRACK_RADIUS = 12;
     private static final int INDICATOR_INSET = 3;
 
     private static TextPaint titlePaint, subtitlePaint, segmentPaint;
@@ -161,8 +160,10 @@ public class PrimeSegmentedRow extends PrimeCardRow {
             return;
         }
         final int accent = accentColor();
+        final float trackRadius = radius(org.telegram.ui.Components.design.DesignSystem.Role.CONTROL, track.height());
+        final float indicatorRadius = Math.max(0, trackRadius - dp(INDICATOR_INSET));
         fillPaint.setColor(Theme.multAlpha(accent, isDark() ? 0.16f : 0.10f));
-        canvas.drawRoundRect(track, dp(TRACK_RADIUS), dp(TRACK_RADIUS), fillPaint);
+        canvas.drawRoundRect(track, trackRadius, trackRadius, fillPaint);
 
         final float w = segmentWidth();
         final float index = indicator.set(selected);
@@ -178,7 +179,7 @@ public class PrimeSegmentedRow extends PrimeCardRow {
             tmp.set(l + dp(INDICATOR_INSET), track.top + dp(INDICATOR_INSET), l + w - dp(INDICATOR_INSET), track.bottom - dp(INDICATOR_INSET));
             scale(tmp, 1f - 0.04f * press);
             fillPaint.setColor(Theme.multAlpha(accent, 0.12f * press));
-            canvas.drawRoundRect(tmp, dp(TRACK_RADIUS - INDICATOR_INSET), dp(TRACK_RADIUS - INDICATOR_INSET), fillPaint);
+            canvas.drawRoundRect(tmp, indicatorRadius, indicatorRadius, fillPaint);
         }
 
         final float il = segmentLeft(index);
@@ -187,7 +188,7 @@ public class PrimeSegmentedRow extends PrimeCardRow {
             scale(tmp, 1f - 0.05f * press);
         }
         fillPaint.setColor(accent);
-        canvas.drawRoundRect(tmp, dp(TRACK_RADIUS - INDICATOR_INSET), dp(TRACK_RADIUS - INDICATOR_INSET), fillPaint);
+        canvas.drawRoundRect(tmp, indicatorRadius, indicatorRadius, fillPaint);
 
         final int textColor = color(Theme.key_windowBackgroundWhiteBlackText);
         final int onAccent = onAccentColor();
@@ -251,7 +252,7 @@ public class PrimeSegmentedRow extends PrimeCardRow {
 
         @Override
         public boolean isClickable() {
-            return false;
+            return true;
         }
 
         @Override

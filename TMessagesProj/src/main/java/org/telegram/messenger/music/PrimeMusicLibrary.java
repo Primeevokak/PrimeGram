@@ -174,6 +174,116 @@ public final class PrimeMusicLibrary {
 
     // ---- Mood tags ----
 
+    /** A mood: a tag the user made into a category. */
+    public static final class Mood {
+        public long id;
+        public String name;
+        public String emoji;
+        public int trackCount;
+
+        public String label() {
+            return emoji != null && !emoji.isEmpty() ? emoji + " " + name : name;
+        }
+    }
+
+    private static final String PREF_MOODS_SEEDED = "prime_music_moods_seeded";
+
+    /** The first time moods are asked for, the three the home screen always offered become real
+     *  categories - reusing a lower-case tag of the same name if the user had typed one. */
+    private static void seedMoodsOnce() {
+        final android.content.SharedPreferences prefs = org.telegram.messenger.MessagesController.getGlobalMainSettings();
+        if (prefs.getBoolean(PREF_MOODS_SEEDED, false)) {
+            return;
+        }
+        final String[][] seeds = {{"Бодрое", "⚡", "бодрое"}, {"Спокойное", "🌿", "спокойное"}, {"Вечер", "🌙", "вечер"}};
+        int position = 0;
+        for (String[] seed : seeds) {
+            Long existing = db().queryOne("SELECT id FROM tags WHERE name = ?", new Object[]{seed[2]}, c -> c.longValue(0));
+            long id = existing != null ? existing : findOrCreateTag(seed[0]);
+            if (existing != null) {
+                db().write("UPDATE tags SET name = ? WHERE id = ?", seed[0], id);
+            }
+            db().write("UPDATE tags SET mood = 1, emoji = ?, position = ? WHERE id = ?", seed[1], position++, id);
+        }
+        prefs.edit().putBoolean(PREF_MOODS_SEEDED, true).apply();
+    }
+
+    public static List<Mood> getMoods() {
+        seedMoodsOnce();
+        List<Mood> moods = new ArrayList<>();
+        db().queryEach("SELECT tags.id, tags.name, tags.emoji, " +
+                        "(SELECT COUNT(*) FROM track_tags JOIN tracks ON tracks.id = track_tags.track_id " +
+                        "WHERE track_tags.tag_id = tags.id AND (tracks.excluded IS NULL OR tracks.excluded = 0)) " +
+                        "FROM tags WHERE mood = 1 ORDER BY position, id",
+                new Object[]{}, cursor -> {
+                    Mood m = new Mood();
+                    m.id = cursor.longValue(0);
+                    m.name = cursor.stringValue(1);
+                    m.emoji = cursor.isNull(2) ? null : cursor.stringValue(2);
+                    m.trackCount = cursor.intValue(3);
+                    moods.add(m);
+                });
+        return moods;
+    }
+
+    public static long createMood(String name, String emoji) {
+        final long id = findOrCreateTag(name.trim());
+        Integer max = db().queryOne("SELECT MAX(position) FROM tags WHERE mood = 1", new Object[]{}, c -> c.isNull(0) ? -1 : c.intValue(0));
+        db().write("UPDATE tags SET mood = 1, emoji = ?, position = ? WHERE id = ?", emoji, (max == null ? -1 : max) + 1, id);
+        return id;
+    }
+
+    /** @return false when another tag already has that name */
+    public static boolean renameMood(long id, String name, String emoji) {
+        Long clash = db().queryOne("SELECT id FROM tags WHERE name = ? AND id != ?", new Object[]{name.trim(), id}, c -> c.longValue(0));
+        if (clash != null) {
+            return false;
+        }
+        db().write("UPDATE tags SET name = ?, emoji = ? WHERE id = ?", name.trim(), emoji, id);
+        return true;
+    }
+
+    public static void deleteMood(long id) {
+        db().write("DELETE FROM track_tags WHERE tag_id = ?", id);
+        db().write("DELETE FROM tags WHERE id = ?", id);
+    }
+
+    public static java.util.Set<Long> getTagIds(long trackId) {
+        java.util.Set<Long> ids = new java.util.HashSet<>();
+        db().queryEach("SELECT tag_id FROM track_tags WHERE track_id = ?", new Object[]{trackId}, c -> ids.add(c.longValue(0)));
+        return ids;
+    }
+
+    public static void setTrackTag(long trackId, long tagId, boolean on) {
+        if (on) {
+            db().write("INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?, ?)", trackId, tagId);
+        } else {
+            db().write("DELETE FROM track_tags WHERE track_id = ? AND tag_id = ?", trackId, tagId);
+        }
+    }
+
+    /** The track's tags that are not moods - the free-form ones. */
+    public static List<String> getPlainTags(long trackId) {
+        List<String> tags = new ArrayList<>();
+        db().queryEach(
+                "SELECT tags.name FROM tags JOIN track_tags ON tags.id = track_tags.tag_id " +
+                        "WHERE track_tags.track_id = ? AND (tags.mood IS NULL OR tags.mood = 0) ORDER BY tags.name",
+                new Object[]{trackId}, cursor -> tags.add(cursor.stringValue(0)));
+        return tags;
+    }
+
+    /** Replaces only the free-form tags, leaving the track's moods as they are. */
+    public static void setPlainTags(long trackId, List<String> tagNames) {
+        db().write("DELETE FROM track_tags WHERE track_id = ? AND tag_id IN (SELECT id FROM tags WHERE mood IS NULL OR mood = 0)", trackId);
+        for (String name : tagNames) {
+            if (name == null || name.trim().isEmpty()) {
+                continue;
+            }
+            long tagId = findOrCreateTag(name.trim());
+            db().write("INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?, ?)", trackId, tagId);
+        }
+    }
+
     private static long findOrCreateTag(String name) {
         Long existing = db().queryOne("SELECT id FROM tags WHERE name = ?", new Object[]{name}, cursor -> cursor.longValue(0));
         if (existing != null) {
@@ -395,8 +505,40 @@ public final class PrimeMusicLibrary {
 
     /** Called once per real playback start - see the playback-integration hook (phase
      *  2) for where this gets wired to actual `MediaController` playback events. */
-    public static void recordPlay(long trackId) {
-        db().write("INSERT INTO play_history (track_id, played_at) VALUES (?, ?)", trackId, System.currentTimeMillis());
+    public static final int OUTCOME_UNKNOWN = 0;
+    public static final int OUTCOME_COMPLETED = 1;
+    public static final int OUTCOME_SKIPPED = 2;
+    public static final int OUTCOME_PARTIAL = 3;
+
+    /** @return the play's row id, for {@link #finishPlay} */
+    public static long recordPlay(long trackId) {
+        return db().write("INSERT INTO play_history (track_id, played_at) VALUES (?, ?)", trackId, System.currentTimeMillis());
+    }
+
+    /** Records how far the play at {@code rowId} got; the outcome follows from it. */
+    public static void finishPlay(long rowId, float progress) {
+        if (rowId <= 0) {
+            return;
+        }
+        final float p = Math.max(0f, Math.min(1f, progress));
+        final int outcome = p >= 0.85f ? OUTCOME_COMPLETED : p < 0.3f ? OUTCOME_SKIPPED : OUTCOME_PARTIAL;
+        db().write("UPDATE play_history SET progress = ?, outcome = ? WHERE rowid = ?", (double) p, outcome, rowId);
+    }
+
+    /** How much one past play says the user wants this track: a play listened through is a
+     *  vote for it, one skipped early is a vote against. Legacy rows without an outcome count
+     *  as a moderate "for", which is what they were treated as before outcomes existed. */
+    private static double playSignal(int outcome, double progress) {
+        switch (outcome) {
+            case OUTCOME_COMPLETED:
+                return 1.0;
+            case OUTCOME_PARTIAL:
+                return Math.max(0.3, progress);
+            case OUTCOME_SKIPPED:
+                return progress < 0.15 ? -1.0 : -0.5;
+            default:
+                return 0.7;
+        }
     }
 
     public static int getPlayCount(long trackId) {
@@ -430,6 +572,13 @@ public final class PrimeMusicLibrary {
     // already listen to" - that works without the user doing anything extra.
 
     private static final double LIKED_BOOST = 3.0;
+    /** Plays per track from the last scoring pass - the wave's exploration bonus reads it. */
+    private static volatile Map<Long, Integer> lastPlayCounts = new HashMap<>();
+
+    public static int lastPlayCount(long trackId) {
+        final Integer c = lastPlayCounts.get(trackId);
+        return c == null ? 0 : c;
+    }
     private static final double HALF_LIFE_DAYS = 7.0;
     private static final double TAG_AFFINITY_WEIGHT = 0.5;
     private static final double ARTIST_AFFINITY_WEIGHT = 0.35;
@@ -472,6 +621,59 @@ public final class PrimeMusicLibrary {
      *  filter reuses the same tags {@code PrimeMusicTagEditor} already lets a user put on
      *  a track - no separate mood taxonomy, "мы используем теги как аналог настроения"
      *  per the feature's own request. */
+    /** Mood filter value meaning "tracks I liked" rather than a tag. */
+    public static final String MOOD_LIKED = "__prime_liked__";
+
+    /** A wave candidate with its score, for {@code PrimeMusicWave}'s own weighted pick. */
+    public static final class ScoredTrack {
+        public final PrimeTrack track;
+        public final double score;
+
+        ScoredTrack(PrimeTrack track, double score) {
+            this.track = track;
+            this.score = score;
+        }
+    }
+
+    /** Every eligible wave track, best first, with its score. */
+    public static List<ScoredTrack> getWaveCandidates(java.util.Set<Long> excludeTrackIds, java.util.List<String> moodTagFilter) {
+        List<ScoredTrack> result = new ArrayList<>();
+        List<PrimeTrack> allTracks = getAllTracks();
+        if (allTracks.isEmpty()) {
+            return result;
+        }
+        Map<Long, Double> finalScore = computeTrackScores(allTracks);
+        final boolean likedOnly = moodTagFilter != null && moodTagFilter.contains(MOOD_LIKED);
+        java.util.Set<Long> moodTrackIds = null;
+        if (moodTagFilter != null && !moodTagFilter.isEmpty()) {
+            for (String tagName : moodTagFilter) {
+                if (MOOD_LIKED.equals(tagName)) {
+                    continue;
+                }
+                if (moodTrackIds == null) {
+                    moodTrackIds = new java.util.HashSet<>();
+                }
+                for (PrimeTrack tagged : getTracksWithTag(tagName)) {
+                    moodTrackIds.add(tagged.id);
+                }
+            }
+        }
+        for (PrimeTrack track : allTracks) {
+            if (track.disliked || excludeTrackIds != null && excludeTrackIds.contains(track.id)) {
+                continue;
+            }
+            if (likedOnly && !track.liked) {
+                continue;
+            }
+            if (moodTrackIds != null && !moodTrackIds.contains(track.id)) {
+                continue;
+            }
+            result.add(new ScoredTrack(track, finalScore.getOrDefault(track.id, 0.0)));
+        }
+        Collections.sort(result, (a, b) -> Double.compare(b.score, a.score));
+        return result;
+    }
+
     public static List<PrimeTrack> getWaveRecommendations(java.util.Set<Long> excludeTrackIds, java.util.List<String> moodTagFilter, int limit) {
         List<PrimeTrack> allTracks = getAllTracks();
         if (allTracks.isEmpty()) {
@@ -518,13 +720,18 @@ public final class PrimeMusicLibrary {
     private static Map<Long, Double> computeTrackScores(List<PrimeTrack> allTracks) {
         long now = System.currentTimeMillis();
         Map<Long, Double> playScore = new HashMap<>();
-        db().queryEach("SELECT track_id, played_at FROM play_history", new Object[]{}, cursor -> {
+        final Map<Long, Integer> playCounts = new HashMap<>();
+        db().queryEach("SELECT track_id, played_at, outcome, progress FROM play_history", new Object[]{}, cursor -> {
             long trackId = cursor.longValue(0);
             long playedAt = cursor.longValue(1);
+            final int outcome = cursor.isNull(2) ? OUTCOME_UNKNOWN : cursor.intValue(2);
+            final double progress = cursor.isNull(3) ? 0 : cursor.doubleValue(3);
             double ageDays = Math.max(0, (now - playedAt) / 86400000.0);
             double weight = Math.pow(0.5, ageDays / HALF_LIFE_DAYS);
-            playScore.merge(trackId, weight, Double::sum);
+            playScore.merge(trackId, weight * playSignal(outcome, progress), Double::sum);
+            playCounts.merge(trackId, 1, Integer::sum);
         });
+        lastPlayCounts = playCounts;
 
         Map<Long, List<Long>> trackTags = new HashMap<>();
         db().queryEach("SELECT track_id, tag_id FROM track_tags", new Object[]{}, cursor -> {

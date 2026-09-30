@@ -155,7 +155,7 @@ public class PrimeChipsRow extends PrimeCardRow {
         final int onAccent = onAccentColor();
         final int textColor = color(Theme.key_windowBackgroundWhiteBlackText);
         final int outline = Theme.multAlpha(color(Theme.key_windowBackgroundWhiteGrayText2), 0.35f);
-        final float radius = dp(CHIP_HEIGHT) / 2f;
+        final float radius = radius(org.telegram.ui.Components.design.DesignSystem.Role.CHIP, dp(CHIP_HEIGHT));
         for (int i = 0; i < labels.length; i++) {
             final RectF r = chips[i];
             final float s = selection[i].set(isSelected(i) ? 1f : 0f);
@@ -223,7 +223,7 @@ public class PrimeChipsRow extends PrimeCardRow {
 
         @Override
         public boolean isClickable() {
-            return false;
+            return true;
         }
 
         @Override

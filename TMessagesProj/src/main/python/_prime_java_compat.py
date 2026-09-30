@@ -41,7 +41,49 @@ class _PlaceholderMeta(type):
     def __getattr__(cls, name):
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
-        return _Placeholder
+        return _MissingMember("%s.%s" % (cls.__name__, name))
+
+
+class _MissingMember:
+    """A member of a class PrimeGram does not have: readable (a constant, a nested class for
+    ``isinstance``), but calling it raises.
+
+    It used to return yet another placeholder when called - "succeeding" with a value that was not
+    what the plugin asked for. Plugins guard optional APIs with ``try: X.method() except: fallback``,
+    and that fallback never ran: reSwaga's ``DebugConfig.getSectionRadiusDp()`` came back as a
+    placeholder instead of raising, skipped its own ``ExteraConfig`` fallback, and failed later in
+    ``dp()`` while building its views. Raising at the call keeps such guards working.
+    """
+
+    def __init__(self, qualified_name):
+        self._name = qualified_name
+
+    def __call__(self, *args, **kwargs):
+        raise AttributeError("%s is not available in PrimeGram" % self._name)
+
+    def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        return _MissingMember("%s.%s" % (self._name, name))
+
+    def __repr__(self):
+        return "<%s: not available in PrimeGram>" % self._name
+
+    def __bool__(self):
+        return False
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self):
+        return 0
+
+    def __contains__(self, item):
+        return False
+
+    def __instancecheck__(self, instance):
+        # isinstance(x, Missing.Nested) - nothing is an instance of what we do not have.
+        return False
 
 
 class _Placeholder(metaclass=_PlaceholderMeta):

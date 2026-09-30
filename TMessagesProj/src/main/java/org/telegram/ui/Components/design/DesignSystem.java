@@ -33,7 +33,18 @@ public interface DesignSystem {
         FAB,
         DIALOG,
         INPUT_FIELD,
+        /** A run of settings rows drawn as one rounded card (PrimeCheckCell, primeui rows). */
+        LIST_CARD,
+        /** A quick-toggle or section tile. */
+        TILE,
+        /** A control's own container: the segmented button group's track. */
+        CONTROL,
+        /** A selectable chip. {@link #PILL} means fully rounded. */
+        CHIP,
     }
+
+    /** A {@link #cornerRadius} meaning "half the height": a pill, whatever the size. */
+    float PILL = -1f;
 
     /** The fill behind a role's surface - a plain color today, a blur/gradient in later systems. */
     Drawable surfaceFill(Role role, Theme.ResourcesProvider provider);

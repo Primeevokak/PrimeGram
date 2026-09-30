@@ -380,6 +380,23 @@ public final class PrimeClassProxy {
         return NO_FIT;
     }
 
+    /**
+     * Attaches the Python peer to a generated instance. Python cannot assign an arbitrary Python
+     * object to the {@code Object}-typed peer field itself - Chaquopy only converts Python objects
+     * to Java when the target is {@link com.chaquo.python.PyObject}, and throws "Cannot convert ...
+     * to java.lang.Object" otherwise. Taking a PyObject here gets it wrapped on the way in; reading
+     * the field back from Python unwraps it to the same Python object.
+     */
+    public static void setPeer(Object instance, com.chaquo.python.PyObject peer) throws IllegalAccessException {
+        if (instance == null) {
+            return;
+        }
+        final Field field = findDeclaredField(instance.getClass(), PEER_FIELD);
+        if (field != null) {
+            field.set(instance, peer);
+        }
+    }
+
     /** {@code cls.isInterface()}, for Python - see {@link #nameOf}. */
     public static boolean isInterface(Class<?> cls) {
         return cls.isInterface();

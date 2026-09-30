@@ -292,7 +292,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
             // playNextMessage() has no real "next" to find there and silently does
             // nothing - the wave has to pick and start its own next track instead.
             if (org.telegram.messenger.music.PrimeMusicWave.isActive()) {
-                org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.next();
+                org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.skip();
                 if (next != null) {
                     org.telegram.messenger.music.PrimeMusicPlayback.playSingle(org.telegram.messenger.UserConfig.selectedAccount, next);
                 }
@@ -512,7 +512,7 @@ public class PrimeMusicNowPlayingActivity extends BaseFragment implements Notifi
         long trackId = resolveTrackId(playing);
         PrimeMusicLibrary.setDisliked(trackId, true);
         if (org.telegram.messenger.music.PrimeMusicWave.isActive()) {
-            org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.next();
+            org.telegram.messenger.music.PrimeTrack next = org.telegram.messenger.music.PrimeMusicWave.dislikeCurrentAndAdvance();
             if (next != null) {
                 org.telegram.messenger.music.PrimeMusicPlayback.playSingle(org.telegram.messenger.UserConfig.selectedAccount, next);
             } else {

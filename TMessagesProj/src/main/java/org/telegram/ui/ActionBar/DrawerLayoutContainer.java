@@ -176,6 +176,11 @@ public class DrawerLayoutContainer extends FrameLayout {
     @Override
     public void requestLayout() {
         if (!inLayout) {
+            if (org.telegram.messenger.PrimePerfMonitor.trackingInvalidates && !isLayoutRequested()) {
+                // PrimeGram: a layout request reaching the window root re-lays out every screen in
+                // it; the monitor names who started it.
+                org.telegram.messenger.PrimePerfMonitor.noteRootLayoutRequest();
+            }
             super.requestLayout();
         }
     }

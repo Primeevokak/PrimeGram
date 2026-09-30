@@ -7,10 +7,8 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
-import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
@@ -29,9 +27,10 @@ import org.telegram.ui.ActionBar.Theme;
  * corners (a RecyclerView has no notion of a group). The position values are the same ones, so
  * {@code endCard()} places these rows next to the existing ones without knowing the difference.
  *
- * <p>Rows with several targets (segments, chips, tiles) handle their own touches and draw the
- * pressed state on the target itself; their factories report themselves as not clickable, so the
- * list neither highlights the whole row nor sends it a click.
+ * <p>Rows with several targets (segments, chips, tiles) get the tap from the list as an ordinary
+ * row click with the touch point, and {@link #clickAt} works out which target it hit; the pressed
+ * state is drawn on that target, and the page background painted here hides the list's own
+ * whole-row highlight.
  */
 public abstract class PrimeCardRow extends View {
 
@@ -44,7 +43,6 @@ public abstract class PrimeCardRow extends View {
     public static final int POS_MASK = 0xF;
 
     protected static final int CARD_MARGIN = 12;
-    protected static final int CARD_RADIUS = 12;
     protected static final int CONTENT_INSET = 14;
 
     protected static final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -56,26 +54,14 @@ public abstract class PrimeCardRow extends View {
     private final RectF cardRect = new RectF();
     private final float[] radii = new float[8];
     private boolean cardPathDirty = true;
+    private int drawnDesignMode = Integer.MIN_VALUE;
 
     // Touch: which target is under the finger, if any.
     protected int pressedTarget = -1;
-    private float downX, downY;
-    private boolean longPressFired;
-    private final int touchSlop;
-    private final Runnable longPressRunnable = () -> {
-        if (pressedTarget >= 0 && supportsLongPress(pressedTarget)) {
-            longPressFired = true;
-            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-            final int target = pressedTarget;
-            setPressedTarget(-1);
-            onTargetClick(target, true);
-        }
-    };
 
     protected PrimeCardRow(Context context, Theme.ResourcesProvider resourcesProvider) {
         super(context);
         this.resourcesProvider = resourcesProvider;
-        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
     }
 
     public void setPosition(int position) {
@@ -88,6 +74,24 @@ public abstract class PrimeCardRow extends View {
 
     public int getPosition() {
         return position;
+    }
+
+    /** Corner radius for a role in the current design system, in px. {@code pillHeight} for PILL. */
+    protected static float radius(org.telegram.ui.Components.design.DesignSystem.Role role, float pillHeight) {
+        final float r = org.telegram.ui.Components.design.DesignSystem.current().cornerRadius(role);
+        return r == org.telegram.ui.Components.design.DesignSystem.PILL ? pillHeight / 2f : dp(r);
+    }
+
+    protected static float radius(org.telegram.ui.Components.design.DesignSystem.Role role) {
+        return radius(role, 0);
+    }
+
+    /**
+     * The design system changed since this row last drew: geometry that depends on it (corner
+     * radii, anything cached from them) has to be rebuilt. Called from {@link #onDraw}.
+     */
+    protected void onDesignChanged() {
+        onGeometryChanged();
     }
 
     protected int color(int key) {
@@ -144,7 +148,7 @@ public abstract class PrimeCardRow extends View {
         if (position == POS_NONE) {
             return;
         }
-        final float r = dp(CARD_RADIUS);
+        final float r = radius(org.telegram.ui.Components.design.DesignSystem.Role.LIST_CARD);
         final float top = position == POS_SINGLE || position == POS_TOP ? r : 0;
         final float bottom = position == POS_SINGLE || position == POS_BOTTOM ? r : 0;
         radii[0] = radii[1] = radii[2] = radii[3] = top;
@@ -155,6 +159,16 @@ public abstract class PrimeCardRow extends View {
 
     @Override
     protected final void onDraw(Canvas canvas) {
+        // One int compare per frame: switching the design system rebuilds nothing until it happens.
+        final int mode = org.telegram.messenger.PrimeTweaks.designMode();
+        if (mode != drawnDesignMode) {
+            final boolean first = drawnDesignMode == Integer.MIN_VALUE;
+            drawnDesignMode = mode;
+            cardPathDirty = true;
+            if (!first) {
+                onDesignChanged();
+            }
+        }
         // The page behind the card: covers the list's own highlight, which is sized to the whole
         // row and would otherwise show in the margins (same reason as PrimeCheckCell).
         fillPaint.setShader(null);
@@ -177,6 +191,15 @@ public abstract class PrimeCardRow extends View {
     protected abstract void drawContent(Canvas canvas);
 
     // ---- touch ----------------------------------------------------------------------------
+    //
+    // The list owns the gesture. RecyclerListView takes the tap and reports it as a click on the
+    // whole row with the touch point; the row then works out which of its targets was hit. Handling
+    // touches here as well made two handlers race for the same tap - and the list's one, which only
+    // knows the row, won: rows of tiles did nothing, and on a hub page opened a section that does
+    // not exist. So this view never consumes a touch; it only remembers where the finger went down,
+    // to show the pressed state on the right target.
+
+    private float lastDownX, lastDownY;
 
     /** Index of the target at (x, y), or -1. */
     protected int hitTest(float x, float y) {
@@ -202,55 +225,38 @@ public abstract class PrimeCardRow extends View {
         }
     }
 
-    @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        if (!isEnabled()) {
+    /**
+     * A click the list delivered at (x, y), in this view's coordinates.
+     * @return whether it landed on a target
+     */
+    public boolean clickAt(float x, float y, boolean longPress) {
+        final int target = hitTest(x, y);
+        if (target < 0 || longPress && !supportsLongPress(target)) {
             return false;
         }
-        switch (event.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN: {
-                final int target = hitTest(event.getX(), event.getY());
-                if (target < 0) {
-                    return false;
-                }
-                downX = event.getX();
-                downY = event.getY();
-                longPressFired = false;
-                setPressedTarget(target);
-                if (supportsLongPress(target)) {
-                    postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout());
-                }
-                return true;
-            }
-            case MotionEvent.ACTION_MOVE:
-                if (pressedTarget >= 0 && (Math.abs(event.getX() - downX) > touchSlop || Math.abs(event.getY() - downY) > touchSlop)) {
-                    removeCallbacks(longPressRunnable);
-                    setPressedTarget(-1);
-                }
-                return pressedTarget >= 0;
-            case MotionEvent.ACTION_UP: {
-                removeCallbacks(longPressRunnable);
-                final int target = pressedTarget;
-                setPressedTarget(-1);
-                if (target >= 0 && !longPressFired) {
-                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-                    playSoundEffect(android.view.SoundEffectConstants.CLICK);
-                    onTargetClick(target, false);
-                }
-                return true;
-            }
-            case MotionEvent.ACTION_CANCEL:
-                removeCallbacks(longPressRunnable);
-                setPressedTarget(-1);
-                return true;
+        setPressedTarget(-1);
+        onTargetClick(target, longPress);
+        return true;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            lastDownX = event.getX();
+            lastDownY = event.getY();
         }
         return false;
     }
 
     @Override
+    public void setPressed(boolean pressed) {
+        super.setPressed(pressed);
+        setPressedTarget(pressed ? hitTest(lastDownX, lastDownY) : -1);
+    }
+
+    @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        removeCallbacks(longPressRunnable);
         pressedTarget = -1;
     }
 

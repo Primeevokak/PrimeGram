@@ -20,6 +20,17 @@ public final class PrimeMusicWave {
 
     private static PrimeTrack current;
     private static final Set<Long> playedThisSession = new HashSet<>();
+    /** Tracks skipped or disliked in this session - their artists count against a pick. */
+    private static final Set<Long> skippedThisSession = new HashSet<>();
+    private static final java.util.Random random = new java.util.Random();
+
+    // Tuning of the pick (see pickNext).
+    private static final int TOP_K = 12;
+    private static final double TEMPERATURE = 0.55;
+    private static final double EXPLORATION = 0.6;
+    private static final double SAME_ARTIST_AS_KEPT = 0.45;
+    private static final double SAME_GENRE_AS_KEPT = 0.25;
+    private static final double SAME_ARTIST_AS_SKIPPED = -1.2;
     private static List<String> moodFilter = new ArrayList<>();
 
     /** Ordered play history for this session, separate from {@code playedThisSession}
@@ -62,6 +73,7 @@ public final class PrimeMusicWave {
      *  nothing matches the active mood filter). */
     public static PrimeTrack start() {
         playedThisSession.clear();
+        skippedThisSession.clear();
         history.clear();
         historyIndex = -1;
         return advance();
@@ -93,7 +105,12 @@ public final class PrimeMusicWave {
         return advance();
     }
 
+    /** The user moved on before the track ended - unlike {@link #next}, this counts against
+     *  more of the same artist for the rest of the session. */
     public static PrimeTrack skip() {
+        if (current != null) {
+            skippedThisSession.add(current.id);
+        }
         return advance();
     }
 
@@ -106,6 +123,7 @@ public final class PrimeMusicWave {
     public static PrimeTrack dislikeCurrentAndAdvance() {
         if (current != null) {
             PrimeMusicLibrary.setDisliked(current.id, true);
+            skippedThisSession.add(current.id);
         }
         return advance();
     }
@@ -114,8 +132,7 @@ public final class PrimeMusicWave {
         if (current != null) {
             playedThisSession.add(current.id);
         }
-        List<PrimeTrack> candidates = PrimeMusicLibrary.getWaveRecommendations(playedThisSession, moodFilter, 1);
-        current = candidates.isEmpty() ? null : candidates.get(0);
+        current = pickNext();
         if (current != null) {
             while (history.size() > historyIndex + 1) {
                 history.remove(history.size() - 1);
@@ -126,9 +143,94 @@ public final class PrimeMusicWave {
         return current;
     }
 
+    /**
+     * The next track. Scores come from the library's long-term model (what the user finishes,
+     * skips, likes, keeps coming back to); on top of that, for this session only:
+     * <ul>
+     *   <li>more like what was kept (same artist or genre as tracks played through), less like
+     *       what was skipped;</li>
+     *   <li>a bonus for tracks played rarely, so the wave does not replay the same favourites;</li>
+     *   <li>no artist twice in a row while there is anything else to play;</li>
+     *   <li>and a weighted random choice among the best few rather than always the single top
+     *       score, which made every wave start with the same track in the same order.</li>
+     * </ul>
+     */
+    private static PrimeTrack pickNext() {
+        final List<PrimeMusicLibrary.ScoredTrack> candidates = PrimeMusicLibrary.getWaveCandidates(playedThisSession, moodFilter);
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        final Set<String> keptArtists = new HashSet<>();
+        final Set<String> keptGenres = new HashSet<>();
+        final Set<String> skippedArtists = new HashSet<>();
+        for (PrimeTrack t : history) {
+            if (skippedThisSession.contains(t.id)) {
+                if (t.artist != null) skippedArtists.add(t.artist);
+            } else {
+                if (t.artist != null) keptArtists.add(t.artist);
+                if (t.genre != null && !t.genre.isEmpty()) keptGenres.add(t.genre);
+            }
+        }
+        final String lastArtist = current != null ? current.artist : null;
+
+        final List<PrimeTrack> pool = new ArrayList<>();
+        final List<Double> weights = new ArrayList<>();
+        for (int pass = 0; pass < 2 && pool.isEmpty(); pass++) {
+            for (PrimeMusicLibrary.ScoredTrack c : candidates) {
+                final PrimeTrack t = c.track;
+                // Pass 0 keeps the previous artist out; pass 1 lets it back in if that was all.
+                if (pass == 0 && lastArtist != null && !PrimeMusicArtistLabel.isUnknown(lastArtist) && lastArtist.equals(t.artist)) {
+                    continue;
+                }
+                double score = c.score + EXPLORATION / Math.sqrt(1 + PrimeMusicLibrary.lastPlayCount(t.id));
+                if (t.artist != null && !PrimeMusicArtistLabel.isUnknown(t.artist)) {
+                    if (skippedArtists.contains(t.artist)) {
+                        score += SAME_ARTIST_AS_SKIPPED;
+                    } else if (keptArtists.contains(t.artist)) {
+                        score += SAME_ARTIST_AS_KEPT;
+                    }
+                }
+                if (t.genre != null && keptGenres.contains(t.genre)) {
+                    score += SAME_GENRE_AS_KEPT;
+                }
+                pool.add(t);
+                weights.add(score);
+            }
+        }
+        // Best TOP_K by adjusted score, then a softmax draw among them.
+        final Integer[] order = new Integer[pool.size()];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = i;
+        }
+        java.util.Arrays.sort(order, (a, b) -> Double.compare(weights.get(b), weights.get(a)));
+        final int k = Math.min(TOP_K, order.length);
+        final double best = weights.get(order[0]);
+        final double[] p = new double[k];
+        double sum = 0;
+        for (int i = 0; i < k; i++) {
+            p[i] = Math.exp((weights.get(order[i]) - best) / TEMPERATURE);
+            sum += p[i];
+        }
+        double r = random.nextDouble() * sum;
+        for (int i = 0; i < k; i++) {
+            r -= p[i];
+            if (r <= 0) {
+                return pool.get(order[i]);
+            }
+        }
+        return pool.get(order[0]);
+    }
+
+    /** Whether the mood filter leaves anything to play at all - for telling the user why the
+     *  wave did not start instead of it silently doing nothing. */
+    public static boolean hasCandidates(List<String> mood) {
+        return !PrimeMusicLibrary.getWaveCandidates(null, mood).isEmpty();
+    }
+
     public static void stop() {
         current = null;
         playedThisSession.clear();
+        skippedThisSession.clear();
         history.clear();
         historyIndex = -1;
     }

@@ -71,6 +71,8 @@ class PrimeClassProxy:
     @staticmethod
     def newInstance(c, args): return c(*args)
     @staticmethod
+    def setPeer(instance, peer): setattr(instance, PrimeClassProxy.PEER_FIELD, peer)
+    @staticmethod
     def constructorSignatures(c):
         return [":".join(["<init>"] + [p.name for p in ctor]) for ctor in real(c).ctors]
     @staticmethod
@@ -192,3 +194,18 @@ PrimeClassProxy.createProxyClassFull = staticmethod(_orig_create)
 assert calls == [("PageViewHolder", "the-view"), ("Sheet", "ctx", True), ("Bg",), ("PlatformSheet", "ctx", False),
                  ("NestedDots", 3), "__init__", "hook", "post"], calls
 print("OK")
+
+# ---- super() reaches the Java superclass through the bridge (reSwaga's onMeasure) ----
+import extera_utils.classes as _classes_mod
+_calls = []
+class _Measured(Base):
+    def onMeasure(self, w, h):
+        super().onMeasure(w + 1, h + 1)
+_classes_mod._install_super_bridge(_Measured, ["onMeasure"], {})
+_peer = _Measured.__new__(_Measured)
+_peer._prime_java = types.SimpleNamespace(**{"prime$super$onMeasure": lambda w, h: _calls.append((w, h))})
+_peer.onMeasure(1, 2)
+assert _calls == [(2, 3)], _calls
+_classes_mod._install_super_bridge(_Measured, ["onMeasure", "onLayout"], {})  # second extends: refreshed, not stacked
+assert sum(1 for k in _Measured.__mro__ if "__prime_super_bridge__" in vars(k)) == 1
+print("super bridge OK")

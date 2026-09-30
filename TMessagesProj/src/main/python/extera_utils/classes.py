@@ -42,6 +42,53 @@ class UnsupportedInThisBuild(NotImplementedError):
         super().__init__("%s needs runtime dex generation, which this build does not have" % what)
 
 
+def _install_super_bridge(cls, java_names, java_to_python):
+    """Makes Python's own ``super().onMeasure(...)`` reach the Java superclass, as exteraGram's SDK
+    does (its ``__jsuper_bridge_base__``).
+
+    A plugin overriding a Java method calls the original the Python way, ``super().name(...)``.
+    Python resolves that along the class's MRO, where the next class after the plugin's is ``Base``
+    - which has no such method, so the call raised, the override did nothing, and Java was left
+    with e.g. an ``onMeasure`` that never set a size: an IllegalStateException that took the whole
+    app down. A class inserted between the plugin's class and ``Base`` carries one method per
+    overridden Java method, each calling the generated class's ``prime$super$<name>`` twin.
+    """
+    namespace = {}
+
+    def make(java_name):
+        def call_super(self, *args):
+            return getattr(self.java, _SUPER_PREFIX + java_name)(*args)
+        call_super.__name__ = java_name
+        return call_super
+
+    for java_name in java_names:
+        fn = make(java_name)
+        namespace[java_name] = fn
+        python_name = java_to_python.get(java_name)
+        if python_name and python_name != java_name:
+            namespace[python_name] = fn
+    if not namespace:
+        return
+    for klass in cls.__mro__:
+        if Base not in klass.__bases__ and not any(getattr(b, "__prime_super_bridge__", False) for b in klass.__bases__):
+            continue
+        for base in klass.__bases__:
+            if getattr(base, "__prime_super_bridge__", False):
+                # extends() ran again for this class: refresh the existing bridge.
+                for name, fn in namespace.items():
+                    setattr(base, name, fn)
+                return
+        namespace["__prime_super_bridge__"] = True
+        namespace["__module__"] = klass.__module__
+        bridge = type(klass.__name__ + "SuperBridge", (Base,), namespace)
+        try:
+            klass.__bases__ = tuple(bridge if b is Base else b for b in klass.__bases__)
+        except TypeError:
+            import traceback
+            traceback.print_exc()
+        return
+
+
 def _overridable_names(cls):
     """Every method ``cls`` itself defines, over what every Python class already has - those, and
     only those, are generated as real overrides. A plugin does not declare which methods it is
@@ -56,7 +103,7 @@ def _overridable_names(cls):
     java_names = set()
     java_to_python = {}
     for klass in cls.__mro__:
-        if klass is object or klass is Base:
+        if klass is object or klass is Base or getattr(klass, "__prime_super_bridge__", False) and "__prime_super_bridge__" in vars(klass):
             continue
         for name, value in vars(klass).items():
             if name.startswith("__") or name in skip or not callable(value):
@@ -268,7 +315,7 @@ def _collect_new_methods(cls):
     specs = []
     java_to_python = {}
     for klass in cls.__mro__:
-        if klass is object or klass is Base:
+        if klass is object or klass is Base or getattr(klass, "__prime_super_bridge__", False) and "__prime_super_bridge__" in vars(klass):
             continue
         for name, value in vars(klass).items():
             tag = getattr(value, "__jnewmethod__", None)
@@ -312,7 +359,7 @@ def _collect_overloads(cls):
     specs = []
     java_to_python = {}
     for klass in cls.__mro__:
-        if klass is object or klass is Base:
+        if klass is object or klass is Base or getattr(klass, "__prime_super_bridge__", False) and "__prime_super_bridge__" in vars(klass):
             continue
         for name, value in vars(klass).items():
             tag = getattr(value, "__joverload__", None)
@@ -482,7 +529,8 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
                 peer.on_post_init(*call_args)
             except Exception:
                 self._report_crash(signature)
-            setattr(instance, _PEER_FIELD, peer)
+            # Through Java: Chaquopy will not put a plain Python object into an Object field.
+            PrimeClassProxy.setPeer(instance, peer)
             return None
         peer = getattr(instance, _PEER_FIELD, None)
         if peer is None:
@@ -495,7 +543,12 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
             return method(*call_args)
         except Exception:
             self._report_crash(signature)
-            return None
+            # The Java original, rather than nothing: Java still needs what the method was for
+            # done - an onMeasure that sets no size throws and takes the app down with it.
+            try:
+                return getattr(instance, _SUPER_PREFIX + name)(*call_args)
+            except Exception:
+                return None
 
     def _report_crash(self, signature):
         """A method the generated class overrides raised - most often from inside an Android
@@ -610,6 +663,7 @@ class Base:
             _java_list(preconstructors),
             _ConstructorHandler(cls, java_to_python, preconstructor_fns, constructors))
         cls.__jproxy_class__ = proxy_class
+        _install_super_bridge(cls, methods, java_to_python)
         return proxy_class
 
     @classmethod

@@ -115,7 +115,8 @@ public class PrimeBannerRow extends PrimeCardRow {
         box.set(dp(CARD_MARGIN), 0, getMeasuredWidth() - dp(CARD_MARGIN), getMeasuredHeight() - dp(8));
         final boolean pressed = pressedTarget == 0;
         fillPaint.setColor(Theme.multAlpha(c, (isDark() ? 0.20f : 0.12f) + (pressed ? 0.06f : 0f)));
-        canvas.drawRoundRect(box, dp(16), dp(16), fillPaint);
+        final float r = radius(org.telegram.ui.Components.design.DesignSystem.Role.LIST_CARD);
+        canvas.drawRoundRect(box, r, r, fillPaint);
 
         final float iconLeft = rtl() ? box.right - dp(PAD) - dp(ICON) : box.left + dp(PAD);
         if (icon != null) {
@@ -168,7 +169,7 @@ public class PrimeBannerRow extends PrimeCardRow {
 
         @Override
         public boolean isClickable() {
-            return false;
+            return true;
         }
 
         @Override

@@ -15028,11 +15028,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     // page drags and the content view's own draw. Each call re-captures the dialogs list into a
     // RenderNode and rebuilds the GPU blur chain; the throttle in dispatchDraw alone was bypassed by
     // onScrolled, which invalidated on every scroll step, so a fling rebuilt the glass every frame
-    // (8-14% of the main thread in measured scroll logs). ~30 updates a second is not visibly
-    // different behind frosted glass; a trailing update lands the glass on the final position when
-    // motion stops, so it never rests on an in-between frame. One-off state changes still call
-    // blur3_InvalidateBlur directly.
-    private static final long PRIME_BLUR_MIN_INTERVAL_MS = 32;
+    // (8-14% of the main thread in measured scroll logs) - several times per frame, as more than
+    // one path asks for it. At most once per frame: the 4 ms window is shorter than a frame even at
+    // 144 Hz, so every frame still gets its update (an earlier 32 ms cap held the glass at ~30 fps
+    // under a 120 fps list, which read as the whole screen stuttering), while repeat calls within
+    // one frame collapse into one. The trailing update runs on the next frame, so the glass always
+    // ends on the latest state. One-off state changes still call blur3_InvalidateBlur directly.
+    private static final long PRIME_BLUR_MIN_INTERVAL_MS = 4;
     private long primeBlurLastMs;
     private boolean primeBlurTrailingPosted;
     private final Runnable primeBlurTrailing = () -> {
@@ -15049,7 +15051,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             blur3_InvalidateBlur();
         } else if (!primeBlurTrailingPosted && fragmentView != null) {
             primeBlurTrailingPosted = true;
-            fragmentView.postDelayed(primeBlurTrailing, PRIME_BLUR_MIN_INTERVAL_MS - since);
+            fragmentView.postOnAnimation(primeBlurTrailing);
         }
     }
 

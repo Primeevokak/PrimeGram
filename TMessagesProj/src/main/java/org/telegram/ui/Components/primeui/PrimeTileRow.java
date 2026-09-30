@@ -73,7 +73,6 @@ public class PrimeTileRow extends PrimeCardRow {
 
     private static final int TILE_HEIGHT = 96;
     private static final int PAD = 12;
-    private static final int TILE_RADIUS = 20;
     private static final int GAP = 10;
     private static final int ICON_SIZE = 32;
 
@@ -170,7 +169,10 @@ public class PrimeTileRow extends PrimeCardRow {
         final int card = color(Theme.key_windowBackgroundWhite);
         final int textColor = color(Theme.key_windowBackgroundWhiteBlackText);
         final int grayText = color(Theme.key_windowBackgroundWhiteGrayText2);
-        final float radius = dp(TILE_RADIUS);
+        final org.telegram.ui.Components.design.DesignSystem design = org.telegram.ui.Components.design.DesignSystem.current();
+        final float radius = radius(org.telegram.ui.Components.design.DesignSystem.Role.TILE);
+        final org.telegram.ui.Components.design.ShadowSpec shadow = design.shadow(org.telegram.ui.Components.design.DesignSystem.Role.TILE);
+        final boolean hasShadow = shadow.alpha > 0 && shadow.radiusDp > 0;
         for (int i = 0; i < n; i++) {
             final RectF r = rects[i];
             final Tile t = tiles[i];
@@ -183,7 +185,15 @@ public class PrimeTileRow extends PrimeCardRow {
                 canvas.scale(sc, sc, r.centerX(), r.centerY());
             }
 
-            if (s < 1f) {
+            if (hasShadow) {
+                // Elevation, where the design system has any: drawn once under the tile body.
+                fillPaint.setShader(null);
+                fillPaint.setColor(card);
+                fillPaint.setShadowLayer(dp(shadow.radiusDp), dp(shadow.dxDp), dp(shadow.dyDp),
+                        android.graphics.Color.argb(shadow.alpha, 0, 0, 0));
+                canvas.drawRoundRect(r, radius, radius, fillPaint);
+                fillPaint.clearShadowLayer();
+            } else if (s < 1f) {
                 fillPaint.setShader(null);
                 fillPaint.setColor(card);
                 canvas.drawRoundRect(r, radius, radius, fillPaint);
@@ -200,21 +210,23 @@ public class PrimeTileRow extends PrimeCardRow {
             final float iconLeft = rtl() ? r.right - dp(PAD) - dp(ICON_SIZE) : r.left + dp(PAD);
             final float cy = r.top + dp(PAD) + dp(ICON_SIZE) / 2f;
             final float cx = iconLeft + dp(ICON_SIZE) / 2f;
+            final float half = dp(ICON_SIZE) / 2f;
+            final float iconRadius = dp(9);
             if (s < 1f) {
                 fillPaint.setShader(gradients[i]);
                 fillPaint.setAlpha((int) (255 * (1f - s)));
-                canvas.drawCircle(cx, cy, dp(ICON_SIZE) / 2f, fillPaint);
+                canvas.drawRoundRect(cx - half, cy - half, cx + half, cy + half, iconRadius, iconRadius, fillPaint);
                 fillPaint.setShader(null);
                 fillPaint.setAlpha(255);
             }
             if (s > 0f) {
                 fillPaint.setColor(Theme.multAlpha(0xFFFFFFFF, 0.24f * s));
-                canvas.drawCircle(cx, cy, dp(ICON_SIZE) / 2f, fillPaint);
+                canvas.drawRoundRect(cx - half, cy - half, cx + half, cy + half, iconRadius, iconRadius, fillPaint);
             }
             final Drawable icon = icons[i];
             if (icon != null) {
-                final int half = dp(10);
-                icon.setBounds((int) cx - half, (int) cy - half, (int) cx + half, (int) cy + half);
+                final int iconHalf = dp(10);
+                icon.setBounds((int) cx - iconHalf, (int) cy - iconHalf, (int) cx + iconHalf, (int) cy + iconHalf);
                 icon.draw(canvas);
             }
 
@@ -303,7 +315,7 @@ public class PrimeTileRow extends PrimeCardRow {
 
         @Override
         public boolean isClickable() {
-            return false;
+            return true;
         }
 
         @Override

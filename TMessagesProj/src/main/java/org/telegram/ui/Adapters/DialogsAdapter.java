@@ -110,7 +110,9 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
             VIEW_TYPE_GRAY_SECTION = 20,
             VIEW_TYPE_FORWARD_TO_STORIES_CELL = 21,
             VIEW_TYPE_HEADER_3 = 22,
-            VIEW_TYPE_DIALOG_COMMUNITY = 23;
+            VIEW_TYPE_DIALOG_COMMUNITY = 23,
+            // PrimeGram: a screenful of placeholder rows while the first chats are still loading.
+            VIEW_TYPE_PRIME_SKELETON = 24;
 
     private Context mContext;
     private ArchiveHintCell archiveHintCell;
@@ -664,7 +666,7 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
     @Override
     public boolean isEnabled(RecyclerView.ViewHolder holder) {
         int viewType = holder.getItemViewType();
-        return viewType != VIEW_TYPE_FLICKER && viewType != VIEW_TYPE_EMPTY && viewType != VIEW_TYPE_DIVIDER &&
+        return viewType != VIEW_TYPE_FLICKER && viewType != VIEW_TYPE_PRIME_SKELETON && viewType != VIEW_TYPE_EMPTY && viewType != VIEW_TYPE_DIVIDER &&
                 viewType != VIEW_TYPE_SHADOW && viewType != VIEW_TYPE_HEADER &&
                 viewType != VIEW_TYPE_LAST_EMPTY && viewType != VIEW_TYPE_NEW_CHAT_HINT && viewType != VIEW_TYPE_CONTACTS_FLICKER &&
                 viewType != VIEW_TYPE_REQUIREMENTS && viewType != VIEW_TYPE_REQUIRED_EMPTY && viewType != VIEW_TYPE_STORIES && viewType != VIEW_TYPE_ARCHIVE_FULLSCREEN && viewType != VIEW_TYPE_GRAY_SECTION;
@@ -711,6 +713,17 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
             case VIEW_TYPE_REQUIREMENTS:
                 view = new RequestPeerRequirementsCell(mContext);
                 break;
+            case VIEW_TYPE_PRIME_SKELETON: {
+                // As many placeholder rows as fill the screen, so the list looks like it is about
+                // to appear rather than like there is nothing in it.
+                FlickerLoadingView skeleton = new FlickerLoadingView(mContext);
+                skeleton.setIsSingleCell(true);
+                skeleton.setViewType(FlickerLoadingView.DIALOG_CELL_TYPE);
+                skeleton.setIgnoreHeightCheck(true);
+                skeleton.setItemsCount(Math.max(4, (int) Math.ceil(AndroidUtilities.displaySize.y / (float) AndroidUtilities.dp(72))));
+                view = skeleton;
+                break;
+            }
             case VIEW_TYPE_FLICKER:
             case VIEW_TYPE_CONTACTS_FLICKER:
                 FlickerLoadingView flickerLoadingView = new FlickerLoadingView(mContext);
@@ -1537,6 +1550,9 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
                         }
                     } else  if (itemInternals.get(i).viewType == VIEW_TYPE_FLICKER) {
                         dialogsHeight += cellHeight;
+                    } else if (itemInternals.get(i).viewType == VIEW_TYPE_PRIME_SKELETON) {
+                        // The skeleton already fills the page; no spacer needed under it.
+                        dialogsHeight += height;
                     }
                 }
                 dialogsHeight += size - 1;
@@ -1841,6 +1857,12 @@ public class DialogsAdapter extends RecyclerListView.SelectionAdapter implements
                     && !MessagesController.getInstance(currentAccount).isDialogsEndReached(folderId)) {
                 if (dialogsCount != 0) {
                     itemInternals.add(new ItemInternal(VIEW_TYPE_FLICKER));
+                } else {
+                    // PrimeGram: nothing to show yet and more on the way. Telegram leaves an empty
+                    // page here (its own placeholder is the list's empty view, which never shows
+                    // because the list always holds the trailing spacer row below); a skeleton of
+                    // the list reads as "loading" instead of as "you have no chats".
+                    itemInternals.add(new ItemInternal(VIEW_TYPE_PRIME_SKELETON));
                 }
                 itemInternals.add(new ItemInternal(VIEW_TYPE_LAST_EMPTY));
             } else if (dialogsCount == 0) {
