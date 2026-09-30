@@ -3929,6 +3929,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     if (!tab.isDefault && (tab.id < 0 || tab.id >= dialogFilters.size())) {
                         return;
                     }
+                    if (folderId == 0 && communityId == 0 && !onlySelect) {
+                        org.telegram.messenger.PrimeStartFolder.rememberLast(currentAccount, dialogFilters, tab.id);
+                    }
                     viewPages[1].selectedType = tab.id;
                     viewPages[1].setVisibility(View.VISIBLE);
                     viewPages[1].setTranslationX(viewPages[0].getMeasuredWidth());
@@ -7352,6 +7355,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
                 canShowFilterTabsView = true;
                 boolean updateCurrentTab = filterTabsView.isEmpty();
+                final boolean primeFirstFill = updateCurrentTab;
                 updateFilterTabsVisibility(animated);
                 int id = filterTabsView.getCurrentTabId();
                 int stableId = filterTabsView.getCurrentTabStableId();
@@ -7418,7 +7422,26 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                         }
                     }
                 }
+                // PrimeGram: open on the folder the user asked for - once, when the tabs are first
+                // filled; after that the user's own switching is left alone.
+                int primeStartIndex = -1;
+                if (primeFirstFill && !primeStartFolderApplied && folderId == 0 && communityId == 0 && !onlySelect) {
+                    primeStartFolderApplied = true;
+                    primeStartIndex = org.telegram.messenger.PrimeStartFolder.startIndex(currentAccount, filters);
+                    if (primeStartIndex >= 0 && hideAllChatsTab && filters.get(primeStartIndex).isDefault()) {
+                        primeStartIndex = -1;
+                    }
+                    if (primeStartIndex >= 0 && viewPages[0].selectedType != primeStartIndex) {
+                        viewPages[0].selectedType = primeStartIndex;
+                        updateCurrentTab = true;
+                    } else {
+                        primeStartIndex = -1;
+                    }
+                }
                 filterTabsView.finishAddingTabs(animatedUpdateItems);
+                if (primeStartIndex >= 0) {
+                    filterTabsView.selectTabWithId(primeStartIndex, 1f);
+                }
                 if (hideAllChatsTab) {
                     int currentId = filterTabsView.getCurrentTabId();
                     if (currentId >= 0 && currentId < filters.size() && filters.get(currentId).isDefault()) {
@@ -7943,6 +7966,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     }
 
     private boolean primeFullyVisible;
+    private boolean primeStartFolderApplied;
     private boolean primeRebindPending;
 
     private void primeRebindAllPages() {

@@ -475,6 +475,22 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         primeGuideNext();
     }
 
+    /**
+     * The root shows sections as tiles now; guide steps still name them by their old row ids.
+     * Maps such an id to the tile that stands for it, or returns it unchanged.
+     */
+    private static int primeGuideTileId(int itemId) {
+        if (itemId >= ID_SECTION_BASE && itemId < ID_SECTION_BASE + 100) {
+            return TILE_SECTION_BASE + (itemId - ID_SECTION_BASE);
+        }
+        return itemId;
+    }
+
+    private static boolean primeGuideMatches(UItem item, int itemId) {
+        return item != null && (item.id == itemId
+                || org.telegram.ui.Components.primeui.PrimeTileRow.contains(item, primeGuideTileId(itemId)));
+    }
+
     /** Scrolls the row into view. Returns false when this page has no such row. */
     private boolean primeScrollToItem(int itemId) {
         if (listView == null || listView.adapter == null) {
@@ -482,7 +498,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
         for (int i = 0; i < listView.adapter.getItemCount(); i++) {
             final UItem item = listView.adapter.getItem(i);
-            if (item != null && item.id == itemId) {
+            if (primeGuideMatches(item, itemId)) {
                 if (listView.getLayoutManager() instanceof androidx.recyclerview.widget.LinearLayoutManager) {
                     ((androidx.recyclerview.widget.LinearLayoutManager) listView.getLayoutManager())
                             .scrollToPositionWithOffset(i, AndroidUtilities.dp(120));
@@ -502,13 +518,22 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             final View child = listView.getChildAt(i);
             final int position = listView.getChildAdapterPosition(child);
             final UItem item = position >= 0 ? listView.adapter.getItem(position) : null;
-            if (item != null && item.id == itemId) {
+            if (primeGuideMatches(item, itemId)) {
                 final int[] childLocation = new int[2];
                 final int[] overlayLocation = new int[2];
                 child.getLocationInWindow(childLocation);
                 guideOverlay.getLocationInWindow(overlayLocation);
                 final float left = childLocation[0] - overlayLocation[0];
                 final float top = childLocation[1] - overlayLocation[1];
+                if (item.id != itemId && child instanceof org.telegram.ui.Components.primeui.PrimeTileRow) {
+                    // Only the tile, not the whole row of two.
+                    final android.graphics.RectF tile = ((org.telegram.ui.Components.primeui.PrimeTileRow) child)
+                            .tileBounds(primeGuideTileId(itemId));
+                    if (tile != null) {
+                        tile.offset(left, top);
+                        return tile;
+                    }
+                }
                 return new android.graphics.RectF(left, top,
                         left + child.getWidth(), top + child.getHeight());
             }
@@ -589,12 +614,29 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     /** One id per blocking list, taken from a range nothing else uses. */
     private static final int ID_ADBLOCK_LIST_BASE = 200;
 
+    // PrimeGram settings design system (ui/Components/primeui).
+    private static final int ID_TILES_QUICK_1 = 174;
+    private static final int ID_TILES_QUICK_2 = 175;
+    private static final int ID_TILES_SECTIONS_1 = 176;
+    private static final int ID_TILES_SECTIONS_2 = 177;
+    private static final int ID_TILES_SECTIONS_3 = 178;
+    private static final int ID_TILES_SECTIONS_4 = 179;
+    private static final int ID_TILES_SECTIONS_5 = 180;
+    private static final int ID_START_FOLDER_MODE = 181;
+    private static final int ID_START_FOLDER_CHIPS = 182;
+    private static final int ID_HIDE_CONTACTS_SUGGEST = 183;
+    private static final int ID_STICKER_DYNAMIC_ORDER = 184;
+    private static final int ID_HW_ACCEL_BANNER = 185;
+    /** Tiles that open a whole section rather than toggling something. */
+    private static final int TILE_SECTION_BASE = 10_000;
+
     /**
      * Plain on/off tweaks all behave identically, so they share one handler. Returns the
      * preference key for such an item, or null if the item needs its own handling.
      */
     private static String primeTweakKeyFor(int id) {
         if (id == ID_HIDE_STORIES) return org.telegram.messenger.PrimeTweaks.HIDE_STORIES;
+        if (id == ID_HIDE_CONTACTS_SUGGEST) return org.telegram.messenger.PrimeTweaks.HIDE_CONTACTS_SUGGEST;
         if (id == ID_HIDE_FAB) return org.telegram.messenger.PrimeTweaks.HIDE_FLOATING_BUTTON;
         if (id == ID_DISABLE_UNARCHIVE_SWIPE) return org.telegram.messenger.PrimeTweaks.DISABLE_UNARCHIVE_SWIPE;
         if (id == ID_HIDE_SHARE_BUTTON) return org.telegram.messenger.PrimeTweaks.HIDE_SHARE_BUTTON;
@@ -793,30 +835,59 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private void fillRoot(ArrayList<UItem> items) {
         items.add(primeHeaderCell());
         items.add(UItem.asShadow(null));
-        items.add(section(SECTION_INTERFACE, IconBackgroundColors.BLUE, R.drawable.settings_folders,
-                "Интерфейс", "Список чатов, чаты, оформление, лента"));
-        items.add(section(SECTION_CONNECTION, IconBackgroundColors.GREEN, R.drawable.settings_data,
-                "Соединение", "Прокси, VLESS, работа в фоне"));
-        items.add(section(SECTION_PRIVACY, IconBackgroundColors.RED, R.drawable.settings_privacy,
-                "Приватность", "Номер, серая зона"));
-        items.add(section(SECTION_TOOLS, IconBackgroundColors.ORANGE, R.drawable.settings_features,
-                "Инструменты", "Теги, ссылки, расшифровка, браузер"));
-        items.add(section(SECTION_MEDIA, IconBackgroundColors.CYAN, R.drawable.settings_sounds,
-                "Медиа и музыка", "Качество, кэш, камера, перевод"));
+
+        // Quick toggles: the few switches people flip often, big and readable by colour. A long
+        // press opens the section the switch lives in.
+        final boolean tunnel = MessagesController.getGlobalMainSettings().getBoolean("primegram_tgws_enabled", true);
+        final boolean classic = org.telegram.messenger.NonIslandHelper.isEnabled();
+        final boolean storiesHidden = org.telegram.messenger.PrimeTweaks.get(org.telegram.messenger.PrimeTweaks.HIDE_STORIES);
+        final boolean adBlock = org.telegram.messenger.browser.PrimeAdBlock.isEnabled();
+        items.add(UItem.asHeader("Быстрые настройки"));
+        items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_QUICK_1, primeTileListener(),
+                tile(ID_TGWS_PROXY, IconBackgroundColors.GREEN, R.drawable.msg_satellite, "Туннель",
+                        tunnel ? "Включён" : "Выключен", true, tunnel),
+                tile(ID_NON_ISLAND_UI, IconBackgroundColors.BLUE, R.drawable.msg_theme, "Классический вид",
+                        classic ? "Плоский" : "Стекло", true, classic)));
+        items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_QUICK_2, primeTileListener(),
+                tile(ID_HIDE_STORIES, IconBackgroundColors.PURPLE, R.drawable.msg_stories_myhide, "Скрыть истории",
+                        storiesHidden ? "Скрыты" : "Показаны", true, storiesHidden),
+                tile(ID_ADBLOCK, IconBackgroundColors.RED, R.drawable.msg_block2, "Блок рекламы",
+                        adBlock ? "В браузере" : "Выключен", true, adBlock)));
+
+        // Sections as a grid, each with a line about what is inside.
+        items.add(UItem.asHeader("Разделы"));
+        items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_SECTIONS_1, primeTileListener(),
+                sectionTile(SECTION_INTERFACE, IconBackgroundColors.BLUE, R.drawable.settings_folders,
+                        "Интерфейс", "Чаты и оформление"),
+                sectionTile(SECTION_CONNECTION, IconBackgroundColors.GREEN, R.drawable.settings_data,
+                        "Соединение", tunnel ? "Туннель включён" : "Прокси и VLESS")));
+        items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_SECTIONS_2, primeTileListener(),
+                sectionTile(SECTION_PRIVACY, IconBackgroundColors.RED, R.drawable.settings_privacy,
+                        "Приватность", "Номер, серая зона"),
+                sectionTile(SECTION_TOOLS, IconBackgroundColors.ORANGE, R.drawable.settings_features,
+                        "Инструменты", "Теги, браузер")));
+        items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_SECTIONS_3, primeTileListener(),
+                sectionTile(SECTION_MEDIA, IconBackgroundColors.CYAN, R.drawable.settings_sounds,
+                        "Медиа и музыка", "Качество, кэш"),
+                sectionTile(SECTION_ADVANCED, IconBackgroundColors.BLUE_DEEP, R.drawable.settings_power,
+                        "Дополнительно", "Обновления")));
+        items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_SECTIONS_4, primeTileListener(),
+                new org.telegram.ui.Components.primeui.PrimeTileRow.Tile(ID_PLUGINS, R.drawable.msg_puzzle,
+                        IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom,
+                        "Плагины", primePluginsSubtitle(), false, false),
+                new org.telegram.ui.Components.primeui.PrimeTileRow.Tile(ID_BLOCKS, R.drawable.msg_calendar2,
+                        IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom,
+                        "Блоки", primeBlocksSubtitle(), false, false)));
+        final org.telegram.ui.Components.primeui.PrimeTileRow.Tile about = sectionTile(SECTION_ABOUT,
+                IconBackgroundColors.GRAY, R.drawable.settings_ask, "Поддержка", "Доступы и связь");
         if (org.telegram.messenger.GreyZone.isAccepted()) {
-            items.add(section(SECTION_PREMIUM, IconBackgroundColors.PURPLE, R.drawable.settings_premium,
-                    "Локальный Premium", "Лимиты на этом устройстве"));
+            items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_SECTIONS_5, primeTileListener(),
+                    sectionTile(SECTION_PREMIUM, IconBackgroundColors.PURPLE, R.drawable.settings_premium,
+                            "Premium", "Лимиты на устройстве"),
+                    about));
+        } else {
+            items.add(org.telegram.ui.Components.primeui.PrimeTileRow.Factory.of(ID_TILES_SECTIONS_5, primeTileListener(), about));
         }
-        items.add(section(SECTION_ADVANCED, IconBackgroundColors.BLUE_DEEP, R.drawable.settings_power,
-                "Дополнительно", "Обновления, эксперименты, диагностика"));
-        items.add(SettingsActivity.SettingCell.Factory.of(ID_PLUGINS,
-                IconBackgroundColors.ORANGE_DEEP.top, IconBackgroundColors.ORANGE_DEEP.bottom,
-                R.drawable.msg_puzzle, "Плагины", primePluginsSubtitle()));
-        items.add(SettingsActivity.SettingCell.Factory.of(ID_BLOCKS,
-                IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom,
-                R.drawable.msg_calendar2, "Блоки", primeBlocksSubtitle()));
-        items.add(section(SECTION_ABOUT, IconBackgroundColors.GRAY, R.drawable.settings_ask,
-                "Разрешения и поддержка", "Доступы приложения и связь с автором"));
         items.add(UItem.asShadow(null));
         items.add(SettingsActivity.SettingCell.Factory.of(ID_GUIDE,
                 IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom,
@@ -828,6 +899,92 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 R.drawable.msg_notifications, "Что нового в этой версии",
                 org.telegram.messenger.PrimeWhatsNew.currentVersion()));
         items.add(UItem.asShadow(null));
+    }
+
+    private static org.telegram.ui.Components.primeui.PrimeTileRow.Tile tile(int id, IconBackgroundColors colors, int icon,
+                                                                             CharSequence title, CharSequence status,
+                                                                             boolean toggle, boolean checked) {
+        return new org.telegram.ui.Components.primeui.PrimeTileRow.Tile(id, icon, colors.top, colors.bottom,
+                title, status, toggle, checked);
+    }
+
+    private static org.telegram.ui.Components.primeui.PrimeTileRow.Tile sectionTile(int section, IconBackgroundColors colors,
+                                                                                    int icon, CharSequence title, CharSequence status) {
+        return tile(TILE_SECTION_BASE + section, colors, icon, title, status, false, false);
+    }
+
+    /** Where a quick toggle's setting lives, for a long press on its tile. */
+    private static int sectionOfQuickTile(int id) {
+        if (id == ID_TGWS_PROXY) return SECTION_CONNECTION;
+        if (id == ID_NON_ISLAND_UI) return SECTION_UI_APPEARANCE;
+        if (id == ID_HIDE_STORIES) return SECTION_UI_DIALOGS;
+        if (id == ID_ADBLOCK) return SECTION_TOOLS_BROWSER;
+        return -1;
+    }
+
+    private org.telegram.ui.Components.primeui.PrimeTileRow.Listener primeTileListener;
+
+    /**
+     * Tiles go through the same click handling as rows with the same id, so a tile does exactly
+     * what the matching switch does - side effects included - without a second copy of it.
+     */
+    private org.telegram.ui.Components.primeui.PrimeTileRow.Listener primeTileListener() {
+        if (primeTileListener == null) {
+            primeTileListener = (tile, longPress) -> {
+                if (tile.id >= TILE_SECTION_BASE) {
+                    presentFragment(new PrimeGramSettingsActivity(tile.id - TILE_SECTION_BASE));
+                    return;
+                }
+                if (longPress) {
+                    final int target = sectionOfQuickTile(tile.id);
+                    if (target >= 0) {
+                        presentFragment(new PrimeGramSettingsActivity(target));
+                    }
+                    return;
+                }
+                final UItem proxy = new UItem(0, false);
+                proxy.id = tile.id;
+                onClick(proxy, listView, -1, 0, 0);
+            };
+        }
+        return primeTileListener;
+    }
+
+    /** "Open on this folder" - a segmented choice, plus the folder chips when one is to be picked. */
+    private void primeStartFolderRows(ArrayList<UItem> items) {
+        final int mode = org.telegram.messenger.PrimeStartFolder.mode();
+        final CharSequence subtitle = mode == org.telegram.messenger.PrimeStartFolder.MODE_LAST
+                ? "Та, что была открыта в прошлый раз"
+                : mode == org.telegram.messenger.PrimeStartFolder.MODE_CHOSEN
+                ? "Всегда одна и та же" : "Как в Telegram: первая вкладка";
+        row(org.telegram.ui.Components.primeui.PrimeSegmentedRow.Factory.of(ID_START_FOLDER_MODE,
+                "Папка при запуске", subtitle, new String[]{"Обычно", "Последняя", "Выбранная"}, mode, index -> {
+                    org.telegram.messenger.PrimeStartFolder.setMode(index);
+                    listView.adapter.update(true);
+                }));
+        final ArrayList<MessagesController.DialogFilter> filters = getMessagesController().getDialogFilters();
+        if (mode == org.telegram.messenger.PrimeStartFolder.MODE_CHOSEN && filters.size() > 1) {
+            final int chosen = org.telegram.messenger.PrimeStartFolder.chosen(currentAccount);
+            final int count = Math.min(filters.size(), 64);
+            final String[] labels = new String[count];
+            long mask = 0;
+            for (int i = 0; i < count; i++) {
+                final MessagesController.DialogFilter f = filters.get(i);
+                labels[i] = f.isDefault() ? LocaleController.getString(R.string.FilterAllChats) : f.name;
+                if (org.telegram.messenger.PrimeStartFolder.keyOf(f) == chosen) {
+                    mask = 1L << i;
+                }
+            }
+            row(org.telegram.ui.Components.primeui.PrimeChipsRow.Factory.of(ID_START_FOLDER_CHIPS, null, labels, mask, index -> {
+                final ArrayList<MessagesController.DialogFilter> now = getMessagesController().getDialogFilters();
+                if (index >= 0 && index < now.size()) {
+                    org.telegram.messenger.PrimeStartFolder.setChosen(currentAccount,
+                            org.telegram.messenger.PrimeStartFolder.keyOf(now.get(index)));
+                    listView.adapter.update(true);
+                }
+            }));
+        }
+        endCard(items);
     }
 
     /**
@@ -1336,8 +1493,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_UI_DIALOGS) {
+            primeStartFolderRows(items);
+            items.add(UItem.asShadow(null));
             row(tweak(ID_HIDE_STORIES, IconBackgroundColors.PURPLE, R.drawable.msg_stories_myhide,
                     "Скрыть истории", org.telegram.messenger.PrimeTweaks.HIDE_STORIES));
+            row(tweak(ID_HIDE_CONTACTS_SUGGEST, IconBackgroundColors.GREEN, R.drawable.msg_contacts,
+                    "Скрыть «Ваши контакты в Telegram»",
+                    "Список контактов под чатами, когда чатов мало",
+                    org.telegram.messenger.PrimeTweaks.HIDE_CONTACTS_SUGGEST));
             row(tweak(ID_HIDE_FAB, IconBackgroundColors.BLUE, R.drawable.msg_message,
                     "Скрыть кнопку «Написать»", org.telegram.messenger.PrimeTweaks.HIDE_FLOATING_BUTTON));
             endCard(items);
@@ -1366,6 +1529,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_UI_CHAT) {
+            row(check(ID_STICKER_DYNAMIC_ORDER, IconBackgroundColors.ORANGE_DEEP, R.drawable.msg_sticker,
+                    "Не поднимать использованный набор стикеров",
+                    "Порядок наборов остаётся таким, как вы его расставили",
+                    !SharedConfig.updateStickersOrderOnSend));
             row(check(ID_ONLINE_DOTS, IconBackgroundColors.GREEN, R.drawable.msg_online,
                     "Точка «в сети» у аватарок в группах",
                     org.telegram.ui.Cells.PrimeMessageMarks.isOnlineDotsEnabled()));
@@ -1944,8 +2111,16 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Стресс-тест аппаратного ускорения", null));
             endCard(items);
             if (org.telegram.messenger.CrashSafeToggle.wasAutoDisabled("primegram_hw_accel")) {
-                items.add(UItem.asShadow("Отключено автоматически: при последнем запуске с этой опцией приложение аварийно завершилось. Попробуйте включить снова — если проблема повторится на этом устройстве, лучше оставить выключенным."));
-                org.telegram.messenger.CrashSafeToggle.acknowledgeAutoDisabled("primegram_hw_accel");
+                // A banner, not a footnote: it stays until read and dismissed. The footnote used to
+                // be acknowledged as it was built - and the list is rebuilt on every switch, so it
+                // vanished the moment anything on the screen changed.
+                items.add(org.telegram.ui.Components.primeui.PrimeBannerRow.Factory.of(ID_HW_ACCEL_BANNER,
+                        org.telegram.ui.Components.primeui.PrimeBannerRow.KIND_WARNING, R.drawable.msg_warning,
+                        "Отключено автоматически: при последнем запуске с этой опцией приложение аварийно завершилось. Можно включить снова — если сбой повторится, на этом устройстве лучше оставить выключенным.",
+                        "Понятно", v -> {
+                            org.telegram.messenger.CrashSafeToggle.acknowledgeAutoDisabled("primegram_hw_accel");
+                            listView.adapter.update(true);
+                        }));
             } else {
                 items.add(UItem.asShadow("Включает аппаратное декодирование видео/GIF/кружочков вместо программного. Может немного сэкономить батарею, но на некоторых устройствах декодер бывает нестабилен — приложение автоматически откатит настройку, если из-за неё случится сбой. Изменения применяются после перезапуска приложения.\n\nСтресс-тест декодирует одно и то же видео из кэша двумя путями подряд и показывает, сколько времени и процессора ушло на каждый. Работает независимо от настройки выше."));
             }
@@ -2065,6 +2240,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                 org.telegram.messenger.NotificationCenter.getGlobalInstance()
                         .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
             }
+            if (item.id == ID_HIDE_CONTACTS_SUGGEST) {
+                org.telegram.messenger.NotificationCenter.getGlobalInstance()
+                        .postNotificationName(org.telegram.messenger.NotificationCenter.dialogsNeedReload, true);
+            }
             if (item.id == ID_HIDE_ALL_CHATS) {
                 // the tab strip is only rebuilt when the folder set changes, so say it did
                 for (int a = 0; a < org.telegram.messenger.UserConfig.MAX_ACCOUNT_COUNT; a++) {
@@ -2074,6 +2253,11 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     }
                 }
             }
+            listView.adapter.update(true);
+        } else if (item.id == ID_STICKER_DYNAMIC_ORDER) {
+            // Telegram's own "dynamic pack order" (Settings > Stickers), surfaced here: people
+            // asking for this look for it among the chat settings, not three screens deep.
+            SharedConfig.toggleUpdateStickersOrderOnSend();
             listView.adapter.update(true);
         } else if (item.id == ID_STICKER_SIZE) {
             showStickerSizePicker();

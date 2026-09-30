@@ -51,8 +51,13 @@ public class PrimeNetworkBannerWrapper extends FrameLayout {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackgroundColor(0xFF2B2B33);
-        row.setPadding(dp(16), dp(10), dp(16), dp(10));
+        // A floating rounded pill rather than a full-width strip, the way iOS shows these.
+        final android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
+        pill.setColor(0xF02B2B33);
+        pill.setCornerRadius(dp(18));
+        row.setBackground(pill);
+        row.setElevation(dp(4));
+        row.setPadding(dp(16), dp(10), dp(12), dp(10));
 
         textView = new TextView(context);
         textView.setTextColor(Color.WHITE);
@@ -76,7 +81,7 @@ public class PrimeNetworkBannerWrapper extends FrameLayout {
         });
         row.addView(okButton, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
 
-        addView(row, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        addView(row, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP, 12, 0, 12, 0));
         row.setVisibility(GONE);
     }
 
@@ -134,6 +139,13 @@ public class PrimeNetworkBannerWrapper extends FrameLayout {
             final int zeroSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.EXACTLY);
             bannerRow().measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), zeroSpec);
             return;
+        }
+        // Since 12.10 the screen is drawn edge to edge: this container starts under the status
+        // bar, and a banner placed at its very top sat behind the clock and icons with part of its
+        // text covered. Kept below the status bar, with a little air.
+        final int top = AndroidUtilities.statusBarHeight + dp(6);
+        if (getPaddingTop() != top) {
+            setPadding(0, top, 0, dp(6));
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }

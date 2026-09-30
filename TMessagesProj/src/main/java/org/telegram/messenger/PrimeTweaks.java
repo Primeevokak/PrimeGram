@@ -21,6 +21,8 @@ public class PrimeTweaks {
     public static final String HIDE_FLOATING_BUTTON = "prime_hide_fab";
     public static final String HIDE_DIALOGS_SEARCH_BAR = "prime_hide_dialogs_search";
     public static final String HIDE_ALL_CHATS = "prime_hide_all_chats";
+    /** The "Your contacts on Telegram" block under a short chat list. */
+    public static final String HIDE_CONTACTS_SUGGEST = "prime_hide_contacts_suggest";
     public static final String HIDE_ARCHIVE_FOLDER = "prime_hide_archive";
     public static final String ARCHIVE_ON_PULL = "prime_archive_on_pull";
     public static final String DISABLE_UNARCHIVE_SWIPE = "prime_disable_unarchive_swipe";
