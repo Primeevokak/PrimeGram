@@ -42,6 +42,7 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
     private static final int ID_ENABLED = 1;
     private static final int ID_DELETE = 2;
     private static final int ID_SHARE = 3;
+    private static final int ID_LOG = 99;
     private static final int ID_COPY_ERROR = 4;
     private static final int ID_ROW_BASE = 2000;
 
@@ -282,6 +283,8 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
 
     private void addDeleteRow(ArrayList<UItem> items) {
         items.add(UItem.asShadow(null));
+        final int logSize = org.telegram.messenger.plugins.PrimePluginLog.size(plugin.id());
+        items.add(UItem.asButton(ID_LOG, "Журнал вызовов", logSize > 0 ? logSize + " записей" : "пока пусто"));
         items.add(UItem.asButton(ID_SHARE, "Поделиться файлом плагина"));
         items.add(UItem.asButton(ID_DELETE, "Удалить плагин").red());
         items.add(UItem.asShadow(null));
@@ -351,6 +354,10 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
         }
         if (item.id == ID_SHARE) {
             shareFile();
+            return;
+        }
+        if (item.id == ID_LOG) {
+            presentFragment(new PrimePluginLogActivity(plugin.id(), plugin.name()));
             return;
         }
         if (item.id == ID_COPY_ERROR) {

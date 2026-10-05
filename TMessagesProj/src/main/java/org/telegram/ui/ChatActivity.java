@@ -373,6 +373,8 @@ public class ChatActivity extends BaseFragment implements
         InstantCameraView.Delegate,
         FactorAnimator.Target
 {
+    private boolean primeSpoilersStopped;
+
     private final static boolean PULL_DOWN_BACK_FRAGMENT = false;
     private final static boolean DISABLE_PROGRESS_VIEW = true;
     private final static int SKELETON_DISAPPEAR_MS = 200;
@@ -6988,7 +6990,10 @@ public class ChatActivity extends BaseFragment implements
                         scrolling = true;
                         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startAllHeavyOperations, 512);
                     }
-                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startSpoilers);
+                    if (primeSpoilersStopped) {
+                        primeSpoilersStopped = false;
+                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startSpoilers);
+                    }
                     chatListView.setOverScrollMode(RecyclerView.OVER_SCROLL_ALWAYS);
                     textSelectionHelper.stopScrolling();
                     updateVisibleRows();
@@ -7016,7 +7021,12 @@ public class ChatActivity extends BaseFragment implements
                         scrolling = false;
                         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.stopAllHeavyOperations, 512);
                     }
-                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.stopSpoilers);
+                    if (!primeSpoilersStopped) {
+                        // Once per gesture: the drag/settle transitions used to post it every time,
+                        // and every visible message cell handles it.
+                        primeSpoilersStopped = true;
+                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.stopSpoilers);
+                    }
 
                     if (selectionReactionsOverlay != null && selectionReactionsOverlay.isVisible()) {
                         selectionReactionsOverlay.setHiddenByScroll(true);

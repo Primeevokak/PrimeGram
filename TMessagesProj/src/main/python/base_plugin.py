@@ -11,6 +11,8 @@ nothing at all on the paths it used to be on.
 """
 
 import abc
+import time
+import traceback
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, List, Optional
@@ -195,6 +197,23 @@ def _java_list_to_py(java_list):
     return [java_list.get(i) for i in range(java_list.size())]
 
 
+def _journal(plugin_id, text):
+    """One line in the plugin's own journal (Settings -> plugin -> "Журнал вызовов")."""
+    try:
+        from org.telegram.messenger.plugins import PrimePluginLog
+        PrimePluginLog.add(str(plugin_id), str(text))
+    except Exception:
+        pass
+
+
+def _hook_label(param):
+    try:
+        method = param.method
+        return "%s.%s" % (method.getDeclaringClass().getSimpleName(), method.getName())
+    except Exception:
+        return "?"
+
+
 def _make_callback(plugin, xposed_hook, before, after, before_filters, after_filters, account_scope=None):
     """Turns everything a plugin might have passed into one Java-facing callback.
 
@@ -250,23 +269,36 @@ def _make_callback(plugin, xposed_hook, before, after, before_filters, after_fil
     class _Callback(dynamic_proxy(PrimePluginXposed.Callback)):
 
         def before(self, param):
+            started = time.monotonic()
+            ran = False
             try:
                 if replacement is not None:
                     # A replacement runs instead of the method: its return value becomes the
                     # result, and setting a result is what stops the original from running.
+                    ran = True
                     param.setResult(replacement(param))
                     return
                 if before_fn is not None and passes(before_filters, param, True):
+                    ran = True
                     before_fn(param)
-            except Exception as error:
-                plugin.log("ошибка в before-хуке: %r" % (error,))
+            except Exception:
+                plugin.log("ошибка в before-хуке %s:\n%s" % (_hook_label(param), traceback.format_exc()))
+            finally:
+                _journal(plugin.id, ("hook before %s  %.1f мс" % (_hook_label(param), (time.monotonic() - started) * 1000)) if ran
+                         else ("hook before %s  (не подошёл фильтр или нет обработчика)" % _hook_label(param)))
 
         def after(self, param):
+            started = time.monotonic()
+            ran = False
             try:
                 if replacement is None and after_fn is not None and passes(after_filters, param, False):
+                    ran = True
                     after_fn(param)
-            except Exception as error:
-                plugin.log("ошибка в after-хуке: %r" % (error,))
+            except Exception:
+                plugin.log("ошибка в after-хуке %s:\n%s" % (_hook_label(param), traceback.format_exc()))
+            finally:
+                _journal(plugin.id, ("hook after %s  %.1f мс" % (_hook_label(param), (time.monotonic() - started) * 1000)) if ran
+                         else ("hook after %s  (не подошёл фильтр или нет обработчика)" % _hook_label(param)))
 
     return _Callback()
 
@@ -701,6 +733,7 @@ class BasePlugin:
             return None
         unhook = PrimePluginXposed.hookMethod(method_or_constructor,
                                               10 if priority is None else int(priority), callback)
+        _journal(self.id, "hook_method(%s) -> %s" % (method_or_constructor, "установлен" if unhook is not None else "НЕ установлен"))
         if unhook is None:
             self.log("не удалось повесить хук на %s" % method_or_constructor)
             return None
@@ -770,6 +803,7 @@ class BasePlugin:
 
     def log(self, message):
         _log("%s: %s" % (self.id or self.__class__.__name__, message))
+        _journal(self.id, message)
 
     def client(self, account=None):
         import client_utils

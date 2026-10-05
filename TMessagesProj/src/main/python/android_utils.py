@@ -180,6 +180,11 @@ def log(data):
         FileLog.d("[plugin] %s" % (data,))
     except Exception:
         pass
+    try:
+        from org.telegram.messenger.plugins import PrimePluginLog
+        PrimePluginLog.addAuto(str(data))
+    except Exception:
+        pass
 
 
 def copy_to_clipboard(text):

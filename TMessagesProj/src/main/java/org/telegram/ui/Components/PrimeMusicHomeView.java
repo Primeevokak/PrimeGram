@@ -960,8 +960,9 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
         likedCountSubtitle.setText(likedCount > 0 ? (likedCount + " " + (likedCount == 1 ? "трек" : "треков")) : "Любимые треки");
 
         lastAllTracks = allTracks;
-        libraryContainer.removeAllViews();
+        final int generation = ++libraryGeneration;
         if (allTracks.isEmpty()) {
+            libraryContainer.removeAllViews();
             FrameLayout emptyFrame = new FrameLayout(getContext());
             emptyFrame.setPadding(dp(16), dp(8), dp(16), dp(8));
             emptyFrame.addView(createEmptyBanner(getContext(),
@@ -971,17 +972,52 @@ public class PrimeMusicHomeView extends FrameLayout implements NotificationCente
                     LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
             libraryContainer.addView(emptyFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
         } else {
-            for (int i = 0; i < allTracks.size(); i++) {
-                PrimeTrack track = allTracks.get(i);
-                PrimeMusicTrackRow row = new PrimeMusicTrackRow(getContext(), resourcesProvider);
-                row.bind(track);
-                row.setOnClickListener(v -> playTrack(allTracks, allTracks.indexOf(track)));
-                row.getLikeIcon().setOnClickListener(v -> {
-                    PrimeMusicLibrary.setLiked(track.id, !track.liked);
-                    reloadData();
-                });
-                row.bindDefaultMenu(fragment.getParentActivity(), track, this::reloadData);
+            if (libraryContainer.getChildCount() > 0 && !(libraryContainer.getChildAt(0) instanceof PrimeMusicTrackRow)) {
+                libraryContainer.removeAllViews();
+            }
+            fillLibraryRows(allTracks, 0, generation);
+        }
+    }
+
+    private int libraryGeneration;
+
+    /**
+     * The library used to be rebuilt in one go: every track a fresh row View, all in one UI task
+     * (a few hundred tracks = 150 ms frozen, three times in two seconds on tab open). Now rows
+     * already in the container are re-bound instead of re-created, and the work is cut into
+     * slices of {@link #LIBRARY_SLICE} rows, one per frame, so the list stays scrollable while it
+     * fills. A newer reload bumps {@code libraryGeneration} and the stale slice stops.
+     */
+    private static final int LIBRARY_SLICE = 16;
+
+    private void fillLibraryRows(List<PrimeTrack> allTracks, int from, int generation) {
+        if (generation != libraryGeneration || !isAttachedToWindow()) {
+            return;
+        }
+        final int to = Math.min(allTracks.size(), from + LIBRARY_SLICE);
+        for (int i = from; i < to; i++) {
+            final PrimeTrack track = allTracks.get(i);
+            final int index = i;
+            PrimeMusicTrackRow row;
+            if (i < libraryContainer.getChildCount() && libraryContainer.getChildAt(i) instanceof PrimeMusicTrackRow) {
+                row = (PrimeMusicTrackRow) libraryContainer.getChildAt(i);
+            } else {
+                row = new PrimeMusicTrackRow(getContext(), resourcesProvider);
                 libraryContainer.addView(row, PrimeMusicTrackRow.createRowLayoutParams());
+            }
+            row.bind(track);
+            row.setOnClickListener(v -> playTrack(allTracks, index));
+            row.getLikeIcon().setOnClickListener(v -> {
+                PrimeMusicLibrary.setLiked(track.id, !track.liked);
+                reloadData();
+            });
+            row.bindDefaultMenu(fragment.getParentActivity(), track, this::reloadData);
+        }
+        if (to < allTracks.size()) {
+            AndroidUtilities.runOnUIThread(() -> fillLibraryRows(allTracks, to, generation), 16);
+        } else {
+            while (libraryContainer.getChildCount() > allTracks.size()) {
+                libraryContainer.removeViewAt(libraryContainer.getChildCount() - 1);
             }
         }
     }

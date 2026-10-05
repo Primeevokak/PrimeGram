@@ -463,9 +463,24 @@ public final class PrimePerfMonitor {
         }
     }
 
+    /** (observer class, notification id) -> report key. Built once: the key used to be
+     *  concatenated (and the class name trimmed with three indexOf calls) on every single
+     *  delivery, and startAllHeavyOperations alone is delivered to 150 observers per post. */
+    private static final java.util.HashMap<Class<?>, android.util.SparseArray<String>> notificationKeys = new java.util.HashMap<>();
+
     public static void noteNotification(int id, Object observer, long ns) {
-        final String key = notificationName(id) + " -> " + shortClassName(observer);
         synchronized (PrimePerfMonitor.class) {
+            final Class<?> cls = observer == null ? Void.class : observer.getClass();
+            android.util.SparseArray<String> byId = notificationKeys.get(cls);
+            if (byId == null) {
+                byId = new android.util.SparseArray<>();
+                notificationKeys.put(cls, byId);
+            }
+            String key = byId.get(id);
+            if (key == null) {
+                key = notificationName(id) + " -> " + shortClassName(observer);
+                byId.put(id, key);
+            }
             final long[] c = notificationCost.get(key);
             if (c == null) {
                 notificationCost.put(key, new long[]{1, ns});

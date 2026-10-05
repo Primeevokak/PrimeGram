@@ -1642,13 +1642,27 @@ public class RecyclerListView extends RecyclerView implements IBlur3Capture {
 
     private boolean stoppedAllHeavyOperations;
 
+    private final Runnable resumeHeavyOperations = () -> {
+        if (stoppedAllHeavyOperations) {
+            stoppedAllHeavyOperations = false;
+            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startAllHeavyOperations, 512);
+        }
+    };
+
+    /**
+     * PrimeGram: "resume" is postponed 150 ms and cancelled if the list starts moving again. A
+     * fling that stops and a finger that lands right after used to post stop/start/stop/start -
+     * dozens of pairs a second while flicking through lists, each delivered to ~75 observers
+     * (animated emoji, spoilers, gifs) that pause and restart their work every time.
+     */
     private void checkStopHeavyOperations(int newState) {
         if (newState == SCROLL_STATE_IDLE) {
             if (stoppedAllHeavyOperations) {
-                stoppedAllHeavyOperations = false;
-                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startAllHeavyOperations, 512);
+                AndroidUtilities.cancelRunOnUIThread(resumeHeavyOperations);
+                AndroidUtilities.runOnUIThread(resumeHeavyOperations, 150);
             }
         } else {
+            AndroidUtilities.cancelRunOnUIThread(resumeHeavyOperations);
             if (!stoppedAllHeavyOperations && allowStopHeaveOperations) {
                 stoppedAllHeavyOperations = true;
                 NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.stopAllHeavyOperations, 512);
@@ -2796,6 +2810,7 @@ public class RecyclerListView extends RecyclerView implements IBlur3Capture {
             itemsEnterAnimator.onDetached();
         }
 
+        AndroidUtilities.cancelRunOnUIThread(resumeHeavyOperations);
         if (stoppedAllHeavyOperations) {
             stoppedAllHeavyOperations = false;
             NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startAllHeavyOperations, 512);

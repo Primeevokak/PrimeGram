@@ -34,6 +34,15 @@ public final class PrimeAlbumArt {
     private PrimeAlbumArt() {
     }
 
+    /** Decoded covers by path: a reload re-binds the same tracks, and decoding each JPEG again
+     *  (then swapping the background, which relays the row out) is what made the tab open janky. */
+    private static final android.util.LruCache<String, Bitmap> COVERS = new android.util.LruCache<String, Bitmap>(6 * 1024 * 1024) {
+        @Override
+        protected int sizeOf(String key, Bitmap value) {
+            return value.getByteCount();
+        }
+    };
+
     private static File coversDir() {
         File dir = new File(ApplicationLoader.applicationContext.getExternalFilesDir(null), "primegram_music/covers");
         if (!dir.exists()) {
@@ -121,6 +130,21 @@ public final class PrimeAlbumArt {
      *  tag (via {@link ImageView#setTag}) so a view recycled onto a different track before
      *  its decode finishes doesn't paint the wrong cover. */
     public static void applyCover(FrameLayout frame, ImageView icon, String coverPath, String seed, int cornerRadiusDp) {
+        // Rebinding a row to the track it already shows: nothing to repaint. Resetting the
+        // background here invalidated (and relaid out) the whole row for no visible change.
+        if (coverPath != null && coverPath.equals(icon.getTag()) && icon.getDrawable() instanceof BitmapDrawable) {
+            return;
+        }
+        final String cacheKey = coverPath == null ? null : coverPath + "@" + cornerRadiusDp;
+        final Bitmap cached = cacheKey == null ? null : COVERS.get(cacheKey);
+        if (cached != null) {
+            frame.setBackground(null);
+            icon.setTag(coverPath);
+            icon.setColorFilter(null);
+            icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            icon.setImageDrawable(new BitmapDrawable(ApplicationLoader.applicationContext.getResources(), cached));
+            return;
+        }
         frame.setBackground(PrimeMusicCardCell.createProceduralCoverDrawable(seed, cornerRadiusDp));
         icon.setScaleType(ImageView.ScaleType.CENTER);
         icon.setImageResource(org.telegram.messenger.R.drawable.msg_filled_data_music);
@@ -133,6 +157,7 @@ public final class PrimeAlbumArt {
             if (bitmap == null || !coverPath.equals(icon.getTag())) {
                 return;
             }
+            COVERS.put(cacheKey, bitmap);
             frame.setBackground(null);
             icon.setColorFilter(null);
             icon.setScaleType(ImageView.ScaleType.CENTER_CROP);

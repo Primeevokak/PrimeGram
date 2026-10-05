@@ -20,6 +20,7 @@ import base_plugin
 import plugin_settings
 from base_plugin import registry
 from android_utils import log
+from base_plugin import _journal
 
 # Downloaded packages have to be importable before any plugin runs, and this module is imported
 # before any of them does.
@@ -255,7 +256,9 @@ def load_plugin(plugin_id, path):
         plugin.error_message = None
         _loaded[plugin_id] = plugin
         registry.plugins[plugin_id] = plugin
+        _journal(plugin_id, "on_plugin_load: старт")
         plugin.on_plugin_load()
+        _journal(plugin_id, "on_plugin_load: завершён")
         plugin.initialized = True
         _publish_request_hooks()
         _publish_dependencies(plugin_id, module)
@@ -381,7 +384,9 @@ def load_elyx_plugin(plugin_id, package_dir, manifest_json):
         plugin.error_message = None
         _loaded[plugin_id] = plugin
         registry.plugins[plugin_id] = plugin
+        _journal(plugin_id, "on_plugin_load: старт")
         plugin.on_plugin_load()
+        _journal(plugin_id, "on_plugin_load: завершён")
         plugin.initialized = True
         _publish_request_hooks()
         _publish_dependencies(plugin_id, main_module)
@@ -554,9 +559,12 @@ def build_settings(plugin_id):
     """The plugin's own settings screen, as JSON. ``"[]"`` when it offers none."""
     plugin = _loaded.get(plugin_id)
     if plugin is None:
+        _journal(plugin_id, "настройки: плагин не загружен, экран пуст")
         return "[]"
     try:
         rows = plugin.create_settings() or []
+        _journal(plugin_id, "настройки: create_settings вернул %d строк: %s" % (
+            len(rows), ", ".join(str(getattr(r, "type", type(r).__name__)) for r in rows)))
     except Exception:
         log("plugin %s failed to build settings:\n%s" % (plugin_id, traceback.format_exc()))
         return "[]"
@@ -621,6 +629,7 @@ def build_custom_view(plugin_id, path, index):
     if view is not None:
         return view
     factory = getattr(row, "factory", None)
+    _journal(plugin_id, "настройки: строка #%s custom, factory=%r" % (index, factory))
     if factory is None:
         return None
     from org.telegram.messenger import ApplicationLoader
