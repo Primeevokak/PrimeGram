@@ -16,6 +16,14 @@
 #include <algorithm>
 #include "c_utils.h"
 
+static inline uint64_t* getBlurScratchBuffer(size_t size) {
+    thread_local static std::vector<uint64_t> scratchBuffer;
+    if (scratchBuffer.size() < size) {
+        scratchBuffer.resize(std::max(size, (size_t)(150 * 150)));
+    }
+    return scratchBuffer.data();
+}
+
 extern "C" {
 
 static inline uint64_t getColors(const uint8_t *p) {
@@ -35,10 +43,7 @@ static void fastBlurMore(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int
         return;
     }
 
-    uint64_t *rgb = new uint64_t[w * h];
-    if (rgb == NULL) {
-        return;
-    }
+    uint64_t *rgb = getBlurScratchBuffer(w * h);
 
     int32_t x, y, i;
 
@@ -111,8 +116,6 @@ static void fastBlurMore(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int
         }
 #undef update
     }
-
-    delete[] rgb;
 }
 
 static void fastBlur(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int32_t radius) {
@@ -138,10 +141,7 @@ static void fastBlur(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int32_t
         return;
     }
 
-    uint64_t *rgb = new uint64_t[w * h];
-    if (rgb == nullptr) {
-        return;
-    }
+    uint64_t *rgb = getBlurScratchBuffer(w * h);
 
     int32_t x, y, i;
 
@@ -215,8 +215,6 @@ static void fastBlur(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int32_t
         }
 #undef update
     }
-
-    delete[] rgb;
 }
 
 static void fastBlurMore565(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int32_t radius) {
@@ -227,10 +225,7 @@ static void fastBlurMore565(int32_t w, int32_t h, int32_t stride, uint8_t *pix, 
         return;
     }
 
-    uint64_t *rgb = new uint64_t[w * h];
-    if (rgb == NULL) {
-        return;
-    }
+    uint64_t *rgb = getBlurScratchBuffer(w * h);
 
     int32_t x, y, i;
 
@@ -301,8 +296,6 @@ static void fastBlurMore565(int32_t w, int32_t h, int32_t stride, uint8_t *pix, 
         }
 #undef update
     }
-
-    delete[] rgb;
 }
 
 static void fastBlur565(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int32_t radius) {
@@ -328,10 +321,7 @@ static void fastBlur565(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int3
         return;
     }
 
-    uint64_t *rgb = new uint64_t[w * h];
-    if (rgb == NULL) {
-        return;
-    }
+    uint64_t *rgb = getBlurScratchBuffer(w * h);
 
     int32_t x, y, i;
 
@@ -403,8 +393,6 @@ static void fastBlur565(int32_t w, int32_t h, int32_t stride, uint8_t *pix, int3
         }
 #undef update
     }
-
-    delete[] rgb;
 }
 
 JNIEXPORT int Java_org_telegram_messenger_Utilities_needInvert(JNIEnv *env, jclass clazz, jobject bitmap) {

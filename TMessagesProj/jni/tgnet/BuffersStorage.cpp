@@ -61,9 +61,9 @@ NativeByteBuffer *BuffersStorage::getFreeBuffer(uint32_t size) {
         if (isThreadSafe) {
             pthread_mutex_lock(&mutex);
         }
-        if (arrayToGetFrom->size() > 0) {
-            buffer = (*arrayToGetFrom)[0];
-            arrayToGetFrom->erase(arrayToGetFrom->begin());
+        if (!arrayToGetFrom->empty()) {
+            buffer = arrayToGetFrom->back();
+            arrayToGetFrom->pop_back();
         }
         if (isThreadSafe) {
             pthread_mutex_unlock(&mutex);
