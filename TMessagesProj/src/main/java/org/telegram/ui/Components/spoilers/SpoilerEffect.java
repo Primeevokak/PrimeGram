@@ -46,6 +46,7 @@ import org.telegram.messenger.utils.Choreographer60FpsContent;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.CachedStaticLayout;
 import org.telegram.ui.Cells.BaseCell;
+import org.telegram.ui.Cells.DialogCell;
 import org.telegram.ui.Components.Easings;
 import org.telegram.ui.Components.QuoteSpan;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
@@ -316,7 +317,7 @@ public class SpoilerEffect extends Drawable {
         shaderPaint.setColorFilter(colorFilter);
 
         canvas.drawRect(bounds, shaderPaint);
-        if (LiteMode.isEnabled(LiteMode.FLAG_CHAT_SPOILER)) {
+        if (LiteMode.isEnabled(LiteMode.FLAG_CHAT_SPOILER) && !(mParent instanceof DialogCell)) {
             Choreographer60FpsContent.getInstance().postInvalidateDrawable(this);
             SpoilerEffectBitmapFactory.getInstance().checkUpdate(bounds);
         }
@@ -525,13 +526,13 @@ public class SpoilerEffect extends Drawable {
     public void invalidateSelf() {
         super.invalidateSelf();
 
-        if (mParent != null) {
+        if (mParent != null && mParent.isAttachedToWindow() && mParent.getVisibility() == View.VISIBLE) {
             View v = mParent;
             if (v.getParent() != null && invalidateParent) {
                 ((View) v.getParent()).invalidate();
             } else if (v instanceof BaseCell) {
                 ((BaseCell) v).invalidateLite();
-            } else if (v != null) {
+            } else {
                 v.invalidate();
             }
         }

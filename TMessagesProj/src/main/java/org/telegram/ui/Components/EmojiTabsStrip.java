@@ -1505,8 +1505,12 @@ public class EmojiTabsStrip extends ScrollableHorizontalScrollView {
                 showAnimator = ValueAnimator.ofFloat(showT, show ? 1f : 0f);
                 showAnimator.addUpdateListener(a -> {
                     showT = (float) a.getAnimatedValue();
-                    invalidate();
-                    requestLayout();
+                    int targetW = AndroidUtilities.lerp(AndroidUtilities.dp(30), maxWidth(), showT);
+                    if (targetW != getMeasuredWidth()) {
+                        requestLayout();
+                    } else {
+                        invalidate();
+                    }
                     updateButtonsVisibility();
                     EmojiTabsStrip.this.contentView.invalidate();
                 });

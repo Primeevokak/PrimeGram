@@ -1309,28 +1309,49 @@ public class MessagesController extends BaseController implements NotificationCe
             return includesDialog(accountInstance, dialogId, dialog);
         }
 
-        // PrimeGram: hash views of neverShow/alwaysShow, valid only for the duration of one pass
-        // over all dialogs (see primeBeginLookup). ArrayList.contains per dialog was n x m.
         private java.util.HashSet<Long> primeNeverShowSet;
         private java.util.HashSet<Long> primeAlwaysShowSet;
 
+        public boolean checkNeverShow(long dialogId) {
+            if (neverShow.isEmpty()) {
+                return false;
+            }
+            java.util.HashSet<Long> s = primeNeverShowSet;
+            if (s == null || s.size() != neverShow.size()) {
+                primeNeverShowSet = s = new java.util.HashSet<>(neverShow);
+            }
+            return s.contains(dialogId);
+        }
+
+        public boolean checkAlwaysShow(long dialogId) {
+            if (alwaysShow.isEmpty()) {
+                return false;
+            }
+            java.util.HashSet<Long> s = primeAlwaysShowSet;
+            if (s == null || s.size() != alwaysShow.size()) {
+                primeAlwaysShowSet = s = new java.util.HashSet<>(alwaysShow);
+            }
+            return s.contains(dialogId);
+        }
+
         void primeBeginLookup() {
-            primeNeverShowSet = new java.util.HashSet<>(neverShow);
-            primeAlwaysShowSet = new java.util.HashSet<>(alwaysShow);
+            if (!neverShow.isEmpty()) {
+                primeNeverShowSet = new java.util.HashSet<>(neverShow);
+            }
+            if (!alwaysShow.isEmpty()) {
+                primeAlwaysShowSet = new java.util.HashSet<>(alwaysShow);
+            }
         }
 
         void primeEndLookup() {
-            primeNeverShowSet = null;
-            primeAlwaysShowSet = null;
+            // Keep set cached for single-dialog check queries
         }
 
         public boolean includesDialog(AccountInstance accountInstance, long dialogId, TLRPC.Dialog d) {
-            final java.util.HashSet<Long> never = primeNeverShowSet;
-            final java.util.HashSet<Long> always = primeAlwaysShowSet;
-            if (never != null ? never.contains(dialogId) : neverShow.contains(dialogId)) {
+            if (checkNeverShow(dialogId)) {
                 return false;
             }
-            if (always != null ? always.contains(dialogId) : alwaysShow.contains(dialogId)) {
+            if (checkAlwaysShow(dialogId)) {
                 return true;
             }
             if (d.folder_id != 0 && (flags & DIALOG_FILTER_FLAG_EXCLUDE_ARCHIVED) != 0) {
@@ -1403,7 +1424,7 @@ public class MessagesController extends BaseController implements NotificationCe
                 }
             }
 
-            return alwaysShow.contains(dialogId);
+            return checkAlwaysShow(dialogId);
         }
 
         public boolean isDefault() {

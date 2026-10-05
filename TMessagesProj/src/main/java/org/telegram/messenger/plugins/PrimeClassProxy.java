@@ -91,6 +91,68 @@ public final class PrimeClassProxy {
         }
     }
 
+    private static Method setMeasuredDimensionMethod;
+    private static Field privateFlagsField;
+    static {
+        try {
+            setMeasuredDimensionMethod = android.view.View.class.getDeclaredMethod("setMeasuredDimension", int.class, int.class);
+            setMeasuredDimensionMethod.setAccessible(true);
+        } catch (Throwable ignore) {
+        }
+        try {
+            privateFlagsField = android.view.View.class.getDeclaredField("mPrivateFlags");
+            privateFlagsField.setAccessible(true);
+        } catch (Throwable ignore) {
+        }
+    }
+
+    public static boolean isDimensionSet(android.view.View v) {
+        if (privateFlagsField != null) {
+            try {
+                return (privateFlagsField.getInt(v) & 0x00000800) != 0;
+            } catch (Throwable ignore) {
+            }
+        }
+        return false;
+    }
+
+    public static void ensureMeasuredDimension(Object view, int widthMeasureSpec, int heightMeasureSpec) {
+        if (!(view instanceof android.view.View)) {
+            return;
+        }
+        android.view.View v = (android.view.View) view;
+        if (isDimensionSet(v)) {
+            return;
+        }
+        try {
+            Method superOnMeasure = v.getClass().getMethod(SUPER_PREFIX + "onMeasure", int.class, int.class);
+            superOnMeasure.invoke(v, widthMeasureSpec, heightMeasureSpec);
+            if (isDimensionSet(v)) {
+                return;
+            }
+        } catch (Throwable t) {
+            org.telegram.messenger.FileLog.e(t);
+        }
+        try {
+            int minW = v.getMinimumWidth();
+            android.graphics.drawable.Drawable bg = v.getBackground();
+            if (bg != null) {
+                minW = Math.max(minW, bg.getMinimumWidth());
+            }
+            int minH = v.getMinimumHeight();
+            if (bg != null) {
+                minH = Math.max(minH, bg.getMinimumHeight());
+            }
+            int width = android.view.View.getDefaultSize(minW, widthMeasureSpec);
+            int height = android.view.View.getDefaultSize(minH, heightMeasureSpec);
+            if (setMeasuredDimensionMethod != null) {
+                setMeasuredDimensionMethod.invoke(v, width, height);
+            }
+        } catch (Throwable t) {
+            org.telegram.messenger.FileLog.e(t);
+        }
+    }
+
     private PrimeClassProxy() {
     }
 
@@ -775,6 +837,11 @@ public final class PrimeClassProxy {
         code.invokeInterface(run, resultBoxed, handler, selfBoxed, sig, args);
 
         if (isVoid) {
+            if ("onMeasure".equals(name) && paramTypes.length == 2 && paramTypes[0] == int.class && paramTypes[1] == int.class) {
+                code.invokeStatic(TypeId.get(PrimeClassProxy.class).getMethod(TypeId.VOID, "ensureMeasuredDimension",
+                                TypeId.OBJECT, TypeId.INT, TypeId.INT),
+                        null, selfBoxed, params[0], params[1]);
+            }
             code.returnVoid();
             return;
         }
@@ -840,6 +907,11 @@ public final class PrimeClassProxy {
                 resultBoxed, codeConst, selfBoxed, namesArray, argsBoxed);
 
         if (isVoid) {
+            if ("onMeasure".equals(name) && paramTypes.length == 2 && paramTypes[0] == int.class && paramTypes[1] == int.class) {
+                code.invokeStatic(TypeId.get(PrimeClassProxy.class).getMethod(TypeId.VOID, "ensureMeasuredDimension",
+                                TypeId.OBJECT, TypeId.INT, TypeId.INT),
+                        null, selfBoxed, params[0], params[1]);
+            }
             code.returnVoid();
             return;
         }

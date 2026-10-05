@@ -469,6 +469,9 @@ public final class PrimePerfMonitor {
     private static final java.util.HashMap<Class<?>, android.util.SparseArray<String>> notificationKeys = new java.util.HashMap<>();
 
     public static void noteNotification(int id, Object observer, long ns) {
+        if (ns < 500_000L) {
+            return;
+        }
         synchronized (PrimePerfMonitor.class) {
             final Class<?> cls = observer == null ? Void.class : observer.getClass();
             android.util.SparseArray<String> byId = notificationKeys.get(cls);
@@ -523,6 +526,9 @@ public final class PrimePerfMonitor {
 
     /** ">>>>> Dispatching to Handler (x.y.H) {hash} x.y.Callback@1f: 0" -> "H: Callback". */
     private static String taskKey(String line) {
+        if (line.contains("FrameDisplayEventReceiver")) {
+            return "кадр (измерение/раскладка/отрисовка)";
+        }
         String handler = "?";
         final int open = line.indexOf('(');
         final int close = open < 0 ? -1 : line.indexOf(')', open + 1);

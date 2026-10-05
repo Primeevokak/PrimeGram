@@ -934,6 +934,16 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
         AnimatedEmojiSpan.release(this, animatedEmojiStack2);
         AnimatedEmojiSpan.release(this, animatedEmojiStack3);
         AnimatedEmojiSpan.release(this, animatedEmojiStackName);
+        if (spoilers != null && !spoilers.isEmpty()) {
+            for (int i = 0; i < spoilers.size(); i++) {
+                spoilers.get(i).setParentView(null);
+            }
+        }
+        if (spoilers2 != null && !spoilers2.isEmpty()) {
+            for (int i = 0; i < spoilers2.size(); i++) {
+                spoilers2.get(i).setParentView(null);
+            }
+        }
         storyParams.onDetachFromWindow();
         canvasButton = null;
     }
@@ -1245,26 +1255,38 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
         }
 
         if (useForceThreeLines || SharedConfig.useThreeLinesLayout || true) {
-            Theme.dialogs_namePaint[0].setTextSize(dp(17));
-            Theme.dialogs_nameEncryptedPaint[0].setTextSize(dp(17));
-            Theme.dialogs_messagePaint[0].setTextSize(dp(16));
-            Theme.dialogs_messagePrintingPaint[0].setTextSize(dp(16));
+            float sz17 = dp(17);
+            if (Theme.dialogs_namePaint[0].getTextSize() != sz17) {
+                Theme.dialogs_namePaint[0].setTextSize(sz17);
+                Theme.dialogs_nameEncryptedPaint[0].setTextSize(sz17);
+                Theme.dialogs_messagePaint[0].setTextSize(dp(16));
+                Theme.dialogs_messagePrintingPaint[0].setTextSize(dp(16));
 
-            Theme.dialogs_namePaint[1].setTextSize(dp(16));
-            Theme.dialogs_nameEncryptedPaint[1].setTextSize(dp(16));
-            Theme.dialogs_messagePaint[1].setTextSize(dp(15));
-            Theme.dialogs_messagePrintingPaint[1].setTextSize(dp(15));
+                Theme.dialogs_namePaint[1].setTextSize(dp(16));
+                Theme.dialogs_nameEncryptedPaint[1].setTextSize(dp(16));
+                Theme.dialogs_messagePaint[1].setTextSize(dp(15));
+                Theme.dialogs_messagePrintingPaint[1].setTextSize(dp(15));
+            }
 
-            Theme.dialogs_messagePaint[1].setColor(Theme.dialogs_messagePaint[1].linkColor = Theme.getColor(Theme.key_chats_message_threeLines, resourcesProvider));
+            int targetColor = Theme.getColor(Theme.key_chats_message_threeLines, resourcesProvider);
+            if (Theme.dialogs_messagePaint[1].getColor() != targetColor) {
+                Theme.dialogs_messagePaint[1].setColor(Theme.dialogs_messagePaint[1].linkColor = targetColor);
+            }
             paintIndex = 1;
             thumbSize = 18;
         } else {
-            Theme.dialogs_namePaint[0].setTextSize(dp(17));
-            Theme.dialogs_nameEncryptedPaint[0].setTextSize(dp(17));
-            Theme.dialogs_messagePaint[0].setTextSize(dp(16));
-            Theme.dialogs_messagePrintingPaint[0].setTextSize(dp(16));
+            float sz17 = dp(17);
+            if (Theme.dialogs_namePaint[0].getTextSize() != sz17) {
+                Theme.dialogs_namePaint[0].setTextSize(sz17);
+                Theme.dialogs_nameEncryptedPaint[0].setTextSize(sz17);
+                Theme.dialogs_messagePaint[0].setTextSize(dp(16));
+                Theme.dialogs_messagePrintingPaint[0].setTextSize(dp(16));
+            }
 
-            Theme.dialogs_messagePaint[0].setColor(Theme.dialogs_messagePaint[0].linkColor = Theme.getColor(Theme.key_chats_message, resourcesProvider));
+            int targetColor = Theme.getColor(Theme.key_chats_message, resourcesProvider);
+            if (Theme.dialogs_messagePaint[0].getColor() != targetColor) {
+                Theme.dialogs_messagePaint[0].setColor(Theme.dialogs_messagePaint[0].linkColor = targetColor);
+            }
             paintIndex = 0;
             thumbSize = 19;
         }
@@ -1336,13 +1358,20 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
             // as the E2E handshake case above.
             msgText = "🔒";
         }
-        if (msgText instanceof Spannable) {
-            Spannable sp = new SpannableStringBuilder(msgText);
-            for (Object span : sp.getSpans(0, sp.length(), URLSpanNoUnderlineBold.class))
-                sp.removeSpan(span);
-            for (Object span : sp.getSpans(0, sp.length(), URLSpanNoUnderline.class))
-                sp.removeSpan(span);
-            msgText = sp;
+        if (msgText instanceof Spanned) {
+            Spanned spanned = (Spanned) msgText;
+            URLSpanNoUnderlineBold[] boldSpans = spanned.getSpans(0, spanned.length(), URLSpanNoUnderlineBold.class);
+            URLSpanNoUnderline[] urlSpans = spanned.getSpans(0, spanned.length(), URLSpanNoUnderline.class);
+            if ((boldSpans != null && boldSpans.length > 0) || (urlSpans != null && urlSpans.length > 0)) {
+                Spannable sp = (msgText instanceof Spannable) ? (Spannable) msgText : new SpannableStringBuilder(msgText);
+                if (boldSpans != null) {
+                    for (Object span : boldSpans) sp.removeSpan(span);
+                }
+                if (urlSpans != null) {
+                    for (Object span : urlSpans) sp.removeSpan(span);
+                }
+                msgText = sp;
+            }
         }
         lastMessageString = msgText;
 
@@ -2717,6 +2746,9 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 spoilersPool2.addAll(spoilers2);
                 spoilers2.clear();
                 SpoilerEffect.addSpoilers(this, buttonLayout, spoilersPool2, spoilers2);
+                for (int i = 0; i < spoilers2.size(); i++) {
+                    spoilers2.get(i).setInvalidateParent(false);
+                }
             } else {
                 buttonLayout = null;
             }
@@ -2786,6 +2818,9 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 maxSpoilerRight = Math.min(messageWidth, (int) Math.ceil(messageLayout.getLineWidth(0)));
             }
             SpoilerEffect.addSpoilers(this, messageLayout, 0, maxSpoilerRight, spoilersPool, spoilers);
+            for (int i = 0; i < spoilers.size(); i++) {
+                spoilers.get(i).setInvalidateParent(false);
+            }
         } catch (Exception e) {
             messageLayout = null;
             FileLog.e(e);

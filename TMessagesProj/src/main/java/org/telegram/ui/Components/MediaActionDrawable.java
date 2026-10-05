@@ -13,10 +13,12 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.text.TextPaint;
+import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.utils.Choreographer60FpsContent;
 import org.telegram.ui.ActionBar.MessageDrawable;
 import org.telegram.ui.ActionBar.Theme;
 
@@ -279,6 +281,13 @@ public class MediaActionDrawable extends Drawable {
 
     @Override
     public void invalidateSelf() {
+        final Callback cb = getCallback();
+        if (cb instanceof View) {
+            final View v = (View) cb;
+            if (!v.isAttachedToWindow() || v.getVisibility() != View.VISIBLE) {
+                return;
+            }
+        }
         super.invalidateSelf();
         if (delegate != null) {
             delegate.invalidate();
@@ -889,7 +898,7 @@ public class MediaActionDrawable extends Drawable {
                     }
                 }
             }
-            invalidateSelf();
+            Choreographer60FpsContent.getInstance().postInvalidateDrawable30fps(this);
         }
 
         if (animatingTransition) {
@@ -900,7 +909,7 @@ public class MediaActionDrawable extends Drawable {
                     transitionProgress = 1.0f;
                     animatingTransition = false;
                 }
-                invalidateSelf();
+                Choreographer60FpsContent.getInstance().postInvalidateDrawable(this);
             }
         }
         if (saveCount >= 1) {

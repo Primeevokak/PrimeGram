@@ -127,7 +127,7 @@ public class Emoji {
                 if (bitmap != null) {
                     emojiBmp[page][page2] = bitmap;
                     AndroidUtilities.cancelRunOnUIThread(invalidateUiRunnable);
-                    AndroidUtilities.runOnUIThread(invalidateUiRunnable);
+                    AndroidUtilities.runOnUIThread(invalidateUiRunnable, 100);
                 }
                 loadingEmoji[page][page2] = false;
             });
@@ -405,9 +405,30 @@ public class Emoji {
         return parseEmojis(cs, null);
     }
 
+    public static boolean hasEmojiCandidates(CharSequence cs) {
+        if (cs == null) {
+            return false;
+        }
+        final int len = cs.length();
+        for (int i = 0; i < len; i++) {
+            final char c = cs.charAt(i);
+            if (c >= 0x203C) {
+                if (c <= 0x3299 || (c >= 0xD800 && c <= 0xDFFF) || c == 0xFE0F) {
+                    return true;
+                }
+            } else if (c == 0x20E3 || c == 0x00A9 || c == 0x00AE) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static ArrayList<EmojiSpanRange> parseEmojis(CharSequence cs, int[] emojiOnly) {
         ArrayList<EmojiSpanRange> emojis = new ArrayList<>();
-        if (cs == null || cs.length() <= 0) {
+        if (cs == null || cs.length() <= 0 || !hasEmojiCandidates(cs)) {
+            if (emojiOnly != null && emojiOnly.length > 0) {
+                emojiOnly[0] = 0;
+            }
             return emojis;
         }
         long buf = 0;
@@ -587,7 +608,10 @@ public class Emoji {
     }
 
     public static CharSequence replaceEmoji(CharSequence cs, Paint.FontMetricsInt fontMetrics, boolean createNew, int[] emojiOnly, int alignment, float scale, int minusLimit) {
-        if (SharedConfig.useSystemEmoji || cs == null || cs.length() == 0) {
+        if (SharedConfig.useSystemEmoji || cs == null || cs.length() == 0 || !hasEmojiCandidates(cs)) {
+            if (emojiOnly != null && emojiOnly.length > 0) {
+                emojiOnly[0] = 0;
+            }
             return cs;
         }
         Spannable s;
@@ -661,7 +685,7 @@ public class Emoji {
     }
 
     public static CharSequence replaceWithRestrictedEmoji(CharSequence cs, Paint.FontMetricsInt fontMetrics, int cacheType, Runnable update) {
-        if (SharedConfig.useSystemEmoji || cs == null || cs.length() == 0) {
+        if (SharedConfig.useSystemEmoji || cs == null || cs.length() == 0 || !hasEmojiCandidates(cs)) {
             return cs;
         }
 

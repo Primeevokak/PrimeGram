@@ -7963,7 +7963,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         primeRebindPending = false;
         if (viewPages != null) {
             for (int a = 0; a < viewPages.length; a++) {
-                viewPages[a].dialogsAdapter.notifyDataSetChanged();
+                if (viewPages[a] != null && viewPages[a].dialogsAdapter != null && viewPages[a].getVisibility() == View.VISIBLE) {
+                    viewPages[a].dialogsAdapter.notifyDataSetChanged();
+                }
             }
         }
     }
@@ -15060,7 +15062,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     }
 
     private void blur3_InvalidateBlur() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null || fragmentView == null || actionBar == null) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null || fragmentView == null || actionBar == null || !isFragmentResumed || isPaused) {
             return;
         }
         primeBlurDirty = false;

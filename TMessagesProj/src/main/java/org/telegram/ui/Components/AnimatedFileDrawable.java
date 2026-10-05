@@ -1383,15 +1383,16 @@ public final class AnimatedFileDrawable extends BitmapDrawable implements Animat
         if (parents.isEmpty()) {
             return false;
         }
+        boolean hasVisible = false;
         for (ImageReceiver p : parents) {
-            if (p != null && p.isAttachedToWindow() && p.getVisible()) {
+            if (!hasVisible && p != null && p.isAttachedToWindow() && p.getVisible()) {
                 android.view.View pv = p.getParentView();
                 if (pv != null && pv.isAttachedToWindow() && pv.getVisibility() == android.view.View.VISIBLE) {
-                    return true;
+                    hasVisible = true;
                 }
             }
         }
-        return false;
+        return hasVisible;
     }
 
     @UiThread
