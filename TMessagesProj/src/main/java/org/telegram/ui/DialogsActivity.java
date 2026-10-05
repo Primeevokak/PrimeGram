@@ -15062,7 +15062,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     }
 
     private void blur3_InvalidateBlur() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null || fragmentView == null || actionBar == null || !isFragmentResumed || isPaused) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null || fragmentView == null || actionBar == null || isPaused) {
             return;
         }
         primeBlurDirty = false;

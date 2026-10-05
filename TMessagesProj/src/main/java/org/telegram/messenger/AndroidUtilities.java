@@ -2750,9 +2750,37 @@ public class AndroidUtilities {
         return new File("");
     }
 
+    private static final int DP_CACHE_SIZE = 256;
+    private static final int[] dpCache = new int[DP_CACHE_SIZE];
+    private static final int[] dprCache = new int[DP_CACHE_SIZE];
+    private static final int[] dp2Cache = new int[DP_CACHE_SIZE];
+
+    static {
+        resetDpCache();
+    }
+
+    public static void resetDpCache() {
+        for (int i = 0; i < DP_CACHE_SIZE; i++) {
+            dpCache[i] = (int) Math.ceil(density * i);
+            dprCache[i] = Math.round(density * i);
+            dp2Cache[i] = (int) Math.floor(density * i);
+        }
+    }
+
+    public static int dp(int value) {
+        if (value >= 0 && value < DP_CACHE_SIZE) {
+            return dpCache[value];
+        }
+        return (int) Math.ceil(density * value);
+    }
+
     public static int dp(float value) {
         if (value == 0) {
             return 0;
+        }
+        int intVal = (int) value;
+        if (intVal >= 0 && intVal < DP_CACHE_SIZE && value == intVal) {
+            return dpCache[intVal];
         }
         return (int) Math.ceil(density * value);
     }
@@ -2761,12 +2789,20 @@ public class AndroidUtilities {
         if (value == 0) {
             return 0;
         }
+        int intVal = (int) value;
+        if (intVal >= 0 && intVal < DP_CACHE_SIZE && value == intVal) {
+            return dprCache[intVal];
+        }
         return Math.round(density * value);
     }
 
     public static int dp2(float value) {
         if (value == 0) {
             return 0;
+        }
+        int intVal = (int) value;
+        if (intVal >= 0 && intVal < DP_CACHE_SIZE && value == intVal) {
+            return dp2Cache[intVal];
         }
         return (int) Math.floor(density * value);
     }
@@ -2802,7 +2838,10 @@ public class AndroidUtilities {
             density = context.getResources().getDisplayMetrics().density;
             float newDensity = density;
             if (firstConfigurationWas && Math.abs(oldDensity - newDensity) > 0.001) {
+                resetDpCache();
                 Theme.reloadAllResources(context);
+            } else if (!firstConfigurationWas) {
+                resetDpCache();
             }
             firstConfigurationWas = true;
             Configuration configuration = newConfiguration;

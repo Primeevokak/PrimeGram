@@ -61,9 +61,9 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
      */
     private final SparseArray<CallbackGroup> mGroups = new SparseArray<>();
 
-    private final ReferenceList<Drawable> mDrawablesToInvalidate      = new ReferenceList<>();
-    private final ReferenceList<Drawable> mDrawablesToInvalidate30fps = new ReferenceList<>();
-    private final ReferenceList<View>     mViewsToInvalidate          = new ReferenceList<>();
+    private final Set<Drawable> mDrawablesToInvalidate      = new LinkedHashSet<>();
+    private final Set<Drawable> mDrawablesToInvalidate30fps = new LinkedHashSet<>();
+    private final Set<View>     mViewsToInvalidate          = new LinkedHashSet<>();
 
     /** Nanoseconds accumulated since the last dispatched 60fps frame. */
     private long mAccumulatedNs;
@@ -140,6 +140,7 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
             group.runnableCallbacksOnce = new ReferenceList<>();
         }
         group.runnableCallbacksOnce.add(callback);
+        scheduleIfNeeded();
     }
 
 
@@ -254,8 +255,18 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
     }
 
     private boolean hasPendingWork() {
-        return mGroups.size() > 0 || !mOneShot.isEmpty() || !mDrawablesToInvalidate.isEmpty()
-                || !mDrawablesToInvalidate30fps.isEmpty() || !mViewsToInvalidate.isEmpty();
+        if (!mOneShot.isEmpty() || !mDrawablesToInvalidate.isEmpty()
+                || !mDrawablesToInvalidate30fps.isEmpty() || !mViewsToInvalidate.isEmpty()) {
+            return true;
+        }
+        for (int i = 0; i < mGroups.size(); i++) {
+            CallbackGroup group = mGroups.valueAt(i);
+            if (!group.callbacks.isEmpty() || !group.runnableCallbacks.isEmpty()
+                    || (group.runnableCallbacksOnce != null && !group.runnableCallbacksOnce.isEmpty())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -283,7 +294,7 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
         // Dispatch grouped persistent callbacks.
         // Stride groups use mCounter % stride — zero per-group state, perfect sync.
         // Accumulator groups add FRAME_INTERVAL_NS each tick — supports any fps.
-        for (int i = 0; i < mGroups.size(); i++) {
+        for (int i = mGroups.size() - 1; i >= 0; i--) {
             CallbackGroup group = mGroups.valueAt(i);
             final boolean fire;
             if (group.stride > 0) {
@@ -313,6 +324,9 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
                     runnable.run();
                 }
             }
+            if (group.callbacks.isEmpty() && group.runnableCallbacks.isEmpty() && (group.runnableCallbacksOnce == null || group.runnableCallbacksOnce.isEmpty())) {
+                mGroups.removeAt(i);
+            }
         }
 
         // One-shot callbacks.
@@ -322,7 +336,9 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
 
         // View / drawable invalidations.
         for (View view : mViewsToInvalidate) {
-            view.invalidate();
+            if (view.isAttachedToWindow() && view.getVisibility() == View.VISIBLE) {
+                view.invalidate();
+            }
         }
         for (Drawable drawable : mDrawablesToInvalidate) {
             drawable.invalidateSelf();

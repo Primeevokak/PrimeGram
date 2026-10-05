@@ -1360,15 +1360,11 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
         }
         if (msgText instanceof Spanned) {
             Spanned spanned = (Spanned) msgText;
-            URLSpanNoUnderlineBold[] boldSpans = spanned.getSpans(0, spanned.length(), URLSpanNoUnderlineBold.class);
             URLSpanNoUnderline[] urlSpans = spanned.getSpans(0, spanned.length(), URLSpanNoUnderline.class);
-            if ((boldSpans != null && boldSpans.length > 0) || (urlSpans != null && urlSpans.length > 0)) {
+            if (urlSpans != null && urlSpans.length > 0) {
                 Spannable sp = (msgText instanceof Spannable) ? (Spannable) msgText : new SpannableStringBuilder(msgText);
-                if (boldSpans != null) {
-                    for (Object span : boldSpans) sp.removeSpan(span);
-                }
-                if (urlSpans != null) {
-                    for (Object span : urlSpans) sp.removeSpan(span);
+                for (Object span : urlSpans) {
+                    sp.removeSpan(span);
                 }
                 msgText = sp;
             }
@@ -4802,7 +4798,6 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                         thumbSpoiler.setColor(ColorUtils.setAlphaComponent(sColor, (int) (Color.alpha(sColor) * 0.325f)));
                         thumbSpoiler.setBounds((int) thumbImage[i].getImageX(), (int) thumbImage[i].getImageY(), (int) thumbImage[i].getImageX2(), (int) thumbImage[i].getImageY2());
                         thumbSpoiler.draw(canvas);
-                        invalidate();
 
                         canvas.restore();
                     }

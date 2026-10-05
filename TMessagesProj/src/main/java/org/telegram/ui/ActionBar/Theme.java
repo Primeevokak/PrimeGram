@@ -9111,6 +9111,13 @@ public class Theme {
                 || key_chat_stickerReplyLine == key || key_chat_stickerReplyNameText == key || key_chat_stickerReplyMessageText == key)) {
             return 0xffffffff;
         }
+        if (currentColors.hasFast(key)) {
+            int color = currentColors.getFast(key);
+            if (key_windowBackgroundWhite == key || key_windowBackgroundGray == key || key_actionBarDefault == key || key_actionBarDefaultArchived == key) {
+                color |= 0xff000000;
+            }
+            return color;
+        }
         if (currentTheme == defaultTheme) {
             boolean useDefault;
             if (isMyMessagesBubbles(key)) {
@@ -9131,33 +9138,20 @@ public class Theme {
                 return getDefaultColor(key);
             }
         }
-        // PrimeGram: was currentColors.indexOfKey(key) + valueAt(index) - a binary search on
-        // every single call, on the hottest color-resolution path in the app. hasFast/getFast are
-        // O(1) array reads backed by PrimeColorMap's parallel flat cache (see its class doc) -
-        // same semantics (hasFast mirrors indexOfKey(key) >= 0), zero behavior change.
-        int color;
-        if (!currentColors.hasFast(key)) {
-            int fallbackKey = fallbackKeys.get(key, -1);
-            if (fallbackKey != -1 && currentColors.hasFast(fallbackKey)) {
-                return currentColors.getFast(fallbackKey);
-            }
+        int fallbackKey = fallbackKeys.get(key, -1);
+        if (fallbackKey != -1 && currentColors.hasFast(fallbackKey)) {
+            return currentColors.getFast(fallbackKey);
+        }
 
-            if (isDefault != null) {
-                isDefault[0] = true;
-            }
-            if (key == key_chat_serviceBackground) {
-                return serviceMessageColor;
-            } else if (key == key_chat_serviceBackgroundSelected) {
-                return serviceSelectedMessageColor;
-            }
-            return getDefaultColor(key);
-        } else {
-            color = currentColors.getFast(key);
+        if (isDefault != null) {
+            isDefault[0] = true;
         }
-        if (key_windowBackgroundWhite == key || key_windowBackgroundGray == key || key_actionBarDefault == key || key_actionBarDefaultArchived == key) {
-            color |= 0xff000000;
+        if (key == key_chat_serviceBackground) {
+            return serviceMessageColor;
+        } else if (key == key_chat_serviceBackgroundSelected) {
+            return serviceSelectedMessageColor;
         }
-        return color;
+        return getDefaultColor(key);
     }
 
     private static boolean isMyMessagesBubbles(int key) {

@@ -96,14 +96,16 @@ public final class ReferenceList<T> implements Iterable<T>, ReferenceCreator<T> 
   }
 
   private void lock () {
-    if (isLocked)
-      throw new IllegalStateException();
+    if (isLocked) {
+      unlock();
+    }
     isLocked = true;
   }
 
   private void unlock () {
-    if (!isLocked)
-      throw new IllegalStateException();
+    if (!isLocked) {
+      return;
+    }
     isLocked = false;
     if (!itemsToRemove.isEmpty()) {
       items.removeAll(itemsToRemove);

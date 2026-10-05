@@ -654,21 +654,31 @@ public class ReplyMessageLine {
     }
 
     private static class IconCoords {
-        public float x, y, s, a;
-        public boolean q;
+        public final float x, y, s, a;
+        public final boolean q;
         public IconCoords(float x, float y, float s, float a, boolean q) {
-            this(x, y, s, a);
-            this.q = q;
-        }
-        public IconCoords(float x, float y, float s, float a) {
             this.x = x;
             this.y = y;
             this.s = s;
             this.a = a;
+            this.q = q;
+        }
+        public IconCoords(float x, float y, float s, float a) {
+            this(x, y, s, a, false);
         }
     }
 
-    private IconCoords[] iconCoords;
+    private static final IconCoords[] ICON_COORDS = new IconCoords[]{
+        new IconCoords(4, -6.33f, 1f, 1f),
+        new IconCoords(30, 3, .78f, .9f),
+        new IconCoords(46, -17, .6f, .6f),
+        new IconCoords(69.66f, -0.666f, .87f, .7f),
+        new IconCoords(98, -12.6f, 1.03f, .3f),
+        new IconCoords(51, 24, 1f, .5f),
+        new IconCoords(6.33f, 20, .77f, .7f),
+        new IconCoords(-19, 12, .8f, .6f, true),
+        new IconCoords(-22, 36, .7f, .5f, true),
+    };
 
     public void drawBackground(Canvas canvas, RectF rect, float alpha) {
         drawBackground(canvas, rect, alpha, false, false);
@@ -705,20 +715,6 @@ public class ReplyMessageLine {
             final float loadedScale = emojiLoadedT.set(primeLoaded ? 1f : 0f, true);
 
             if (loadedScale > 0 && emojiAlpha > 0) {
-                if (iconCoords == null) {
-                    iconCoords = new IconCoords[]{
-                        new IconCoords(4, -6.33f, 1f, 1f),
-                        new IconCoords(30, 3, .78f, .9f),
-                        new IconCoords(46, -17, .6f, .6f),
-                        new IconCoords(69.66f, -0.666f, .87f, .7f),
-                        new IconCoords(98, -12.6f, 1.03f, .3f),
-                        new IconCoords(51, 24, 1f, .5f),
-                        new IconCoords(6.33f, 20, .77f, .7f),
-                        new IconCoords(-19, 12, .8f, .6f, true),
-                        new IconCoords(-22, 36, .7f, .5f, true),
-                    };
-                }
-
                 canvas.save();
                 canvas.clipRect(rect);
                 canvas.translate(emojiOffsetX, emojiOffsetY);
@@ -727,23 +723,28 @@ public class ReplyMessageLine {
                 if (hasQuote) {
                     x0 -= dp(12);
                 }
-                float y0 = Math.min(rect.centerY(), rect.top + dp(42 / 2));
+                float y0 = Math.min(rect.centerY(), rect.top + dp(21));
 
                 if (sticker != null) {
                     sticker.setAlpha((int) (0xFF * alpha));
                 }
 
                 emoji.setColor(emojiColor);
-                for (int i = 0; i < iconCoords.length; ++i) {
-                    final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable drawable = i == 0 && sticker != null && stickerDocumentId != 0 ? sticker : emoji;
-                    IconCoords c = iconCoords[i];
+                final float baseSz = dp(10) * loadedScale;
+                final float emojiAlphaBase = 0xFF * .30f * emojiAlpha;
+                final float stickerAlphaBase = 0xFF * emojiAlpha;
+
+                for (int i = 0; i < ICON_COORDS.length; ++i) {
+                    IconCoords c = ICON_COORDS[i];
                     if (c.q && !hasQuote) {
                         continue;
                     }
-                    drawable.setAlpha((int) (0xFF * (drawable == sticker ? 1.0f : .30f) * c.a * emojiAlpha));
+                    final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable drawable = (i == 0 && sticker != null && stickerDocumentId != 0) ? sticker : emoji;
+                    float baseA = (drawable == sticker) ? stickerAlphaBase : emojiAlphaBase;
+                    drawable.setAlpha((int) (baseA * c.a));
                     final float cx = x0 - dp(c.x);
                     final float cy = y0 + dp(c.y);
-                    final float sz = dp(10) * c.s * loadedScale;
+                    final float sz = baseSz * c.s;
                     drawable.setBounds((int) (cx - sz), (int) (cy - sz), (int) (cx + sz), (int) (cy + sz));
                     drawable.draw(canvas);
                 }

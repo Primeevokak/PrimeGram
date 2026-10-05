@@ -8683,22 +8683,41 @@ public class MessageObject {
         textLayoutBlocks = new ArrayList<>();
         textWidth = 0;
 
-        hasCode = messageText instanceof Spanned && ((Spanned) messageText).getSpans(0, messageText.length(), CodeHighlighting.Span.class).length > 0;
-        hasQuote = messageText instanceof Spanned && ((Spanned) messageText).getSpans(0, messageText.length(), QuoteSpan.QuoteStyleSpan.class).length > 0;
+        hasCode = false;
+        hasQuote = false;
         hasSingleQuote = false;
         hasSingleCode = false;
         messageText = FormattedDateSpan.applyFormatedDateEntities(messageText);
 
         if (messageText instanceof Spanned) {
             Spanned spanned = (Spanned) messageText;
-            QuoteSpan[] quoteSpans = spanned.getSpans(0, spanned.length(), QuoteSpan.class);
-            for (int i = 0; i < quoteSpans.length; ++i) {
-                quoteSpans[i].adaptLineHeight = false;
+            int length = spanned.length();
+            Object[] allSpans = spanned.getSpans(0, length, Object.class);
+            int quoteCount = 0;
+            int codeCount = 0;
+            QuoteSpan singleQuote = null;
+            CodeHighlighting.Span singleCode = null;
+            for (int i = 0; i < allSpans.length; i++) {
+                Object span = allSpans[i];
+                if (span instanceof QuoteSpan) {
+                    QuoteSpan qs = (QuoteSpan) span;
+                    qs.adaptLineHeight = false;
+                    quoteCount++;
+                    singleQuote = qs;
+                } else if (span instanceof QuoteSpan.QuoteStyleSpan) {
+                    hasQuote = true;
+                } else if (span instanceof CodeHighlighting.Span) {
+                    hasCode = true;
+                    codeCount++;
+                    singleCode = (CodeHighlighting.Span) span;
+                }
             }
-            hasSingleQuote = quoteSpans.length == 1 && spanned.getSpanStart(quoteSpans[0]) == 0 && spanned.getSpanEnd(quoteSpans[0]) == spanned.length();
-
-            CodeHighlighting.Span[] codeSpans = spanned.getSpans(0, spanned.length(), CodeHighlighting.Span.class);
-            hasSingleCode = codeSpans.length == 1 && spanned.getSpanStart(codeSpans[0]) == 0 && spanned.getSpanEnd(codeSpans[0]) == spanned.length();
+            if (quoteCount == 1 && spanned.getSpanStart(singleQuote) == 0 && spanned.getSpanEnd(singleQuote) == length) {
+                hasSingleQuote = true;
+            }
+            if (codeCount == 1 && spanned.getSpanStart(singleCode) == 0 && spanned.getSpanEnd(singleCode) == length) {
+                hasSingleCode = true;
+            }
         }
 
         if (isBotPendingDraft) {
