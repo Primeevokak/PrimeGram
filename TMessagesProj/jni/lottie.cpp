@@ -200,11 +200,15 @@ JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_RLottieNative_nGetFrame(
     const size_t count = static_cast<size_t>(bitmapInfo.width) * bitmapInfo.height;
     int32_t result;
     if (bitmapInfo.format == ANDROID_BITMAP_FORMAT_A_8) {
-        std::vector<uint8_t> temporary;
+        thread_local static std::vector<uint8_t> temporaryA8;
+        bool hasTemporary = false;
         auto *alpha = static_cast<uint8_t *>(rawPixels);
         if (bitmapInfo.stride != bitmapInfo.width) {
-            temporary.resize(count);
-            alpha = temporary.data();
+            hasTemporary = true;
+            if (temporaryA8.size() < count) {
+                temporaryA8.resize(count);
+            }
+            alpha = temporaryA8.data();
             if (!clear) {
                 const auto *source = static_cast<const uint8_t *>(rawPixels);
                 for (uint32_t y = 0; y < bitmapInfo.height; ++y) {
@@ -217,7 +221,7 @@ JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_RLottieNative_nGetFrame(
         result = tlottie_render_alpha8_with_options(instance, static_cast<float>(frame),
                 bitmapInfo.width, bitmapInfo.height, alpha, count, 1,
                 kDefaultCurveTolerance, clear ? 1 : 0);
-        if (result == TLOTTIE_OK && !temporary.empty()) {
+        if (result == TLOTTIE_OK && hasTemporary) {
             auto *destination = static_cast<uint8_t *>(rawPixels);
             for (uint32_t y = 0; y < bitmapInfo.height; ++y) {
                 std::copy_n(alpha + static_cast<size_t>(y) * bitmapInfo.width, bitmapInfo.width,
@@ -225,11 +229,15 @@ JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_RLottieNative_nGetFrame(
             }
         }
     } else {
-        std::vector<uint32_t> temporary;
+        thread_local static std::vector<uint32_t> temporaryRGBA;
+        bool hasTemporary = false;
         auto *pixels = static_cast<uint32_t *>(rawPixels);
         if (bitmapInfo.stride != bitmapInfo.width * sizeof(uint32_t)) {
-            temporary.resize(count);
-            pixels = temporary.data();
+            hasTemporary = true;
+            if (temporaryRGBA.size() < count) {
+                temporaryRGBA.resize(count);
+            }
+            pixels = temporaryRGBA.data();
             if (!clear) {
                 const auto *source = static_cast<const uint8_t *>(rawPixels);
                 for (uint32_t y = 0; y < bitmapInfo.height; ++y) {
@@ -245,7 +253,7 @@ JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_RLottieNative_nGetFrame(
                 bitmapInfo.width, bitmapInfo.height, pixels, count, 1,
                 kDefaultCurveTolerance, clear ? 1 : 0);
         if (result == TLOTTIE_OK) {
-            if (!temporary.empty()) {
+            if (hasTemporary) {
                 auto *destination = static_cast<uint8_t *>(rawPixels);
                 for (uint32_t y = 0; y < bitmapInfo.height; ++y) {
                     std::copy_n(pixels + static_cast<size_t>(y) * bitmapInfo.width, bitmapInfo.width,

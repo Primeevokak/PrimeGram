@@ -606,7 +606,7 @@ inline static void zeroClearInt(int *p, size_t count) {
 }
 
 JNIEXPORT void Java_org_telegram_messenger_Utilities_stackBlurBitmap(JNIEnv *env, jclass clazz, jobject bitmap, jint radius) {
-    if (radius < 1) {
+    if (radius < 1 || radius > 254) {
         return;
     }
 
@@ -636,12 +636,13 @@ JNIEXPORT void Java_org_telegram_messenger_Utilities_stackBlurBitmap(JNIEnv *env
     const int r1 = radius + 1;
     const int divsum = SQUARE((div + 1) >> 1);
 
-    // Small buffers
-    int stack[div * 4];
-    zeroClearInt(stack, div * 4);
+    // Small buffers — use vectors instead of VLAs to prevent stack overflow
+    std::vector<int> stackVec(div * 4, 0);
+    int *stack = stackVec.data();
 
-    int vmin[MAX(w, h)];
-    zeroClearInt(vmin, MAX(w, h));
+    const int vminSize = MAX(w, h);
+    std::vector<int> vminVec(vminSize, 0);
+    int *vmin = vminVec.data();
 
     // Large buffers
     int *r = new int[wh];
@@ -653,7 +654,7 @@ JNIEXPORT void Java_org_telegram_messenger_Utilities_stackBlurBitmap(JNIEnv *env
     zeroClearInt(b, wh);
     zeroClearInt(a, wh);
 
-    const size_t dvcount = 256 * divsum;
+    const size_t dvcount = 256 * (size_t)divsum;
     int *dv = new int[dvcount];
     int i;
     for (i = 0; (size_t) i < dvcount; i++) {

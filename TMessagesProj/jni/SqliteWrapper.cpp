@@ -145,6 +145,7 @@ JNIEXPORT jlong Java_org_telegram_SQLite_SQLiteDatabase_opendb(JNIEnv *env, jobj
 
     if (sqlite3_temp_directory != 0 && strcmp(sqlite3_temp_directory, tempDirStr)) {
         sqlite3_free(sqlite3_temp_directory);
+        sqlite3_temp_directory = 0;
     }
     if (sqlite3_temp_directory == 0) {
         sqlite3_temp_directory = sqlite3_mprintf("%s", tempDirStr);
@@ -234,12 +235,12 @@ JNIEXPORT jlong Java_org_telegram_SQLite_SQLiteCursor_columnByteBufferValue(JNIE
     if (length <= 0) {
         return 0;
     }
-    NativeByteBuffer *buffer = BuffersStorage::getInstance().getFreeBuffer(length);
-    if (buffer == nullptr) {
-        return 0;
-    }
     const char *buf = (const char *) sqlite3_column_blob(handle, columnIndex);
     if (buf == nullptr) {
+        return 0;
+    }
+    NativeByteBuffer *buffer = BuffersStorage::getInstance().getFreeBuffer(length);
+    if (buffer == nullptr) {
         return 0;
     }
     memcpy(buffer->bytes(), buf, length);

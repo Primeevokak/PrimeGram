@@ -214,7 +214,7 @@ void NativeByteBuffer::writeBool(bool value, bool *error) {
 
 void NativeByteBuffer::writeBytes(uint8_t *b, uint32_t length, bool *error) {
     if (!calculateSizeOnly) {
-        if (_position + length > _limit) {
+        if (length > _limit - _position) {
             if (error != nullptr) {
                 *error = true;
             }
@@ -229,7 +229,7 @@ void NativeByteBuffer::writeBytes(uint8_t *b, uint32_t length, bool *error) {
 
 void NativeByteBuffer::writeBytes(uint8_t *b, uint32_t offset, uint32_t length, bool *error) {
     if (!calculateSizeOnly) {
-        if (_position + length > _limit) {
+        if (length > _limit - _position) {
             if (error != nullptr) {
                 *error = true;
             }

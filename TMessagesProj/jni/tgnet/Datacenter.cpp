@@ -978,10 +978,11 @@ void Datacenter::onHandshakeConnectionConnected(Connection *connection) {
 }
 
 void Datacenter::aesIgeEncryption(uint8_t *buffer, uint8_t *key, uint8_t *iv, bool encrypt, bool changeIv, uint32_t length) {
+    uint8_t ivStack[32];
     uint8_t *ivBytes = iv;
     if (!changeIv) {
-        ivBytes = new uint8_t[32];
-        memcpy(ivBytes, iv, 32);
+        memcpy(ivStack, iv, 32);
+        ivBytes = ivStack;
     }
     AES_KEY akey;
     if (!encrypt) {
@@ -990,9 +991,6 @@ void Datacenter::aesIgeEncryption(uint8_t *buffer, uint8_t *key, uint8_t *iv, bo
     } else {
         AES_set_encrypt_key(key, 32 * 8, &akey);
         AES_ige_encrypt(buffer, buffer, length, &akey, ivBytes, AES_ENCRYPT);
-    }
-    if (!changeIv) {
-        delete [] ivBytes;
     }
 }
 
@@ -1250,15 +1248,20 @@ bool Datacenter::decryptServerResponse(int64_t keyId, uint8_t *key, uint8_t *dat
         return false;
     }
     bool error = authKeyId != keyId;
+    if (length < 32 + 12) {
+        return false;
+    }
     thread_local static uint8_t messageKey[96];
     generateMessageKey(instanceNum, authKey->bytes, key, messageKey + 32, true, 2);
     aesIgeEncryption(data, messageKey + 32, messageKey + 64, false, false, length);
 
     uint32_t messageLength;
     memcpy(&messageLength, data + 28, sizeof(uint32_t));
+    if (messageLength > length - 32 - 12) {
+        return false;
+    }
     uint32_t paddingLength = length - (messageLength + 32);
 
-    error |= (messageLength > length - 32);
     error |= (paddingLength < 12);
     error |= (paddingLength > 1024);
 

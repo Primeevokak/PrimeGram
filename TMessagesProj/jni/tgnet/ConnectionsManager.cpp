@@ -189,23 +189,16 @@ int ConnectionsManager::callEvents(int64_t now) {
 }
 
 void ConnectionsManager::checkPendingTasks() {
-    int32_t count = INT_MAX;
-    while (true) {
-        std::function<void()> task;
-        pthread_mutex_lock(&mutex);
-        if (pendingTasks.empty() || count <= 0) {
-            pthread_mutex_unlock(&mutex);
-            return;
-        }
-        if (count == INT_MAX) {
-            count = (int32_t) pendingTasks.size();
-        } else {
-            count--;
-        }
-        task = pendingTasks.front();
-        pendingTasks.pop();
-        pthread_mutex_unlock(&mutex);
-        task();
+    std::queue<std::function<void()>> localTasks;
+    pthread_mutex_lock(&mutex);
+    if (!pendingTasks.empty()) {
+        localTasks.swap(pendingTasks);
+    }
+    pthread_mutex_unlock(&mutex);
+
+    while (!localTasks.empty()) {
+        localTasks.front()();
+        localTasks.pop();
     }
 }
 
@@ -503,6 +496,9 @@ void ConnectionsManager::saveConfig() {
 }
 
 inline NativeByteBuffer *decompressGZip(NativeByteBuffer *data) {
+    if (data == nullptr || data->limit() == 0) {
+        return nullptr;
+    }
     int retCode;
     z_stream stream;
 
@@ -512,8 +508,8 @@ inline NativeByteBuffer *decompressGZip(NativeByteBuffer *data) {
 
     retCode = inflateInit2(&stream, 15 + 32);
     if (retCode != Z_OK) {
-        if (LOGS_ENABLED) DEBUG_E("can't decompress data");
-        exit(1);
+        if (LOGS_ENABLED) DEBUG_E("can't decompress data: inflateInit2 failed %d", retCode);
+        return nullptr;
     }
     NativeByteBuffer *result = BuffersStorage::getInstance().getFreeBuffer(data->limit() * 4);
     stream.avail_out = result->capacity();
@@ -531,8 +527,10 @@ inline NativeByteBuffer *decompressGZip(NativeByteBuffer *data) {
             result->reuse();
             result = newResult;
         } else {
-            if (LOGS_ENABLED) DEBUG_E("can't decompress data");
-            exit(1);
+            if (LOGS_ENABLED) DEBUG_E("can't decompress data: inflate failed %d", retCode);
+            inflateEnd(&stream);
+            result->reuse();
+            return nullptr;
         }
     }
     result->limit((uint32_t) stream.total_out);

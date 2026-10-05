@@ -526,7 +526,13 @@ JNIEXPORT jint Java_org_telegram_messenger_MediaController_startRecord(JNIEnv *e
 }
 
 JNIEXPORT jint Java_org_telegram_messenger_MediaController_writeFrame(JNIEnv *env, jclass class, jobject frame, jint len) {
+    if (!frame || len <= 0) {
+        return 0;
+    }
     jbyte *frameBytes = (*env)->GetDirectBufferAddress(env, frame);
+    if (!frameBytes) {
+        return 0;
+    }
     return writeFrame((uint8_t *) frameBytes, (uint32_t) len, len / 2 < frame_size);
 }
 
