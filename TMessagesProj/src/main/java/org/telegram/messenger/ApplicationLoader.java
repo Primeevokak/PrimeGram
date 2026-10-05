@@ -230,18 +230,20 @@ public class ApplicationLoader extends Application {
                     }
 
                     boolean isSlow = isConnectionSlow();
-                    for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-                        // Without this guard the first network change would instantiate the very
-                        // per-account stacks startup just avoided building.
-                        if (!UserConfig.getInstance(a).isClientActivated()) {
-                            continue;
+                    Utilities.stageQueue.postRunnable(() -> {
+                        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                            // Without this guard the first network change would instantiate the very
+                            // per-account stacks startup just avoided building.
+                            if (!UserConfig.getInstance(a).isClientActivated()) {
+                                continue;
+                            }
+                            ConnectionsManager.getInstance(a).checkConnection();
+                            FileLoader.getInstance(a).onNetworkChanged(isSlow);
                         }
-                        ConnectionsManager.getInstance(a).checkConnection();
-                        FileLoader.getInstance(a).onNetworkChanged(isSlow);
-                    }
-                    try {
-                        VpnSDK.onNetworkChanged();
-                    } catch (Throwable ignore) {}
+                        try {
+                            VpnSDK.onNetworkChanged();
+                        } catch (Throwable ignore) {}
+                    });
                 }
             };
             IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);

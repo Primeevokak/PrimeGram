@@ -721,8 +721,16 @@ public class SpoilerEffect extends Drawable {
                 }
             }
         }
+        int bLeft = (int) Math.max(left, mostleft);
+        int bRight = (int) Math.min(right, mostright <= 0 ? Integer.MAX_VALUE : mostright);
+        if (bLeft >= bRight || bottom <= top) {
+            if (spoilersPool != null) {
+                spoilersPool.push(spoilerEffect);
+            }
+            return;
+        }
         spoilerEffect.setRippleProgress(-1);
-        spoilerEffect.setBounds((int) Math.max(left, mostleft), (int) top, (int) Math.min(right, mostright <= 0 ? Integer.MAX_VALUE : mostright), (int) bottom);
+        spoilerEffect.setBounds(bLeft, (int) top, bRight, (int) bottom);
         spoilerEffect.setColor(textLayout.getPaint().getColor());
         spoilerEffect.setRippleInterpolator(Easings.easeInQuad);
         spoilerEffect.updateMaxParticles();
@@ -741,12 +749,19 @@ public class SpoilerEffect extends Drawable {
             return;
         }
         tempPath.rewind();
+        boolean hasValidRect = false;
         for (int i = 0; i < spoilers.size(); i++) {
             SpoilerEffect eff = spoilers.get(i);
             Rect b = eff.getBounds();
+            if (b.isEmpty() || b.left >= b.right || b.bottom <= b.top) {
+                continue;
+            }
             tempPath.addRect(b.left, b.top, b.right, b.bottom, Path.Direction.CW);
+            hasValidRect = true;
         }
-        canvas.clipPath(tempPath, Region.Op.DIFFERENCE);
+        if (hasValidRect) {
+            canvas.clipPath(tempPath, Region.Op.DIFFERENCE);
+        }
     }
 
     private static WeakHashMap<Layout, ArrayList<RectF>> lazyLayoutLines;

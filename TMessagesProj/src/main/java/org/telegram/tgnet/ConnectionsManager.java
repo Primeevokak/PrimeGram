@@ -1185,49 +1185,26 @@ public class ConnectionsManager extends BaseController {
         });
     }
 
+    private static volatile byte cachedIpStrategy = -1;
+    private static volatile long lastIpStrategyCheckTime;
+
     @SuppressLint("NewApi")
     protected byte getIpStrategy() {
         if (Build.VERSION.SDK_INT < 19) {
             return USE_IPV4_ONLY;
         }
-        if (BuildVars.LOGS_ENABLED) {
-            try {
-                NetworkInterface networkInterface;
-                Enumeration<NetworkInterface> networkInterfaces = NetworkInterface.getNetworkInterfaces();
-                while (networkInterfaces.hasMoreElements()) {
-                    networkInterface = networkInterfaces.nextElement();
-                    if (!networkInterface.isUp() || networkInterface.isLoopback() || networkInterface.getInterfaceAddresses().isEmpty()) {
-                        continue;
-                    }
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("valid interface: " + networkInterface);
-                    }
-                    List<InterfaceAddress> interfaceAddresses = networkInterface.getInterfaceAddresses();
-                    for (int a = 0; a < interfaceAddresses.size(); a++) {
-                        InterfaceAddress address = interfaceAddresses.get(a);
-                        InetAddress inetAddress = address.getAddress();
-                        if (BuildVars.LOGS_ENABLED) {
-                            FileLog.d("address: " + inetAddress.getHostAddress());
-                        }
-                        if (inetAddress.isLinkLocalAddress() || inetAddress.isLoopbackAddress() || inetAddress.isMulticastAddress()) {
-                            continue;
-                        }
-                        if (BuildVars.LOGS_ENABLED) {
-                            FileLog.d("address is good");
-                        }
-                    }
-                }
-            } catch (Throwable e) {
-                FileLog.e(e);
-            }
+        long now = SystemClock.elapsedRealtime();
+        if (cachedIpStrategy != -1 && now - lastIpStrategyCheckTime < 2000) {
+            return cachedIpStrategy;
         }
+        byte strategy = USE_IPV4_ONLY;
         try {
             NetworkInterface networkInterface;
             Enumeration<NetworkInterface> networkInterfaces = NetworkInterface.getNetworkInterfaces();
             boolean hasIpv4 = false;
             boolean hasIpv6 = false;
             boolean hasStrangeIpv4 = false;
-            while (networkInterfaces.hasMoreElements()) {
+            while (networkInterfaces != null && networkInterfaces.hasMoreElements()) {
                 networkInterface = networkInterfaces.nextElement();
                 if (!networkInterface.isUp() || networkInterface.isLoopback()) {
                     continue;
@@ -1253,20 +1230,19 @@ public class ConnectionsManager extends BaseController {
             }
             if (hasIpv6) {
                 if (forceTryIpV6) {
-                    return USE_IPV6_ONLY;
-                }
-                if (hasStrangeIpv4) {
-                    return USE_IPV4_IPV6_RANDOM;
-                }
-                if (!hasIpv4) {
-                    return USE_IPV6_ONLY;
+                    strategy = USE_IPV6_ONLY;
+                } else if (hasStrangeIpv4) {
+                    strategy = USE_IPV4_IPV6_RANDOM;
+                } else if (!hasIpv4) {
+                    strategy = USE_IPV6_ONLY;
                 }
             }
         } catch (Throwable e) {
             FileLog.e(e);
         }
-
-        return USE_IPV4_ONLY;
+        cachedIpStrategy = strategy;
+        lastIpStrategyCheckTime = now;
+        return strategy;
     }
 
     private static class ResolveHostByNameTask extends AsyncTask<Void, Void, ResolvedDomain> {

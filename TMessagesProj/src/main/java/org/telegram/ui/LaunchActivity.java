@@ -518,8 +518,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         if (Build.VERSION.SDK_INT >= 24) {
             AndroidUtilities.isInMultiwindow = isInMultiWindowMode();
         }
-        org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: createCommonChatResources begin");
-        Theme.createCommonChatResources();
+        AndroidUtilities.runOnUIThread(Theme::createCommonChatResources, 500);
         org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: createDialogsResources begin");
         Theme.createDialogsResources(this);
         org.telegram.messenger.PrimeStartupTrace.mark("LaunchActivity: chat/dialogs resources ready");
@@ -3418,6 +3417,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             } else if (push_enc_id != 0) {
                 Bundle args = new Bundle();
                 args.putInt("enc_id", push_enc_id);
+                if (push_msg_id != 0) {
+                    args.putInt("message_id", push_msg_id);
+                }
                 ChatActivity fragment = new ChatActivity(args);
                 if (getActionBarLayout().presentFragment(new INavigationLayout.NavigationParams(fragment).setNoAnimation(true))) {
                     pushOpened = true;

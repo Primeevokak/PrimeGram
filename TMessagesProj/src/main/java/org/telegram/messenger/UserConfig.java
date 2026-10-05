@@ -308,8 +308,10 @@ public class UserConfig extends BaseController {
         } else if (oldUser == null) {
             AndroidUtilities.runOnUIThread(() -> {
                 getMessagesController().updatePremium(newUser.premium);
-                NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
-                getMediaDataController().loadPremiumPromo(true);
+                AndroidUtilities.runOnUIThread(() -> {
+                    NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
+                    getMediaDataController().loadPremiumPromo(true);
+                }, 1000);
             });
         }
     }

@@ -259,7 +259,9 @@ public class FragmentFloatingButton extends FrameLayout implements FactorAnimato
 
         v.setAlpha(f);
         v.setScaleX(lerp(0.4f, 1f, f));
-        v.setScaleY(lerp(0.4f, 1f, f));
-        v.setVisibility(f > 0 ? VISIBLE : GONE);
+        int targetVisibility = f > 0.001f ? VISIBLE : GONE;
+        if (v.getVisibility() != targetVisibility) {
+            v.setVisibility(targetVisibility);
+        }
     }
 }

@@ -4568,6 +4568,9 @@ public class NotificationsController extends BaseController implements Notificat
                     } else if (userId != 0) {
                         intent.putExtra("userId", userId);
                     }
+                    if (lastMessageObject != null) {
+                        intent.putExtra("message_id", lastMessageObject.getId());
+                    }
                 }
                 if (AndroidUtilities.needShowPasscode() || SharedConfig.isWaitingForPasscodeEnter) {
                     photoPath = null;
@@ -5549,6 +5552,9 @@ public class NotificationsController extends BaseController implements Notificat
             FileLog.d("show extra notifications chatId " + dialogId + " topicId " + topicId);
             if (topicId != 0) {
                 intent.putExtra("topicId", topicId);
+            }
+            if (lastMessageObject != null) {
+                intent.putExtra("message_id", lastMessageObject.getId());
             }
             intent.putExtra("currentAccount", currentAccount);
             PendingIntent contentIntent = PendingIntent.getActivity(ApplicationLoader.applicationContext, 0, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_ONE_SHOT);

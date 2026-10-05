@@ -333,25 +333,46 @@ public class AndroidUtilities {
     public static final Paint strokeTop = new Paint(Paint.ANTI_ALIAS_FLAG);
     public static final Paint strokeBottom = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+    public static boolean hasCombiningDiacritics(CharSequence str) {
+        if (str == null) return false;
+        for (int i = 0, len = str.length(); i < len; i++) {
+            char c = str.charAt(i);
+            if (c >= '\u0300' && c <= '\u036f') {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static String removeDiacritics(String str) {
-        if (str == null) return null;
+        if (str == null || !hasCombiningDiacritics(str)) return str;
         if (REMOVE_MULTIPLE_DIACRITICS == null) return str;
         Matcher matcher = REMOVE_MULTIPLE_DIACRITICS.matcher(str);
         if (matcher == null) return str;
         return matcher.replaceAll("$1");
     }
 
-    public static String removeRTL(String str) {
-        if (str == null) return null;
-        if (REMOVE_RTL == null) {
-            // PrimeGram: upstream strips the classic bidi marks and embeddings, but not the
-            // isolates (U+2066..U+2069) or the Arabic letter mark (U+061C). Those are enough on
-            // their own to reorder a display name, which is how "@admin" gets faked.
-            REMOVE_RTL = Pattern.compile("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069\\u061C]");
+    public static boolean hasRtlMarks(CharSequence str) {
+        if (str == null) return false;
+        for (int i = 0, len = str.length(); i < len; i++) {
+            char c = str.charAt(i);
+            if (c == '\u200E' || c == '\u200F' || (c >= '\u202A' && c <= '\u202E') || (c >= '\u2066' && c <= '\u2069') || c == '\u061C') {
+                return true;
+            }
         }
-        Matcher matcher = REMOVE_RTL.matcher(str);
-        if (matcher == null) return str;
-        return matcher.replaceAll("");
+        return false;
+    }
+
+    public static String removeRTL(String str) {
+        if (str == null || !hasRtlMarks(str)) return str;
+        StringBuilder sb = new StringBuilder(str.length());
+        for (int i = 0, len = str.length(); i < len; i++) {
+            char c = str.charAt(i);
+            if (c != '\u200E' && c != '\u200F' && !(c >= '\u202A' && c <= '\u202E') && !(c >= '\u2066' && c <= '\u2069') && c != '\u061C') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     public static String escape(String str) {

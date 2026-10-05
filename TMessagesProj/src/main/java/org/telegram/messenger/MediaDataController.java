@@ -163,48 +163,50 @@ public class MediaDataController extends BaseController {
         } else {
             draftPreferences = ApplicationLoader.applicationContext.getSharedPreferences("drafts" + currentAccount, Activity.MODE_PRIVATE);
         }
-        final ArrayList<TLRPC.Message> replyMessageOwners = new ArrayList<>();
-        Map<String, ?> values = draftPreferences.getAll();
-        for (Map.Entry<String, ?> entry : values.entrySet()) {
-            try {
-                String key = entry.getKey();
-                long did = Utilities.parseLong(key);
-                byte[] bytes = Utilities.hexToBytes((String) entry.getValue());
-                SerializedData serializedData = new SerializedData(bytes);
-                boolean isThread = false;
-                if (key.startsWith("r_") || (isThread = key.startsWith("rt_"))) {
-                    TLRPC.Message message = TLRPC.Message.TLdeserialize(serializedData, serializedData.readInt32(true), true);
-                    if (message != null) {
-                        message.readAttachPath(serializedData, getUserConfig().clientUserId);
-                        LongSparseArray<TLRPC.Message> threads = draftMessages.get(did);
-                        if (threads == null) {
-                            threads = new LongSparseArray<>();
-                            draftMessages.put(did, threads);
+        getMessagesStorage().getStorageQueue().postRunnable(() -> {
+            final ArrayList<TLRPC.Message> replyMessageOwners = new ArrayList<>();
+            Map<String, ?> values = draftPreferences.getAll();
+            for (Map.Entry<String, ?> entry : values.entrySet()) {
+                try {
+                    String key = entry.getKey();
+                    long did = Utilities.parseLong(key);
+                    byte[] bytes = Utilities.hexToBytes((String) entry.getValue());
+                    SerializedData serializedData = new SerializedData(bytes);
+                    boolean isThread = false;
+                    if (key.startsWith("r_") || (isThread = key.startsWith("rt_"))) {
+                        TLRPC.Message message = TLRPC.Message.TLdeserialize(serializedData, serializedData.readInt32(true), true);
+                        if (message != null) {
+                            message.readAttachPath(serializedData, getUserConfig().clientUserId);
+                            LongSparseArray<TLRPC.Message> threads = draftMessages.get(did);
+                            if (threads == null) {
+                                threads = new LongSparseArray<>();
+                                draftMessages.put(did, threads);
+                            }
+                            int threadId = isThread ? Utilities.parseInt(key.substring(key.lastIndexOf('_') + 1)) : 0;
+                            threads.put(threadId, message);
+                            if (message.reply_to != null) {
+                                replyMessageOwners.add(message);
+                            }
                         }
-                        int threadId = isThread ? Utilities.parseInt(key.substring(key.lastIndexOf('_') + 1)) : 0;
-                        threads.put(threadId, message);
-                        if (message.reply_to != null) {
-                            replyMessageOwners.add(message);
+                    } else {
+                        TLRPC.DraftMessage draftMessage = TLRPC.DraftMessage.TLdeserialize(serializedData, serializedData.readInt32(true), true);
+                        if (draftMessage != null) {
+                            LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(did);
+                            if (threads == null) {
+                                threads = new LongSparseArray<>();
+                                drafts.put(did, threads);
+                            }
+                            long threadId = key.startsWith("t_") ? Utilities.parseLong(key.substring(key.lastIndexOf('_') + 1)) : 0;
+                            threads.put(threadId, draftMessage);
                         }
                     }
-                } else {
-                    TLRPC.DraftMessage draftMessage = TLRPC.DraftMessage.TLdeserialize(serializedData, serializedData.readInt32(true), true);
-                    if (draftMessage != null) {
-                        LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(did);
-                        if (threads == null) {
-                            threads = new LongSparseArray<>();
-                            drafts.put(did, threads);
-                        }
-                        long threadId = key.startsWith("t_") ? Utilities.parseLong(key.substring(key.lastIndexOf('_') + 1)) : 0;
-                        threads.put(threadId, draftMessage);
-                    }
+                    serializedData.cleanup();
+                } catch (Exception e) {
+                    //ignore
                 }
-                serializedData.cleanup();
-            } catch (Exception e) {
-                //igonre
             }
-        }
-        loadRepliesOfDraftReplies(replyMessageOwners);
+            loadRepliesOfDraftReplies(replyMessageOwners);
+        });
 
         loadStickersByEmojiOrName(AndroidUtilities.STICKERS_PLACEHOLDER_PACK_NAME, false, true);
         loadEmojiThemes();
@@ -7691,6 +7693,25 @@ public class MediaDataController extends BaseController {
     public TLRPC.DraftMessage getDraft(long dialogId, long threadId) {
         LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
         if (threads == null) {
+            try {
+                String key = threadId != 0 ? "t_" + dialogId + "_" + threadId : String.valueOf(dialogId);
+                String val = draftPreferences.getString(key, null);
+                if (val != null) {
+                    byte[] bytes = Utilities.hexToBytes(val);
+                    SerializedData serializedData = new SerializedData(bytes);
+                    TLRPC.DraftMessage draftMessage = TLRPC.DraftMessage.TLdeserialize(serializedData, serializedData.readInt32(true), true);
+                    serializedData.cleanup();
+                    if (draftMessage != null) {
+                        threads = drafts.get(dialogId);
+                        if (threads == null) {
+                            threads = new LongSparseArray<>();
+                            drafts.put(dialogId, threads);
+                        }
+                        threads.put(threadId, draftMessage);
+                        return draftMessage;
+                    }
+                }
+            } catch (Exception ignore) {}
             return null;
         }
         return threads.get(threadId);
@@ -7707,6 +7728,27 @@ public class MediaDataController extends BaseController {
     public TLRPC.Message getDraftMessage(long dialogId, long threadId) {
         LongSparseArray<TLRPC.Message> threads = draftMessages.get(dialogId);
         if (threads == null) {
+            try {
+                String key = threadId != 0 ? "rt_" + dialogId + "_" + threadId : "r_" + dialogId;
+                String val = draftPreferences.getString(key, null);
+                if (val != null) {
+                    byte[] bytes = Utilities.hexToBytes(val);
+                    SerializedData serializedData = new SerializedData(bytes);
+                    TLRPC.Message message = TLRPC.Message.TLdeserialize(serializedData, serializedData.readInt32(true), true);
+                    if (message != null) {
+                        message.readAttachPath(serializedData, getUserConfig().clientUserId);
+                        threads = draftMessages.get(dialogId);
+                        if (threads == null) {
+                            threads = new LongSparseArray<>();
+                            draftMessages.put(dialogId, threads);
+                        }
+                        threads.put((int) threadId, message);
+                        serializedData.cleanup();
+                        return message;
+                    }
+                    serializedData.cleanup();
+                }
+            } catch (Exception ignore) {}
             return null;
         }
         return threads.get(threadId);

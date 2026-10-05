@@ -15034,7 +15034,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     // under a 120 fps list, which read as the whole screen stuttering), while repeat calls within
     // one frame collapse into one. The trailing update runs on the next frame, so the glass always
     // ends on the latest state. One-off state changes still call blur3_InvalidateBlur directly.
-    private static final long PRIME_BLUR_MIN_INTERVAL_MS = 12;
+    private static final long PRIME_BLUR_MIN_INTERVAL_MS = 24;
     private long primeBlurLastMs;
     private boolean primeBlurTrailingPosted;
     private final Runnable primeBlurTrailing = () -> {

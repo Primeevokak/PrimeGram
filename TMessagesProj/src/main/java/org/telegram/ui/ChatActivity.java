@@ -48946,7 +48946,7 @@ public class ChatActivity extends BaseFragment implements
      *  the "⋮" popup. */
     // Once per frame, not ~30 times a second: a 32 ms cap left the glass visibly lagging the
     // list at 120 Hz (see DialogsActivity.PRIME_BLUR_MIN_INTERVAL_MS).
-    private static final long BLUR_MIN_INTERVAL_MS = 4;
+    private static final long BLUR_MIN_INTERVAL_MS = 24;
     private long lastBlurInvalidateMs;
     private boolean primeBlurTrailingPosted;
     private final Runnable primeBlurTrailing = () -> {

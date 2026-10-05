@@ -2781,7 +2781,11 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
             }
             spoilersPool.addAll(spoilers);
             spoilers.clear();
-            SpoilerEffect.addSpoilers(this, messageLayout, -2, -2, spoilersPool, spoilers);
+            int maxSpoilerRight = messageWidth;
+            if (messageLayout != null && messageLayout.getLineCount() > 0) {
+                maxSpoilerRight = Math.min(messageWidth, (int) Math.ceil(messageLayout.getLineWidth(0)));
+            }
+            SpoilerEffect.addSpoilers(this, messageLayout, 0, maxSpoilerRight, spoilersPool, spoilers);
         } catch (Exception e) {
             messageLayout = null;
             FileLog.e(e);
@@ -4337,8 +4341,10 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
                             for (int i = 0; i < spoilers.size(); i++) {
                                 SpoilerEffect eff = spoilers.get(i);
-                                eff.setColor(messageLayout.getPaint().getColor());
-                                eff.draw(canvas);
+                                if (!eff.getBounds().isEmpty() && eff.getBounds().left < eff.getBounds().right) {
+                                    eff.setColor(messageLayout.getPaint().getColor());
+                                    eff.draw(canvas);
+                                }
                             }
                         } catch (Exception e) {
                             FileLog.e(e);
