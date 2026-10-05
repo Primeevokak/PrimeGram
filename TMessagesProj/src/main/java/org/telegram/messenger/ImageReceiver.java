@@ -2363,8 +2363,15 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
 
     /** What an SvgDrawable's shimmer calls instead of {@link #invalidate()}. */
     public void primeInvalidateShimmer() {
-        if (primeSvgNodeDrawable == null || primeShimmerFrameTrigger == null || parentView == null) {
-            invalidate();
+        if (parentView == null || !parentView.isAttachedToWindow() || !isVisible) {
+            return;
+        }
+        if (primeSvgNodeDrawable == null || primeShimmerFrameTrigger == null) {
+            if (!primeSvgRefreshPosted) {
+                primeSvgRefreshPosted = true;
+                parentView.postInvalidateOnAnimation();
+                parentView.post(() -> primeSvgRefreshPosted = false);
+            }
             return;
         }
         if (!primeSvgRefreshPosted) {
@@ -2408,7 +2415,7 @@ public class ImageReceiver implements NotificationCenter.NotificationCenterDeleg
     }
 
     public void invalidate() {
-        if (parentView == null) {
+        if (parentView == null || !isVisible || !parentView.isAttachedToWindow() || parentView.getVisibility() != android.view.View.VISIBLE) {
             return;
         }
         if (invalidateAll) {

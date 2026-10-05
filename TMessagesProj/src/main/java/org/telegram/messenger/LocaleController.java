@@ -1660,12 +1660,26 @@ public class LocaleController {
         if (count < 0) {
             return "-" + formatNumber(-count, symbol);
         }
+        return formatPositiveNumberWithSeparator(count, symbol);
+    }
 
-        StringBuilder stringBuilder = new StringBuilder(String.format("%d", count));
-        for (int a = stringBuilder.length() - 3; a > 0; a -= 3) {
-            stringBuilder.insert(a, symbol);
+    private static String formatPositiveNumberWithSeparator(long count, char symbol) {
+        String s = Long.toString(count);
+        int len = s.length();
+        if (len <= 3) {
+            return s;
         }
-        return stringBuilder.toString();
+        StringBuilder sb = new StringBuilder(len + (len - 1) / 3);
+        int first = len % 3;
+        if (first == 0) {
+            first = 3;
+        }
+        sb.append(s, 0, first);
+        for (int i = first; i < len; i += 3) {
+            sb.append(symbol);
+            sb.append(s, i, i + 3);
+        }
+        return sb.toString();
     }
 
     public static String formatNumberWithMillion(long count, char symbol) {
@@ -2919,40 +2933,46 @@ public class LocaleController {
 
     public static String formatShortNumber(int number, int[] rounded) {
         if (PrimeTweaks.disableNumberRounding()) {
-            // PrimeGram: "1 234 567" instead of "1M". The rounded[] out-parameter still has to
-            // be filled — callers use it for their own layout decisions, not just display.
             if (rounded != null) {
                 rounded[0] = number;
             }
-            return String.format(getInstance().getCurrentLocale() == null ? Locale.US : getInstance().getCurrentLocale(), "%,d", number);
+            if (number < 0) {
+                return "-" + formatPositiveNumberWithSeparator(-number, ' ');
+            }
+            return formatPositiveNumberWithSeparator(number, ' ');
+        }
+        if (number < 1000) {
+            if (rounded != null) {
+                rounded[0] = number;
+            }
+            return Integer.toString(number);
         }
         StringBuilder K = new StringBuilder();
         int lastDec = 0;
-        int KCount = 0;
-        while (number / 1000 > 0) {
-            K.append("K");
-            lastDec = (number % 1000) / 100;
-            number /= 1000;
+        int n = number;
+        while (n / 1000 > 0) {
+            K.append('K');
+            lastDec = (n % 1000) / 100;
+            n /= 1000;
         }
         if (rounded != null) {
-            double value = number + lastDec / 10.0;
+            double value = n + lastDec / 10.0;
             for (int a = 0; a < K.length(); a++) {
                 value *= 1000;
             }
             rounded[0] = (int) value;
         }
+        StringBuilder sb = new StringBuilder(10);
+        sb.append(n);
         if (lastDec != 0 && K.length() > 0) {
-            if (K.length() == 2) {
-                return String.format(Locale.US, "%d.%dM", number, lastDec);
-            } else {
-                return String.format(Locale.US, "%d.%d%s", number, lastDec, K.toString());
-            }
+            sb.append('.').append(lastDec);
         }
         if (K.length() == 2) {
-            return String.format(Locale.US, "%dM", number);
+            sb.append('M');
         } else {
-            return String.format(Locale.US, "%d%s", number, K.toString());
+            sb.append(K);
         }
+        return sb.toString();
     }
 
     public static String formatUserStatus(int currentAccount, TLRPC.User user) {

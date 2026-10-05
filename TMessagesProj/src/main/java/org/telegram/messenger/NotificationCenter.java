@@ -634,15 +634,25 @@ public class NotificationCenter {
             allowDuringAnimation = size == allowedCount;
         }
         if (id == startAllHeavyOperations) {
-            Integer flags = (Integer) args[0];
-            currentHeavyOperationFlags &= ~flags;
+            int flags = args != null && args.length > 0 && args[0] instanceof Integer ? (Integer) args[0] : 512;
+            int newFlags = currentHeavyOperationFlags & ~flags;
+            if (newFlags == currentHeavyOperationFlags) {
+                return;
+            }
+            currentHeavyOperationFlags = newFlags;
         } else if (id == stopAllHeavyOperations) {
-            Integer flags = (Integer) args[0];
-            currentHeavyOperationFlags |= flags;
+            int flags = args != null && args.length > 0 && args[0] instanceof Integer ? (Integer) args[0] : 512;
+            int newFlags = currentHeavyOperationFlags | flags;
+            if (newFlags == currentHeavyOperationFlags) {
+                return;
+            }
+            currentHeavyOperationFlags = newFlags;
+        } else if (id == fileLoadFailed && args != null && args.length > 1 && args[1] instanceof Integer && (Integer) args[1] == 1) {
+            return;
         }
         if (shouldDebounce(id, args) && BuildVars.DEBUG_VERSION) {
             postNotificationDebounced(id, args);
-        } else if (!primeCoalesceUpdateInterfaces(id, allowDuringAnimation, args)) {
+        } else if (!primeCoalesceUpdateInterfaces(id, allowDuringAnimation, args) && !primeCoalesceDownloadingFiles(id, allowDuringAnimation)) {
             postNotificationNameInternal(id, allowDuringAnimation, args);
         }
 
@@ -693,6 +703,35 @@ public class NotificationCenter {
             postNotificationNameInternal(updateInterfaces, allow, mask);
         } finally {
             primeFlushing = false;
+        }
+    }
+
+    private boolean primeDownloadingFilesScheduled;
+    private boolean primeDownloadingFilesFlushing;
+    private boolean primeDownloadingFilesAllowDuringAnimation;
+
+    private boolean primeCoalesceDownloadingFiles(int id, boolean allowDuringAnimation) {
+        if (id != onDownloadingFilesChanged || !primeCoalesceEnabled || primeDownloadingFilesFlushing
+                || android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            return false;
+        }
+        primeDownloadingFilesAllowDuringAnimation |= allowDuringAnimation;
+        if (!primeDownloadingFilesScheduled) {
+            primeDownloadingFilesScheduled = true;
+            AndroidUtilities.runOnUIThread(this::primeFlushDownloadingFiles, 100);
+        }
+        return true;
+    }
+
+    private void primeFlushDownloadingFiles() {
+        primeDownloadingFilesScheduled = false;
+        final boolean allow = primeDownloadingFilesAllowDuringAnimation;
+        primeDownloadingFilesAllowDuringAnimation = false;
+        primeDownloadingFilesFlushing = true;
+        try {
+            postNotificationNameInternal(onDownloadingFilesChanged, allow);
+        } finally {
+            primeDownloadingFilesFlushing = false;
         }
     }
     // endregion

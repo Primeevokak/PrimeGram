@@ -495,10 +495,14 @@ public final class PrimePerfMonitor {
     /** Looper's own message log, parsed only for its start/end markers. Installed on the main
      *  looper while monitoring and removed after; costs one string per message meanwhile. */
     private static final android.util.Printer looperPrinter = line -> {
-        if (line.startsWith(">>>>>")) {
+        if (line == null || line.length() == 0) {
+            return;
+        }
+        final char ch = line.charAt(0);
+        if (ch == '>') {
             taskStartNs = System.nanoTime();
             taskLabel = line;
-        } else if (line.startsWith("<<<<<") && taskLabel != null) {
+        } else if (ch == '<' && taskLabel != null) {
             final long ns = System.nanoTime() - taskStartNs;
             if (ns >= LONG_TASK_NS) {
                 final String key = taskKey(taskLabel);

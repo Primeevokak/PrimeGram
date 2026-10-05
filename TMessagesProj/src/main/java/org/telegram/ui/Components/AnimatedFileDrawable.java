@@ -215,7 +215,9 @@ public final class AnimatedFileDrawable extends BitmapDrawable implements Animat
     @UiThread
     public void invalidateInternal() {
         for (ImageReceiver imageReceiver : parents) {
-            imageReceiver.invalidate();
+            if (imageReceiver != null && imageReceiver.isAttachedToWindow() && imageReceiver.getVisible()) {
+                imageReceiver.invalidate();
+            }
         }
     }
 
@@ -1377,10 +1379,33 @@ public final class AnimatedFileDrawable extends BitmapDrawable implements Animat
     private final Choreographer60FpsContent.FrameCallback mUiThreadChoreographerCallback = this::onChoreographerFrame;
     private boolean swapBuffersAllowedByChoreographer;
 
+    private boolean hasAttachedAndVisibleParents() {
+        if (parents.isEmpty()) {
+            return false;
+        }
+        for (ImageReceiver p : parents) {
+            if (p != null && p.isAttachedToWindow() && p.getVisible()) {
+                android.view.View pv = p.getParentView();
+                if (pv != null && pv.isAttachedToWindow() && pv.getVisibility() == android.view.View.VISIBLE) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     @UiThread
     private void onChoreographerFrame(long frameTimeNanos) {
         checkChoreographerAfterFrameCall();
         if (isChoreographerRegistered) {
+            if (!hasAttachedAndVisibleParents()) {
+                isPaused = true;
+                checkChoreographerInternal();
+                return;
+            }
+            if (isRunning && nextRenderingBuffer == null && renderingBuffer != null) {
+                return;
+            }
             swapBuffersAllowedByChoreographer = true;
             invalidateInternal();
         }

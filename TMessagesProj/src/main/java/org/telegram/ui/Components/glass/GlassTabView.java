@@ -232,6 +232,9 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
     }
 
     public void setSelected(boolean selected, boolean animated) {
+        if (isTabSelected() == selected) {
+            return;
+        }
         isSelectedAnimator.setValue(selected, animated);
         checkPlayAnimation(animated);
 

@@ -797,7 +797,10 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             final float position = viewPager.getPositionAnimated();
             setGestureSelectedOverride(position, isDragByGesture);
             if (isDragByGesture) {
-                selectTab(Math.round(position), true);
+                int target = Math.round(position);
+                if (target != currentSelectedPosition) {
+                    selectTab(target, true);
+                }
             }
         }
 
@@ -1066,8 +1069,13 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
     /* */
 
     public GlassTabView[] tabs;
+    private int currentSelectedPosition = -1;
 
     public void selectTab(int position, boolean animated) {
+        if (currentSelectedPosition == position) {
+            return;
+        }
+        currentSelectedPosition = position;
         // A swipe between two other tabs still passes through the Feed page's index in the
         // pager mid-gesture, rounded from a fractional position - canSwipeToPosition stops it
         // from ever landing there when Feed is hidden, but this runs on every rounded position

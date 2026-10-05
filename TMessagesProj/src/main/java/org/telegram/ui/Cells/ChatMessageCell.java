@@ -5928,16 +5928,18 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         this.blurredViewBottomOffset = blurredViewBottomOffset;
         this.childPosition2 = position2;
 
-        if ((!botButtons.isEmpty() || channelRecommendationsCell != null && currentMessageObject != null && currentMessageObject.type == MessageObject.TYPE_JOINED_CHANNEL) && viewTop != visibleTop) {
+        boolean offsetChanged = (parent != parentHeight || parentOffset != this.parentViewTopOffset);
+        if (offsetChanged) {
+            this.parentViewTopOffset = parentOffset;
+            parentHeight = parent;
+        }
+
+        if (offsetChanged && (!botButtons.isEmpty() || channelRecommendationsCell != null && currentMessageObject != null && currentMessageObject.type == MessageObject.TYPE_JOINED_CHANNEL) && Math.abs(viewTop - visibleTop) > 1f) {
             invalidate();
         }
         viewTop = visibleTop;
 
-        if (parent != parentHeight || parentOffset != this.parentViewTopOffset) {
-            this.parentViewTopOffset = parentOffset;
-            parentHeight = parent;
-        }
-        if (currentMessageObject != null && (hasGradientService() && currentMessageObject.shouldDrawWithoutBackground())) {
+        if (offsetChanged && currentMessageObject != null && (hasGradientService() && currentMessageObject.shouldDrawWithoutBackground())) {
             invalidate();
         }
 
@@ -5980,6 +5982,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                         float top = parentBoundsTop - getY() - holder.drawingYOffset;
                         float bottom = parentBoundsBottom - getY() - holder.drawingYOffset;
                         if (!holder.outOfBounds(top, bottom)) {
+                            holder.skipDraw = false;
                             invalidate();
                             break;
                         }
@@ -6033,6 +6036,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             float y = getPaddingTop() + dp(8);
             y = Math.max(Math.min(-childPosition2 + dp(4), sideStartY - dp(42)), y);
             if (Math.abs(summarizeButtonY - y) >= 1) {
+                summarizeButtonY = y;
                 invalidate();
             }
         }

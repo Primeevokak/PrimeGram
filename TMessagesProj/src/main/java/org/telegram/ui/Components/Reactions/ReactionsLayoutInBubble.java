@@ -866,7 +866,7 @@ public class ReactionsLayoutInBubble {
                 imageReceiver = new ImageReceiver();
             }
             if (counterDrawable == null) {
-                counterDrawable = new CounterView.CounterDrawable(parentView, false, null);
+                counterDrawable = new CounterView.CounterDrawable(null, false, null);
             }
             if (textDrawable == null) {
                 textDrawable = new AnimatedTextView.AnimatedTextDrawable(true, true, true);
@@ -962,6 +962,7 @@ public class ReactionsLayoutInBubble {
             }
             counterDrawable.setType(CounterView.CounterDrawable.TYPE_CHAT_REACTIONS);
             counterDrawable.gravity = Gravity.LEFT;
+            counterDrawable.setParent(parentView);
         }
 
         private final RectF bounds = new RectF(), rect2 = new RectF();

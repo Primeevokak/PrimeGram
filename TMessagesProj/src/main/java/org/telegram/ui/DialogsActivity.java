@@ -979,20 +979,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         @Override
         protected void dispatchDraw(Canvas canvas) {
             if (Build.VERSION.SDK_INT >= 31 && scrollableViewNoiseSuppressor != null) {
-                // PrimeGram: this runs on every single frame this view draws - during a fling,
-                // that is every frame at the display's full refresh rate - and blur3_InvalidateBlur
-                // is not cheap: it re-captures the live dialogs list into a RenderNode and rebuilds
-                // a GPU Gaussian-blur chain from it every time, unconditionally. Nothing about that
-                // work is skippable outright (the backdrop genuinely is moving), but a blurred
-                // backdrop updating at a lower cadence than the sharp foreground is not something
-                // the eye can tell apart from one updating every frame - the blur itself already
-                // throws away the fine temporal detail that would make the difference visible. Capping
-                // it to ~30fps instead of the display's native rate cuts this specific cost roughly
-                // in half during a fast fling without any perceptible change to how the glass looks,
-                // and was the main-thread/GPU backpressure a popup window's synchronous
-                // WindowManager relayout call was stalling behind - see the "⋮ tapped mid-scroll"
-                // investigation this fixes.
-                blur3_InvalidateBlurThrottled();
+                // PrimeGram: only rebuild GPU blur chain when dialogs list is actually moving or dirty
+                if (primeBlurDirty || tabsAnimationInProgress || primeBlurTrailingPosted || isDialogsListScrolling()) {
+                    blur3_InvalidateBlurThrottled();
+                }
             }
 
             if (invalidateScrollY && (rightSlidingDialogContainer == null || !rightSlidingDialogContainer.hasFragment()) && progressToActionMode == 0) {
@@ -15037,13 +15027,27 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private static final long PRIME_BLUR_MIN_INTERVAL_MS = 24;
     private long primeBlurLastMs;
     private boolean primeBlurTrailingPosted;
+    private boolean primeBlurDirty = true;
     private final Runnable primeBlurTrailing = () -> {
         primeBlurTrailingPosted = false;
+        primeBlurDirty = true;
         primeBlurLastMs = android.os.SystemClock.elapsedRealtime();
         blur3_InvalidateBlur();
     };
 
+    private boolean isDialogsListScrolling() {
+        if (viewPages != null) {
+            for (int i = 0; i < viewPages.length; i++) {
+                if (viewPages[i] != null && viewPages[i].listView != null && viewPages[i].listView.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private void blur3_InvalidateBlurThrottled() {
+        primeBlurDirty = true;
         final long now = android.os.SystemClock.elapsedRealtime();
         final long since = now - primeBlurLastMs;
         if (since >= PRIME_BLUR_MIN_INTERVAL_MS) {
@@ -15059,6 +15063,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null || fragmentView == null || actionBar == null) {
             return;
         }
+        primeBlurDirty = false;
 
         final int additionalList = dp(48);
         final int mainTabBottom = fragmentView.getMeasuredHeight() - navigationBarHeight - dp(org.telegram.messenger.MainTabsHelper.getMainTabsMargin());

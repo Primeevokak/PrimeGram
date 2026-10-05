@@ -2848,9 +2848,13 @@ public class EmojiView extends FrameLayout implements
         }
 
         blurCaptureMethod = (canvas, position) -> {
-            Blur3Utils.captureRelativeParent(emojiGridView, canvas, position, emojiGridView, EmojiView.this);
-            Blur3Utils.captureRelativeParent(gifGridView, canvas, position, gifGridView, EmojiView.this);
-            Blur3Utils.captureRelativeParent(stickersGridView, canvas, position, stickersGridView, EmojiView.this);
+            if (currentPage == 0 && emojiGridView != null) {
+                Blur3Utils.captureRelativeParent(emojiGridView, canvas, position, emojiGridView, EmojiView.this);
+            } else if (currentPage == 1 && gifGridView != null) {
+                Blur3Utils.captureRelativeParent(gifGridView, canvas, position, gifGridView, EmojiView.this);
+            } else if (currentPage == 2 && stickersGridView != null) {
+                Blur3Utils.captureRelativeParent(stickersGridView, canvas, position, stickersGridView, EmojiView.this);
+            }
         };
 
         setBlurredBackgroundDrawableFactory(blurredBackgroundDrawableFactory);
@@ -3094,6 +3098,7 @@ public class EmojiView extends FrameLayout implements
         }
 
         public void updateEmojiDrawables() {
+            lastChildCount = getChildCount();
             animatedEmojiDrawables = AnimatedEmojiSpan.update(emojiCacheType, this, getAnimatedEmojiSpans(), animatedEmojiDrawables);
         }
 
@@ -3115,7 +3120,6 @@ public class EmojiView extends FrameLayout implements
         @Override
         protected void dispatchDraw(Canvas canvas) {
             super.dispatchDraw(canvas);
-            glassEngine.invalidate();
 
             if (lastChildCount != getChildCount()) {
                 updateEmojiDrawables();
@@ -3310,7 +3314,6 @@ public class EmojiView extends FrameLayout implements
                     }
                 }
                 canvas.restore();
-                invalidate();
             }
 
             for (int i = 0; i < lineDrawablesTmp.size(); i++) {
@@ -4579,12 +4582,23 @@ public class EmojiView extends FrameLayout implements
 
     @Override
     protected void dispatchDraw(@NonNull Canvas canvas) {
+        if (getVisibility() != VISIBLE || getAlpha() <= 0f) {
+            return;
+        }
         updateBottomTabContainerPosition();
         super.dispatchDraw(canvas);
     }
 
+    private long lastBlurCaptureTime;
+    private static final long BLUR_MIN_INTERVAL_MS = 24;
+
     private void invalidateBlurCaptures(int flags) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && scrollableViewNoiseSuppressor != null) {
+            long now = SystemClock.uptimeMillis();
+            if (now - lastBlurCaptureTime < BLUR_MIN_INTERVAL_MS) {
+                return;
+            }
+            lastBlurCaptureTime = now;
             ViewPositionWatcher.computeRectInParent(typeTabs, this, blurredRectF);
             blurredRectF.inset(
                 LiteMode.isEnabled(LiteMode.FLAG_LIQUID_GLASS) ? 0 : -dp(48),

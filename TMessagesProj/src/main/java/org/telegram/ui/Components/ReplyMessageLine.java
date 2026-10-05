@@ -645,10 +645,11 @@ public class ReplyMessageLine {
     }
 
     public void drawBackground(Canvas canvas, RectF rect, float leftRad, float rightRad, float bottomRad, float alpha, boolean hasQuote, boolean emojiOnly) {
-        radii[0] = radii[1] = Math.max(AndroidUtilities.dp((int) Math.floor(SharedConfig.bubbleRadius / 3f)), AndroidUtilities.dp(leftRad));
+        final int bubbleCut = AndroidUtilities.dp((int) Math.floor(SharedConfig.bubbleRadius / 3f));
+        radii[0] = radii[1] = Math.max(bubbleCut, AndroidUtilities.dp(leftRad));
         radii[2] = radii[3] = AndroidUtilities.dp(rightRad);
         radii[4] = radii[5] = AndroidUtilities.dp(bottomRad);
-        radii[6] = radii[7] = Math.max(AndroidUtilities.dp((int) Math.floor(SharedConfig.bubbleRadius / 3f)), AndroidUtilities.dp(bottomRad));
+        radii[6] = radii[7] = Math.max(bubbleCut, AndroidUtilities.dp(bottomRad));
         drawBackground(canvas, rect, alpha, hasQuote, emojiOnly);
     }
 
@@ -682,7 +683,11 @@ public class ReplyMessageLine {
 
     public void drawBackground(Canvas canvas, RectF rect, float alpha, boolean hasQuote, boolean emojiOnly) {
         if (!emojiOnly) {
-            backgroundPaint.setColor(Theme.multAlpha(backgroundColorAnimated.set(backgroundColor), alpha));
+            int bg = backgroundColorAnimated.get();
+            if (bg != backgroundColor) {
+                bg = backgroundColorAnimated.set(backgroundColor);
+            }
+            backgroundPaint.setColor(Theme.multAlpha(bg, alpha));
             if (RadiiUtils.radiiAreSame(radii)) {
                 canvas.drawRoundRect(rect, radii[0], radii[0], backgroundPaint);
             } else {
@@ -697,13 +702,7 @@ public class ReplyMessageLine {
             // frame of it. A cell rebound while scrolling nearly always finds its pattern already in
             // memory; then it is simply shown. Only a pattern that is really still loading fades in.
             final boolean primeLoaded = isEmojiLoaded();
-            if (primeEmojiFreshBind) {
-                primeEmojiFreshBind = false;
-                if (primeLoaded) {
-                    emojiLoadedT.set(1f, true);
-                }
-            }
-            final float loadedScale = emojiLoadedT.set(primeLoaded);
+            final float loadedScale = emojiLoadedT.set(primeLoaded ? 1f : 0f, true);
 
             if (loadedScale > 0 && emojiAlpha > 0) {
                 if (iconCoords == null) {

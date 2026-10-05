@@ -818,8 +818,10 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
         } else if (holder.itemView instanceof ChatMessageCell) {
             ChatMessageCell chatMessageCell = (ChatMessageCell) holder.itemView;
             ChatMessageCell.TransitionParams params = chatMessageCell.getTransitionParams();
-            ObjectAnimator objectAnimator = ObjectAnimator.ofFloat(chatMessageCell, chatMessageCell.ANIMATION_OFFSET_X, 0);
-            animatorSet.playTogether(objectAnimator);
+            if (chatMessageCell.getAnimationOffsetX() != 0) {
+                ObjectAnimator objectAnimator = ObjectAnimator.ofFloat(chatMessageCell, chatMessageCell.ANIMATION_OFFSET_X, 0);
+                animatorSet.playTogether(objectAnimator);
+            }
 
             if (moveInfoExtended.animateImage) {
                 chatMessageCell.setImageCoords(moveInfoExtended.imageX, moveInfoExtended.imageY, moveInfoExtended.imageWidth, moveInfoExtended.imageHeight);

@@ -18320,7 +18320,7 @@ public class ChatActivity extends BaseFragment implements
         protected void dispatchDraw(Canvas canvas) {
             chatActivityEnterView.checkAnimation();
             updateChatListViewTopPadding();
-            if (invalidateMessagesVisiblePart || (chatListItemAnimator != null && chatListItemAnimator.isRunning())) {
+            if (invalidateMessagesVisiblePart) {
                 invalidateMessagesVisiblePart = false;
                 updateMessagesVisiblePart(false);
             }
@@ -48920,6 +48920,8 @@ public class ChatActivity extends BaseFragment implements
         invalidateMergedVisibleBlurredPositionsAndSources(BLUR_INVALIDATE_FLAG_POSITIONS);
     }
 
+    private boolean primeBlurDirty = true;
+
     private void invalidateMergedVisibleBlurredPositionsAndSources(int flags) {
         if (parentChatActivity != null) {
             parentChatActivity.invalidateMergedVisibleBlurredPositionsAndSources(flags);
@@ -48929,6 +48931,7 @@ public class ChatActivity extends BaseFragment implements
             return;
         }
 
+        primeBlurDirty = true;
         invalidateBlurredSourcesView.invalidate(flags);
     }
 
@@ -48951,11 +48954,16 @@ public class ChatActivity extends BaseFragment implements
     private boolean primeBlurTrailingPosted;
     private final Runnable primeBlurTrailing = () -> {
         primeBlurTrailingPosted = false;
+        primeBlurDirty = true;
         invalidateMergedVisibleBlurredPositionsAndSourcesImpl(0);
     };
 
     private void invalidateMergedVisibleBlurredPositionsAndSourcesImpl(int flags) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || scrollableViewNoiseSuppressor == null) {
+            return;
+        }
+
+        if (!primeBlurDirty && flags == 0 && (chatListView == null || chatListView.getScrollState() == RecyclerView.SCROLL_STATE_IDLE) && !primeBlurTrailingPosted) {
             return;
         }
 
@@ -48982,6 +48990,7 @@ public class ChatActivity extends BaseFragment implements
 
         //if (BitwiseUtils.hasFlag(flags, BLUR_INVALIDATE_FLAG_POSITIONS | BLUR_INVALIDATE_FLAG_SCROLL)) {
         final boolean hasChanges = scrollableViewNoiseSuppressor.invalidateResultRenderNodes(contentView::drawList, contentView.getWidth(), contentView.getHeight());
+        primeBlurDirty = false;
         if (hasChanges) {
             if (glassBackgroundSourceRenderNode != null) {
                 glassBackgroundSourceRenderNode.invalidateDisplayListForDrawables();

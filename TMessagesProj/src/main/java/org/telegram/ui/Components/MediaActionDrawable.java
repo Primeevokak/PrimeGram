@@ -169,6 +169,9 @@ public class MediaActionDrawable extends Drawable {
     }
 
     public boolean setIcon(int icon, boolean animated) {
+        if (!animatingTransition && currentIcon == icon && nextIcon == icon) {
+            return false;
+        }
         if (currentIcon == icon && nextIcon != icon) {
             currentIcon = nextIcon;
             transitionProgress = 1.0f;
