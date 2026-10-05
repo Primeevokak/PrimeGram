@@ -702,6 +702,7 @@ public class ChatActivityEnterView extends FrameLayout implements
     private boolean smoothKeyboard;
 
     private boolean isPaused = true;
+    private Runnable preloadEmojiViewRunnable;
     private boolean recordIsCanceled;
     private boolean showKeyboardOnResume;
 
@@ -6605,6 +6606,10 @@ public class ChatActivityEnterView extends FrameLayout implements
         if (emojiView != null) {
             emojiView.onDestroy();
         }
+        if (preloadEmojiViewRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(preloadEmojiViewRunnable);
+            preloadEmojiViewRunnable = null;
+        }
         if (updateSlowModeRunnable != null) {
             AndroidUtilities.cancelRunOnUIThread(updateSlowModeRunnable);
             updateSlowModeRunnable = null;
@@ -6699,6 +6704,10 @@ public class ChatActivityEnterView extends FrameLayout implements
 
     public void onPause() {
         isPaused = true;
+        if (preloadEmojiViewRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(preloadEmojiViewRunnable);
+            preloadEmojiViewRunnable = null;
+        }
         if (senderSelectPopupWindow != null) {
             senderSelectPopupWindow.setPauseNotifications(false);
             senderSelectPopupWindow.dismiss();
@@ -6719,6 +6728,17 @@ public class ChatActivityEnterView extends FrameLayout implements
         if (hideKeyboardRunnable != null) {
             AndroidUtilities.cancelRunOnUIThread(hideKeyboardRunnable);
             hideKeyboardRunnable = null;
+        }
+        if (emojiView == null && parentActivity != null) {
+            if (preloadEmojiViewRunnable != null) {
+                AndroidUtilities.cancelRunOnUIThread(preloadEmojiViewRunnable);
+            }
+            AndroidUtilities.runOnUIThread(preloadEmojiViewRunnable = () -> {
+                preloadEmojiViewRunnable = null;
+                if (!isPaused && emojiView == null && parentActivity != null) {
+                    createEmojiView();
+                }
+            }, 1200);
         }
 
         if (hasBotWebView() && botCommandsMenuIsShowing()) {

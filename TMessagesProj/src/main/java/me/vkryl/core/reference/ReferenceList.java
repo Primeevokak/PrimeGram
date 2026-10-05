@@ -132,6 +132,12 @@ public final class ReferenceList<T> implements Iterable<T>, ReferenceCreator<T> 
     return -1;
   }
 
+  public final boolean contains (@Nullable T item) {
+    synchronized (items) {
+      return indexOf(item) != -1;
+    }
+  }
+
   /**
    * @return Number of added elements
    * */

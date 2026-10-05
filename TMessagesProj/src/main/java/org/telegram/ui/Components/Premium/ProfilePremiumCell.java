@@ -36,14 +36,22 @@ public class ProfilePremiumCell extends TextCell {
         particles.setBounds(AndroidUtilities.rectTmp);
     }
 
+    private boolean hasInvalidateCallback;
+
     @Override
     protected void dispatchDraw(Canvas canvas) {
         if (LiteMode.isEnabled(LiteMode.FLAG_PARTICLES)) {
             particles.process();
             particles.draw(canvas, Theme.getColor(colorKey));
-            Choreographer60FpsContent.getInstance().addFrameCallback(invalidateRunnable, 15);
+            if (!hasInvalidateCallback) {
+                hasInvalidateCallback = true;
+                Choreographer60FpsContent.getInstance().addFrameCallback(invalidateRunnable, 15);
+            }
         } else {
-            Choreographer60FpsContent.getInstance().removeFrameCallback(invalidateRunnable);
+            if (hasInvalidateCallback) {
+                hasInvalidateCallback = false;
+                Choreographer60FpsContent.getInstance().removeFrameCallback(invalidateRunnable);
+            }
         }
         super.dispatchDraw(canvas);
     }
@@ -51,6 +59,9 @@ public class ProfilePremiumCell extends TextCell {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        Choreographer60FpsContent.getInstance().removeFrameCallback(invalidateRunnable);
+        if (hasInvalidateCallback) {
+            hasInvalidateCallback = false;
+            Choreographer60FpsContent.getInstance().removeFrameCallback(invalidateRunnable);
+        }
     }
 }

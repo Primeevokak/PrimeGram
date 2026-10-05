@@ -681,7 +681,9 @@ public final class PrimePerfMonitor {
         @Override
         public void run() {
             flush();
-            uiHandler.postDelayed(this, SAMPLE_WINDOW_MS);
+            if (metricsHandler != null) {
+                metricsHandler.postDelayed(this, SAMPLE_WINDOW_MS);
+            }
         }
     };
 
@@ -757,8 +759,10 @@ public final class PrimePerfMonitor {
         samplerThread.start();
 
         appendLine(header("Мониторинг запущен"));
-        uiHandler.removeCallbacks(flushTick);
-        uiHandler.postDelayed(flushTick, SAMPLE_WINDOW_MS);
+        if (metricsHandler != null) {
+            metricsHandler.removeCallbacks(flushTick);
+            metricsHandler.postDelayed(flushTick, SAMPLE_WINDOW_MS);
+        }
     }
 
     private static long metric(FrameMetrics fm, int key) {
@@ -767,7 +771,9 @@ public final class PrimePerfMonitor {
     }
 
     private static void stop() {
-        uiHandler.removeCallbacks(flushTick);
+        if (metricsHandler != null) {
+            metricsHandler.removeCallbacks(flushTick);
+        }
         if (listener != null && boundActivity != null) {
             try {
                 boundActivity.getWindow().removeOnFrameMetricsAvailableListener(listener);

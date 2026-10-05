@@ -84,6 +84,8 @@ public class CounterView extends View {
 
         int currentCount;
         CharSequence currentText;
+        private int targetCount = -1;
+        private CharSequence targetText;
         private boolean countAnimationIncrement;
         private ValueAnimator countAnimator;
         public float countChangeProgress = 1f;
@@ -139,6 +141,7 @@ public class CounterView extends View {
             if (h != lastH) {
                 int count = currentCount;
                 currentCount = -1;
+                targetCount = -1;
                 setCount(count, animationType == ANIMATION_TYPE_IN);
                 lastH = h;
             }
@@ -183,10 +186,12 @@ public class CounterView extends View {
         }
 
         public void setText(CharSequence text, boolean animated, int count, boolean isText) {
-            if (TextUtils.equals(text, currentText) && (!animated || countAnimator == null)) {
-                return;
+            if (animated && countAnimator != null && countAnimator.isRunning()) {
+                if (count == targetCount && TextUtils.equals(text, targetText)) {
+                    return;
+                }
             }
-            if (count == currentCount && TextUtils.equals(text, currentText)) {
+            if (count == currentCount && TextUtils.equals(text, currentText) && (countAnimator == null || !countAnimator.isRunning())) {
                 return;
             }
             if (parent == null || !parent.isAttachedToWindow()) {
@@ -201,6 +206,8 @@ public class CounterView extends View {
             if (Math.abs(count - currentCount) > 99) {
                 animated = false;
             }
+            targetCount = count;
+            targetText = text;
             if (!animated) {
                 currentCount = count;
                 currentText = text;
@@ -214,7 +221,7 @@ public class CounterView extends View {
                 countWidth = Math.max(AndroidUtilities.dp(12), (int) Math.ceil(textPaint.measureText(newStr.toString())));
                 countLayout = new StaticLayout(newStr, textPaint, countWidth, Layout.Alignment.ALIGN_CENTER, 1.0f, 0.0f, false);
                 countLayoutWidth = countLayout.getLineCount() >= 1 ? countLayout.getLineWidth(0) : 0;
-                if (parent != null) {
+                if (parent != null && parent.isAttachedToWindow()) {
                     parent.invalidate();
                 }
                 return;
@@ -229,7 +236,7 @@ public class CounterView extends View {
                 countAnimator = ValueAnimator.ofFloat(0, 1f);
                 countAnimator.addUpdateListener(valueAnimator -> {
                     countChangeProgress = (float) valueAnimator.getAnimatedValue();
-                    if (parent != null) {
+                    if (parent != null && parent.isAttachedToWindow()) {
                         parent.invalidate();
                     }
                 });
@@ -244,7 +251,9 @@ public class CounterView extends View {
                             if (currentCount == 0 && updateVisibility) {
                                 parent.setVisibility(View.GONE);
                             }
-                            parent.invalidate();
+                            if (parent.isAttachedToWindow()) {
+                                parent.invalidate();
+                            }
                         }
                         animationType = -1;
                     }
@@ -259,7 +268,7 @@ public class CounterView extends View {
                     countAnimator.setInterpolator(CubicBezierInterpolator.DEFAULT);
                 } else {
                     animationType = ANIMATION_TYPE_REPLACE;
-                    countAnimator.setDuration(430);
+                    countAnimator.setDuration(180);
                     countAnimator.setInterpolator(CubicBezierInterpolator.DEFAULT);
                 }
                 if (countLayout != null) {

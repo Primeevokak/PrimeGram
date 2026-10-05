@@ -883,7 +883,8 @@ public class MediaActionDrawable extends Drawable {
         }
         lastAnimationTime = newTime;
 
-        if (currentIcon == ICON_CANCEL || currentIcon == ICON_CANCEL_FILL || currentIcon == ICON_NONE && nextIcon == ICON_CANCEL_FILL || currentIcon == ICON_EMPTY || currentIcon == ICON_CANCEL_PERCENT) {
+        boolean needsProgressAnimation = currentIcon != ICON_EMPTY || (downloadProgress > 0 && (downloadProgress < 1.0f || Math.abs(downloadProgress - animatedDownloadProgress) >= EPS));
+        if (currentIcon == ICON_CANCEL || currentIcon == ICON_CANCEL_FILL || currentIcon == ICON_NONE && nextIcon == ICON_CANCEL_FILL || (currentIcon == ICON_EMPTY && needsProgressAnimation) || currentIcon == ICON_CANCEL_PERCENT) {
             downloadRadOffset += 360 * dt / 2500.0f;
             downloadRadOffset = getCircleValue(downloadRadOffset);
 

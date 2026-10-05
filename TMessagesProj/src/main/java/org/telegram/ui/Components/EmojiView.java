@@ -3119,6 +3119,9 @@ public class EmojiView extends FrameLayout implements
 
         @Override
         protected void dispatchDraw(Canvas canvas) {
+            if (getVisibility() != VISIBLE || !isShown()) {
+                return;
+            }
             super.dispatchDraw(canvas);
 
             if (lastChildCount != getChildCount()) {
@@ -3202,9 +3205,14 @@ public class EmojiView extends FrameLayout implements
                 int w = getMeasuredWidth() - firstView.getLeft() * 2;
                 int h = firstView.getMeasuredHeight() - firstView.getPaddingBottom();
                 if (w > 0 && h > 0) {
-                    drawable.draw(canvas, time, w, h, 1f);
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !canvas.quickReject(0, 0, w, h)) {
+                        drawable.draw(canvas, time, w, h, 1f);
+                    }
                 }
                 canvas.restore();
+            }
+
+            if (animatedExpandIn) {
                 invalidate();
             }
 

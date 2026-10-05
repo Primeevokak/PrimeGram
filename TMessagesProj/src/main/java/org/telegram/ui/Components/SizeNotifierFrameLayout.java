@@ -131,6 +131,10 @@ public class SizeNotifierFrameLayout extends FrameLayout implements Theme.Colora
             return;
         }
         invalidateBlur = true;
+        if (DRAW_USING_RENDERNODE()) {
+            invalidateBlurredViews();
+            return;
+        }
         if (!blurIsRunning || blurGeneratingTuskIsRunning) {
             return;
         }

@@ -221,7 +221,15 @@ public class GlassTabView extends FrameLayout implements MainTabsLayout.Tab, Fac
 
     private Drawable premiumStarDrawable;
 
+    private String currentCounterText;
+    private boolean currentCounterError;
+
     public void setCounter(String text, boolean isError, boolean animated) {
+        if (TextUtils.equals(currentCounterText, text) && currentCounterError == isError) {
+            return;
+        }
+        currentCounterText = text;
+        currentCounterError = isError;
         counter.setText(text, animated);
         isHasCounterAnimator.setValue(!TextUtils.isEmpty(text), animated);
         isHasCounterErrorAnimator.setValue(isError, animated);

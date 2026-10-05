@@ -868,11 +868,13 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                     }
 
                     chatMessageCell.setImageCoords(x, y, width, height);
-                    holder.itemView.invalidate();
+                    if (holder.itemView.isAttachedToWindow() && holder.itemView.getVisibility() == View.VISIBLE) {
+                        holder.itemView.invalidate();
+                    }
                 });
                 animatorSet.playTogether(valueAnimator);
             }
-            if (moveInfoExtended.deltaBottom != 0 || moveInfoExtended.deltaRight != 0 || moveInfoExtended.deltaTop != 0 || moveInfoExtended.deltaLeft != 0) {
+            if (Math.abs(moveInfoExtended.deltaBottom) > 1 || Math.abs(moveInfoExtended.deltaRight) > 1 || Math.abs(moveInfoExtended.deltaTop) > 1 || Math.abs(moveInfoExtended.deltaLeft) > 1) {
 
                 recyclerListView.setClipChildren(false);
                 recyclerListView.invalidate();
@@ -898,12 +900,18 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                         params.deltaTop = -moveInfoExtended.deltaTop * v - chatMessageCell.getTranslationY();
                         params.deltaBottom = -moveInfoExtended.deltaBottom * v - chatMessageCell.getTranslationY();
                     }
-                    chatMessageCell.invalidate();
+                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE) {
+                        chatMessageCell.invalidate();
+                    }
                 });
                 animatorSet.playTogether(valueAnimator);
             } else {
                 params.toDeltaLeft = 0;
                 params.toDeltaRight = 0;
+                params.deltaLeft = 0;
+                params.deltaRight = 0;
+                params.deltaTop = 0;
+                params.deltaBottom = 0;
             }
 
             MessageObject.GroupedMessages group = chatMessageCell.getCurrentMessagesGroup();
@@ -948,7 +956,9 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                 ValueAnimator valueAnimator = ValueAnimator.ofFloat(0, 1f);
                 valueAnimator.addUpdateListener(animation -> {
                     params.changePinnedBottomProgress = (float) animation.getAnimatedValue();
-                    chatMessageCell.invalidate();
+                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE) {
+                        chatMessageCell.invalidate();
+                    }
                 });
 
                 animatorSet.playTogether(valueAnimator);
@@ -959,7 +969,9 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                 params.animateChange = true;
                 valueAnimator.addUpdateListener(animation -> {
                     params.animateChangeProgress = (float) animation.getAnimatedValue();
-                    chatMessageCell.invalidate();
+                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE) {
+                        chatMessageCell.invalidate();
+                    }
                 });
                 animatorSet.playTogether(valueAnimator);
             }
@@ -972,7 +984,9 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                 params.animateChange = true;
                 valueAnimator.addUpdateListener(animation -> {
                     params.animateChangeProgress = (float) animation.getAnimatedValue();
-                    chatActionCell.invalidate();
+                    if (chatActionCell.isAttachedToWindow() && chatActionCell.getVisibility() == View.VISIBLE) {
+                        chatActionCell.invalidate();
+                    }
                 });
                 animatorSet.playTogether(valueAnimator);
             }

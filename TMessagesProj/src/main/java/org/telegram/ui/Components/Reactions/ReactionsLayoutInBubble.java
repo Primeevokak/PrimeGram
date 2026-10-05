@@ -451,7 +451,7 @@ public class ReactionsLayoutInBubble {
             if (scrimViewReaction == null && drawOnlyReaction == null && scrimProgress < .5f) {
                 reactionButton.detachPreview();
             }
-            if (Objects.equals(reactionButton.reaction.hashCode(), scrimViewReaction)) {
+            if (scrimViewReaction != null && reactionButton.reaction.hashCode() == scrimViewReaction.intValue()) {
                 continue;
             }
             if (drawOnlyReaction != null && reactionButton.reaction.hashCode() != drawOnlyReaction) {
@@ -1293,6 +1293,21 @@ public class ReactionsLayoutInBubble {
         }
 
         public void setUsers(ArrayList<TLObject> users) {
+            if (this.users == users && users != null) {
+                return;
+            }
+            if (this.users != null && users != null && this.users.size() == users.size()) {
+                boolean same = true;
+                for (int i = 0; i < users.size(); i++) {
+                    if (this.users.get(i) != users.get(i)) {
+                        same = false;
+                        break;
+                    }
+                }
+                if (same) {
+                    return;
+                }
+            }
             this.users = users;
             if (users != null) {
                 Collections.sort(users, usersComparator);

@@ -541,8 +541,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
     public float nameLayoutTranslateX;
     private boolean nameLayoutEllipsizeLeft;
     private boolean nameLayoutEllipsizeByGradient;
-    private Paint fadePaint;
-    private Paint fadePaintBack;
+    private static Paint fadePaint;
+    private static Paint fadePaintBack;
     private boolean drawNameLock;
     private int nameMuteLeft;
     private int nameMutedIconLeft;
@@ -643,8 +643,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
     private RectF rect = new RectF();
     private DialogsAdapter.DialogsPreloader preloader;
-    private Path counterPath;
-    private RectF counterPathRect;
+    private final Path counterPath = new Path();
+    private final RectF counterPathRect = new RectF();
 
     private int animateToStatusDrawableParams;
     private int animateFromStatusDrawableParams;
@@ -718,8 +718,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
     @Override
     public void requestLayout() {
-        if (getParent() != null && getParent().isLayoutRequested()) {
-            getParent().requestLayout();
+        if (isLayoutRequested()) {
+            return;
         }
         super.requestLayout();
     }
@@ -2741,10 +2741,6 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 buttonLayout = new StaticLayout(buttonStringFinal, currentMessagePaint, messageWidth - dp(20), Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
                 spoilersPool2.addAll(spoilers2);
                 spoilers2.clear();
-                SpoilerEffect.addSpoilers(this, buttonLayout, spoilersPool2, spoilers2);
-                for (int i = 0; i < spoilers2.size(); i++) {
-                    spoilers2.get(i).setInvalidateParent(false);
-                }
             } else {
                 buttonLayout = null;
             }
@@ -2809,14 +2805,6 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
             }
             spoilersPool.addAll(spoilers);
             spoilers.clear();
-            int maxSpoilerRight = messageWidth;
-            if (messageLayout != null && messageLayout.getLineCount() > 0) {
-                maxSpoilerRight = Math.min(messageWidth, (int) Math.ceil(messageLayout.getLineWidth(0)));
-            }
-            SpoilerEffect.addSpoilers(this, messageLayout, 0, maxSpoilerRight, spoilersPool, spoilers);
-            for (int i = 0; i < spoilers.size(); i++) {
-                spoilers.get(i).setInvalidateParent(false);
-            }
         } catch (Exception e) {
             messageLayout = null;
             FileLog.e(e);
@@ -3909,7 +3897,10 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
         if (currentDialogId == 0 && customDialog == null) {
             return;
         }
-        if (!visibleOnScreen) {
+        if (!visibleOnScreen || getMeasuredWidth() <= 0 || getMeasuredHeight() <= 0) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && canvas.quickReject(0, 0, getMeasuredWidth(), getMeasuredHeight())) {
             return;
         }
 
@@ -4235,7 +4226,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                         fadePaintBack.setShader(new LinearGradient(0, 0, dp(24), 0, new int[]{0, 0xffffffff}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
                         fadePaintBack.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
                     }
-                    canvas.saveLayerAlpha(0, 0, getMeasuredWidth(), getMeasuredHeight(), 255, Canvas.ALL_SAVE_FLAG);
+                    canvas.saveLayerAlpha(nameLeft, nameTop, nameLeft + nameWidth, nameTop + nameLayout.getHeight() + dp(4), 255, Canvas.ALL_SAVE_FLAG);
                     canvas.clipRect(nameLeft, 0, nameLeft + nameWidth, getMeasuredHeight());
                 }
                 if (currentDialogFolderId != 0) {
@@ -4247,7 +4238,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 }
                 canvas.save();
                 canvas.translate(nameLeft + nameLayoutTranslateX, nameTop);
-                SpoilerEffect.layoutDrawMaybe(nameLayout, canvas);
+                nameLayout.draw(canvas);
                 AnimatedEmojiSpan.drawAnimatedEmojis(canvas, nameLayout, animatedEmojiStackName, -.075f, null, 0, 0, 0, 1f, getAdaptiveEmojiColorFilter(0, nameLayout.getPaint().getColor()));
                 canvas.restore();
                 if (nameLayoutEllipsizeByGradient && !nameLayoutFits) {
@@ -4329,7 +4320,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 canvas.save();
                 canvas.translate(messageNameLeft, messageNameTop);
                 try {
-                    SpoilerEffect.layoutDrawMaybe(messageNameLayout, canvas);
+                    messageNameLayout.draw(canvas);
                     AnimatedEmojiSpan.drawAnimatedEmojis(canvas, messageNameLayout, animatedEmojiStack2, -.075f, null, 0, 0, 0, 1f, getAdaptiveEmojiColorFilter(1, messageNameLayout.getPaint().getColor()));
                 } catch (Exception e) {
                     FileLog.e(e);
@@ -4381,7 +4372,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                             FileLog.e(e);
                         }
                     } else {
-                        SpoilerEffect.layoutDrawMaybe(messageLayout, canvas);
+                        messageLayout.draw(canvas);
                         AnimatedEmojiSpan.drawAnimatedEmojis(canvas, messageLayout, animatedEmojiStack, -.075f, null, 0, 0, 0, 1f, getAdaptiveEmojiColorFilter(2, messageLayout.getPaint().getColor()));
                     }
                     messageLayout.getPaint().setAlpha(oldAlpha);
@@ -4499,7 +4490,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                         FileLog.e(e);
                     }
                 } else {
-                    SpoilerEffect.layoutDrawMaybe(buttonLayout, canvas);
+                    buttonLayout.draw(canvas);
                     AnimatedEmojiSpan.drawAnimatedEmojis(canvas, buttonLayout, animatedEmojiStack3, -.075f, null, 0, 0, 0, 1f, getAdaptiveEmojiColorFilter(3, buttonLayout.getPaint().getColor()));
                 }
                 canvas.restore();
@@ -5415,15 +5406,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 }
 
                 if (drawBubble) {
-                    if (counterPath == null || counterPathRect == null || !counterPathRect.equals(rect)) {
-                        if (counterPathRect == null) {
-                            counterPathRect = new RectF(rect);
-                        } else {
-                            counterPathRect.set(rect);
-                        }
-                        if (counterPath == null) {
-                            counterPath = new Path();
-                        }
+                    if (!counterPathRect.equals(rect)) {
+                        counterPathRect.set(rect);
                         BubbleCounterPath.addBubbleRect(counterPath, counterPathRect, dp(10.33f));
                     }
                     canvas.drawPath(counterPath, paint);
@@ -5467,15 +5451,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 canvas.save();
                 canvas.scale(scale * globalScale, scale * globalScale, rect.centerX(), rect.centerY());
                 if (drawBubble) {
-                    if (counterPath == null || counterPathRect == null || !counterPathRect.equals(rect)) {
-                        if (counterPathRect == null) {
-                            counterPathRect = new RectF(rect);
-                        } else {
-                            counterPathRect.set(rect);
-                        }
-                        if (counterPath == null) {
-                            counterPath = new Path();
-                        }
+                    if (!counterPathRect.equals(rect)) {
+                        counterPathRect.set(rect);
                         BubbleCounterPath.addBubbleRect(counterPath, counterPathRect, dp(10.33f));
                     }
                     canvas.drawPath(counterPath, paint);
@@ -6455,7 +6432,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
     @Override
     public void invalidate() {
-        if (StoryViewer.animationInProgress) {
+        if (StoryViewer.animationInProgress || !isAttachedToWindow()) {
             return;
         }
         super.invalidate();
@@ -6463,7 +6440,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
     @Override
     public void invalidate(int l, int t, int r, int b) {
-        if (StoryViewer.animationInProgress) {
+        if (StoryViewer.animationInProgress || !isAttachedToWindow()) {
             return;
         }
         super.invalidate(l, t, r, b);

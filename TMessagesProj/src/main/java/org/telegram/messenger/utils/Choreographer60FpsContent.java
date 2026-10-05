@@ -156,8 +156,13 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
             return;
         }
         fps = Math.max(1, Math.min(fps, TARGET_FPS));
+        CallbackGroup targetGroup = getOrCreateGroup(fps);
+        if (targetGroup.runnableCallbacks.contains(callback)) {
+            scheduleIfNeeded();
+            return;
+        }
         removeFrameCallback(callback); // remove from any existing group first
-        getOrCreateGroup(fps).runnableCallbacks.add(callback);
+        targetGroup.runnableCallbacks.add(callback);
         scheduleIfNeeded();
     }
 
@@ -173,9 +178,17 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
      */
     public void addFrameCallback(FrameCallback callback, int fps) {
         checkMainThread();
+        if (callback == null) {
+            return;
+        }
         fps = Math.max(1, Math.min(fps, TARGET_FPS));
+        CallbackGroup targetGroup = getOrCreateGroup(fps);
+        if (targetGroup.callbacks.contains(callback)) {
+            scheduleIfNeeded();
+            return;
+        }
         removeFrameCallback(callback); // remove from any existing group first
-        getOrCreateGroup(fps).callbacks.add(callback);
+        targetGroup.callbacks.add(callback);
         scheduleIfNeeded();
     }
 

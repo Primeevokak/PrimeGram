@@ -1229,6 +1229,7 @@ public class AnimatedEmojiDrawable extends Drawable {
         }
 
         private final Rect bounds = new Rect();
+        private boolean hasInvalidateCallback;
         @Override
         public void draw(@NonNull Canvas canvas) {
             float progress = changeProgress.set(1);
@@ -1239,9 +1240,15 @@ public class AnimatedEmojiDrawable extends Drawable {
                 particles.setBounds(bounds);
                 particles.process();
                 particles.draw(canvas, Theme.multAlpha(lastColor == null ? 0xFFFFFFFF : lastColor, particlesAlpha));
-                Choreographer60FpsContent.getInstance().addFrameCallback(invalidateRunnable, 15);
+                if (!hasInvalidateCallback) {
+                    hasInvalidateCallback = true;
+                    Choreographer60FpsContent.getInstance().addFrameCallback(invalidateRunnable, 15);
+                }
             } else {
-                Choreographer60FpsContent.getInstance().removeFrameCallback(invalidateRunnable);
+                if (hasInvalidateCallback) {
+                    hasInvalidateCallback = false;
+                    Choreographer60FpsContent.getInstance().removeFrameCallback(invalidateRunnable);
+                }
             }
             if (drawables[1] != null && progress < 1) {
                 drawables[1].setAlpha((int) (alpha * (1f - progress)));

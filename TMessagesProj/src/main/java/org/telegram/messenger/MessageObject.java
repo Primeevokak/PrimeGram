@@ -216,6 +216,10 @@ public class MessageObject {
     public boolean isDownloadingFile;
     public boolean forcePlayEffect;
     private int isRoundVideoCached;
+    private int isVideoCached;
+    private byte isVideoStickerCached = -1;
+    private byte isVoiceCached = -1;
+    private byte isMusicCached = -1;
     public long eventId;
     public int contentType;
     public int realDate;
@@ -6615,6 +6619,10 @@ public class MessageObject {
         int oldType = type;
         type = 1000;
         isRoundVideoCached = 0;
+        isVideoCached = 0;
+        isVideoStickerCached = -1;
+        isVoiceCached = -1;
+        isMusicCached = -1;
         if (isSponsored()) {
             type = TYPE_TEXT;
         } else if (channelJoined) {
@@ -10257,7 +10265,10 @@ public class MessageObject {
     }
 
     public boolean isVideoSticker() {
-        return getDocument() != null && isVideoStickerDocument(getDocument());
+        if (isVideoStickerCached == -1) {
+            isVideoStickerCached = (getDocument() != null && isVideoStickerDocument(getDocument())) ? (byte) 1 : (byte) 0;
+        }
+        return isVideoStickerCached == 1;
     }
 
     public static boolean isStickerDocument(TLRPC.Document document) {
@@ -11192,7 +11203,10 @@ public class MessageObject {
     }
 
     public boolean isMusic() {
-        return isMusicMessage(messageOwner) && !isVideo() && !isRoundVideo();
+        if (isMusicCached == -1) {
+            isMusicCached = (isMusicMessage(messageOwner) && !isVideo() && !isRoundVideo()) ? (byte) 1 : (byte) 0;
+        }
+        return isMusicCached == 1;
     }
 
     public boolean isDocument() {
@@ -11200,7 +11214,10 @@ public class MessageObject {
     }
 
     public boolean isVoice() {
-        return isVoiceMessage(messageOwner);
+        if (isVoiceCached == -1) {
+            isVoiceCached = isVoiceMessage(messageOwner) ? (byte) 1 : (byte) 0;
+        }
+        return isVoiceCached == 1;
     }
 
     public boolean isVoiceOnce() {
@@ -11212,7 +11229,10 @@ public class MessageObject {
     }
 
     public boolean isVideo() {
-        return isVideoMessage(messageOwner);
+        if (isVideoCached == 0) {
+            isVideoCached = isVideoMessage(messageOwner) ? 1 : 2;
+        }
+        return isVideoCached == 1;
     }
 
     public boolean isLivePhoto() {

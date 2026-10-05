@@ -74,9 +74,11 @@ public class LruCache<T> {
     }
 
     public void moveToFront(String key) {
-        T value = map.remove(key);
-        if (value != null) {
-            map.put(key, value);
+        if (key == null) {
+            return;
+        }
+        synchronized (this) {
+            map.get(key);
         }
     }
 

@@ -549,7 +549,7 @@ public class ApplicationLoader extends Application {
         // users felt as a startup freeze. Off the critical path, same as the push service below.
         applicationHandler.postDelayed(() -> PrimeVpnGuard.start(applicationContext), 1500);
 
-        AndroidUtilities.runOnUIThread(ApplicationLoader::startPushService);
+        Utilities.globalQueue.postRunnable(ApplicationLoader::startPushService);
 
         LauncherIconController.tryFixLauncherIconIfNeeded();
         ProxyRotationController.init();

@@ -305,13 +305,15 @@ public class UserConfig extends BaseController {
                 getMediaDataController().loadReactions(false, null);
                 getMessagesController().getStoriesController().invalidateStoryLimit();
             });
-        } else if (oldUser == null) {
+        } else if (oldUser == null && newUser != null) {
             AndroidUtilities.runOnUIThread(() -> {
-                getMessagesController().updatePremium(newUser.premium);
-                AndroidUtilities.runOnUIThread(() -> {
-                    NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
-                    getMediaDataController().loadPremiumPromo(true);
-                }, 1000);
+                if (currentAccount == selectedAccount) {
+                    getMessagesController().updatePremium(newUser.premium);
+                    AndroidUtilities.runOnUIThread(() -> {
+                        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
+                        getMediaDataController().loadPremiumPromo(true);
+                    }, 1000);
+                }
             });
         }
     }

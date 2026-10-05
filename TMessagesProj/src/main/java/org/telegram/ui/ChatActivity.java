@@ -631,6 +631,7 @@ public class ChatActivity extends BaseFragment implements
     private TLRPC.User searchingUserMessages;
     private TLRPC.Chat searchingChatMessages;
     public static boolean scrolling;
+    public static boolean isUpdatingVisiblePartInDraw;
     public ReactionsLayoutInBubble.VisibleReaction searchingReaction;
     public ReactionsLayoutInBubble.VisibleReaction getFilterTag() {
         return chatAdapter != null && chatAdapter.isFiltered ? searchingReaction : null;
@@ -18322,7 +18323,9 @@ public class ChatActivity extends BaseFragment implements
             updateChatListViewTopPadding();
             if (invalidateMessagesVisiblePart) {
                 invalidateMessagesVisiblePart = false;
+                isUpdatingVisiblePartInDraw = true;
                 updateMessagesVisiblePart(false);
+                isUpdatingVisiblePartInDraw = false;
             }
             updateTextureViewPosition(false, false);
             updatePagedownButtonsPosition();
@@ -21677,7 +21680,11 @@ public class ChatActivity extends BaseFragment implements
                 }
             }
             if (approximateHeightSum <= AndroidUtilities.displaySize.y / 2) {
-                approximateHeightSum += getHeightForMessage(obj, false);
+                if (obj.type == MessageObject.TYPE_PHOTO || obj.type == MessageObject.TYPE_VIDEO || obj.type == MessageObject.TYPE_ROUND_VIDEO || obj.type == MessageObject.TYPE_PAID_MEDIA || obj.type == MessageObject.TYPE_STICKER || obj.type == MessageObject.TYPE_ANIMATED_STICKER) {
+                    approximateHeightSum += AndroidUtilities.dp(220);
+                } else {
+                    approximateHeightSum += AndroidUtilities.dp(64);
+                }
             }
             if (currentUser != null) {
                 if (currentUser.self) {
