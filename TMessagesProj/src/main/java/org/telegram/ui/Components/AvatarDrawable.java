@@ -387,12 +387,29 @@ public class AvatarDrawable extends Drawable {
         return needApplyColorAccent ? Theme.changeColorAccent(color2) : color2;
     }
 
+    private static final android.util.LruCache<String, String> firstCharCache = new android.util.LruCache<>(128);
+
     private static String takeFirstCharacter(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        char c0 = text.charAt(0);
+        if (!Character.isHighSurrogate(c0) && c0 < 0x2000) {
+            return text.substring(0, 1);
+        }
+        String cached = firstCharCache.get(text);
+        if (cached != null) {
+            return cached;
+        }
+        String result;
         ArrayList<Emoji.EmojiSpanRange> ranges = Emoji.parseEmojis(text);
         if (ranges != null && !ranges.isEmpty() && ranges.get(0).start == 0) {
-            return text.substring(0, ranges.get(0).end);
+            result = text.substring(0, ranges.get(0).end);
+        } else {
+            result = text.substring(0, text.offsetByCodePoints(0, Math.min(text.codePointCount(0, text.length()), 1)));
         }
-        return text.substring(0, text.offsetByCodePoints(0, Math.min(text.codePointCount(0, text.length()), 1)));
+        firstCharCache.put(text, result);
+        return result;
     }
 
     public void setInfo(long id) {

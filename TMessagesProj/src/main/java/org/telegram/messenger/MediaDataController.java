@@ -7692,6 +7692,14 @@ public class MediaDataController extends BaseController {
         return drafts;
     }
 
+    public TLRPC.DraftMessage getFastDraft(long dialogId, long threadId) {
+        LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
+        if (threads == null || threads == noDrafts) {
+            return null;
+        }
+        return threads.get(threadId);
+    }
+
     public TLRPC.DraftMessage getDraft(long dialogId, long threadId) {
         LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
         if (threads == noDrafts) {

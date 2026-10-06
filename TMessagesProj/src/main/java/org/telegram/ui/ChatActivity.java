@@ -29118,10 +29118,30 @@ public class ChatActivity extends BaseFragment implements
             if (isThreadChat() && !isTopic) {
                 pinnedLineView.set(0, 1, false);
             } else {
-                int position = Collections.binarySearch(pinnedMessageIds, currentPinnedMessageId, Comparator.reverseOrder());
+                int position = binarySearchReverse(pinnedMessageIds, currentPinnedMessageId);
                 pinnedLineView.set(pinnedMessageIds.size() - 1 - position, pinnedMessageIds.size(), animated);
             }
         }
+    }
+
+    private static int binarySearchReverse(ArrayList<Integer> list, int key) {
+        if (list == null || list.isEmpty()) {
+            return -1;
+        }
+        int low = 0;
+        int high = list.size() - 1;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            int midVal = list.get(mid);
+            if (midVal < key) {
+                high = mid - 1;
+            } else if (midVal > key) {
+                low = mid + 1;
+            } else {
+                return mid;
+            }
+        }
+        return -(low + 1);
     }
 
     private TL_keyboard.KeyboardInlineButton pinnedButton(MessageObject message) {
@@ -29809,7 +29829,7 @@ public class ChatActivity extends BaseFragment implements
                 if (isThreadChat() && !isTopic) {
                     pinnedLineView.set(0, 1, false);
                 } else {
-                    int position = Collections.binarySearch(pinnedMessageIds, currentPinnedMessageId, Comparator.reverseOrder());
+                    int position = binarySearchReverse(pinnedMessageIds, currentPinnedMessageId);
                     pinnedLineView.set(pinnedMessageIds.size() - 1 - position, pinnedMessageIds.size(), animated);
                 }
             } else {

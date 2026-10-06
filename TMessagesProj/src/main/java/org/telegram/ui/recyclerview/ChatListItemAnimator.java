@@ -529,8 +529,8 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                             break;
                         }
                     }
-                    if (params.animateToImageX == infoExtended.imageX && params.animateToImageY == infoExtended.imageY &&
-                            params.animateToImageH == infoExtended.imageHeight && params.animateToImageW == infoExtended.imageWidth && !params.animateRadius) {
+                    if (Math.abs(params.animateToImageX - infoExtended.imageX) < 1f && Math.abs(params.animateToImageY - infoExtended.imageY) < 1f &&
+                            Math.abs(params.animateToImageH - infoExtended.imageHeight) < 1f && Math.abs(params.animateToImageW - infoExtended.imageWidth) < 1f && !params.animateRadius) {
                         params.imageChangeBoundsTransition = false;
                         moveInfo.animateImage = false;
                     } else {
@@ -868,7 +868,7 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                     }
 
                     chatMessageCell.setImageCoords(x, y, width, height);
-                    if (holder.itemView.isAttachedToWindow() && holder.itemView.getVisibility() == View.VISIBLE) {
+                    if (holder.itemView.isAttachedToWindow() && holder.itemView.getVisibility() == View.VISIBLE && chatMessageCell.isVisibleOnScreen()) {
                         holder.itemView.invalidate();
                     }
                 });
@@ -900,7 +900,7 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                         params.deltaTop = -moveInfoExtended.deltaTop * v - chatMessageCell.getTranslationY();
                         params.deltaBottom = -moveInfoExtended.deltaBottom * v - chatMessageCell.getTranslationY();
                     }
-                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE) {
+                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE && chatMessageCell.isVisibleOnScreen()) {
                         chatMessageCell.invalidate();
                     }
                 });
@@ -956,7 +956,7 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                 ValueAnimator valueAnimator = ValueAnimator.ofFloat(0, 1f);
                 valueAnimator.addUpdateListener(animation -> {
                     params.changePinnedBottomProgress = (float) animation.getAnimatedValue();
-                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE) {
+                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE && chatMessageCell.isVisibleOnScreen()) {
                         chatMessageCell.invalidate();
                     }
                 });
@@ -969,7 +969,7 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                 params.animateChange = true;
                 valueAnimator.addUpdateListener(animation -> {
                     params.animateChangeProgress = (float) animation.getAnimatedValue();
-                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE) {
+                    if (chatMessageCell.isAttachedToWindow() && chatMessageCell.getVisibility() == View.VISIBLE && chatMessageCell.isVisibleOnScreen()) {
                         chatMessageCell.invalidate();
                     }
                 });

@@ -6044,7 +6044,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             if (lastVisiblePollButton != newPollLast || firstVisiblePollButton != newPollFirst) {
                 lastVisiblePollButton = newPollLast;
                 firstVisiblePollButton = newPollFirst;
-                invalidate();
+                if (!ChatActivity.isUpdatingVisiblePartInDraw) {
+                    invalidate();
+                }
             }
         }
 
@@ -6053,22 +6055,23 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             y = Math.max(Math.min(-childPosition2 + dp(4), sideStartY - dp(42)), y);
             if (Math.abs(summarizeButtonY - y) >= 1) {
                 summarizeButtonY = y;
-                invalidate();
+                if (!ChatActivity.isUpdatingVisiblePartInDraw) {
+                    invalidate();
+                }
             }
         }
 
         final boolean reactionsVisible = intersect(reactionsLayoutInBubble.y, reactionsLayoutInBubble.y + reactionsLayoutInBubble.height, childPosition, childPosition + visibleHeight);
         if (this.reactionsVisible != reactionsVisible) {
             this.reactionsVisible = reactionsVisible;
-            invalidate();
+            if (!ChatActivity.isUpdatingVisiblePartInDraw) {
+                invalidate();
+            }
         }
     }
 
-    private boolean intersect(float left1, float right1, float left2, float right2) {
-        if (left1 <= left2) {
-            return right1 >= left2;
-        }
-        return left1 <= right2;
+    private static boolean intersect(float left1, float right1, float left2, float right2) {
+        return right1 >= left2 && left1 <= right2;
     }
 
     public static StaticLayout generateStaticLayout(CharSequence text, TextPaint paint, int maxWidth, int smallWidth, int linesCount, int maxLines) {

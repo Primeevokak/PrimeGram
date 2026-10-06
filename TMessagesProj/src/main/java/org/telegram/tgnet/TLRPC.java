@@ -59624,6 +59624,7 @@ public class TLRPC {
         public long id; //custom
         public int pinnedNum; //custom
         public boolean isFolder; //custom
+        public long primeEffectiveDate; //custom
 
         private static Dialog fromConstructor(int constructor) {
             switch (constructor) {

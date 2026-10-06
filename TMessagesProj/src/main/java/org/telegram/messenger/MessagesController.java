@@ -1468,9 +1468,8 @@ public class MessagesController extends BaseController implements NotificationCe
                 return 0;
             }
         }
-        MediaDataController mediaDataController = getFastMediaDataController();
-        long date1 = DialogObject.getLastMessageOrDraftDate(dialog1, mediaDataController.getDraft(dialog1.id, 0));
-        long date2 = DialogObject.getLastMessageOrDraftDate(dialog2, mediaDataController.getDraft(dialog2.id, 0));
+        long date1 = dialog1.primeEffectiveDate != 0 ? dialog1.primeEffectiveDate : dialog1.last_message_date;
+        long date2 = dialog2.primeEffectiveDate != 0 ? dialog2.primeEffectiveDate : dialog2.last_message_date;
         if (date1 < date2) {
             return 1;
         } else if (date1 > date2) {
@@ -1482,6 +1481,14 @@ public class MessagesController extends BaseController implements NotificationCe
     public void sortDialogsList(ArrayList<TLRPC.Dialog> dialogs) {
         if (dialogs == null) {
             return;
+        }
+        MediaDataController mediaDataController = getFastMediaDataController();
+        for (int i = 0, size = dialogs.size(); i < size; i++) {
+            TLRPC.Dialog d = dialogs.get(i);
+            if (d.primeEffectiveDate == 0) {
+                TLRPC.DraftMessage draft = mediaDataController.getFastDraft(d.id, 0);
+                d.primeEffectiveDate = DialogObject.getLastMessageOrDraftDate(d, draft);
+            }
         }
         Collections.sort(dialogs, dialogComparator);
     }
@@ -1504,9 +1511,8 @@ public class MessagesController extends BaseController implements NotificationCe
                 return 0;
             }
         }
-        MediaDataController mediaDataController = getFastMediaDataController();
-        long date1 = DialogObject.getLastMessageOrDraftDate(dialog1, mediaDataController.getDraft(dialog1.id, 0));
-        long date2 = DialogObject.getLastMessageOrDraftDate(dialog2, mediaDataController.getDraft(dialog2.id, 0));
+        long date1 = dialog1.primeEffectiveDate != 0 ? dialog1.primeEffectiveDate : dialog1.last_message_date;
+        long date2 = dialog2.primeEffectiveDate != 0 ? dialog2.primeEffectiveDate : dialog2.last_message_date;
         if (date1 < date2) {
             return 1;
         } else if (date1 > date2) {
@@ -18277,7 +18283,12 @@ public class MessagesController extends BaseController implements NotificationCe
                             if (printUpdate) {
                                 getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_USER_PRINT);
                             }
-                            updateInterfaceWithMessages(userId, objArr, 0);
+                            primeBeginSortBatch();
+                            try {
+                                updateInterfaceWithMessages(userId, objArr, 0);
+                            } finally {
+                                primeEndSortBatch();
+                            }
                             getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
                         });
                     } else {
@@ -18290,7 +18301,12 @@ public class MessagesController extends BaseController implements NotificationCe
                                 getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_USER_PRINT);
                             }
 
-                            updateInterfaceWithMessages(-updates.chat_id, objArr, 0);
+                            primeBeginSortBatch();
+                            try {
+                                updateInterfaceWithMessages(-updates.chat_id, objArr, 0);
+                            } finally {
+                                primeEndSortBatch();
+                            }
                             getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
                         });
                     }
@@ -22682,6 +22698,12 @@ public class MessagesController extends BaseController implements NotificationCe
         unreadUnmutedDialogs = 0;
         boolean selfAdded = false;
         long selfId = getUserConfig().getClientUserId();
+        MediaDataController mediaDataController = getFastMediaDataController();
+        for (int a = 0, N = allDialogs.size(); a < N; a++) {
+            TLRPC.Dialog d = allDialogs.get(a);
+            TLRPC.DraftMessage draft = mediaDataController.getFastDraft(d.id, 0);
+            d.primeEffectiveDate = DialogObject.getLastMessageOrDraftDate(d, draft);
+        }
         if (selectedDialogFilter[0] != null || selectedDialogFilter[1] != null) {
             for (int b = 0; b < selectedDialogFilter.length; b++) {
                 sortingDialogFilter = selectedDialogFilter[b];
@@ -22693,11 +22715,6 @@ public class MessagesController extends BaseController implements NotificationCe
                 dialogs.clear();
                 dialogsForward.clear();
                 sortingDialogFilter.primeBeginLookup();
-                try {
-                    Collections.sort(allDialogs, dialogDateComparator);
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
                 for (int a = 0, N = allDialogs.size(); a < N; a++) {
                     final TLRPC.Dialog d = allDialogs.get(a);
                     final boolean isCommunity = d instanceof TLRPC.TL_dialogCommunity;
@@ -22725,6 +22742,14 @@ public class MessagesController extends BaseController implements NotificationCe
                     }
                 }
                 sortingDialogFilter.primeEndLookup();
+                try {
+                    Collections.sort(dialogs, dialogDateComparator);
+                    if (!dialogsForward.isEmpty()) {
+                        Collections.sort(dialogsForward, dialogDateComparator);
+                    }
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
             }
         }
 
@@ -23753,7 +23778,7 @@ public class MessagesController extends BaseController implements NotificationCe
         if (until != 0) {
             emojiStatusUntilValues.put(dialogId, until);
         } else {
-            if (!emojiStatusUntilValues.containsKey(dialogId))
+            if (emojiStatusUntilValues.isEmpty() || !emojiStatusUntilValues.containsKey(dialogId))
                 return;
             emojiStatusUntilValues.remove(dialogId);
         }
