@@ -472,10 +472,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             if (isPaused) {
                 return;
             }
-            if (listView != null && listView.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
-                waitingForScrollFinished = true;
-                return;
-            }
             if (animated) {
                 AndroidUtilities.cancelRunOnUIThread(updateListRunnable);
                 listView.setItemAnimator(dialogsItemAnimator);
@@ -4962,7 +4958,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     }
                     checkListLoad(viewPage);
                     invalidateScrollY = true;
-                    if (fragmentView != null && firstVisiblePosition <= 2) {
+                    if (fragmentView != null) {
                         fragmentView.invalidate();
                     }
                     if (initialDialogsType != DIALOGS_TYPE_WIDGET && wasManualScroll && recyclerView.getChildCount() > 0) {
