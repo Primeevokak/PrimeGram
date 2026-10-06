@@ -33,7 +33,7 @@ class ConnectionSocket;
 class TL_auth_exportedAuthorization;
 class ByteArray;
 class TL_config;
-class EventObject;
+#include "EventObject.h"  // full definition needed by EventObjectCmp
 class Config;
 class ProxyCheckInfo;
 
