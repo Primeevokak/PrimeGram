@@ -46,6 +46,12 @@ public class GithubUpdater {
             return false;
         }
         String version = prefs.getString(KEY_PENDING_DOWNLOAD_VERSION, "");
+        if (!isNewerVersion(org.telegram.messenger.BuildVars.BUILD_VERSION_STRING, version)) {
+            // Already updated! The pending download was for the version we are already running (or older).
+            clearPendingDownload(context);
+            org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> cleanupOldApks(context));
+            return false;
+        }
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         if (manager == null) {
             clearPendingDownload(context);
@@ -80,6 +86,7 @@ public class GithubUpdater {
             @Override
             public void onCancelled(long downloadId) {
                 clearPendingDownload(context);
+                org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> cleanupOldApks(context));
             }
         };
     }
@@ -91,10 +98,70 @@ public class GithubUpdater {
                 .apply();
     }
 
+    /**
+     * Deletes leftover update APK files from previous downloads and removes stale DownloadManager jobs.
+     */
+    public static void cleanupOldApks(Context context) {
+        if (context == null) {
+            return;
+        }
+        try {
+            File downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (downloadsDir != null && downloadsDir.exists()) {
+                File[] files = downloadsDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        if (file.isFile() && file.getName().endsWith(".apk") && file.getName().startsWith("PrimeGram")) {
+                            file.delete();
+                        }
+                    }
+                }
+            }
+
+            File cacheDir = context.getExternalCacheDir();
+            if (cacheDir != null && cacheDir.exists()) {
+                File[] files = cacheDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        if (file.isFile() && file.getName().endsWith(".apk") && file.getName().startsWith("PrimeGram")) {
+                            file.delete();
+                        }
+                    }
+                }
+            }
+
+            File publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (publicDownloads != null && publicDownloads.exists()) {
+                File[] files = publicDownloads.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        if (file.isFile() && file.getName().endsWith(".apk") && file.getName().startsWith("PrimeGram-update")) {
+                            file.delete();
+                        }
+                    }
+                }
+            }
+
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            long downloadId = prefs.getLong(KEY_PENDING_DOWNLOAD_ID, -1);
+            if (downloadId != -1) {
+                DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+                if (manager != null) {
+                    try {
+                        manager.remove(downloadId);
+                    } catch (Exception ignore) {}
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to cleanup old APK files", e);
+        }
+    }
+
     public static void checkForUpdates(Context context, String currentVersion, boolean isManual) {
         if (checkPendingDownload(context)) {
             return;
         }
+        org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> cleanupOldApks(context));
         new Thread(() -> {
             try {
                 SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -216,6 +283,7 @@ public class GithubUpdater {
     }
 
     public static void downloadAndInstallUpdate(Context context, String downloadUrl, String latestVersion) {
+        cleanupOldApks(context);
         android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse(downloadUrl));
         request.setTitle("Обновление PrimeGram");
         request.setDescription("Скачивание новой версии...");
