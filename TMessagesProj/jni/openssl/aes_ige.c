@@ -61,7 +61,7 @@ typedef struct {
 } aes_block_t;
 
 /* XXX: probably some better way to do this */
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || defined(__x86_64__) || defined(__aarch64__) || defined(__ARM_FEATURE_UNALIGNED)
 #define UNALIGNED_MEMOPS_ARE_FAST 1
 #else
 #define UNALIGNED_MEMOPS_ARE_FAST 0

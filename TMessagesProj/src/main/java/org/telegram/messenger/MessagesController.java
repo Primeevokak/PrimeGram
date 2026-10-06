@@ -21242,22 +21242,48 @@ public class MessagesController extends BaseController implements NotificationCe
                     }
                     ArrayList<MessageObject> oldObjects = dialogMessage.get(dialogId);
                     if (oldObjects != null) {
-                        for (int i = 0; i < oldObjects.size(); ++i) {
-                            MessageObject oldObject = oldObjects.get(i);
+                        if (arrayList.size() > 2) {
+                            SparseArray<MessageObject> newMap = new SparseArray<>(arrayList.size());
                             for (int a = 0, size2 = arrayList.size(); a < size2; a++) {
-                                MessageObject newMessage = arrayList.get(a);
-                                if (oldObject.getId() == newMessage.getId()) {
+                                MessageObject msg = arrayList.get(a);
+                                newMap.put(msg.getId(), msg);
+                            }
+                            for (int i = 0; i < oldObjects.size(); ++i) {
+                                MessageObject oldObject = oldObjects.get(i);
+                                MessageObject newMessage = newMap.get(oldObject.getId());
+                                if (newMessage != null) {
                                     oldObjects.set(i, newMessage);
                                     if (newMessage.messageOwner.peer_id != null && newMessage.messageOwner.peer_id.channel_id == 0) {
                                         dialogMessagesByIds.put(newMessage.getId(), newMessage);
                                     }
                                     updateDialogs = true;
-                                    break;
-                                } else if (oldObject.getDialogId() == newMessage.getDialogId() && oldObject.messageOwner.action instanceof TLRPC.TL_messageActionPinMessage && oldObject.replyMessageObject != null && oldObject.replyMessageObject.getId() == newMessage.getId()) {
-                                    oldObject.replyMessageObject = newMessage;
-                                    oldObject.generatePinMessageText(null, null);
-                                    updateDialogs = true;
-                                    break;
+                                } else if (oldObject.messageOwner.action instanceof TLRPC.TL_messageActionPinMessage && oldObject.replyMessageObject != null) {
+                                    MessageObject replyNew = newMap.get(oldObject.replyMessageObject.getId());
+                                    if (replyNew != null && oldObject.getDialogId() == replyNew.getDialogId()) {
+                                        oldObject.replyMessageObject = replyNew;
+                                        oldObject.generatePinMessageText(null, null);
+                                        updateDialogs = true;
+                                    }
+                                }
+                            }
+                        } else {
+                            for (int i = 0; i < oldObjects.size(); ++i) {
+                                MessageObject oldObject = oldObjects.get(i);
+                                for (int a = 0, size2 = arrayList.size(); a < size2; a++) {
+                                    MessageObject newMessage = arrayList.get(a);
+                                    if (oldObject.getId() == newMessage.getId()) {
+                                        oldObjects.set(i, newMessage);
+                                        if (newMessage.messageOwner.peer_id != null && newMessage.messageOwner.peer_id.channel_id == 0) {
+                                            dialogMessagesByIds.put(newMessage.getId(), newMessage);
+                                        }
+                                        updateDialogs = true;
+                                        break;
+                                    } else if (oldObject.getDialogId() == newMessage.getDialogId() && oldObject.messageOwner.action instanceof TLRPC.TL_messageActionPinMessage && oldObject.replyMessageObject != null && oldObject.replyMessageObject.getId() == newMessage.getId()) {
+                                        oldObject.replyMessageObject = newMessage;
+                                        oldObject.generatePinMessageText(null, null);
+                                        updateDialogs = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
