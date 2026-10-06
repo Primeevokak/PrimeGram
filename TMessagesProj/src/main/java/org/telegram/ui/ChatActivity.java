@@ -12517,7 +12517,9 @@ public class ChatActivity extends BaseFragment implements
 
         invalidateChatListViewTopPadding = false;
         Bulletin.updateCurrentPosition();
-        checkUi_chatListViewPaddings();
+        if (chatLayoutManager == null || chatAdapter == null) {
+            checkUi_chatListViewPaddings();
+        }
     }
 
     private void checkUi_chatListViewPaddings() {

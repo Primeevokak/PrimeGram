@@ -12544,6 +12544,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     }
 
     public void setCheckPressed(boolean value, boolean pressed) {
+        if (isCheckPressed == value && isPressed == pressed) {
+            return;
+        }
         isCheckPressed = value;
         isPressed = pressed;
         updateRadialProgressBackground();

@@ -4479,7 +4479,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             viewPage.addView(viewPage.progressView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER));
 
             viewPage.listView = new DialogsRecyclerView(context, viewPage);
-            viewPage.listView.addEdgeEffectListener(() -> viewPage.listView.postOnAnimation(this::blur3_InvalidateBlur));
+            viewPage.listView.addEdgeEffectListener(() -> viewPage.listView.postOnAnimation(this::blur3_InvalidateBlurThrottled));
             viewPage.scroller = new RecyclerListViewScroller(viewPage.listView);
             viewPage.listView.setAllowStopHeaveOperations(true);
             viewPage.listView.setAccessibilityEnabled(false);
@@ -13838,7 +13838,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 super.onPageScrolled(dx, dy);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && scrollableViewNoiseSuppressor != null) {
                     scrollableViewNoiseSuppressor.onScrolled(dx, dy);
-                    blur3_InvalidateBlur();
+                    blur3_InvalidateBlurThrottled();
                 }
             }
 
@@ -13846,7 +13846,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             public void onTabAnimationUpdate(boolean manual) {
                 super.onTabAnimationUpdate(manual);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && scrollableViewNoiseSuppressor != null) {
-                    blur3_InvalidateBlur();
+                    blur3_InvalidateBlurThrottled();
                 }
             }
         };

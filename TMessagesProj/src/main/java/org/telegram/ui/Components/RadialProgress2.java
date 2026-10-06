@@ -319,8 +319,14 @@ public class RadialProgress2 {
 
     public void setPressed(boolean value, boolean mini) {
         if (mini) {
+            if (isPressedMini == value) {
+                return;
+            }
             isPressedMini = value;
         } else {
+            if (isPressed == value) {
+                return;
+            }
             isPressed = value;
         }
         invalidateParent();

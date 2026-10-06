@@ -78,13 +78,9 @@ public class StickerTabView extends FrameLayout {
             @Override
             public void setText(CharSequence text, BufferType type) {
                 super.setText(text, type);
+                textWidth = 0;
             }
         };
-        textView.addOnLayoutChangeListener((v, a, b, c, d, e, f, g, h) -> {
-            if (textView != null && textView.getLayout() != null) {
-                textWidth = textView.getLayout().getLineWidth(0);
-            }
-        });
         textView.setLines(1);
         textView.setEllipsize(TextUtils.TruncateAt.END);
         textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11);
@@ -96,6 +92,9 @@ public class StickerTabView extends FrameLayout {
     }
 
     public float getTextWidth() {
+        if (textWidth <= 0 && textView != null && textView.getLayout() != null) {
+            textWidth = textView.getLayout().getLineWidth(0);
+        }
         return textWidth;
     }
 
