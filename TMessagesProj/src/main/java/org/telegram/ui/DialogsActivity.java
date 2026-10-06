@@ -13815,7 +13815,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             @Override
             public void setAlpha(float alpha) {
                 super.setAlpha(alpha);
-                blur3_InvalidateBlur();
+                blur3_InvalidateBlurThrottled();
             }
 
             final GradientProtectionDrawable gradientDrawable = new GradientProtectionDrawable(WindowInsetsCompat.Side.TOP);
@@ -15064,7 +15064,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         primeBlurDirty = true;
         final long now = android.os.SystemClock.elapsedRealtime();
         final long since = now - primeBlurLastMs;
-        if (since >= PRIME_BLUR_MIN_INTERVAL_MS) {
+        final long minInterval = isDialogsListScrolling() ? 64 : PRIME_BLUR_MIN_INTERVAL_MS;
+        if (since >= minInterval) {
             primeBlurLastMs = now;
             blur3_InvalidateBlur();
         } else if (!primeBlurTrailingPosted && fragmentView != null) {

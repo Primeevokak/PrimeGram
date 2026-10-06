@@ -7283,7 +7283,7 @@ public class MessagesController extends BaseController implements NotificationCe
 
         if (chat instanceof TLRPC.TL_community) {
             final long communityId = chat.id;
-            if (getChatFull(communityId) == null) {
+            if (getChatFull(communityId) == null && !loadingFullChats.contains(communityId)) {
                 getMessagesStorage().loadChatInfo(communityId, false, null, false, false);
                 loadFullChat(communityId, 0, false);
             }
@@ -22546,29 +22546,24 @@ public class MessagesController extends BaseController implements NotificationCe
 
         TLRPC.TL_messages_dialogs dialogsToPut = null;
 
+        int writeIndex = 0;
         for (int a = 0, N = allDialogs.size(); a < N; a++) {
             final TLRPC.Dialog d = allDialogs.get(a);
+            boolean remove = false;
             if (d instanceof TLRPC.TL_dialogCommunity) {
                 final long communityId = d.community_id;
                 final TLRPC.Chat community = getChat(communityId);
                 if (community != null && !community.collapsed_in_dialogs || dialogsCommunityFoundCommunities.get(communityId) != null) {
-                    allDialogs.remove(a);
-                    a--;
-                    N--;
-                    continue;
+                    remove = true;
+                } else {
+                    dialogsCommunityFoundCommunities.put(communityId, d);
                 }
-                dialogsCommunityFoundCommunities.put(communityId, d);
             } else if (d.id < 0) {
                 final TLRPC.Chat chat = getChat(-d.id);
 
                 if (ChatObject.isCommunity(chat)) {
-                    allDialogs.remove(a);
-                    a--;
-                    N--;
-                    continue;
-                }
-
-                if (ChatObject.isChatCollapsedInCommunity(currentAccount, chat)) {
+                    remove = true;
+                } else if (ChatObject.isChatCollapsedInCommunity(currentAccount, chat)) {
                     final long communityId = chat.linked_community_id;
                     dialogsCommunityLastMessageDate.put(communityId, Math.max(dialogsCommunityLastMessageDate.get(communityId), d.last_message_date));
                     dialogsCommunityUnreadCount.put(communityId, dialogsCommunityUnreadCount.get(communityId) + getDialogUnreadCount(d));
@@ -22587,6 +22582,15 @@ public class MessagesController extends BaseController implements NotificationCe
                     }
                 }
             }
+            if (!remove) {
+                if (writeIndex != a) {
+                    allDialogs.set(writeIndex, d);
+                }
+                writeIndex++;
+            }
+        }
+        if (writeIndex < allDialogs.size()) {
+            allDialogs.subList(writeIndex, allDialogs.size()).clear();
         }
 
         for (int a = 0, N = dialogsCommunityLastMessageDate.size(); a < N; a++) {
@@ -22763,8 +22767,10 @@ public class MessagesController extends BaseController implements NotificationCe
                 isLeftPromoChannel = false;
             }
         }
+        int writeIndex = 0;
         for (int a = 0, N = allDialogs.size(); a < N; a++) {
             TLRPC.Dialog d = allDialogs.get(a);
+            boolean remove = false;
             if (d instanceof TLRPC.TL_dialog) {
                 ArrayList<MessageObject> messageObjects = dialogMessage.get(d.id);
                 if (messageObjects != null) {
@@ -22805,21 +22811,20 @@ public class MessagesController extends BaseController implements NotificationCe
                         if (chatsDict != null) {
                             TLRPC.Chat chat = chatsDict.get(-d.id);
                             if (chat != null && chat.migrated_to != null) {
-                                allDialogs.remove(a);
-                                a--;
-                                N--;
-                                continue;
+                                remove = true;
                             }
                         }
-                        TLRPC.Chat chat = getChat(-d.id);
-                        if (chat != null && (chat.admin_rights != null && (chat.admin_rights.add_admins || chat.admin_rights.invite_users) || chat.creator)) {
-                            if (chat.creator) {
-                                dialogsMyGroups.add(d);
-                            } else {
-                                dialogsCanAddUsers.add(d);
+                        if (!remove) {
+                            TLRPC.Chat chat = getChat(-d.id);
+                            if (chat != null && (chat.admin_rights != null && (chat.admin_rights.add_admins || chat.admin_rights.invite_users) || chat.creator)) {
+                                if (chat.creator) {
+                                    dialogsMyGroups.add(d);
+                                } else {
+                                    dialogsCanAddUsers.add(d);
+                                }
                             }
+                            dialogsGroupsOnly.add(d);
                         }
-                        dialogsGroupsOnly.add(d);
                     } else if (d.id != selfId) {
                         dialogsUsersOnly.add(d);
                         if (!UserObject.isReplyUser(d.id) && d.id != UserObject.VERIFY) {
@@ -22827,7 +22832,7 @@ public class MessagesController extends BaseController implements NotificationCe
                         }
                     }
                 }
-                if (canAddToForward(d) && d.folder_id == 0) {
+                if (!remove && canAddToForward(d) && d.folder_id == 0) {
                     if (d.id == selfId) {
                         dialogsForward.add(0, d);
                         selfAdded = true;
@@ -22842,13 +22847,13 @@ public class MessagesController extends BaseController implements NotificationCe
                 }
                 dialogsForward.add(d);
             }
+            if (remove) {
+                continue;
+            }
             if ((getDialogUnreadCount(d) != 0 || d.unread_mark) && !isDialogMuted(d.id, 0)) {
                 unreadUnmutedDialogs++;
             }
             if (promoDialog != null && d.id == promoDialog.id && isLeftPromoChannel) {
-                allDialogs.remove(a);
-                a--;
-                N--;
                 continue;
             }
 
@@ -22863,6 +22868,13 @@ public class MessagesController extends BaseController implements NotificationCe
                 addDialogToItsFolder(-1, d);
             }
 
+            if (writeIndex != a) {
+                allDialogs.set(writeIndex, d);
+            }
+            writeIndex++;
+        }
+        if (writeIndex < allDialogs.size()) {
+            allDialogs.subList(writeIndex, allDialogs.size()).clear();
         }
         if (promoDialog != null && isLeftPromoChannel) {
             allDialogs.add(0, promoDialog);

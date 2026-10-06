@@ -6274,11 +6274,9 @@ public class MediaDataController extends BaseController {
                     if (messageObjects == null) {
                         messageObjects = new ArrayList<>();
                         replyMessageRandomOwners.put(id, messageObjects);
-                    }
-                    messageObjects.add(messageObject);
-                    if (!replyMessages.contains(id)) {
                         replyMessages.add(id);
                     }
+                    messageObjects.add(messageObject);
                 }
             }
             if (replyMessages.isEmpty()) {
@@ -6350,6 +6348,7 @@ public class MediaDataController extends BaseController {
         } else {
             LongSparseArray<SparseArray<ArrayList<MessageObject>>> replyMessageOwners = new LongSparseArray<>();
             LongSparseArray<ArrayList<Integer>> dialogReplyMessagesIds = new LongSparseArray<>();
+            LongSparseArray<android.util.SparseBooleanArray> dialogReplyMessagesIdsSet = new LongSparseArray<>();
             LongSparseArray<ArrayList<MessageObject>> messagesWithUnknownStories = null;
             Timer.Task t2 = Timer.start(logLogger, "loadReplyMessagesForMessages: filling replies from the same array");
             SparseArray<MessageObject> messagesById = new SparseArray<>(messages.size());
@@ -6460,6 +6459,7 @@ public class MediaDataController extends BaseController {
 
                     SparseArray<ArrayList<MessageObject>> sparseArray = replyMessageOwners.get(dialogId);
                     ArrayList<Integer> ids = dialogReplyMessagesIds.get(channelId);
+                    android.util.SparseBooleanArray idsSet = dialogReplyMessagesIdsSet.get(channelId);
                     if (sparseArray == null) {
                         sparseArray = new SparseArray<>();
                         replyMessageOwners.put(dialogId, sparseArray);
@@ -6467,12 +6467,15 @@ public class MediaDataController extends BaseController {
                     if (ids == null) {
                         ids = new ArrayList<>();
                         dialogReplyMessagesIds.put(channelId, ids);
+                        idsSet = new android.util.SparseBooleanArray();
+                        dialogReplyMessagesIdsSet.put(channelId, idsSet);
                     }
                     ArrayList<MessageObject> arrayList = sparseArray.get(messageId);
                     if (arrayList == null) {
                         arrayList = new ArrayList<>();
                         sparseArray.put(messageId, arrayList);
-                        if (!ids.contains(messageId)) {
+                        if (!idsSet.get(messageId)) {
+                            idsSet.put(messageId, true);
                             ids.add(messageId);
                         }
                     }

@@ -659,6 +659,7 @@ public class MessagesStorage extends BaseController {
         });
         try {
             db().executeFast("CREATE INDEX IF NOT EXISTS folder_pinned_date_idx_dialogs ON dialogs(folder_id, pinned DESC, date DESC);").stepThis().dispose();
+            db().executeFast("CREATE INDEX IF NOT EXISTS messages_v2_uid_groupid_idx ON messages_v2(uid, group_id, date DESC);").stepThis().dispose();
         } catch (Throwable e) {
             FileLog.e(e);
         }

@@ -938,7 +938,7 @@ public class ChatListItemAnimator extends DefaultItemAnimator {
                         groupTransitionParams.captionEnterProgress = captionEnterFrom * v + captionEnterTo * (1f - v);
                     }
                     if (recyclerListView != null) {
-                        recyclerListView.invalidate();
+                        recyclerListView.postInvalidateOnAnimation();
                     }
                 });
 
