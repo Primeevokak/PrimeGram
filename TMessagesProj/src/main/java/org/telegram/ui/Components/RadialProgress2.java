@@ -100,16 +100,17 @@ public class RadialProgress2 {
         overlayPaint.setColor(0x64000000);
 
         if (parentView != null) {
-            mediaActionDrawable.setDelegate(parentView::invalidate);
-            miniMediaActionDrawable.setDelegate(parentView::invalidate);
+            this.parent = parentView;
+            mediaActionDrawable.setDelegate(this::invalidateParent);
+            miniMediaActionDrawable.setDelegate(this::invalidateParent);
         }
     }
 
     public void setParent(View parent) {
         this.parent = parent;
         overlayImageView.setParentView(parent);
-        mediaActionDrawable.setDelegate(parent::invalidate);
-        miniMediaActionDrawable.setDelegate(parent::invalidate);
+        mediaActionDrawable.setDelegate(this::invalidateParent);
+        miniMediaActionDrawable.setDelegate(this::invalidateParent);
     }
 
     public void setResourcesProvider(Theme.ResourcesProvider resourcesProvider) {
@@ -241,6 +242,12 @@ public class RadialProgress2 {
     }
 
     private void invalidateParent() {
+        if (parent == null || !parent.isAttachedToWindow() || parent.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        if (parent instanceof org.telegram.ui.Cells.ChatMessageCell && !((org.telegram.ui.Cells.ChatMessageCell) parent).isVisibleOnScreen()) {
+            return;
+        }
         int offset = AndroidUtilities.dp(2);
         parent.invalidate((int) progressRect.left - offset, (int) progressRect.top - offset, (int) progressRect.right + offset * 2, (int) progressRect.bottom + offset * 2);
     }

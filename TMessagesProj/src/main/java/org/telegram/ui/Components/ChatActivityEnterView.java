@@ -6729,17 +6729,10 @@ public class ChatActivityEnterView extends FrameLayout implements
             AndroidUtilities.cancelRunOnUIThread(hideKeyboardRunnable);
             hideKeyboardRunnable = null;
         }
-        if (emojiView == null && parentActivity != null) {
-            if (preloadEmojiViewRunnable != null) {
-                AndroidUtilities.cancelRunOnUIThread(preloadEmojiViewRunnable);
-            }
-            AndroidUtilities.runOnUIThread(preloadEmojiViewRunnable = () -> {
-                preloadEmojiViewRunnable = null;
-                if (!isPaused && emojiView == null && parentActivity != null) {
-                    createEmojiView();
-                }
-            }, 1200);
-        }
+        // PrimeGram: do not eagerly instantiate EmojiView on a 1200ms timer in onResume().
+        // Building EmojiView and all its tabs takes ~430ms on the main thread, freezing the UI
+        // right as the user begins reading and scrolling the chat. EmojiView is instantiated
+        // on-demand when the user taps the emoji button or opens the panel.
 
         if (hasBotWebView() && botCommandsMenuIsShowing()) {
             return;

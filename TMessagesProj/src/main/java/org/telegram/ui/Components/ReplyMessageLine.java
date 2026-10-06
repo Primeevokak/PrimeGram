@@ -208,7 +208,7 @@ public class ReplyMessageLine {
             }
         }
         if (emoji != null) {
-            if (emoji.set(emojiDocumentId, true)) {
+            if (emoji.set(emojiDocumentId, !skipNextTransition)) {
                 emojiLoaded = false;
                 primeEmojiFreshBind = true;
             }
@@ -222,12 +222,12 @@ public class ReplyMessageLine {
             }
         }
         if (sticker != null) {
-            if (sticker.set(stickerDocumentId, true)) {
+            if (sticker.set(stickerDocumentId, !skipNextTransition)) {
 //                emojiLoaded = false;
             }
         }
 
-        return nameColorAnimated.set(nameColor);
+        return nameColorAnimated.set(nameColor, skipNextTransition);
     }
 
     public static final int TYPE_REPLY = 0;
@@ -262,7 +262,7 @@ public class ReplyMessageLine {
             color1 = color2 = color3 = Theme.getColor(Theme.key_chat_inReplyLine, resourcesProvider);
             backgroundColor = Theme.multAlpha(color1, dark ? 0.12f : 0.10f);
             emojiColor = getColor();
-            return nameColorAnimated.set(nameColor = Theme.getColor(Theme.key_chat_inReplyNameText, resourcesProvider));
+            return nameColorAnimated.set(nameColor = Theme.getColor(Theme.key_chat_inReplyNameText, resourcesProvider), skipNextTransition);
         } else if (type == TYPE_CONTACT
                 && messageObject.messageOwner != null
                 && MessageObject.getMedia(messageObject.messageOwner) != null
@@ -465,16 +465,16 @@ public class ReplyMessageLine {
             }
         }
         if (emoji != null) {
-            if (emoji.set(emojiDocumentId, true)) {
+            if (emoji.set(emojiDocumentId, !skipNextTransition)) {
                 emojiLoaded = false;
                 primeEmojiFreshBind = true;
             }
         }
         if (sticker != null) {
-            sticker.set(stickerDocumentId, true);
+            sticker.set(stickerDocumentId, !skipNextTransition);
         }
         emojiColor = getColor();
-        return nameColorAnimated.set(nameColor);
+        return nameColorAnimated.set(nameColor, skipNextTransition);
     }
 
     public boolean hasSticker() {
@@ -500,7 +500,7 @@ public class ReplyMessageLine {
             }
         }
         emojiColor = getColor();
-        return nameColorAnimated.set(nameColor);
+        return nameColorAnimated.set(nameColor, skipNextTransition);
     }
 
     public void setEmojiAlpha(float emojiAlpha) {

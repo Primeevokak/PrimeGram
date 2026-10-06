@@ -8062,23 +8062,12 @@ public class MediaDataController extends BaseController {
             if (threadId == 0) {
                 messagesController.putDraftDialogIfNeed(dialogId, draft);
             }
-            try {
-                SerializedData serializedData = new SerializedData(draft.getObjectSize());
-                draft.serializeToStream(serializedData);
-                editor.putString(threadId == 0 ? ("" + dialogId) : ("t_" + dialogId + "_" + threadId), Utilities.bytesToHex(serializedData.toByteArray()));
-                serializedData.cleanup();
-            } catch (Exception e) {
-                FileLog.e(e);
-            }
         }
         LongSparseArray<TLRPC.Message> threads = draftMessages.get(dialogId);
         if (replyToMessage == null && draft != null && draft.reply_to != null) {
             if (threads != null) {
                 replyToMessage = threads.get(threadId);
             }
-//            if (replyToMessage == null || replyToMessage.id != draft.reply_to.reply_to_msg_id || !MessageObject.peersEqual(draft.reply_to.reply_to_peer_id, replyToMessage.peer_id)) {
-//                replyToMessage = null;
-//            }
         } else if (draft != null && draft.reply_to == null) {
             replyToMessage = null;
         }
@@ -8089,28 +8078,56 @@ public class MediaDataController extends BaseController {
                     draftMessages.remove(dialogId);
                 }
             }
-            if (threadId == 0) {
-                editor.remove("r_" + dialogId);
-            } else {
-                editor.remove("rt_" + dialogId + "_" + threadId);
-            }
         } else {
             if (threads == null) {
                 threads = new LongSparseArray<>();
                 draftMessages.put(dialogId, threads);
             }
             threads.put(threadId, replyToMessage);
-
-            try {
-                SerializedData serializedData = new SerializedData(replyToMessage.getObjectSize());
-                replyToMessage.serializeToStream(serializedData);
-                editor.putString(threadId == 0 ? ("r_" + dialogId) : ("rt_" + dialogId + "_" + threadId), Utilities.bytesToHex(serializedData.toByteArray()));
-                serializedData.cleanup();
-            } catch (Exception e) {
-                FileLog.e(e);
-            }
         }
-        editor.apply();
+
+        // PrimeGram: serialize draft and write to SharedPreferences asynchronously off the UI thread
+        // to prevent 50+ ms stalls on incoming TL_updateDraftMessage.
+        final TLRPC.DraftMessage draftToSerialize = (draft != null && !(draft instanceof TLRPC.TL_draftMessageEmpty)) ? draft : null;
+        final TLRPC.Message replyToSerialize = replyToMessage;
+        final long did = dialogId;
+        final long tid = threadId;
+        Utilities.stageQueue.postRunnable(() -> {
+            SharedPreferences.Editor bgEditor = draftPreferences.edit();
+            if (draftToSerialize == null) {
+                if (tid == 0) {
+                    bgEditor.remove("" + did);
+                } else {
+                    bgEditor.remove("t_" + did + "_" + tid);
+                }
+            } else {
+                try {
+                    SerializedData serializedData = new SerializedData(draftToSerialize.getObjectSize());
+                    draftToSerialize.serializeToStream(serializedData);
+                    bgEditor.putString(tid == 0 ? ("" + did) : ("t_" + did + "_" + tid), Utilities.bytesToHex(serializedData.toByteArray()));
+                    serializedData.cleanup();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
+            if (replyToSerialize == null) {
+                if (tid == 0) {
+                    bgEditor.remove("r_" + did);
+                } else {
+                    bgEditor.remove("rt_" + did + "_" + tid);
+                }
+            } else {
+                try {
+                    SerializedData serializedData = new SerializedData(replyToSerialize.getObjectSize());
+                    replyToSerialize.serializeToStream(serializedData);
+                    bgEditor.putString(tid == 0 ? ("r_" + did) : ("rt_" + did + "_" + tid), Utilities.bytesToHex(serializedData.toByteArray()));
+                    serializedData.cleanup();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
+            bgEditor.apply();
+        });
         if (fromServer && (threadId == 0 || getMessagesController().isForum(dialogId))) {
             if (draft != null && draft.reply_to != null && draft.reply_to.reply_to_msg_id != 0 && (replyToMessage == null || replyToMessage.reply_to instanceof TLRPC.TL_messageReplyHeader && replyToMessage.replyMessage == null)) {
                 final long replyDialogId = (draft.reply_to.flags & 2) != 0 ? DialogObject.getPeerDialogId(draft.reply_to.reply_to_peer_id) : dialogId;

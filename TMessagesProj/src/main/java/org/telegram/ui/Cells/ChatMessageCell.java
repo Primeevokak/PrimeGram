@@ -593,7 +593,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         if (this.visibleOnScreen != visibleOnScreen) {
             this.visibleOnScreen = visibleOnScreen;
             checkImageReceiversAttachState();
-            if (visibleOnScreen) {
+            if (visibleOnScreen && !ChatActivity.isUpdatingVisiblePartInDraw) {
                 invalidate();
             }
         }
@@ -607,6 +607,10 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             visibleImageHeight -= clipBottom;
         }
         photoImage.setSkipUpdateFrame(skipFrameUpdate = visibleImageHeight / photoImage.getImageHeight() < 0.25f);
+    }
+
+    public boolean isVisibleOnScreen() {
+        return visibleOnScreen;
     }
 
     public void setParentBounds(float chatListViewPaddingTop, int blurredViewBottomOffset) {
