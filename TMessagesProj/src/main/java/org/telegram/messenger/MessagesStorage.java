@@ -120,6 +120,7 @@ public class MessagesStorage extends BaseController {
                 queue = primeReadQueue;
                 if (queue == null) {
                     primeReadQueue = queue = new DispatchQueue("storageReadQueue_" + currentAccount);
+                    queue.setPriority(currentAccount == UserConfig.selectedAccount ? 8 : 3);
                 }
             }
         }

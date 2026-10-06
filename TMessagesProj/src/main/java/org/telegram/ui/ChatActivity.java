@@ -14334,9 +14334,9 @@ public class ChatActivity extends BaseFragment implements
         int totalItemCount = chatAdapter.getItemCount();
         int checkLoadCount;
         if (scroll) {
-            checkLoadCount = 25;
+            checkLoadCount = 45;
         } else {
-            checkLoadCount = 5;
+            checkLoadCount = 15;
         }
 
         if (chatMode == MODE_SEARCH) {
@@ -14369,24 +14369,24 @@ public class ChatActivity extends BaseFragment implements
                     loading = true;
                     waitingForLoad.add(lastLoadIndex);
                     if (messagesByDays.size() != 0) {
-                        getMessagesController().loadMessages(dialog_id, mergeDialogId, false, 50, maxMessageId[0], 0, !cacheEndReached[0], minDate[0], classGuid, 0, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
+                        getMessagesController().loadMessages(dialog_id, mergeDialogId, false, 70, maxMessageId[0], 0, !cacheEndReached[0], minDate[0], classGuid, 0, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
                     } else {
-                        getMessagesController().loadMessages(dialog_id, mergeDialogId, false, 50, 0, 0, !cacheEndReached[0], minDate[0], classGuid, 0, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
+                        getMessagesController().loadMessages(dialog_id, mergeDialogId, false, 70, 0, 0, !cacheEndReached[0], minDate[0], classGuid, 0, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
                     }
                 } else if (mergeDialogId != 0 && !endReached[1]) {
                     loading = true;
                     waitingForLoad.add(lastLoadIndex);
-                    getMessagesController().loadMessages(mergeDialogId, 0, false, 50, maxMessageId[1], 0, !cacheEndReached[1], minDate[1], classGuid, 0, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
+                    getMessagesController().loadMessages(mergeDialogId, 0, false, 70, maxMessageId[1], 0, !cacheEndReached[1], minDate[1], classGuid, 0, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
                 }
             }
-            if (visibleItemCountFinal > 0 && !loadingForward && firstVisibleItemFinal <= 10) {
+            if (visibleItemCountFinal > 0 && !loadingForward && firstVisibleItemFinal <= 25) {
                 if (mergeDialogId != 0 && !forwardEndReached[1]) {
                     waitingForLoad.add(lastLoadIndex);
-                    getMessagesController().loadMessages(mergeDialogId, 0, false, 50, minMessageId[1], 0, true, maxDate[1], classGuid, 1, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
+                    getMessagesController().loadMessages(mergeDialogId, 0, false, 70, minMessageId[1], 0, true, maxDate[1], classGuid, 1, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
                     loadingForward = true;
                 } else if (!forwardEndReached[0]) {
                     waitingForLoad.add(lastLoadIndex);
-                    getMessagesController().loadMessages(dialog_id, mergeDialogId, false, 50, minMessageId[0], 0, true, maxDate[0], classGuid, 1, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
+                    getMessagesController().loadMessages(dialog_id, mergeDialogId, false, 70, minMessageId[0], 0, true, maxDate[0], classGuid, 1, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
                     loadingForward = true;
                 }
             }

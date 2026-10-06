@@ -58,6 +58,10 @@ public class Utilities {
 
     static {
         try {
+            primeLoadQueue.setPriority(8);
+        } catch (Throwable ignore) {
+        }
+        try {
             File URANDOM_FILE = new File("/dev/urandom");
             FileInputStream sUrandomIn = new FileInputStream(URANDOM_FILE);
             byte[] buffer = new byte[1024];
