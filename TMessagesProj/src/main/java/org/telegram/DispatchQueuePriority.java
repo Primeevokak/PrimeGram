@@ -27,6 +27,7 @@ public class DispatchQueuePriority {
     })) {
         @Override
         protected void beforeExecute(Thread t, Runnable r) {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             CountDownLatch latch = pauseLatch;
             if (latch != null) {
                 try {

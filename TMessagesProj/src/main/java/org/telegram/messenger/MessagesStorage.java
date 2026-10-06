@@ -119,8 +119,8 @@ public class MessagesStorage extends BaseController {
             synchronized (this) {
                 queue = primeReadQueue;
                 if (queue == null) {
-                    primeReadQueue = queue = new DispatchQueue("storageReadQueue_" + currentAccount);
-                    queue.setPriority(currentAccount == UserConfig.selectedAccount ? 8 : 3);
+                    primeReadQueue = queue = new DispatchQueue("storageReadQueue_" + currentAccount, true,
+                            currentAccount == UserConfig.selectedAccount ? android.os.Process.THREAD_PRIORITY_DEFAULT + 2 : android.os.Process.THREAD_PRIORITY_BACKGROUND);
                 }
             }
         }
@@ -395,12 +395,8 @@ public class MessagesStorage extends BaseController {
 
     public MessagesStorage(int instance) {
         super(instance);
-        storageQueue = new DispatchQueue("storageQueue_" + instance);
-        // Priority 8 is above the default 5 the UI thread runs at. That is right for the account
-        // on screen - the list of chats is waiting on this query - but wrong for the rest: several
-        // background accounts at priority 8 outrank the thread trying to draw the first frame, and
-        // they all hit the same flash device at once. Background accounts drop below the UI.
-        storageQueue.setPriority(instance == UserConfig.selectedAccount ? 8 : 3);
+        storageQueue = new DispatchQueue("storageQueue_" + instance, true,
+                instance == UserConfig.selectedAccount ? android.os.Process.THREAD_PRIORITY_DEFAULT + 2 : android.os.Process.THREAD_PRIORITY_BACKGROUND);
         if (instance != UserConfig.selectedAccount) {
             PrimeStartupTrace.mark("storage created for account " + instance + " by " + primeCallerFrames());
         }

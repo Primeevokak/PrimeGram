@@ -127,9 +127,9 @@ public class ImageLoader {
     private LinkedList<HttpImageTask> httpTasks = new LinkedList<>();
     private LinkedList<ArtworkLoadTask> artworkTasks = new LinkedList<>();
     private DispatchQueuePriority cacheOutQueue = new DispatchQueuePriority("cacheOutQueue");
-    private DispatchQueue cacheThumbOutQueue = new DispatchQueue("cacheThumbOutQueue");
-    private DispatchQueue thumbGeneratingQueue = new DispatchQueue("thumbGeneratingQueue");
-    private DispatchQueue imageLoadQueue = new DispatchQueue("imageLoadQueue");
+    private DispatchQueue cacheThumbOutQueue = new DispatchQueue("cacheThumbOutQueue", true, android.os.Process.THREAD_PRIORITY_BACKGROUND);
+    private DispatchQueue thumbGeneratingQueue = new DispatchQueue("thumbGeneratingQueue", true, android.os.Process.THREAD_PRIORITY_BACKGROUND);
+    private DispatchQueue imageLoadQueue = new DispatchQueue("imageLoadQueue", true, android.os.Process.THREAD_PRIORITY_BACKGROUND);
     private HashMap<String, String> replacedBitmaps = new HashMap<>();
     private ConcurrentHashMap<String, long[]> fileProgresses = new ConcurrentHashMap<>();
     private HashMap<String, ThumbGenerateTask> thumbGenerateTasks = new HashMap<>();
@@ -3406,20 +3406,11 @@ public class ImageLoader {
                     drawable = getFromLottieCache(mediaKey);
                 } else {
                     drawable = memCache.get(mediaKey);
-                    if (drawable != null) {
-                        memCache.moveToFront(mediaKey);
-                    }
                     if (drawable == null) {
                         drawable = smallImagesMemCache.get(mediaKey);
-                        if (drawable != null) {
-                            smallImagesMemCache.moveToFront(mediaKey);
-                        }
                     }
                     if (drawable == null) {
                         drawable = wallpaperMemCache.get(mediaKey);
-                        if (drawable != null) {
-                            wallpaperMemCache.moveToFront(mediaKey);
-                        }
                     }
                 }
             }
@@ -3450,20 +3441,11 @@ public class ImageLoader {
             }
             if (drawable == null) {
                 drawable = memCache.get(imageKey);
-                if (drawable != null) {
-                    memCache.moveToFront(imageKey);
-                }
                 if (drawable == null) {
                     drawable = smallImagesMemCache.get(imageKey);
-                    if (drawable != null) {
-                        smallImagesMemCache.moveToFront(imageKey);
-                    }
                 }
                 if (drawable == null) {
                     drawable = wallpaperMemCache.get(imageKey);
-                    if (drawable != null) {
-                        wallpaperMemCache.moveToFront(imageKey);
-                    }
                 }
             }
             if (drawable != null) {
@@ -3484,20 +3466,11 @@ public class ImageLoader {
                 drawable = getFromLottieCache(thumbKey);
             } else {
                 drawable = memCache.get(thumbKey);
-                if (drawable != null) {
-                    memCache.moveToFront(thumbKey);
-                }
                 if (drawable == null) {
                     drawable = smallImagesMemCache.get(thumbKey);
-                    if (drawable != null) {
-                        smallImagesMemCache.moveToFront(thumbKey);
-                    }
                 }
                 if (drawable == null) {
                     drawable = wallpaperMemCache.get(thumbKey);
-                    if (drawable != null) {
-                        wallpaperMemCache.moveToFront(thumbKey);
-                    }
                 }
             }
             if (drawable != null) {

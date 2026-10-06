@@ -472,6 +472,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             if (isPaused) {
                 return;
             }
+            if (listView != null && listView.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+                waitingForScrollFinished = true;
+                return;
+            }
             if (animated) {
                 AndroidUtilities.cancelRunOnUIThread(updateListRunnable);
                 listView.setItemAnimator(dialogsItemAnimator);
@@ -4889,8 +4893,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             viewPage.listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
 
                 private boolean wasManualScroll;
-
                 private boolean stoppedAllHeavyOperations;
+                private int prevWarmFirst = -1;
+                private int prevWarmLast = -1;
 
                 @Override
                 public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
@@ -4942,18 +4947,22 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                         }
                     }
                     if (dy != 0 && firstVisiblePosition >= 0 && viewPage.dialogsAdapter != null && recyclerView.getAdapter() == viewPage.dialogsAdapter) {
-                        final ArrayList<Object> ahead = new ArrayList<>();
-                        for (int k = 1; k <= 8; k++) {
-                            final Object item = viewPage.dialogsAdapter.getItem(dy > 0 ? lastVisiblePosition + k : firstVisiblePosition - k);
-                            if (item != null) {
-                                ahead.add(item);
+                        if (firstVisiblePosition != prevWarmFirst || lastVisiblePosition != prevWarmLast) {
+                            prevWarmFirst = firstVisiblePosition;
+                            prevWarmLast = lastVisiblePosition;
+                            final ArrayList<Object> ahead = new ArrayList<>();
+                            for (int k = 1; k <= 8; k++) {
+                                final Object item = viewPage.dialogsAdapter.getItem(dy > 0 ? lastVisiblePosition + k : firstVisiblePosition - k);
+                                if (item != null) {
+                                    ahead.add(item);
+                                }
                             }
+                            PrimeDialogTextWarmer.warm(currentAccount, ahead, PrimeDialogTextWarmer.textWidth(recyclerView.getMeasuredWidth()));
                         }
-                        PrimeDialogTextWarmer.warm(currentAccount, ahead, PrimeDialogTextWarmer.textWidth(recyclerView.getMeasuredWidth()));
                     }
                     checkListLoad(viewPage);
                     invalidateScrollY = true;
-                    if (fragmentView != null) {
+                    if (fragmentView != null && firstVisiblePosition <= 2) {
                         fragmentView.invalidate();
                     }
                     if (initialDialogsType != DIALOGS_TYPE_WIDGET && wasManualScroll && recyclerView.getChildCount() > 0) {

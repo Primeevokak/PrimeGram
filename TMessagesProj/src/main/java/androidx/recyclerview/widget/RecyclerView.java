@@ -2989,7 +2989,10 @@ public class RecyclerView extends ViewGroup implements ScrollingView,
                         refreshRate = displayRefreshRate;
                     }
                 }
-                mGapWorker.mFrameIntervalNs = (long) (1000000000 / refreshRate);
+                if (refreshRate <= 60.0f && org.telegram.messenger.AndroidUtilities.screenMaxRefreshRate >= 30.0f) {
+                    refreshRate = org.telegram.messenger.AndroidUtilities.screenMaxRefreshRate;
+                }
+                mGapWorker.mFrameIntervalNs = (long) (1000000000L / refreshRate);
                 GapWorker.sGapWorker.set(mGapWorker);
             }
             mGapWorker.add(this);
@@ -5266,6 +5269,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView,
 
         ViewFlinger() {
             mOverScroller = new OverScroller(getContext(), sQuinticInterpolator);
+            mOverScroller.setFriction(0.0075f);
         }
 
         @Override
@@ -5361,8 +5365,10 @@ public class RecyclerView extends ViewGroup implements ScrollingView,
                     dispatchOnScrolled(consumedX, consumedY);
                 }
 
-                if (!awakenScrollBars()) {
-                    invalidate();
+                if (isVerticalScrollBarEnabled() || isHorizontalScrollBarEnabled()) {
+                    if (!awakenScrollBars()) {
+                        invalidate();
+                    }
                 }
 
                 // We are done scrolling if scroller is finished, or for both the x and y dimension,
@@ -5447,6 +5453,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView,
                 mInterpolator = sQuinticInterpolator;
                 mOverScroller = new OverScroller(getContext(), sQuinticInterpolator);
             }
+            mOverScroller.setFriction(0.0075f);
             mOverScroller.fling(0, 0, velocityX, velocityY,
                     Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE);
             postOnAnimation();

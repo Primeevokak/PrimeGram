@@ -6623,7 +6623,7 @@ public class ChatActivity extends BaseFragment implements
         // expensive thing this app builds - binding one re-lays out its text. Holding a few more
         // means a short scroll back up re-attaches instead of rebuilding. The cost is a handful of
         // views' memory; the saving is on every reversal of direction.
-        chatListView.setItemViewCacheSize(8);
+        chatListView.setItemViewCacheSize(14);
         chatListView.setClipToPadding(false);
         if (ChatObject.isMonoForum(currentChat) || ChatObject.areTabsEnabled(currentChat)) {
             chatListView.setClipChildren(false);
@@ -7039,7 +7039,6 @@ public class ChatActivity extends BaseFragment implements
             public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
                 final ChatActivity chatToUpdate = parentChatActivity != null ? parentChatActivity : ChatActivity.this;
 
-                chatListView.invalidate();
                 if (contentView != null) {
                     contentView.updateBlurContent();
                 }
