@@ -361,9 +361,6 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
                 return new ChatActivity(args);
             }
             TLRPC.ChatFull chatFull = messagesController.getChatFull(chatId);
-            if (chatFull == null) {
-                chatFull = messagesStorage.loadChatInfo(chatId, true, new CountDownLatch(1), false, false);
-            }
             if (chatFull != null && chatFull.view_forum_as_messages) {
                 return new ChatActivity(args);
             }
