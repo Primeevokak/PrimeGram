@@ -820,9 +820,10 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
                 } else {
                     paintBitmap = BitmapFactory.decodeFile(fullPaintPath);
                 }
+                Bitmap resultBitmap = null;
                 try {
                     final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-                    final Bitmap resultBitmap = Bitmap.createBitmap(b.getWidth(), b.getHeight(), Bitmap.Config.ARGB_8888);
+                    resultBitmap = Bitmap.createBitmap(b.getWidth(), b.getHeight(), Bitmap.Config.ARGB_8888);
                     final Canvas canvas = new Canvas(resultBitmap);
 
                     canvas.drawBitmap(b, 0, 0, bitmapPaint);
@@ -830,9 +831,15 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
                     canvas.drawBitmap(paintBitmap, 0, 0, bitmapPaint);
 
                     imagePath = getTempFileAbsolutePath();
-                    resultBitmap.compress(Bitmap.CompressFormat.JPEG, highQuality ? 99 : 87, new FileOutputStream(imagePath));
+                    try (FileOutputStream fos = new FileOutputStream(imagePath)) {
+                        resultBitmap.compress(Bitmap.CompressFormat.JPEG, highQuality ? 99 : 87, fos);
+                    }
                 } catch (Exception e) {
                     FileLog.e(e);
+                } finally {
+                    if (resultBitmap != null) {
+                        resultBitmap.recycle();
+                    }
                 }
                 if (paintBitmap != null) {
                     paintBitmap.recycle();
@@ -1721,14 +1728,14 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
         ApplicationLoader.applicationHandler.removeCallbacks(stopMediaObserverRunnable);
         startObserverToken++;
         try {
-            if (internalObserver == null) {
+            if (externalObserver == null) {
                 ApplicationLoader.applicationContext.getContentResolver().registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, false, externalObserver = new ExternalObserver());
             }
         } catch (Exception e) {
             FileLog.e(e);
         }
         try {
-            if (externalObserver == null) {
+            if (internalObserver == null) {
                 ApplicationLoader.applicationContext.getContentResolver().registerContentObserver(MediaStore.Images.Media.INTERNAL_CONTENT_URI, false, internalObserver = new InternalObserver());
             }
         } catch (Exception e) {

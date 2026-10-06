@@ -44,8 +44,7 @@ public class BitmapsCache {
     ArrayList<FrameOffset> frameOffsets = new ArrayList<>();
 
     final boolean useSharedBuffers;
-    final static ConcurrentHashMap<Thread, byte[]> sharedBuffers = new ConcurrentHashMap<>();
-    static volatile boolean cleanupScheduled;
+    private final static ThreadLocal<byte[]> sharedBuffers = new ThreadLocal<>();
     byte[] bufferTmp;
 
     private final static int N = Utilities.clamp(Runtime.getRuntime().availableProcessors() - 2, 6, 1);
@@ -61,21 +60,6 @@ public class BitmapsCache {
     private int tryCount;
 
     public AtomicBoolean cancelled = new AtomicBoolean(false);
-    private Runnable cleanupSharedBuffers = new Runnable() {
-        @Override
-        public void run() {
-            for (Thread thread : sharedBuffers.keySet()) {
-                if (!thread.isAlive()) {
-                    sharedBuffers.remove(thread);
-                }
-            }
-            if (!sharedBuffers.isEmpty()) {
-                AndroidUtilities.runOnUIThread(cleanupSharedBuffers, 5000);
-            } else {
-                cleanupScheduled = false;
-            }
-        }
-    };
 
     public BitmapsCache(File sourceFile, Cacheable source, CacheOptions options, int w, int h, boolean noLimit) {
         this(sourceFile, source, options, w, h, noLimit, 0);
@@ -277,6 +261,7 @@ public class BitmapsCache {
                             } catch (Exception e) {
 
                             }
+                            bitmap[i] = null;
                         }
                     }
                     randomAccessFile.close();
@@ -294,39 +279,41 @@ public class BitmapsCache {
                 int finalFramePosition = framePosition;
                 RandomAccessFile finalRandomAccessFile1 = randomAccessFile;
                 bitmapCompressExecutor.execute(() -> {
-                    if (cancelled.get() || closed.get()) {
-                        return;
-                    }
-
-                    Bitmap.CompressFormat format = Bitmap.CompressFormat.WEBP;
-                    if (Build.VERSION.SDK_INT <= 28) {
-                        format = Bitmap.CompressFormat.PNG;
-                    }
-                    bitmap[finalIndex].compress(format, compressQuality, byteArrayOutputStream[finalIndex]);
-                    int size = byteArrayOutputStream[finalIndex].count;
-
                     try {
-                        synchronized (mutex) {
-                            FrameOffset frameOffset = new FrameOffset(finalFramePosition);
-                            frameOffset.frameOffset = (int) finalRandomAccessFile1.length();
-
-                            frameOffsets.add(frameOffset);
-
-                            finalRandomAccessFile1.write(byteArrayOutputStream[finalIndex].buf, 0, size);
-                            frameOffset.frameSize = size;
-                            byteArrayOutputStream[finalIndex].reset();
+                        if (cancelled.get() || closed.get()) {
+                            return;
                         }
-                    } catch (IOException e) {
-                        e.printStackTrace();
+
+                        Bitmap.CompressFormat format = Bitmap.CompressFormat.WEBP;
+                        if (Build.VERSION.SDK_INT <= 28) {
+                            format = Bitmap.CompressFormat.PNG;
+                        }
+                        bitmap[finalIndex].compress(format, compressQuality, byteArrayOutputStream[finalIndex]);
+                        int size = byteArrayOutputStream[finalIndex].count;
+
                         try {
-                            finalRandomAccessFile1.close();
-                        } catch (Exception e2) {
-                        } finally {
-                            closed.set(true);
-                        }
-                    }
+                            synchronized (mutex) {
+                                FrameOffset frameOffset = new FrameOffset(finalFramePosition);
+                                frameOffset.frameOffset = (int) finalRandomAccessFile1.length();
 
-                    countDownLatch[finalIndex].countDown();
+                                frameOffsets.add(frameOffset);
+
+                                finalRandomAccessFile1.write(byteArrayOutputStream[finalIndex].buf, 0, size);
+                                frameOffset.frameSize = size;
+                                byteArrayOutputStream[finalIndex].reset();
+                            }
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                            try {
+                                finalRandomAccessFile1.close();
+                            } catch (Exception e2) {
+                            } finally {
+                                closed.set(true);
+                            }
+                        }
+                    } finally {
+                        countDownLatch[finalIndex].countDown();
+                    }
                 });
 
                 index++;
@@ -548,27 +535,17 @@ public class BitmapsCache {
     }
 
     private byte[] getBuffer(FrameOffset selectedFrame) {
-        boolean useSharedBuffers = this.useSharedBuffers && Thread.currentThread().getName().startsWith(DispatchQueuePoolBackground.THREAD_PREFIX);
-        byte[] bufferTmp;
-        if (useSharedBuffers) {
-            bufferTmp = sharedBuffers.get(Thread.currentThread());
-        } else {
-            bufferTmp = this.bufferTmp;
-        }
-
-        if (bufferTmp == null || bufferTmp.length < selectedFrame.frameSize) {
-            bufferTmp = new byte[(int) (selectedFrame.frameSize * 1.3f)];
-            if (useSharedBuffers) {
-                sharedBuffers.put(Thread.currentThread(), bufferTmp);
-                if (!cleanupScheduled) {
-                    cleanupScheduled = true;
-                    AndroidUtilities.runOnUIThread(cleanupSharedBuffers, 5000);
-                }
+        boolean useShared = this.useSharedBuffers && Thread.currentThread().getName().startsWith(DispatchQueuePoolBackground.THREAD_PREFIX);
+        byte[] buffer = useShared ? sharedBuffers.get() : this.bufferTmp;
+        if (buffer == null || buffer.length < selectedFrame.frameSize) {
+            buffer = new byte[(int) (selectedFrame.frameSize * 1.3f)];
+            if (useShared) {
+                sharedBuffers.set(buffer);
             } else {
-                this.bufferTmp = bufferTmp;
+                this.bufferTmp = buffer;
             }
         }
-        return bufferTmp;
+        return buffer;
     }
 
     public boolean needGenCache() {

@@ -518,8 +518,8 @@ extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNa
         }
         dataArr[PARAM_NUM_DURATION] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
         env->ReleaseIntArrayElements(data, dataArr, 0);
-        delete info;
     }
+    delete info;
 }
 
 static bool isStreamCanceled(VideoInfo *info) {
@@ -822,7 +822,7 @@ static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, AVFrame *fra
             AV_PIX_FMT_RGBA);
     }
 
-    if (sws_ctx != nullptr && ((intptr_t) pixels) % 16 == 0) {
+    if (sws_ctx != nullptr && ((intptr_t) pixels) % 16 == 0 && bitmapStride % 16 == 0) {
         uint8_t __attribute__ ((aligned (16))) *dst_data[1];
         dst_data[0] = (uint8_t *) pixels;
 

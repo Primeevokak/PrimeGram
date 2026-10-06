@@ -25,7 +25,7 @@ extern "C" JNIEXPORT jstring Java_org_telegram_messenger_Utilities_readlink(JNIE
 
 extern "C" JNIEXPORT jstring Java_org_telegram_messenger_Utilities_readlinkFd(JNIEnv *env, jclass clazz, int fd) {
     std::string path = "/proc/self/fd/";
-    path += fd;
+    path += std::to_string(fd);
     ssize_t result = readlink(path.c_str(), buf, PATH_MAX);
     jstring value = 0;
     if (result != -1) {

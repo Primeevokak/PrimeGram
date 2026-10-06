@@ -241,8 +241,8 @@ extern "C" JNIEXPORT jintArray Java_org_telegram_messenger_MrzRecognizer_findCor
 	for(int i=0;i<36;i++){
 		parallelGroups.emplace_back();
 	}
-	ocr::line* left=NULL;
-	ocr::line* right=NULL;
+	ocr::line leftVal{}, rightVal{};
+	bool hasLeft = false, hasRight = false;
 	ocr::line* top=NULL;
 	ocr::line* bottom=NULL;
 	for(std::vector<ocr::line>::iterator l=lines.begin();l!=lines.end();){
@@ -259,15 +259,20 @@ extern "C" JNIEXPORT jintArray Java_org_telegram_messenger_MrzRecognizer_findCor
 		// find the leftmost and rightmost lines
 		if(l->theta<M_PI*0.1 || l->theta>M_PI*0.9){
 			double rk=l->theta<0.5 ? 1.0 : -1.0;
-			if(!left || left->r>l->r*rk){
-				left=&*l;
+			if(!hasLeft || leftVal.r > l->r * rk){
+				leftVal = *l;
+				hasLeft = true;
 			}
-			if(!right || right->r<l->r*rk){
-				right=&*l;
+			if(!hasRight || rightVal.r < l->r * rk){
+				rightVal = *l;
+				hasRight = true;
 			}
 		}
 		// group parallel-ish lines with 5-degree increments
-		parallelGroups[floor(l->theta/M_PI*36)].push_back(*l);
+		int groupIdx = (int) floor(l->theta / M_PI * 36.0);
+		if (groupIdx >= 36) groupIdx = 35;
+		if (groupIdx < 0) groupIdx = 0;
+		parallelGroups[groupIdx].push_back(*l);
 		++l;
 	}
 
@@ -298,7 +303,9 @@ extern "C" JNIEXPORT jintArray Java_org_telegram_messenger_MrzRecognizer_findCor
 	}
 
 	jintArray result=NULL;
-	if(top && bottom && left && right){
+	if(top && bottom && hasLeft && hasRight){
+		ocr::line* left = &leftVal;
+		ocr::line* right = &rightVal;
 		//LOGI("bottom theta %f", bottom->theta);
 		if(bottom->theta>1.65 || bottom->theta<1.55){
 			//LOGD("left: %f, right: %f\n", left->r, right->r);

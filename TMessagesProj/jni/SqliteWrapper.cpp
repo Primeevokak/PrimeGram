@@ -1,4 +1,5 @@
 #include <cstring>
+#include <mutex>
 #include <jni.h>
 #include "sqlite/sqlite3.h"
 #include "tgnet/NativeByteBuffer.h"
@@ -64,7 +65,7 @@ JNIEXPORT void Java_org_telegram_SQLite_SQLitePreparedStatement_bindByteBuffer(J
     sqlite3_stmt *handle = (sqlite3_stmt *) (intptr_t) statementHandle;
     void *buf = env->GetDirectBufferAddress(value);
 
-    int errcode = sqlite3_bind_blob(handle, index, buf, length, SQLITE_STATIC);
+    int errcode = sqlite3_bind_blob(handle, index, buf, length, SQLITE_TRANSIENT);
     if (SQLITE_OK != errcode) {
         throw_sqlite3_exception(env, sqlite3_db_handle(handle), errcode);
     }
@@ -139,22 +140,31 @@ JNIEXPORT void Java_org_telegram_SQLite_SQLiteDatabase_commitTransaction(JNIEnv 
     sqlite3_exec(handle, "COMMIT", 0, 0, 0);
 }
 
+static std::mutex tempDirMutex;
+
 JNIEXPORT jlong Java_org_telegram_SQLite_SQLiteDatabase_opendb(JNIEnv *env, jobject object, jstring fileName, jstring tempDir) {
     char const *fileNameStr = env->GetStringUTFChars(fileName, 0);
     char const *tempDirStr = env->GetStringUTFChars(tempDir, 0);
 
-    if (sqlite3_temp_directory != 0 && strcmp(sqlite3_temp_directory, tempDirStr)) {
-        sqlite3_free(sqlite3_temp_directory);
-        sqlite3_temp_directory = 0;
-    }
-    if (sqlite3_temp_directory == 0) {
-        sqlite3_temp_directory = sqlite3_mprintf("%s", tempDirStr);
+    {
+        std::lock_guard<std::mutex> lock(tempDirMutex);
+        if (sqlite3_temp_directory != 0 && strcmp(sqlite3_temp_directory, tempDirStr)) {
+            sqlite3_free(sqlite3_temp_directory);
+            sqlite3_temp_directory = 0;
+        }
+        if (sqlite3_temp_directory == 0) {
+            sqlite3_temp_directory = sqlite3_mprintf("%s", tempDirStr);
+        }
     }
 
     sqlite3 *handle = 0;
     int err = sqlite3_open(fileNameStr, &handle);
     if (SQLITE_OK != err) {
         throw_sqlite3_exception(env, handle, err);
+        if (handle != 0) {
+            sqlite3_close(handle);
+            handle = 0;
+        }
     }
     if (fileNameStr != 0) {
         env->ReleaseStringUTFChars(fileName, fileNameStr);

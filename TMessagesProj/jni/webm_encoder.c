@@ -37,27 +37,27 @@ JNIEXPORT jlong JNICALL Java_org_telegram_messenger_video_WebmEncoder_createEnco
     avformat_alloc_output_context2(&ctx->fmt_ctx, NULL, "matroska", outputPath);
     if (!ctx->fmt_ctx) {
         LOGE("vp9: no context created!");
-        return (jlong)0;
+        goto fail;
     }
 
     if (!(ctx->fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
         ret = avio_open(&ctx->fmt_ctx->pb, outputPath, AVIO_FLAG_WRITE);
         if (ret < 0) {
             LOGE("vp9: failed to write open file %d", ret);
-            return (jlong) 0;
+            goto fail;
         }
     }
 
     AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_VP9);
     if (!codec) {
         LOGE("vp9: no encoder found!");
-        return 0;
+        goto fail;
     }
 
     ctx->codec_ctx = avcodec_alloc_context3(codec);
     if (!ctx->codec_ctx) {
         LOGE("vp9: failed to create codec ctx");
-        return (jlong) 0;
+        goto fail;
     }
 
     ctx->codec_ctx->codec_id = AV_CODEC_ID_VP9;
@@ -82,7 +82,7 @@ JNIEXPORT jlong JNICALL Java_org_telegram_messenger_video_WebmEncoder_createEnco
     ctx->video_stream = avformat_new_stream(ctx->fmt_ctx, codec);
     if (!ctx->video_stream) {
         LOGE("vp9: failed to create stream");
-        return (jlong) 0;
+        goto fail;
     }
 
     ctx->video_stream->codecpar->codec_id = ctx->codec_ctx->codec_id;
@@ -95,19 +95,19 @@ JNIEXPORT jlong JNICALL Java_org_telegram_messenger_video_WebmEncoder_createEnco
     ret = avcodec_open2(ctx->codec_ctx, codec, NULL);
     if (ret < 0) {
         LOGE("vp9: failed to open codec %s", av_err2str(ret));
-        return (jlong) 0;
+        goto fail;
     }
 
     ctx->sws_ctx = sws_getContext(width, height, AV_PIX_FMT_RGBA, width, height, AV_PIX_FMT_YUVA420P, 0, 0, 0, 0);
     if (!ctx->sws_ctx) {
         LOGE("vp9: failed to sws_ctx");
-        return (jlong) 0;
+        goto fail;
     }
 
     ctx->frame = av_frame_alloc();
     if (!ctx->frame) {
         LOGE("vp9: failed to alloc frame");
-        return (jlong)0;
+        goto fail;
     }
 
     ctx->frame->format = ctx->codec_ctx->pix_fmt;
@@ -116,23 +116,37 @@ JNIEXPORT jlong JNICALL Java_org_telegram_messenger_video_WebmEncoder_createEnco
     ret = av_frame_get_buffer(ctx->frame, 0);
     if (ret < 0) {
         LOGE("vp9: failed to get frame buffer %d", ret);
-        return (jlong)0;
+        goto fail;
     }
 
     if (avcodec_parameters_from_context(ctx->video_stream->codecpar, ctx->codec_ctx) < 0) {
         LOGE("vp9: failed to copy codec parameters to stream");
-        return (jlong) 0;
+        goto fail;
     }
 
     ret = avformat_write_header(ctx->fmt_ctx, NULL);
     if (ret < 0) {
         LOGE("vp9: failed to write header %d", ret);
-        return (jlong) 0;
+        goto fail;
     }
 
     (*env)->ReleaseStringUTFChars(env, outputPath_, outputPath);
 
     return (jlong)ctx;
+
+fail:
+    if (ctx->frame) av_frame_free(&ctx->frame);
+    if (ctx->sws_ctx) sws_freeContext(ctx->sws_ctx);
+    if (ctx->codec_ctx) avcodec_free_context(&ctx->codec_ctx);
+    if (ctx->fmt_ctx) {
+        if (!(ctx->fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+            avio_closep(&ctx->fmt_ctx->pb);
+        }
+        avformat_free_context(ctx->fmt_ctx);
+    }
+    free(ctx);
+    (*env)->ReleaseStringUTFChars(env, outputPath_, outputPath);
+    return (jlong) 0;
 }
 
 JNIEXPORT jboolean JNICALL Java_org_telegram_messenger_video_WebmEncoder_writeFrame(

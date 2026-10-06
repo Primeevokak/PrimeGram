@@ -1657,6 +1657,9 @@ public class ImageLoader {
                 paint.setAlpha((int) (wallPaper.settings.intensity / 100.0f * 255));
                 canvas.drawBitmap(bitmap, 0, 0, paint);
             }
+            if (finalBitmap != bitmap) {
+                bitmap.recycle();
+            }
             return finalBitmap;
         }
 

@@ -1163,7 +1163,7 @@ JNIEXPORT void JNICALL Java_org_telegram_messenger_voip_NativeInstance_onStreamP
 extern "C"
 JNIEXPORT void JNICALL Java_org_telegram_messenger_voip_NativeInstance_onMediaDescriptionAvailable(JNIEnv *env, jobject obj, jlong taskPtr, jobjectArray arr) {
     InstanceHolder *instance = getInstanceHolder(env, obj);
-    if (instance->groupNativeInstance == nullptr) {
+    if (instance == nullptr || instance->groupNativeInstance == nullptr) {
         return;
     }
     auto task = reinterpret_cast<RequestMediaChannelDescriptionTaskJava *>(taskPtr);

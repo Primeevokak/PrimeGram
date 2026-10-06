@@ -638,8 +638,6 @@ JNIEXPORT jbyteArray Java_org_telegram_messenger_MediaController_getWaveform2(JN
     return result;
 }
 
-int16_t *sampleBuffer = NULL;
-
 JNIEXPORT jbyteArray Java_org_telegram_messenger_MediaController_getWaveform(JNIEnv *env, jclass class, jstring path) {
     const char *pathStr = (*env)->GetStringUTFChars(env, path, 0);
     if (pathStr == NULL) {
@@ -657,9 +655,7 @@ JNIEXPORT jbyteArray Java_org_telegram_messenger_MediaController_getWaveform(JNI
         uint16_t *samples = calloc(resultSamples, sizeof(uint16_t));
 
         size_t bufferSize = 1024 * 128;
-        if (sampleBuffer == NULL) {
-            sampleBuffer = malloc(bufferSize);
-        }
+        int16_t *sampleBuffer = malloc(bufferSize);
 
         if (samples != NULL && sampleBuffer != NULL) {
             uint64_t sampleIndex = 0;
@@ -728,6 +724,7 @@ JNIEXPORT jbyteArray Java_org_telegram_messenger_MediaController_getWaveform(JNI
             }
         }
 
+        free(sampleBuffer);
         free(samples);
         op_free(opusFile);
     }
@@ -800,6 +797,7 @@ JNIEXPORT void JNICALL Java_org_telegram_ui_Stories_recorder_FfmpegAudioWaveform
 
     jclass cls = (*env)->GetObjectClass(env, obj);
     jmethodID mid = (*env)->GetMethodID(env, cls, "receiveChunk", "([SI)V");
+    jfieldID fid = (*env)->GetFieldID(env, cls, "running", "Z");
 
     AVFrame *frame = av_frame_alloc();
     if (frame == NULL) {
@@ -918,7 +916,6 @@ JNIEXPORT void JNICALL Java_org_telegram_ui_Stories_recorder_FfmpegAudioWaveform
             break;
         }
 
-        jfieldID fid = (*env)->GetFieldID(env, cls, "running", "Z");
         jboolean running = (*env)->GetBooleanField(env, obj, fid);
         if (running == JNI_FALSE) {
             break;
@@ -990,7 +987,7 @@ int cropOpusAudio(const char *inputPath, const char *outputPath, float startTime
     int success = 1;
     opus_int64 remaining_samples = crop_length;
     while (remaining_samples > 0) {
-        int max_samples = (int) MIN(960, remaining_samples / channels);
+        int max_samples = (int) MIN(960, remaining_samples);
         if (max_samples <= 0) {
             break;
         }
@@ -1007,7 +1004,7 @@ int cropOpusAudio(const char *inputPath, const char *outputPath, float startTime
 
         int end = remaining_samples <= 0;
 
-        size_t byte_count = samples_read * sizeof(int16_t);
+        size_t byte_count = (size_t) samples_read * channels * sizeof(int16_t);
         if (!writeFrame((uint8_t *)buffer, byte_count, end)) {
             LOGE("Failed to write frame");
             success = 0;

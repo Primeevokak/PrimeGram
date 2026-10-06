@@ -476,7 +476,9 @@ public class ConnectionsManager extends BaseController {
                                 throw e2;
                             }
                             FileLog.fatal(e2);
-                            return;
+                            error = new TLRPC.TL_error();
+                            error.code = -1000;
+                            error.text = "LOCAL_DESERIALIZATION_ERROR";
                         }
                     } else if (errorText != null) {
                         error = new TLRPC.TL_error();

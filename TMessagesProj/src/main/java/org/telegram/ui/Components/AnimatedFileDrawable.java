@@ -104,7 +104,7 @@ public final class AnimatedFileDrawable extends BitmapDrawable implements Animat
     private int[] roundRadiusBackup;
     private final Matrix[] shaderMatrix = new Matrix[1 + DrawingInBackgroundThreadDrawable.THREAD_COUNT];
     private final Path[] roundPath = new Path[1 + DrawingInBackgroundThreadDrawable.THREAD_COUNT];
-    private static final float[] radii = new float[8];
+    private final float[] radii = new float[8];
 
     private float scaleX = 1.0f;
     private float scaleY = 1.0f;
