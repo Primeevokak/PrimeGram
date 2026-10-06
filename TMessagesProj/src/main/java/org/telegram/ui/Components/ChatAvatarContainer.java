@@ -1317,7 +1317,7 @@ public class ChatAvatarContainer extends FrameLayout implements FactorAnimator.T
             if (info != null && info.participants_count != 0) {
                 if (chat.megagroup) {
                     if (onlineCount > 1) {
-                        newSubtitle = String.format("%s, %s", LocaleController.formatPluralString("Members", info.participants_count), LocaleController.formatPluralString("OnlineCount", Math.min(onlineCount, info.participants_count)));
+                        newSubtitle = LocaleController.formatPluralString("Members", info.participants_count) + ", " + LocaleController.formatPluralString("OnlineCount", Math.min(onlineCount, info.participants_count));
                     } else {
                         newSubtitle = LocaleController.formatPluralString("Members", info.participants_count);
                     }
@@ -1326,9 +1326,9 @@ public class ChatAvatarContainer extends FrameLayout implements FactorAnimator.T
                     boolean ignoreShort = AndroidUtilities.isAccessibilityScreenReaderEnabled();
                     String shortNumber = ignoreShort ? String.valueOf(result[0] = info.participants_count) : LocaleController.formatShortNumber(info.participants_count, result);
                     if (chat.megagroup) {
-                        newSubtitle = LocaleController.formatPluralString("Members", result[0]).replace(String.format("%d", result[0]), shortNumber);
+                        newSubtitle = LocaleController.formatPluralString("Members", result[0]).replace(String.valueOf(result[0]), shortNumber);
                     } else {
-                        newSubtitle = LocaleController.formatPluralString("Subscribers", result[0]).replace(String.format("%d", result[0]), shortNumber);
+                        newSubtitle = LocaleController.formatPluralString("Subscribers", result[0]).replace(String.valueOf(result[0]), shortNumber);
                     }
                 }
             } else {
@@ -1363,7 +1363,7 @@ public class ChatAvatarContainer extends FrameLayout implements FactorAnimator.T
                     count = info.participants.participants.size();
                 }
                 if (onlineCount > 1 && count != 0) {
-                    newSubtitle = String.format("%s, %s", LocaleController.formatPluralString("Members", count), LocaleController.formatPluralString("OnlineCount", onlineCount));
+                    newSubtitle = LocaleController.formatPluralString("Members", count) + ", " + LocaleController.formatPluralString("OnlineCount", onlineCount);
                 } else {
                     newSubtitle = LocaleController.formatPluralString("Members", count);
                 }

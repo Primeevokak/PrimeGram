@@ -1441,6 +1441,13 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     private DialogFilter sortingDialogFilter;
+    private MediaDataController fastMediaDataController;
+    private MediaDataController getFastMediaDataController() {
+        if (fastMediaDataController == null) {
+            fastMediaDataController = getMediaDataController();
+        }
+        return fastMediaDataController;
+    }
     private final Comparator<TLRPC.Dialog> dialogDateComparator = (dialog1, dialog2) -> {
         int pinnedNum1 = sortingDialogFilter == null ? Integer.MIN_VALUE : sortingDialogFilter.pinnedDialogs.get(dialog1.id, Integer.MIN_VALUE);
         int pinnedNum2 = sortingDialogFilter == null ? Integer.MIN_VALUE : sortingDialogFilter.pinnedDialogs.get(dialog2.id, Integer.MIN_VALUE);
@@ -1461,7 +1468,7 @@ public class MessagesController extends BaseController implements NotificationCe
                 return 0;
             }
         }
-        MediaDataController mediaDataController = getMediaDataController();
+        MediaDataController mediaDataController = getFastMediaDataController();
         long date1 = DialogObject.getLastMessageOrDraftDate(dialog1, mediaDataController.getDraft(dialog1.id, 0));
         long date2 = DialogObject.getLastMessageOrDraftDate(dialog2, mediaDataController.getDraft(dialog2.id, 0));
         if (date1 < date2) {
@@ -1497,7 +1504,7 @@ public class MessagesController extends BaseController implements NotificationCe
                 return 0;
             }
         }
-        MediaDataController mediaDataController = getMediaDataController();
+        MediaDataController mediaDataController = getFastMediaDataController();
         long date1 = DialogObject.getLastMessageOrDraftDate(dialog1, mediaDataController.getDraft(dialog1.id, 0));
         long date2 = DialogObject.getLastMessageOrDraftDate(dialog2, mediaDataController.getDraft(dialog2.id, 0));
         if (date1 < date2) {

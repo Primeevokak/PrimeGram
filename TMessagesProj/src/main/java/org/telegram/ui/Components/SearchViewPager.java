@@ -1254,6 +1254,13 @@ public class SearchViewPager extends ViewPagerFixed implements FilteredSearchVie
             hashtagSearchLayoutManager.scrollToPositionWithOffset(0, 0);
         }
         viewsByType.clear();
+        if (channelsSearchAdapter != null) {
+            channelsSearchAdapter.updateMyChannels();
+            channelsSearchAdapter.update(false);
+        }
+        if (botsSearchAdapter != null) {
+            botsSearchAdapter.update(false);
+        }
     }
 
     public void setPosition(int position) {
@@ -1414,11 +1421,13 @@ public class SearchViewPager extends ViewPagerFixed implements FilteredSearchVie
 
         attached = true;
 
-        if (channelsSearchAdapter != null) {
-            channelsSearchAdapter.update(false);
-        }
-        if (botsSearchAdapter != null) {
-            botsSearchAdapter.update(false);
+        if (getVisibility() == VISIBLE) {
+            if (channelsSearchAdapter != null) {
+                channelsSearchAdapter.update(false);
+            }
+            if (botsSearchAdapter != null) {
+                botsSearchAdapter.update(false);
+            }
         }
     }
 
@@ -1435,6 +1444,9 @@ public class SearchViewPager extends ViewPagerFixed implements FilteredSearchVie
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
+        if (getVisibility() != VISIBLE) {
+            return;
+        }
         if (id == NotificationCenter.channelRecommendationsLoaded) {
             channelsEmptyView.showProgress(MessagesController.getInstance(currentAccount).getChannelRecommendations(0) != null, true);
             channelsSearchAdapter.updateMyChannels();

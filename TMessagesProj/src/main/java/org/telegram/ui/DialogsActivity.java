@@ -7995,7 +7995,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             canShowStoryHint = false;
             storyHint.show();
         }
-        AndroidUtilities.runOnUIThread(this::createSearchViewPager, 200);
+        AndroidUtilities.runOnUIThread(this::createSearchViewPager, 2000);
     }
 
     private void showArchiveHelp() {
@@ -13850,6 +13850,10 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
             }
         };
+        searchViewPager.setVisibility(View.GONE);
+        searchViewPager.setAlpha(0f);
+        searchViewPager.setScaleX(1.05f);
+        searchViewPager.setScaleY(1.05f);
         ((ContentView) fragmentView).addView(searchViewPager, searchViewPagerIndex);
 
         searchViewPager.dialogsSearchAdapter.setDelegate(new DialogsSearchAdapter.DialogsSearchAdapterDelegate() {
@@ -14107,10 +14111,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         });
         searchViewPager.setFilteredSearchViewDelegate((showMediaFilters, users, dates, archive) -> DialogsActivity.this.updateFiltersView(showMediaFilters, users, dates, archive, true));
-        searchViewPager.setAlpha(0f);
-        searchViewPager.setScaleX(1.05f);
-        searchViewPager.setScaleY(1.05f);
-        searchViewPager.setVisibility(View.GONE);
         searchViewPager.setBlurredBackgroundDrawableFactory(iBlur3FactoryBlur);
     }
 

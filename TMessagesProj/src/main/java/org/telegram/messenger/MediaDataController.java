@@ -178,7 +178,7 @@ public class MediaDataController extends BaseController {
                         if (message != null) {
                             message.readAttachPath(serializedData, getUserConfig().clientUserId);
                             LongSparseArray<TLRPC.Message> threads = draftMessages.get(did);
-                            if (threads == null) {
+                            if (threads == null || threads == noDraftMessages) {
                                 threads = new LongSparseArray<>();
                                 draftMessages.put(did, threads);
                             }
@@ -192,7 +192,7 @@ public class MediaDataController extends BaseController {
                         TLRPC.DraftMessage draftMessage = TLRPC.DraftMessage.TLdeserialize(serializedData, serializedData.readInt32(true), true);
                         if (draftMessage != null) {
                             LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(did);
-                            if (threads == null) {
+                            if (threads == null || threads == noDrafts) {
                                 threads = new LongSparseArray<>();
                                 drafts.put(did, threads);
                             }
@@ -7650,6 +7650,8 @@ public class MediaDataController extends BaseController {
     private LongSparseArray<Integer> draftsFolderIds = new LongSparseArray<>();
     private LongSparseArray<LongSparseArray<TLRPC.DraftMessage>> drafts = new LongSparseArray<>();
     private LongSparseArray<LongSparseArray<TLRPC.Message>> draftMessages = new LongSparseArray<>();
+    private final LongSparseArray<TLRPC.DraftMessage> noDrafts = new LongSparseArray<>(0);
+    private final LongSparseArray<TLRPC.Message> noDraftMessages = new LongSparseArray<>(0);
     private boolean inTransaction;
     private SharedPreferences draftPreferences;
     private boolean loadingDrafts;
@@ -7692,6 +7694,9 @@ public class MediaDataController extends BaseController {
 
     public TLRPC.DraftMessage getDraft(long dialogId, long threadId) {
         LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
+        if (threads == noDrafts) {
+            return null;
+        }
         if (threads == null) {
             try {
                 String key = threadId != 0 ? "t_" + dialogId + "_" + threadId : String.valueOf(dialogId);
@@ -7703,7 +7708,7 @@ public class MediaDataController extends BaseController {
                     serializedData.cleanup();
                     if (draftMessage != null) {
                         threads = drafts.get(dialogId);
-                        if (threads == null) {
+                        if (threads == null || threads == noDrafts) {
                             threads = new LongSparseArray<>();
                             drafts.put(dialogId, threads);
                         }
@@ -7712,6 +7717,9 @@ public class MediaDataController extends BaseController {
                     }
                 }
             } catch (Exception ignore) {}
+            if (threadId == 0) {
+                drafts.put(dialogId, noDrafts);
+            }
             return null;
         }
         return threads.get(threadId);
@@ -7719,7 +7727,7 @@ public class MediaDataController extends BaseController {
 
     public Pair<Long, TLRPC.DraftMessage> getOneThreadDraft(long dialogId) {
         LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
-        if (threads == null || threads.size() <= 0) {
+        if (threads == null || threads == noDrafts || threads.size() <= 0) {
             return null;
         }
         return new Pair(threads.keyAt(0), threads.valueAt(0));
@@ -7727,6 +7735,9 @@ public class MediaDataController extends BaseController {
 
     public TLRPC.Message getDraftMessage(long dialogId, long threadId) {
         LongSparseArray<TLRPC.Message> threads = draftMessages.get(dialogId);
+        if (threads == noDraftMessages) {
+            return null;
+        }
         if (threads == null) {
             try {
                 String key = threadId != 0 ? "rt_" + dialogId + "_" + threadId : "r_" + dialogId;
@@ -7738,7 +7749,7 @@ public class MediaDataController extends BaseController {
                     if (message != null) {
                         message.readAttachPath(serializedData, getUserConfig().clientUserId);
                         threads = draftMessages.get(dialogId);
-                        if (threads == null) {
+                        if (threads == null || threads == noDraftMessages) {
                             threads = new LongSparseArray<>();
                             draftMessages.put(dialogId, threads);
                         }
@@ -7749,6 +7760,9 @@ public class MediaDataController extends BaseController {
                     serializedData.cleanup();
                 }
             } catch (Exception ignore) {}
+            if (threadId == 0) {
+                draftMessages.put(dialogId, noDraftMessages);
+            }
             return null;
         }
         return threads.get(threadId);
@@ -8016,19 +8030,19 @@ public class MediaDataController extends BaseController {
         if (draft == null || draft instanceof TLRPC.TL_draftMessageEmpty) {
             {
                 LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
-                if (threads != null) {
+                if (threads != null && threads != noDrafts) {
                     threads.remove(threadId);
                     if (threads.size() == 0) {
-                        drafts.remove(dialogId);
+                        drafts.put(dialogId, noDrafts);
                     }
                 }
             }
             {
                 LongSparseArray<TLRPC.Message> threads = draftMessages.get(dialogId);
-                if (threads != null) {
+                if (threads != null && threads != noDraftMessages) {
                     threads.remove(threadId);
                     if (threads.size() == 0) {
-                        draftMessages.remove(dialogId);
+                        draftMessages.put(dialogId, noDraftMessages);
                     }
                 }
             }
@@ -8040,7 +8054,7 @@ public class MediaDataController extends BaseController {
             messagesController.removeDraftDialogIfNeed(dialogId);
         } else {
             LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
-            if (threads == null) {
+            if (threads == null || threads == noDrafts) {
                 threads = new LongSparseArray<>();
                 drafts.put(dialogId, threads);
             }
@@ -8232,19 +8246,19 @@ public class MediaDataController extends BaseController {
         if (!replyOnly) {
             {
                 LongSparseArray<TLRPC.DraftMessage> threads = drafts.get(dialogId);
-                if (threads != null) {
+                if (threads != null && threads != noDrafts) {
                     threads.remove(threadId);
                     if (threads.size() == 0) {
-                        drafts.remove(dialogId);
+                        drafts.put(dialogId, noDrafts);
                     }
                 }
             }
             {
                 LongSparseArray<TLRPC.Message> threads = draftMessages.get(dialogId);
-                if (threads != null) {
+                if (threads != null && threads != noDraftMessages) {
                     threads.remove(threadId);
                     if (threads.size() == 0) {
-                        draftMessages.remove(dialogId);
+                        draftMessages.put(dialogId, noDraftMessages);
                     }
                 }
             }

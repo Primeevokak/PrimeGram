@@ -6077,10 +6077,12 @@ public class EmojiView extends FrameLayout implements
         if (stickersSearchGridAdapter != null) {
             stickersSearchGridAdapter.notifyDataSetChanged();
         }
-        if (ContentPreviewViewer.getInstance().isVisible()) {
-            ContentPreviewViewer.getInstance().close();
+        if (ContentPreviewViewer.hasInstance()) {
+            if (ContentPreviewViewer.getInstance().isVisible()) {
+                ContentPreviewViewer.getInstance().close();
+            }
+            ContentPreviewViewer.getInstance().reset();
         }
-        ContentPreviewViewer.getInstance().reset();
     }
 
     public void setDelegate(EmojiViewDelegate emojiViewDelegate) {
@@ -6244,7 +6246,9 @@ public class EmojiView extends FrameLayout implements
         if (colorPickerView != null && colorPickerView.isShowing()) {
             colorPickerView.dismiss();
         }
-        ContentPreviewViewer.getInstance().clearDelegate(contentPreviewViewerDelegate);
+        if (ContentPreviewViewer.hasInstance()) {
+            ContentPreviewViewer.getInstance().clearDelegate(contentPreviewViewerDelegate);
+        }
     }
 
     private void checkDocuments(boolean isGif) {

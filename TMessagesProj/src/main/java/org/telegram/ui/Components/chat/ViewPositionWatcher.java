@@ -54,7 +54,6 @@ public final class ViewPositionWatcher implements
     public ViewPositionWatcher(@NonNull View anchorView) {
         this.anchorView = anchorView;
         anchorView.addOnAttachStateChangeListener(this);
-        attachIfPossible();
     }
 
     public void subscribe(@NonNull View view,
@@ -91,11 +90,15 @@ public final class ViewPositionWatcher implements
     /** Unsubscribe a specific view. */
     public void unsubscribe(@NonNull View view) {
         tracked.remove(view);
+        if (tracked.isEmpty()) {
+            detachIfListening();
+        }
     }
 
     /** Clear all subscriptions. */
     public void clear() {
         tracked.clear();
+        detachIfListening();
     }
 
     /** Stop watching entirely. */
@@ -120,7 +123,7 @@ public final class ViewPositionWatcher implements
     }
 
     private void ensureListening() {
-        if (!listening) attachIfPossible();
+        if (!listening && !tracked.isEmpty()) attachIfPossible();
     }
 
     private void detachIfListening() {
@@ -133,7 +136,9 @@ public final class ViewPositionWatcher implements
 
     @Override
     public void onViewAttachedToWindow(@NonNull View v) {
-        attachIfPossible();
+        if (!tracked.isEmpty()) {
+            attachIfPossible();
+        }
     }
 
     @Override
@@ -147,14 +152,17 @@ public final class ViewPositionWatcher implements
 
     @Override
     public boolean onPreDraw() {
+        if (tracked.isEmpty()) {
+            detachIfListening();
+            return true;
+        }
+
         // Reattach if VTO changed
         ViewTreeObserver current = anchorView.getViewTreeObserver();
         if (current != vto) {
             detachIfListening();
             attachIfPossible();
         }
-
-        if (tracked.isEmpty()) return true;
 
         for (Map.Entry<View, List<Tracked>> e : tracked.entrySet()) {
             View view = e.getKey();
@@ -176,7 +184,7 @@ public final class ViewPositionWatcher implements
                     t.last.set(tmpRect);
                     t.hasLast = true;
                     try {
-                        t.listener.onPositionChanged(view, new RectF(tmpRect));
+                        t.listener.onPositionChanged(view, t.last);
                     } catch (Throwable ignored) {
                         // Do not crash UI if callback throws
                     }
