@@ -132,7 +132,7 @@ JNIEXPORT void Java_org_telegram_SQLite_SQLiteDatabase_closedb(JNIEnv *env, jobj
 
 JNIEXPORT void Java_org_telegram_SQLite_SQLiteDatabase_beginTransaction(JNIEnv *env, jobject object, jlong sqliteHandle) {
     sqlite3 *handle = (sqlite3 *) (intptr_t) sqliteHandle;
-    sqlite3_exec(handle, "BEGIN", 0, 0, 0);
+    sqlite3_exec(handle, "BEGIN IMMEDIATE", 0, 0, 0);
 }
 
 JNIEXPORT void Java_org_telegram_SQLite_SQLiteDatabase_commitTransaction(JNIEnv *env, jobject object, jlong sqliteHandle) {
@@ -165,6 +165,8 @@ JNIEXPORT jlong Java_org_telegram_SQLite_SQLiteDatabase_opendb(JNIEnv *env, jobj
             sqlite3_close(handle);
             handle = 0;
         }
+    } else if (handle != 0) {
+        sqlite3_busy_timeout(handle, 3000);
     }
     if (fileNameStr != 0) {
         env->ReleaseStringUTFChars(fileName, fileNameStr);

@@ -94,17 +94,19 @@ public class SQLiteCursor {
 	public boolean next() throws SQLiteException {
 		int res = preparedStatement.step(preparedStatement.getStatementHandle());
 		if (res == -1) {
-			int repeatCount = 6;
+			int repeatCount = 8;
+			int sleepMs = 5;
 			while (repeatCount-- != 0) {
 				try {
 					if (BuildVars.LOGS_ENABLED) {
-						FileLog.d("sqlite busy, waiting...");
+						FileLog.d("sqlite busy, waiting " + sleepMs + "ms...");
 					}
-					Thread.sleep(500);
+					Thread.sleep(sleepMs);
 					res = preparedStatement.step();
-					if (res == 0) {
+					if (res == 0 || res == 1) {
 						break;
 					}
+					sleepMs = Math.min(40, sleepMs * 2);
 				} catch (Exception e) {
 					FileLog.e(e);
 				}

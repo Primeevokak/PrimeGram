@@ -290,8 +290,16 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
             mAccumulatedNs += frameTimeNanos - mLastVsyncNs;
             mLastVsyncNs    = frameTimeNanos;
 
-            if (mAccumulatedNs >= FRAME_INTERVAL_NS) {
-                mAccumulatedNs %= FRAME_INTERVAL_NS;
+            // Allow small jitter tolerance (~2.5ms) so a frame arriving slightly early
+            // (e.g. 16.65ms on a 60Hz display, or 16.64ms on 120Hz) doesn't miss the cycle
+            // and drop animation frame rate in half to 30 FPS.
+            final long jitterToleranceNs = 2_500_000L;
+            if (mAccumulatedNs >= FRAME_INTERVAL_NS - jitterToleranceNs) {
+                if (mAccumulatedNs >= FRAME_INTERVAL_NS) {
+                    mAccumulatedNs %= FRAME_INTERVAL_NS;
+                } else {
+                    mAccumulatedNs = 0;
+                }
                 dispatchFrame(frameTimeNanos);
             }
         }

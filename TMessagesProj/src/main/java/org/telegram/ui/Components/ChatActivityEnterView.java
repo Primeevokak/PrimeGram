@@ -6011,7 +6011,12 @@ public class ChatActivityEnterView extends FrameLayout implements
                     allowChangeToSmile = false;
                 }
 
-                if ((before == 0 && !TextUtils.isEmpty(charSequence) || before != 0 && TextUtils.isEmpty(charSequence)) && allowChangeToSmile) {
+                final int seqLen = charSequence == null ? 0 : charSequence.length();
+                final int prevLen = seqLen - count + before;
+                final boolean wasEmpty = prevLen <= 0;
+                final boolean isEmpty = seqLen == 0;
+
+                if (wasEmpty != isEmpty && allowChangeToSmile) {
                     setEmojiButtonImage(false, true);
                 }
                 if (lineCount != messageEditText.getLineCount()) {
@@ -6029,15 +6034,17 @@ public class ChatActivityEnterView extends FrameLayout implements
                 if (innerTextChange == 1) {
                     return;
                 }
-                if (sendByEnter && !ctrlPressed && !shiftPressed && !ignoreTextChange && !isPaste && editingMessageObject == null && count > before && charSequence.length() > 0 && charSequence.length() == start + count && charSequence.charAt(charSequence.length() - 1) == '\n') {
+                if (sendByEnter && !ctrlPressed && !shiftPressed && !ignoreTextChange && !isPaste && editingMessageObject == null && count > before && seqLen > 0 && seqLen == start + count && charSequence.charAt(seqLen - 1) == '\n') {
                     nextChangeIsSend = true;
                 }
                 isPaste = false;
-                checkSendButton(true);
-                CharSequence message = AndroidUtilities.getTrimmedString(charSequence.toString());
+                if (wasEmpty != isEmpty || nextChangeIsSend || forceShowSendButton) {
+                    checkSendButton(true);
+                    updateSendButtonPaid();
+                }
                 if (delegate != null) {
                     if (!ignoreTextChange) {
-                        if (before > count + 1 || (count - before) > 2 || TextUtils.isEmpty(charSequence)) {
+                        if (before > count + 1 || (count - before) > 2 || isEmpty) {
                             messageWebPageSearch = true;
                         }
                         delegate.onTextChanged(charSequence, before > count + 1 || (count - before) > 2, false);
@@ -6046,13 +6053,12 @@ public class ChatActivityEnterView extends FrameLayout implements
                 if (innerTextChange != 2 && (count - before) > 1) {
                     processChange = true;
                 }
-                if (editingMessageObject == null && !canWriteToChannel && message.length() != 0 && lastTypingTimeSend < System.currentTimeMillis() - 5000 && !ignoreTextChange) {
+                if (editingMessageObject == null && !canWriteToChannel && !isEmpty && lastTypingTimeSend < System.currentTimeMillis() - 5000 && !ignoreTextChange) {
                     lastTypingTimeSend = System.currentTimeMillis();
                     if (delegate != null) {
                         delegate.needSendTyping();
                     }
                 }
-                updateSendButtonPaid();
             }
 
             @Override

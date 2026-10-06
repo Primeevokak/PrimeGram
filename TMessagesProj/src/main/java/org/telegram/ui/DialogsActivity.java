@@ -4931,14 +4931,21 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     viewPage.dialogsItemAnimator.onListScroll(-dy);
                     int firstVisiblePosition = -1;
                     int lastVisiblePosition = -1;
-                    for (int i = 0; i < recyclerView.getChildCount(); i++) {
-                        int position = recyclerView.getChildAdapterPosition(recyclerView.getChildAt(i));
-                        if (position >= 0) {
-                            if (lastVisiblePosition == -1 || position > lastVisiblePosition) {
-                                lastVisiblePosition = position;
-                            }
-                            if (firstVisiblePosition == -1 || position < firstVisiblePosition) {
-                                firstVisiblePosition = position;
+                    RecyclerView.LayoutManager lm = recyclerView.getLayoutManager();
+                    if (lm instanceof LinearLayoutManager) {
+                        LinearLayoutManager llm = (LinearLayoutManager) lm;
+                        firstVisiblePosition = llm.findFirstVisibleItemPosition();
+                        lastVisiblePosition = llm.findLastVisibleItemPosition();
+                    } else {
+                        for (int i = 0; i < recyclerView.getChildCount(); i++) {
+                            int position = recyclerView.getChildAdapterPosition(recyclerView.getChildAt(i));
+                            if (position >= 0) {
+                                if (lastVisiblePosition == -1 || position > lastVisiblePosition) {
+                                    lastVisiblePosition = position;
+                                }
+                                if (firstVisiblePosition == -1 || position < firstVisiblePosition) {
+                                    firstVisiblePosition = position;
+                                }
                             }
                         }
                     }

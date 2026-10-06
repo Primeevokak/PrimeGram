@@ -5269,7 +5269,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView,
 
         ViewFlinger() {
             mOverScroller = new OverScroller(getContext(), sQuinticInterpolator);
-            mOverScroller.setFriction(0.0075f);
+            mOverScroller.setFriction(0.012f);
         }
 
         @Override
@@ -5453,7 +5453,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView,
                 mInterpolator = sQuinticInterpolator;
                 mOverScroller = new OverScroller(getContext(), sQuinticInterpolator);
             }
-            mOverScroller.setFriction(0.0075f);
+            mOverScroller.setFriction(0.012f);
             mOverScroller.fling(0, 0, velocityX, velocityY,
                     Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE);
             postOnAnimation();

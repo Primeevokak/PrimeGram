@@ -6352,6 +6352,13 @@ public class MediaDataController extends BaseController {
             LongSparseArray<ArrayList<Integer>> dialogReplyMessagesIds = new LongSparseArray<>();
             LongSparseArray<ArrayList<MessageObject>> messagesWithUnknownStories = null;
             Timer.Task t2 = Timer.start(logLogger, "loadReplyMessagesForMessages: filling replies from the same array");
+            SparseArray<MessageObject> messagesById = new SparseArray<>(messages.size());
+            for (int j = 0; j < messages.size(); ++j) {
+                MessageObject m = messages.get(j);
+                if (m != null && m.getRealId() > 0) {
+                    messagesById.put(m.getRealId(), m);
+                }
+            }
             for (int a = 0; a < messages.size(); a++) {
                 MessageObject messageObject = messages.get(a);
                 if (messageObject == null) {
@@ -6362,23 +6369,20 @@ public class MediaDataController extends BaseController {
                         continue;
                     }
                     int reply_to_id = messageObject.messageOwner.reply_to.reply_to_msg_id;
-                    for (int j = 0; j < messages.size(); ++j) {
-                        if (a == j) continue;
-                        if (messages.get(j) != null && messages.get(j).getRealId() == reply_to_id) {
-                            messageObject.replyMessageObject = messages.get(j);
-                            messageObject.applyTimestampsHighlightForReplyMsg();
-                            if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionPinMessage) {
-                                messageObject.generatePinMessageText(null, null);
-                            } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionGameScore) {
-                                messageObject.generateGameMessageText(null);
-                            } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionPaymentSent) {
-                                messageObject.generatePaymentSentMessageText(null, false);
-                            } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionPaymentSentMe) {
-                                messageObject.generatePaymentSentMessageText(null, true);
-                            } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionSuggestedPostApproval) {
-                                messageObject.generateSuggestionApprovalMessageText();
-                            }
-                            break;
+                    MessageObject replyMsg = messagesById.get(reply_to_id);
+                    if (replyMsg != null && replyMsg != messageObject) {
+                        messageObject.replyMessageObject = replyMsg;
+                        messageObject.applyTimestampsHighlightForReplyMsg();
+                        if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionPinMessage) {
+                            messageObject.generatePinMessageText(null, null);
+                        } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionGameScore) {
+                            messageObject.generateGameMessageText(null);
+                        } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionPaymentSent) {
+                            messageObject.generatePaymentSentMessageText(null, false);
+                        } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionPaymentSentMe) {
+                            messageObject.generatePaymentSentMessageText(null, true);
+                        } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionSuggestedPostApproval) {
+                            messageObject.generateSuggestionApprovalMessageText();
                         }
                     }
                 }
