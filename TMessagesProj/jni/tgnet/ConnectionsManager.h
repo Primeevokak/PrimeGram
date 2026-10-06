@@ -14,6 +14,7 @@
 #include <functional>
 #include <sys/epoll.h>
 #include <map>
+#include <set>
 #include <atomic>
 #include <unordered_set>
 #include "Defines.h"
@@ -140,7 +141,15 @@ private:
     uint32_t configVersion = 5;
     Config *config = nullptr;
 
-    std::list<EventObject *> events;
+    // Events ordered by fire time for O(log N) schedule/cancel.
+    // Tie-break on pointer value to allow concurrent events at the same ms.
+    struct EventObjectCmp {
+        bool operator()(const EventObject *a, const EventObject *b) const {
+            if (a->time != b->time) return a->time < b->time;
+            return a < b;  // stable ordering by address to avoid duplicates
+        }
+    };
+    std::set<EventObject *, EventObjectCmp> events;
 
     std::map<uint32_t, Datacenter *> datacenters;
     std::map<int32_t, std::vector<std::int32_t>> quickAckIdToRequestIds;

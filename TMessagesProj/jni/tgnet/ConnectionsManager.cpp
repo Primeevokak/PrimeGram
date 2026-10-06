@@ -317,22 +317,11 @@ void ConnectionsManager::scheduleTask(std::function<void()> task) {
 
 void ConnectionsManager::scheduleEvent(EventObject *eventObject, uint32_t time) {
     eventObject->time = getCurrentTimeMonotonicMillis() + time;
-    std::list<EventObject *>::iterator iter;
-    for (iter = events.begin(); iter != events.end(); iter++) {
-        if ((*iter)->time > eventObject->time) {
-            break;
-        }
-    }
-    events.insert(iter, eventObject);
+    events.insert(eventObject);  // O(log N) ordered insert by (time, ptr)
 }
 
 void ConnectionsManager::removeEvent(EventObject *eventObject) {
-    for (auto iter = events.begin(); iter != events.end(); iter++) {
-        if (*iter == eventObject) {
-            events.erase(iter);
-            break;
-        }
-    }
+    events.erase(eventObject);   // O(log N) lookup+erase by (time, ptr)
 }
 
 void ConnectionsManager::wakeup() {

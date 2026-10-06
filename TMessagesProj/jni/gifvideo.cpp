@@ -99,6 +99,18 @@ typedef struct VideoInfo {
             fd = -1;
         }
 
+        if (fallbackBuf != nullptr) {
+            av_free(fallbackBuf);
+            fallbackBuf = nullptr;
+            fallbackBufSize = 0;
+        }
+
+        if (ioJniAttached && ioJniEnv != nullptr) {
+            javaVm->DetachCurrentThread();
+            ioJniEnv = nullptr;
+            ioJniAttached = false;
+        }
+
         video_stream_idx = -1;
         video_stream = nullptr;
         audio_stream = nullptr;
@@ -131,6 +143,14 @@ typedef struct VideoInfo {
     int fd = -1;
     int64_t file_size = 0;
     int64_t last_seek_p = 0;
+
+    // Cached aligned fallback buffer for sws_scale (avoids av_malloc per frame)
+    uint8_t *fallbackBuf = nullptr;
+    int fallbackBufSize = 0;
+
+    // Persistent JNI environment: attached once at decoder open, detached at close
+    JNIEnv *ioJniEnv = nullptr;
+    bool ioJniAttached = false;
 };
 
 void custom_log(void *ptr, int level, const char* fmt, va_list vl){
@@ -246,24 +266,22 @@ int readCallback(void *opaque, uint8_t *buf, int buf_size) {
                 buf_size = (int) (info->file_size - info->last_seek_p);
             }
             if (buf_size > 0) {
-                JNIEnv *jniEnv = nullptr;
-
-                JavaVMAttachArgs jvmArgs;
-                jvmArgs.version = JNI_VERSION_1_6;
-
-                bool attached;
-                if (JNI_EDETACHED == javaVm->GetEnv((void **) &jniEnv, JNI_VERSION_1_6)) {
-                    javaVm->AttachCurrentThread(&jniEnv, &jvmArgs);
-                    attached = true;
-                } else {
-                    attached = false;
+                // Attach once per decoder lifetime, not per-chunk
+                if (info->ioJniEnv == nullptr) {
+                    JavaVMAttachArgs jvmArgs;
+                    jvmArgs.version = JNI_VERSION_1_6;
+                    jvmArgs.name = nullptr;
+                    jvmArgs.group = nullptr;
+                    if (JNI_EDETACHED == javaVm->GetEnv((void **) &info->ioJniEnv, JNI_VERSION_1_6)) {
+                        javaVm->AttachCurrentThread(&info->ioJniEnv, &jvmArgs);
+                        info->ioJniAttached = true;
+                    } else {
+                        info->ioJniAttached = false;
+                    }
                 }
 
-                buf_size = jniEnv->CallIntMethod(info->stream, jclass_AnimatedFileDrawableStream_read, (jint) info->last_seek_p, (jint) buf_size);
+                buf_size = info->ioJniEnv->CallIntMethod(info->stream, jclass_AnimatedFileDrawableStream_read, (jint) info->last_seek_p, (jint) buf_size);
                 info->last_seek_p += buf_size;
-                if (attached) {
-                    javaVm->DetachCurrentThread();
-                }
                 if (buf_size == 0) {
                     return AVERROR_EXIT;
                 }
@@ -874,10 +892,15 @@ static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, AVFrame *fra
             );
         }
     } else if (sws_ctx != nullptr && ((intptr_t) pixels) % 16 != 0) {
-        // fallback if pixels not aligned
+        // fallback if pixels not aligned — use cached buffer to avoid per-frame av_malloc
         int alignedStride = FFALIGN(bitmapWidth * 4, 16);
         int bufSize = alignedStride * bitmapHeight;
-        uint8_t *alignedBuf = (uint8_t *) av_malloc(bufSize);
+        if (info->fallbackBuf == nullptr || info->fallbackBufSize < bufSize) {
+            av_free(info->fallbackBuf);
+            info->fallbackBuf = (uint8_t *) av_malloc(bufSize);
+            info->fallbackBufSize = (info->fallbackBuf != nullptr) ? bufSize : 0;
+        }
+        uint8_t *alignedBuf = info->fallbackBuf;
         if (alignedBuf != nullptr) {
             uint8_t *dst_data[1] = { alignedBuf };
             int32_t dst_stride[1] = { alignedStride };
@@ -901,7 +924,6 @@ static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, AVFrame *fra
                     dst += bitmapStride;
                 }
             }
-            av_free(alignedBuf);
         }
     }
 

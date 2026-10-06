@@ -467,7 +467,7 @@ int decodePacket(AVCodecContext* context,
         result = swr_convert(
                 resampleContext,
                 &outputBuffer,
-                bufferOutSize,
+                outSamples,  // sample count (NOT byte count — swr_convert takes samples)
                 const_cast<const uint8_t**>(frame->data),
                 frame->nb_samples);
 
