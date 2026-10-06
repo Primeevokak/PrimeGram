@@ -68,7 +68,7 @@ void ByteStream::discard(uint32_t count) {
             break;
         }
         buffer->reuse();
-        buffersQueue.erase(buffersQueue.begin());
+        buffersQueue.pop_front();
         count -= remaining;
     }
 }

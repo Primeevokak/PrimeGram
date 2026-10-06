@@ -9,7 +9,7 @@
 #ifndef BYTESTREAM_H
 #define BYTESTREAM_H
 
-#include <vector>
+#include <deque>
 #include <stdint.h>
 
 class NativeByteBuffer;
@@ -26,7 +26,7 @@ public:
     void clean();
 
 private:
-    std::vector<NativeByteBuffer *> buffersQueue;
+    std::deque<NativeByteBuffer *> buffersQueue;
 };
 
 #endif

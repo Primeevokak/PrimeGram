@@ -897,10 +897,14 @@ JNIEXPORT jboolean JNICALL Java_org_telegram_messenger_Utilities_drawDitheredGra
     const float vSquaredMag = vx * vx + vy * vy;
 
     float noise, fraction, error, componentF;
-    float *pixelsComponentsF = new float[info.height * info.stride * 4];
-    memset(pixelsComponentsF, 0, info.height * info.stride * 4 * sizeof(float));
+    const size_t totalFloats = (size_t) info.height * (size_t) info.stride;
+    float *pixelsComponentsF = new float[totalFloats];
+    memset(pixelsComponentsF, 0, totalFloats * sizeof(float));
     uint8_t * bitmapPixelsComponents = (uint8_t * )
     pixelsBuffer;
+
+    uint32_t rngState = 123456789u + (uint32_t) (startX * 31 + startY * 17);
+    if (rngState == 0) rngState = 1;
 
     int32_t x, y;
     int32_t offset;
@@ -909,7 +913,15 @@ JNIEXPORT jboolean JNICALL Java_org_telegram_messenger_Utilities_drawDitheredGra
         offset = y * info.stride;
         for (x = 0; x < info.width; x++) {
             // triangular probability density function dither noise
-            noise = (rand() - rand()) / 255.F / RAND_MAX;
+            rngState ^= rngState << 13;
+            rngState ^= rngState >> 17;
+            rngState ^= rngState << 5;
+            float r1 = (float) (rngState & 0x7FFFFFFF) / 2147483648.0f;
+            rngState ^= rngState << 13;
+            rngState ^= rngState >> 17;
+            rngState ^= rngState << 5;
+            float r2 = (float) (rngState & 0x7FFFFFFF) / 2147483648.0f;
+            noise = (r1 - r2) / 255.F;
 
             // alpha channel
             bitmapPixelsComponents[offset + x * 4 + 3] = 255;
