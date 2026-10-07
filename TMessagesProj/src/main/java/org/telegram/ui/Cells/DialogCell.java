@@ -205,6 +205,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
     public boolean isSavedDialog;
     public boolean isSavedDialogCell;
     public DialogCellTags tags;
+    public boolean cachedHasStories;
+    private static final Comparator<TLRPC.TL_forumTopic> TOPIC_COMPARATOR = (o1, o2) -> Integer.compare(o2.top_message, o1.top_message);
 
     public final StoriesUtilities.AvatarStoryParams storyParams = new StoriesUtilities.AvatarStoryParams(false) {
         @Override
@@ -3325,6 +3327,8 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
 
     public boolean update(int mask, boolean animated) {
         primeUpdateSignature = mask == 0 ? primeComputeUpdateSignature() : null;
+        org.telegram.ui.Stories.StoriesController storiesController = MessagesController.getInstance(currentAccount).getStoriesController();
+        cachedHasStories = UserConfig.getInstance(currentAccount).getClientUserId() != currentDialogId && storiesController.hasStories(currentDialogId);
         boolean requestLayout = false;
         boolean rebuildLayout = false;
         boolean invalidate = false;
@@ -4848,7 +4852,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 if (isShareToStoryCell) {
                     storyParams.forceState = StoriesUtilities.STATE_HAS_UNREAD;
                 }
-                StoriesUtilities.drawAvatarWithStory(currentDialogId, canvas, avatarImage, storyParams);
+                StoriesUtilities.drawAvatarWithStory(currentDialogId, canvas, avatarImage, cachedHasStories, storyParams);
                 if (storyParams.drawnLive) {
                     checkTtl();
                 }
@@ -6489,7 +6493,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 boolean hasDivider = false;
                 if (topics != null && !topics.isEmpty()) {
                     topics = new ArrayList<>(topics);
-                    Collections.sort(topics, Comparator.comparingInt(o -> -o.top_message));
+                    Collections.sort(topics, TOPIC_COMPARATOR);
                     SpannableStringBuilder spannableStringBuilder = new SpannableStringBuilder();
                     long topMessageTopicId = 0;
                     int boldLen = 0;

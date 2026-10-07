@@ -8007,7 +8007,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             canShowStoryHint = false;
             storyHint.show();
         }
-        AndroidUtilities.runOnUIThread(this::createSearchViewPager, 2000);
     }
 
     private void showArchiveHelp() {

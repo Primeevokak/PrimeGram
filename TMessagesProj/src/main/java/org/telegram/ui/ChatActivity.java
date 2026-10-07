@@ -10382,9 +10382,6 @@ public class ChatActivity extends BaseFragment implements
         if (topicsTabs != null || getContext() == null) {
             return;
         }
-        if (pinnedMessageView == null) {
-            createPinnedMessageView();
-        }
         topicsTabs = new TopicsTabsView(getContext(), this, currentAccount, getDialogId(), getResourceProvider());
         topicsTabs.doOnUpdateSideMenuPosition(() -> {
             invalidateChatListViewTopPadding();
@@ -12024,9 +12021,12 @@ public class ChatActivity extends BaseFragment implements
             }
         }
 
+        int panelCloseColor = getThemedColor(Theme.key_chat_topPanelClose);
+        PorterDuffColorFilter panelCloseFilter = new PorterDuffColorFilter(panelCloseColor, PorterDuff.Mode.MULTIPLY);
+
         pinnedListButton = new ImageView(getContext());
         pinnedListButton.setImageResource(R.drawable.msg_pinnedlist);
-        pinnedListButton.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_chat_topPanelClose), PorterDuff.Mode.MULTIPLY));
+        pinnedListButton.setColorFilter(panelCloseFilter);
         pinnedListButton.setScaleType(ImageView.ScaleType.CENTER);
         pinnedListButton.setContentDescription(LocaleController.getString(R.string.AccPinnedMessagesList));
         pinnedListButton.setVisibility(View.INVISIBLE);
@@ -12039,7 +12039,7 @@ public class ChatActivity extends BaseFragment implements
 
         closePinned = new ImageView(getContext());
         closePinned.setImageResource(R.drawable.miniplayer_close);
-        closePinned.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_chat_topPanelClose), PorterDuff.Mode.MULTIPLY));
+        closePinned.setColorFilter(panelCloseFilter);
         closePinned.setScaleType(ImageView.ScaleType.CENTER);
         closePinned.setVisibility(View.GONE);
         closePinned.setContentDescription(LocaleController.getString(R.string.Close));

@@ -130,9 +130,10 @@ public final class PrimeClassProxy {
             if (isDimensionSet(v)) {
                 return;
             }
-        } catch (Throwable t) {
-            org.telegram.messenger.FileLog.e(t);
+        } catch (Throwable ignore) {
         }
+        int width = 0;
+        int height = 0;
         try {
             int minW = v.getMinimumWidth();
             android.graphics.drawable.Drawable bg = v.getBackground();
@@ -143,8 +144,17 @@ public final class PrimeClassProxy {
             if (bg != null) {
                 minH = Math.max(minH, bg.getMinimumHeight());
             }
-            int width = android.view.View.getDefaultSize(minW, widthMeasureSpec);
-            int height = android.view.View.getDefaultSize(minH, heightMeasureSpec);
+            width = android.view.View.getDefaultSize(minW, widthMeasureSpec);
+            height = android.view.View.getDefaultSize(minH, heightMeasureSpec);
+        } catch (Throwable ignore) {
+        }
+        try {
+            Method m = v.getClass().getMethod("prime$setMeasuredDimension", int.class, int.class);
+            m.invoke(v, width, height);
+            return;
+        } catch (Throwable ignore) {
+        }
+        try {
             if (setMeasuredDimensionMethod != null) {
                 setMeasuredDimensionMethod.invoke(v, width, height);
             }
@@ -600,6 +610,17 @@ public final class PrimeClassProxy {
                             method.getParameterTypes(), handlerField);
                 }
             }
+        }
+
+        if (android.view.View.class.isAssignableFrom(superClass)) {
+            final MethodId setMeasuredDimensionSuper = TypeId.get(android.view.View.class).getMethod(TypeId.VOID, "setMeasuredDimension", TypeId.INT, TypeId.INT);
+            final MethodId primeSetMeasuredDimension = generated.getMethod(TypeId.VOID, "prime$setMeasuredDimension", TypeId.INT, TypeId.INT);
+            final Code setDimCode = dexMaker.declare(primeSetMeasuredDimension, Modifier.PUBLIC);
+            final Local setDimSelf = setDimCode.getThis(generated);
+            final Local w = setDimCode.getParameter(0, TypeId.INT);
+            final Local h = setDimCode.getParameter(1, TypeId.INT);
+            setDimCode.invokeSuper(setMeasuredDimensionSuper, null, setDimSelf, w, h);
+            setDimCode.returnVoid();
         }
 
         final byte[] dex = dexMaker.generate();

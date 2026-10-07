@@ -503,16 +503,18 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         }
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setTheme(R.style.Theme_TMessages);
-        try {
-            setTaskDescription(new ActivityManager.TaskDescription(null, null, Theme.getColor(Theme.key_actionBarDefault) | 0xff000000));
-        } catch (Throwable ignore) {
-
-        }
+        updateTaskDescriptionColor(Theme.getColor(Theme.key_actionBarDefault) | 0xff000000);
         getWindow().setBackgroundDrawable(new ActivityWindowEmptyBackgroundDrawable());
         getWindow().setFormat(PixelFormat.OPAQUE);
 
         flagSecureReason = new FlagSecureReason(getWindow(), () -> SharedConfig.passcodeHash.length() > 0 && !SharedConfig.allowScreenCapture);
         flagSecureReason.attach();
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                new android.graphics.Paint();
+            } catch (Throwable ignore) {
+            }
+        });
 
         super.onCreate(savedInstanceState);
         if (Build.VERSION.SDK_INT >= 24) {
@@ -7774,11 +7776,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         } else if (id == NotificationCenter.didSetNewTheme) {
             Boolean nightTheme = (Boolean) args[0];
             if (!nightTheme) {
-                try {
-                    setTaskDescription(new ActivityManager.TaskDescription(null, null, Theme.getColor(Theme.key_actionBarDefault) | 0xff000000));
-                } catch (Exception ignore) {
-
-                }
+                updateTaskDescriptionColor(Theme.getColor(Theme.key_actionBarDefault) | 0xff000000);
             }
             boolean checkNavigationBarColor = true;
             if (args.length > 1) {
@@ -10344,6 +10342,20 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         @Override
         public WindowInsets dispatchApplyWindowInsets(WindowInsets insets) {
             return AndroidUtilities.fixedDispatchApplyWindowInsets(insets, this);
+        }
+    }
+
+    private int lastTaskDescriptionColor;
+
+    private void updateTaskDescriptionColor(int color) {
+        if (lastTaskDescriptionColor != color) {
+            lastTaskDescriptionColor = color;
+            Utilities.globalQueue.postRunnable(() -> {
+                try {
+                    setTaskDescription(new ActivityManager.TaskDescription(null, null, color));
+                } catch (Throwable ignore) {
+                }
+            });
         }
     }
 }

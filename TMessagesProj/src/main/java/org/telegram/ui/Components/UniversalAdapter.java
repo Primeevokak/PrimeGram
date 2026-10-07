@@ -448,7 +448,12 @@ public class UniversalAdapter extends AdapterWithDiffUtils {
                 view = new FrameLayout(context) {
                     @Override
                     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                        super.onMeasure(MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY), heightMeasureSpec);
+                        try {
+                            super.onMeasure(MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY), heightMeasureSpec);
+                        } catch (IllegalStateException e) {
+                            org.telegram.messenger.FileLog.e(e);
+                            setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), AndroidUtilities.dp(50));
+                        }
                     }
                 };
                 if (viewType == VIEW_TYPE_CUSTOM_SHADOW) {
@@ -459,14 +464,19 @@ public class UniversalAdapter extends AdapterWithDiffUtils {
                 view = new FrameLayout(context) {
                     @Override
                     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                        widthMeasureSpec = MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY);
-                        measureChildren(widthMeasureSpec, heightMeasureSpec);
-                        int height = 0;
-                        for (int i = 0; i < getChildCount(); ++i) {
-                            View child = getChildAt(i);
-                            height = Math.max(height, child.getMeasuredHeight());
+                        try {
+                            widthMeasureSpec = MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY);
+                            measureChildren(widthMeasureSpec, heightMeasureSpec);
+                            int height = 0;
+                            for (int i = 0; i < getChildCount(); ++i) {
+                                View child = getChildAt(i);
+                                height = Math.max(height, child.getMeasuredHeight());
+                            }
+                            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+                        } catch (IllegalStateException e) {
+                            org.telegram.messenger.FileLog.e(e);
+                            setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), AndroidUtilities.dp(50));
                         }
-                        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
                     }
                 };
                 break;

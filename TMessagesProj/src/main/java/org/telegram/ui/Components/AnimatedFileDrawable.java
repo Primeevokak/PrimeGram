@@ -129,9 +129,9 @@ public final class AnimatedFileDrawable extends BitmapDrawable implements Animat
 
     private @Nullable WeakReference<View> parentView;
 
-    private final ReferenceList<View> secondParentViews = new ReferenceList<>();
+    private final ReferenceList<View> secondParentViews = new ReferenceList<>(false, false, null);
 
-    private final ReferenceList<ImageReceiver> parents = new ReferenceList<>();
+    private final ReferenceList<ImageReceiver> parents = new ReferenceList<>(false, false, null);
 
     private AnimatedFileDrawableStream stream;
 
@@ -1383,16 +1383,15 @@ public final class AnimatedFileDrawable extends BitmapDrawable implements Animat
         if (parents.isEmpty()) {
             return false;
         }
-        boolean hasVisible = false;
         for (ImageReceiver p : parents) {
-            if (!hasVisible && p != null && p.isAttachedToWindow() && p.getVisible()) {
+            if (p != null && p.isAttachedToWindow() && p.getVisible()) {
                 android.view.View pv = p.getParentView();
                 if (pv != null && pv.isAttachedToWindow() && pv.getVisibility() == android.view.View.VISIBLE) {
-                    hasVisible = true;
+                    return true;
                 }
             }
         }
-        return hasVisible;
+        return false;
     }
 
     @UiThread

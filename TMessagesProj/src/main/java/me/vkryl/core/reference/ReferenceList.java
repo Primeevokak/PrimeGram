@@ -62,7 +62,8 @@ public final class ReferenceList<T> implements Iterable<T>, ReferenceCreator<T> 
   private final List<Reference<T>> itemsToRemove = new ArrayList<>();
   private final List<Reference<T>> itemsToAdd = new ArrayList<>();
 
-  private boolean isLocked;
+  private int lockCount;
+  public boolean isLocked;
   private final Semaphore semaphore;
 
   private boolean isFull;
@@ -95,27 +96,31 @@ public final class ReferenceList<T> implements Iterable<T>, ReferenceCreator<T> 
     }
   }
 
+  public boolean isLocked () {
+    return isLocked;
+  }
+
   private void lock () {
-    if (isLocked) {
-      unlock();
-    }
+    lockCount++;
     isLocked = true;
   }
 
   private void unlock () {
-    if (!isLocked) {
+    if (lockCount <= 0) {
       return;
     }
-    isLocked = false;
-    if (!itemsToRemove.isEmpty()) {
-      items.removeAll(itemsToRemove);
-      itemsToRemove.clear();
+    if (--lockCount == 0) {
+      isLocked = false;
+      if (!itemsToRemove.isEmpty()) {
+        items.removeAll(itemsToRemove);
+        itemsToRemove.clear();
+      }
+      if (!itemsToAdd.isEmpty()) {
+        items.addAll(itemsToAdd);
+        itemsToAdd.clear();
+      }
+      checkFull();
     }
-    if (!itemsToAdd.isEmpty()) {
-      items.addAll(itemsToAdd);
-      itemsToAdd.clear();
-    }
-    checkFull();
   }
 
   private int indexOf (T item) {
@@ -244,13 +249,13 @@ public final class ReferenceList<T> implements Iterable<T>, ReferenceCreator<T> 
     synchronized (items) {
       if (cacheIterator) {
         lock();
-        if (itr == null) {
-          itr = new Itr();
+        if (itr == null || lockCount > 1) {
+          return new Itr();
         } else {
           itr.index = items.size();
           itr.nextItem = null;
+          return itr;
         }
-        return itr;
       } else if (items.isEmpty()) {
         return Collections.emptyIterator();
       } else {
