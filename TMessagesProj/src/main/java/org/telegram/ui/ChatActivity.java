@@ -4884,7 +4884,10 @@ public class ChatActivity extends BaseFragment implements
                     return;
                 }
                 botDraftHeightController.onRequestLayout();
-                super.requestLayout();
+                // The list is MATCH_PARENT in contentView: nothing it re-lays out for (paddings from
+                // the input island, item changes, cell heights) can change its bounds, so contentView
+                // re-lays out just the list instead of the whole window. See PrimeLayoutIsolation.
+                PrimeLayoutIsolation.request(this, super::requestLayout);
             }
 
             @Override
@@ -19104,6 +19107,9 @@ public class ChatActivity extends BaseFragment implements
         @Override
         public void requestLayout() {
             if (globalIgnoreLayout) {
+                return;
+            }
+            if (PrimeLayoutIsolation.absorb(this)) {
                 return;
             }
             super.requestLayout();

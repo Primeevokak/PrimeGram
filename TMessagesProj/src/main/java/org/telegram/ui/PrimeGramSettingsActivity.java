@@ -120,6 +120,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_CRASH_LOG_ENABLED = 153;
     private static final int ID_CRASH_LOG = 154;
     private static final int ID_PERF_SKIP_COUNT_REBIND = 155;
+    private static final int ID_LAYOUT_ISOLATION = 156;
     private static final int ID_ADBLOCK_UPDATE = 72;
     private static final int ID_LOCKSCREEN_CALLS = 73;
     private static final int ID_MENU_SAVE = 74;
@@ -2104,6 +2105,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
                     "Лог нагрузки", "просмотр и копирование"));
             row(check(ID_PERF_SKIP_COUNT_REBIND, IconBackgroundColors.PURPLE, R.drawable.msg_speed,
                     "Эксперимент: без пересборки на реакции", org.telegram.messenger.PrimePerfMonitor.skipCountRebind));
+            row(check(ID_LAYOUT_ISOLATION, IconBackgroundColors.PURPLE, R.drawable.msg_speed,
+                    "Изоляция раскладки списков", org.telegram.ui.Components.PrimeLayoutIsolation.isEnabled()));
             row(check(ID_CRASH_LOG_ENABLED, IconBackgroundColors.RED, R.drawable.msg_warning,
                     "Запись крашей", org.telegram.messenger.PrimeCrashLog.isEnabled()));
             row(button(ID_CRASH_LOG, IconBackgroundColors.RED, R.drawable.msg_log,
@@ -2352,6 +2355,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             listView.adapter.update(true);
         } else if (item.id == ID_PERF_MONITOR_LOG) {
             showPerfMonitorLog();
+        } else if (item.id == ID_LAYOUT_ISOLATION) {
+            org.telegram.ui.Components.PrimeLayoutIsolation.setEnabled(!org.telegram.ui.Components.PrimeLayoutIsolation.isEnabled());
+            listView.adapter.update(true);
         } else if (item.id == ID_PERF_SKIP_COUNT_REBIND) {
             org.telegram.messenger.PrimePerfMonitor.setSkipCountRebind(!org.telegram.messenger.PrimePerfMonitor.skipCountRebind);
             listView.adapter.update(true);

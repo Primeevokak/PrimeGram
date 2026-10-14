@@ -74,11 +74,35 @@ public final class PrimePluginXposed {
         }
     }
 
+    /**
+     * Runs {@code clazz}'s static initialiser now, before a hook goes in.
+     *
+     * <p>LSPlant hooks by swapping a method's entry point. When the class has not been initialised
+     * yet, ART rewrites those entry points itself the moment it initialises the class, and on recent
+     * Android releases the hook is silently lost there - the record says "hooked", the method
+     * never calls back. A plugin loaded right after a cold start hits exactly this for every screen
+     * not opened yet in the process (reSwaga: all EmojiView hooks "installed", none ever fired,
+     * while its hook on the already-used ChatActivityEnterView did). Initialising first makes
+     * the entry point final before it is swapped.
+     */
+    private static void ensureInitialized(Class<?> clazz) {
+        if (clazz == null) {
+            return;
+        }
+        try {
+            Class.forName(clazz.getName(), true, clazz.getClassLoader());
+        } catch (Throwable t) {
+            // A static initialiser that fails here would fail on first use anyway; hook regardless.
+            FileLog.e("PrimePluginXposed: init of " + clazz.getName() + " failed", new Exception(t));
+        }
+    }
+
     public static XC_MethodHook.Unhook hookMethod(Member member, int priority, Callback callback) {
         if (!isAvailable() || member == null || callback == null) {
             return null;
         }
         try {
+            ensureInitialized(member.getDeclaringClass());
             PrimeHookPreinstall.prepare(member);
             return XposedBridge.hookMethod(member, new Forwarder(priority, callback));
         } catch (Throwable t) {
@@ -93,6 +117,7 @@ public final class PrimePluginXposed {
             return new ArrayList<>();
         }
         try {
+            ensureInitialized(clazz);
             PrimeHookPreinstall.prepareMethods(clazz, methodName);
             final Set<XC_MethodHook.Unhook> hooks =
                     XposedBridge.hookAllMethods(clazz, methodName, new Forwarder(priority, callback));
@@ -109,6 +134,7 @@ public final class PrimePluginXposed {
             return new ArrayList<>();
         }
         try {
+            ensureInitialized(clazz);
             PrimeHookPreinstall.prepareConstructors(clazz);
             final Set<XC_MethodHook.Unhook> hooks =
                     XposedBridge.hookAllConstructors(clazz, new Forwarder(priority, callback));

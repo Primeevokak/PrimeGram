@@ -193,6 +193,7 @@ import org.telegram.ui.Components.FragmentSearchField;
 import org.telegram.ui.Components.IconBackgroundColors;
 import org.telegram.ui.Components.ImageUpdater;
 import org.telegram.ui.Components.PermissionRequest;
+import org.telegram.ui.Components.PrimeLayoutIsolation;
 import org.telegram.ui.Components.UItem;
 import org.telegram.ui.Components.blur3.BlurredBackgroundDrawableViewFactory;
 import org.telegram.ui.Components.blur3.BlurredBackgroundWithFadeDrawable;
@@ -455,6 +456,14 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
                 blur3_InvalidateBlurThrottled();
             }
+        }
+
+        @Override
+        public void requestLayout() {
+            if (PrimeLayoutIsolation.absorb(this)) {
+                return;
+            }
+            super.requestLayout();
         }
 
         @Override
@@ -2188,7 +2197,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             if (ignoreLayout) {
                 return;
             }
-            super.requestLayout();
+            // MATCH_PARENT in its ViewPage: scrollToPositionWithOffset, adapter updates and cell
+            // height changes re-lay out just this list, not the whole window. See PrimeLayoutIsolation.
+            PrimeLayoutIsolation.request(this, super::requestLayout);
         }
 
         private void toggleArchiveHidden(boolean action, DialogCell dialogCell) {
