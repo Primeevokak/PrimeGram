@@ -598,6 +598,13 @@ void Handshake::processHandshakeResponse_serverDHParams(TLObject *message, int64
 
         TL_server_DH_params_ok *result = (TL_server_DH_params_ok *) message;
 
+        uint32_t answerLength = result->encrypted_answer->length;
+        if (answerLength % 16 != 0 || answerLength < SHA_DIGEST_LENGTH + 16) {
+            if (LOGS_ENABLED) DEBUG_E("account%u dc%u handshake: invalid encrypted answer size %u, type = %d", currentDatacenter->instanceNum, currentDatacenter->datacenterId, answerLength, handshakeType);
+            beginHandshake(false);
+            return;
+        }
+
         NativeByteBuffer *tmpAesKeyAndIv = BuffersStorage::getInstance().getFreeBuffer(84);
 
         NativeByteBuffer *newNonceAndServerNonce = BuffersStorage::getInstance().getFreeBuffer(authNewNonce->length + authServerNonce->length);

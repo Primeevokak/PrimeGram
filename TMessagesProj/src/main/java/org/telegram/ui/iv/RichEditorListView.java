@@ -695,6 +695,7 @@ public class RichEditorListView extends UniversalRecyclerView {
     static void flattenBlocks(ArrayList<BlockRow> out, ArrayList<TL_iv.PageBlock> blocks, Map<Long, TL_iv.RichText> authors) {
         if (blocks == null) return;
         for (TL_iv.PageBlock block : blocks) {
+            if (block == null) continue; // unknown/newer TL constructor deserialized to null — skip, don't spawn an empty phantom row
             if (block instanceof TL_iv.pageBlockList || block instanceof TL_iv.pageBlockOrderedList) {
                 expandListBlock(out, block, 1);
             } else if (block instanceof TL_iv.pageBlockDetails) {
@@ -891,6 +892,7 @@ public class RichEditorListView extends UniversalRecyclerView {
         if (blocks != null) {
             for (int i = 0; i < blocks.size(); i++) {
                 final TL_iv.PageBlock b = blocks.get(i);
+                if (b == null) continue; // unknown/newer TL constructor deserialized to null — skip
                 if (b instanceof TL_iv.pageBlockList || b instanceof TL_iv.pageBlockOrderedList) {
                     if (!started) {
                         addListItemRow(out, null, level, num, checkbox, checked);

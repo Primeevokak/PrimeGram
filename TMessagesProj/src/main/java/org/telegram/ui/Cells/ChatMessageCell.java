@@ -14511,7 +14511,13 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 final int padLeft = Math.max(0, textX - left);
                 final int padRight = Math.max(0, right - (textX + layout.getMinWidth()));
 
-                canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), (int) (0xFF * transitionParams.oldProgress), Canvas.ALL_SAVE_FLAG);
+                // A full-cell offscreen layer taller than the hardware canvas max (long articles)
+                // fails to allocate and renders the whole cell blank — draw layer-less when too tall.
+                if (getHeight() <= canvas.getMaximumBitmapHeight()) {
+                    canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), (int) (0xFF * transitionParams.oldProgress), Canvas.ALL_SAVE_FLAG);
+                } else {
+                    canvas.save();
+                }
                 canvas.translate(textX, textY);
                 layout.draw(canvas, padLeft, padRight, null);
                 canvas.restore();
@@ -14527,7 +14533,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 final int padLeft = Math.max(0, textX - left);
                 final int padRight = Math.max(0, right - (textX + layout.getMinWidth()));
 
-                if (alpha < 1) {
+                if (alpha < 1 && getHeight() <= canvas.getMaximumBitmapHeight()) {
                     canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), (int) (0xFF * alpha), Canvas.ALL_SAVE_FLAG);
                 } else {
                     canvas.save();
@@ -23803,7 +23809,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             return;
         }
         final int saveCount;
-        if (alpha < 1f) {
+        if (alpha < 1f && getHeight() <= canvas.getMaximumBitmapHeight()) {
             saveCount = canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), (int) (0xFF * alpha), Canvas.ALL_SAVE_FLAG);
         } else {
             saveCount = canvas.save();
