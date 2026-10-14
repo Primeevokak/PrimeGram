@@ -406,6 +406,9 @@ public class NotificationCenter {
     public static final int primeE2EStateChanged = totalEvents++;
     /** PrimeGram: the "Диагностика" live performance monitor toggle changed - see PrimePerfMonitor. */
     public static final int primePerfMonitorChanged = totalEvents++;
+    // exteraGram pill stack API (com.exteragram.messenger.pillstack): plugins post these by name.
+    public static final int pillStackLayoutChanged = totalEvents++;
+    public static final int pillStackSettingsChanged = totalEvents++;
 
     public static boolean alreadyLogged;
 

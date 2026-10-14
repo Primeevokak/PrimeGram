@@ -43,6 +43,24 @@ public final class PrimePluginsController {
      *  same suffixed name rather than copied whole. See PluginManifest.parseYaml and
      *  _prime_loader.load_elyx_plugin for the rest of this format's handling. */
     public static final String EXTENSION_ELYX = ".elyx";
+    /** Newer elyxbuilder (0.6.x) output, e.g. Nowfy Lite: byte-for-byte the same package layout -
+     *  refmap.yml, &lt;id&gt;/meta.yml, src/, res/ - under a different suffix. Accepted wherever a
+     *  {@code .elyx} is; once installed it is unpacked to {@code <id>.elyx} like any other package. */
+    public static final String EXTENSION_EAF = ".eaf";
+
+    /** Whether {@code fileName} is a packaged (zipped) plugin, as opposed to a single {@code .plugin}. */
+    public static boolean isPackageFileName(String fileName) {
+        if (fileName == null) {
+            return false;
+        }
+        final String lower = fileName.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(EXTENSION_ELYX) || lower.endsWith(EXTENSION_EAF);
+    }
+
+    /** Whether {@code fileName} is any kind of plugin this app installs. */
+    public static boolean isPluginFileName(String fileName) {
+        return fileName != null && (fileName.toLowerCase(java.util.Locale.ROOT).endsWith(EXTENSION) || isPackageFileName(fileName));
+    }
 
     /** Anything larger is not a plugin; refusing early keeps a hostile file off the main thread. */
     private static final long MAX_SIZE = 8 * 1024 * 1024;
@@ -210,7 +228,7 @@ public final class PrimePluginsController {
         if (file == null || !file.exists()) {
             throw new IOException("no file");
         }
-        if (file.getName().endsWith(EXTENSION_ELYX)) {
+        if (isPackageFileName(file.getName())) {
             if (file.length() > MAX_SIZE_ELYX) {
                 throw new IOException("too large");
             }
@@ -370,7 +388,7 @@ public final class PrimePluginsController {
             String failure = null;
             boolean replaced = false;
             File target = null;
-            final boolean isElyx = source.getName().endsWith(EXTENSION_ELYX);
+            final boolean isElyx = isPackageFileName(source.getName());
             try {
                 manifest = inspect(source);
                 if (!manifest.isCompatibleWithApp(BuildVars.BUILD_VERSION_STRING)) {

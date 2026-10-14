@@ -90,7 +90,7 @@ public final class PrimePluginCapabilities {
             return result;
         }
         try {
-            if (file.getName().endsWith(PrimePluginsController.EXTENSION_ELYX)) {
+            if (PrimePluginsController.isPackageFileName(file.getName())) {
                 try (ZipFile zip = new ZipFile(file)) {
                     final Enumeration<? extends ZipEntry> entries = zip.entries();
                     int budget = MAX_SCAN_BYTES;

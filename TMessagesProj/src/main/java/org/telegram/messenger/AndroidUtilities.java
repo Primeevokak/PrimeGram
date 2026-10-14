@@ -4425,8 +4425,7 @@ public class AndroidUtilities {
             // already reads both formats from a fresh, not-yet-installed file - offer() just
             // never got called for .elyx because this check only ever looked for .plugin.
             if (!restrict && fileName != null
-                    && (fileName.toLowerCase().endsWith(org.telegram.messenger.plugins.PrimePluginsController.EXTENSION)
-                        || fileName.toLowerCase().endsWith(org.telegram.messenger.plugins.PrimePluginsController.EXTENSION_ELYX))
+                    && org.telegram.messenger.plugins.PrimePluginsController.isPluginFileName(fileName)
                     && org.telegram.ui.PrimePluginInstallDialog.offer(activity, f, resourcesProvider)) {
                 return true;
             }

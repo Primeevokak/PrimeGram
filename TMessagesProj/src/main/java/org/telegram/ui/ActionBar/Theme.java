@@ -10105,6 +10105,20 @@ public class Theme {
         return !getActiveTheme().isDark();
     }
 
+    /**
+     * exteraGram API parity: true there when the active theme is a Monet (Material You) one.
+     * PrimeGram has no Monet themes, so the honest answer is always false - but plugins built
+     * against exteraGram (md3_player's own DEX calls this directly) need the method to exist, or
+     * the call ends in NoSuchMethodError.
+     */
+    public static boolean isCurrentThemeMonet() {
+        return false;
+    }
+
+    public static boolean isCurrentThemeMonet(ResourcesProvider resourcesProvider) {
+        return false;
+    }
+
     public static boolean isHome(ThemeAccent accent) {
         if (accent.parentTheme != null) {
             if (accent.parentTheme.getKey().equals("Blue") && accent.id == 99) {

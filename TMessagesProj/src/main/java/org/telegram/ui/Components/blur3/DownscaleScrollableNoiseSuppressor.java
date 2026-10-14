@@ -371,12 +371,18 @@ public class DownscaleScrollableNoiseSuppressor {
         }
         final long start = System.nanoTime();
         final boolean changed = invalidateResultRenderNodesImpl(capture, width, height);
-        org.telegram.messenger.PrimePerfMonitor.noteUiWork(changed ? "блюр перезахват" : "блюр без изменений", System.nanoTime() - start);
+        final String key = changed ? "блюр перезахват"
+                : lastUpdatedCount > 0 ? "блюр перезапись частей"
+                : "блюр пропущен по хешу";
+        org.telegram.messenger.PrimePerfMonitor.noteUiWork(key, System.nanoTime() - start);
         return changed;
     }
 
+    private int lastUpdatedCount;
+
     private boolean invalidateResultRenderNodesImpl(IBlur3Capture capture, int width, int height) {
         int updatedCount = 0;
+        lastUpdatedCount = 0;
         for (int a = 0; a < rectRenderNodesCount; a++) {
             final SourcePart sourcePart = rectRenderNodes.get(a);
             final Rect position = sourcePart.position;
@@ -384,6 +390,12 @@ public class DownscaleScrollableNoiseSuppressor {
 
             builder.start();
             capture.captureCalculateHash(builder, tmpRectF);
+            // The part is recorded translated by its own position: a moved part (taller header,
+            // tabs shown) needs a re-record even when the same views lie under it.
+            builder.add(position.left);
+            builder.add(position.top);
+            builder.add(position.right);
+            builder.add(position.bottom);
             final long hash = builder.get();
 
             if (!builder.isUnsupported() && sourcePart.lastHash == hash && sourcePart.renderNode.hasDisplayList()) {
@@ -403,6 +415,7 @@ public class DownscaleScrollableNoiseSuppressor {
             updatedCount++;
         }
 
+        lastUpdatedCount = updatedCount;
         if (updatedCount > 0) {
             return invalidateResultRenderNodes(width, height);
         }

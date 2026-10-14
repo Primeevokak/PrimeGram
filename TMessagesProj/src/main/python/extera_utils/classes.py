@@ -24,6 +24,30 @@ from org.telegram.messenger.plugins import PrimeClassProxy
 _PEER_FIELD = PrimeClassProxy.PEER_FIELD
 _SUPER_PREFIX = "prime$super$"
 
+# Base.new_instance(init_args=...) -> the <init> hook: per Python class, a stack (constructors can
+# nest) of the argument lists __init__ should get instead of the Java constructor's.
+_PENDING_INIT_ARGS = {}
+
+# (Java class name, attribute) -> java.lang.reflect.Field or None, so a peer's attribute writes
+# do not walk the class hierarchy by reflection every time.
+_FIELD_CACHE = {}
+_NO_FIELD = object()
+
+
+def _java_field(java, name):
+    cls = java.getClass()
+    key = (PrimeClassProxy.nameOf(cls), name)
+    field = _FIELD_CACHE.get(key)
+    if field is None:
+        found = PrimeClassProxy.findDeclaredField(cls, name)
+        if found is not None:
+            from java.lang.reflect import Modifier
+            if Modifier.isStatic(found.getModifiers()):
+                found = None
+        field = found if found is not None else _NO_FIELD
+        _FIELD_CACHE[key] = field
+    return None if field is _NO_FIELD else field
+
 
 def _java_list(items):
     """A real ``java.util.ArrayList`` built from ``items`` (``None`` treated as
@@ -517,11 +541,13 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
         if name == "<init>":
             peer = self._python_class.__new__(self._python_class)
             peer._prime_java = instance
+            pending = _PENDING_INIT_ARGS.get(self._python_class)
+            init_args = pending.pop() if pending else call_args
             try:
                 # exteraGram's documented order: Java constructor -> __init__ -> @jconstructor
                 # hooks -> on_post_init. A hook adds to __init__, it does not replace it.
                 peer.on_pre_init(*call_args)
-                self._python_class.__init__(peer, *call_args)
+                self._python_class.__init__(peer, *init_args)
                 for fn, arity in self._constructors.get(signature, ()):
                     # A hook may declare fewer parameters than the constructor has (real plugins
                     # do); it gets the leading ones rather than a TypeError.
@@ -536,6 +562,10 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
         if peer is None:
             return None
         python_name = self._java_to_python.get(signature, self._java_to_python.get(name, name))
+        # Only what the Python class itself defines: Base.__getattr__ would otherwise hand back the
+        # Java method - the generated override - and the call would come straight back here.
+        if not hasattr(type(peer), python_name) and python_name not in getattr(peer, "__dict__", {}):
+            return None
         method = getattr(peer, python_name, None)
         if method is None:
             return None
@@ -701,14 +731,68 @@ class Base:
         return PrimeClassProxy.newInstance(proxy_class, list(args))
 
     @classmethod
-    def new_instance(cls, *args, **kwargs):
+    def new_instance(cls, *args, init_args=None, **kwargs):
         """Builds the real Java object and hands back its Python peer - the constructor hook
         already made one, so this is ``from_java(new_java_instance(*args))`` in a single call,
-        the shape exteraGram's own SDK documents. ``init_args`` (a way to give the Python side
-        different arguments than the Java constructor got) is not supported: the constructor hook
-        that builds the peer only ever sees the Java constructor's own arguments, and there is no
-        second call site here to hand anything else to."""
-        return cls.from_java(cls.new_java_instance(*args))
+        the shape exteraGram's own SDK documents. ``init_args``, when given, are what ``__init__``
+        receives instead of the Java constructor's arguments - plugins rely on it to hand the peer
+        Python values the Java constructor has no parameter for (reSwaga:
+        ``Pill.new_instance(context, provider, init_args=[id, platform, background])``). The Java
+        constructor runs synchronously on this thread, so the hook that builds the peer picks them
+        up from a per-class stack."""
+        if init_args is None:
+            return cls.from_java(cls.new_java_instance(*args))
+        entry = list(init_args)
+        stack = _PENDING_INIT_ARGS.setdefault(cls, [])
+        stack.append(entry)
+        try:
+            return cls.from_java(cls.new_java_instance(*args))
+        finally:
+            # The constructor hook pops the entry it used; one still here means the constructor
+            # failed before reaching the hook.
+            for i in range(len(stack) - 1, -1, -1):
+                if stack[i] is entry:
+                    del stack[i]
+                    break
+            if not stack:
+                _PENDING_INIT_ARGS.pop(cls, None)
+
+    def __getattr__(self, name):
+        """Only reached when normal lookup failed: falls through to the Java object, the way
+        exteraGram's peers behave - plugins write ``self.actionBar``, ``self.getContext()``,
+        ``self.fragmentView`` on the Python side and expect the Java member. Protected and private
+        fields (``BaseFragment.actionBar`` is protected) are invisible to Chaquopy's attribute
+        access, so those go through reflection."""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        java = self.__dict__.get("_prime_java")
+        if java is None:
+            raise AttributeError(name)
+        try:
+            return getattr(java, name)
+        except AttributeError:
+            pass
+        field = _java_field(java, name)
+        if field is None:
+            raise AttributeError("%s has no attribute %r (neither the Python peer nor %s)" % (
+                type(self).__name__, name, PrimeClassProxy.nameOf(java.getClass())))
+        return field.get(java)
+
+    def __setattr__(self, name, value):
+        """``self.fragmentView = view`` in a peer has to land in the Java field - ``ActionBarLayout``
+        reads ``fragment.fragmentView``, not a Python attribute. A name the Python class itself
+        defines, or already holds, stays Python; so does any name with no such Java field."""
+        if not name.startswith("_") and name not in self.__dict__ and not hasattr(type(self), name):
+            java = self.__dict__.get("_prime_java")
+            if java is not None:
+                field = _java_field(java, name)
+                if field is not None:
+                    try:
+                        field.set(java, value)
+                        return
+                    except Exception:
+                        pass  # wrong type for the field: keep it as a Python attribute instead
+        super().__setattr__(name, value)
 
 
 class PyObj(Base):

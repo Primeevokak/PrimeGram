@@ -1,7 +1,11 @@
 """Decompiles an exteraGram/PrimeGram plugin into readable form and checks it against this project.
 
 Usage:
-    python tools/plugin_decompiler/decompile.py <plugin.elyx | plugin.plugin | dir> [-o OUT_DIR]
+    python tools/plugin_decompiler/decompile.py <plugin.elyx | plugin.eaf | plugin.plugin | dir> [-o OUT_DIR]
+
+A plugin that carries its own Java code (base64 DEX loaded with InMemoryDexClassLoader, or a .dex
+file in the package) gets that code checked too: every app class, field, method and R resource it
+calls into - see "Embedded DEX" in the report.
 
 For every compiled module (.pyc) of the plugin it writes, under OUT_DIR (default:
 <system temp>/prime_plugin_decompiler/<plugin name>/ - never inside the repository):
@@ -51,8 +55,15 @@ def unpack(source, dest):
     if os.path.isdir(source):
         shutil.copytree(source, dest, dirs_exist_ok=True)
         return
-    with zipfile.ZipFile(source) as z:
-        z.extractall(dest)
+    if zipfile.is_zipfile(source):
+        # .elyx and .eaf (newer elyxbuilder output) are the same zipped package layout.
+        with zipfile.ZipFile(source) as z:
+            z.extractall(dest)
+        return
+    # A .plugin is one plain Python source file, not an archive.
+    os.makedirs(dest, exist_ok=True)
+    name = os.path.splitext(os.path.basename(source))[0].replace(" ", "_")
+    shutil.copyfile(source, os.path.join(dest, name + ".py"))
 
 
 def load_pyc(path):
@@ -517,6 +528,20 @@ class Usage:
         self.java_strings = set()             # "a.b.C$D" in string constants
         self.lookups = defaultdict(set)       # call name -> string arguments
         self.attributes = set()               # every attribute name used (for grepping)
+        self.dex_blobs = []                   # (label, bytes): Java code the plugin carries and loads itself
+
+
+def _maybe_dex_constant(value):
+    """A long string constant that is base64 of a DEX file (plugins ship their own Java code this
+    way and load it with InMemoryDexClassLoader), decoded - or None."""
+    if not isinstance(value, str) or len(value) < 2000:
+        return None
+    try:
+        import base64
+        data = base64.b64decode(value, validate=False)
+    except Exception:
+        return None
+    return data if data[:4] == b"dex\n" else None
 
 
 def collect_usage(code, usage):
@@ -525,6 +550,9 @@ def collect_usage(code, usage):
         for k in c.co_consts:
             if isinstance(k, str) and JAVA_NAME.match(k):
                 usage.java_strings.add(k)
+            dex = _maybe_dex_constant(k)
+            if dex is not None and all(dex != b for _, b in usage.dex_blobs):
+                usage.dex_blobs.append(("%s (%d bytes)" % (c.co_name, len(dex)), dex))
         insns = list(dis.get_instructions(c))
         last_module = None
         for i, ins in enumerate(insns):
@@ -610,8 +638,27 @@ def pip_modules():
     return _pip_modules
 
 
+PLUGIN_OWN_MODULES = set()
+
+
+def index_plugin_modules(src_dir):
+    """Every dotted name under which one of the plugin's own modules can be imported - packages
+    such as Nowfy Lite put their src/ on sys.path themselves and import "addons.Ui" absolutely,
+    so each suffix of a module's path counts."""
+    for root, _, files in os.walk(src_dir):
+        for f in files:
+            if not f.endswith((".py", ".pyc")):
+                continue
+            parts = os.path.relpath(os.path.join(root, f), src_dir).split(os.sep)
+            parts[-1] = os.path.splitext(parts[-1])[0]
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            for i in range(len(parts)):
+                PLUGIN_OWN_MODULES.add(".".join(parts[i:]))
+
+
 def python_module_status(module):
-    if module.startswith("."):
+    if module.startswith(".") or module in PLUGIN_OWN_MODULES:
         return "plugin's own"
     if module.split(".")[0] in pip_modules():
         return "pip"
@@ -654,6 +701,109 @@ def member_declared_anywhere(name):
     return False
 
 
+def _uleb128(b, o):
+    result = shift = 0
+    while True:
+        x = b[o]
+        o += 1
+        result |= (x & 0x7f) << shift
+        if x < 0x80:
+            return result, o
+        shift += 7
+
+
+def parse_dex(b):
+    """The parts of a DEX file's id tables this report needs: referenced types, field and method
+    references (declaring type, name) and the types the file defines itself."""
+    import struct
+    u32 = lambda o: struct.unpack_from("<I", b, o)[0]
+    u16 = lambda o: struct.unpack_from("<H", b, o)[0]
+    strings = []
+    for i in range(u32(0x38)):
+        _, p = _uleb128(b, u32(u32(0x3C) + 4 * i))
+        strings.append(b[p:b.index(0, p)].decode("utf-8", "replace"))
+    types = [strings[u32(u32(0x44) + 4 * i)] for i in range(u32(0x40))]
+    fields = [(types[u16(u32(0x54) + 8 * i)], strings[u32(u32(0x54) + 8 * i + 4)]) for i in range(u32(0x50))]
+    methods = [(types[u16(u32(0x5C) + 8 * i)], strings[u32(u32(0x5C) + 8 * i + 4)]) for i in range(u32(0x58))]
+    defined = {types[u32(u32(0x64) + 32 * i)] for i in range(u32(0x60))}
+    return types, fields, methods, defined
+
+
+APP_DESCRIPTOR_PREFIXES = ("Lorg/telegram/", "Lcom/exteragram/", "Lme/vkryl/")
+_res_index = None
+
+
+def res_index():
+    """Resource names per type (drawable, raw, string...) as the app's own res/ declares them."""
+    global _res_index
+    if _res_index is None:
+        _res_index = defaultdict(set)
+        res = os.path.join(REPO, "TMessagesProj", "src", "main", "res")
+        for d in os.listdir(res):
+            full = os.path.join(res, d)
+            if not os.path.isdir(full):
+                continue
+            kind = d.split("-")[0]
+            if kind == "values":
+                for f in os.listdir(full):
+                    if f.endswith(".xml"):
+                        text = open(os.path.join(full, f), encoding="utf-8", errors="ignore").read()
+                        for t, n in re.findall(r'<(string|color|dimen|bool|integer|array|string-array|plurals)\s+name="([^"]+)"', text):
+                            _res_index["array" if t == "string-array" else t].add(n)
+            else:
+                for f in os.listdir(full):
+                    _res_index[kind].add(f.split(".")[0])
+    return _res_index
+
+
+def write_dex_report(usage, w, missing, warnings):
+    if not usage.dex_blobs:
+        return
+    w("\n## Embedded DEX\n\nJava code the plugin carries itself and loads with a DexClassLoader. Its own classes "
+      "are fine whatever they are called; what is checked is every class, field, method and resource of the app it calls into.\n\n")
+    for label, data in usage.dex_blobs:
+        try:
+            types, fields, methods, defined = parse_dex(data)
+        except Exception as e:
+            w("- %s: could not parse (%s)\n" % (label, e))
+            continue
+        app_types = sorted({t for t in types if t.startswith(APP_DESCRIPTOR_PREFIXES) and t not in defined})
+        w("### %s\n\n%d own classes, %d app classes referenced.\n\n" % (label, len(defined), len(app_types)))
+        problems = []
+        for t in app_types:
+            name = t[1:-1].replace("/", ".")
+            if "$-CC" in name:
+                # D8's companion for interface default methods, only generated below minSdk 24.
+                # exteraGram has none either (checked against its APK), so such a call is dead
+                # code there too - noted, not counted as something this app is missing.
+                warnings.append("%s: calls desugared companion %s (absent in exteraGram too)" % (label, name))
+                continue
+            st = java_class_status(name)
+            if st.startswith("MISSING"):
+                problems.append("Java class %s (%s)" % (name, st))
+        for kind, items in (("field", fields), ("method", methods)):
+            for cls, member in sorted(set(items)):
+                if not cls.startswith(APP_DESCRIPTOR_PREFIXES) or cls in defined or member in ("<init>", "<clinit>") or "$-CC" in cls:
+                    continue
+                m = re.match(r"^Lorg/telegram/messenger/R\$(\w+);$", cls)
+                if m:
+                    if member not in res_index().get(m.group(1), set()):
+                        problems.append("resource R.%s.%s" % (m.group(1), member))
+                    continue
+                if java_class_status(cls[1:-1].replace("/", ".")) != "ok":
+                    continue  # already reported as a missing class
+                # Declared anywhere in the app, not just in this class: an inherited platform
+                # method (setTextSize on a TextView subclass) is not a miss.
+                if not member_declared_anywhere(member):
+                    problems.append("%s %s.%s" % (kind, cls[1:-1].replace("/", "."), member))
+        for p in problems:
+            w("- ❌ %s\n" % p)
+            missing.append("DEX %s: %s" % (label, p))
+        if not problems:
+            w("All app references resolve.\n")
+        w("\n")
+
+
 def write_report(usage, out, plugin_name):
     w = out.write
     w("# %s: what it needs from the app\n\n" % plugin_name)
@@ -691,7 +841,24 @@ def write_report(usage, out, plugin_name):
     for s in usage.lookups.get("find_class", set()) | usage.lookups.get("findClass", set()) | usage.lookups.get("jclass", set()):
         if JAVA_NAME.match(s):
             java_classes[s] = "find_class"
+    shipped = set()
+    for _, data in usage.dex_blobs:
+        try:
+            shipped |= {t[1:-1].replace("/", ".") for t in parse_dex(data)[3]}
+        except Exception:
+            pass
     for name in sorted(java_classes):
+        if name in shipped:
+            w("| %s | shipped in the plugin's own DEX | %s |\n" % (name, java_classes[name]))
+            continue
+        if name in PLUGIN_OWN_MODULES:
+            w("| %s | plugin's own Python module | %s |\n" % (name, java_classes[name]))
+            continue
+        if java_classes[name] == "string" and not name.startswith(("org.telegram.", "com.exteragram.", "me.vkryl.")):
+            # A bare string that only looks like a class name (an Intent action, a pref key) and is
+            # outside every namespace this app could be expected to provide.
+            w("| %s | not an app class (string constant) | string |\n" % name)
+            continue
         st = java_class_status(name)
         if st.startswith("MISSING"):
             missing.append("Java class %s (%s)" % (name, st))
@@ -714,6 +881,8 @@ def write_report(usage, out, plugin_name):
                 # repository's sources: a warning, not a certain miss.
                 warnings.append("member %s (%s) is not declared in the app's own sources" % (name, call))
             w("| %s | %s | %s |\n" % (call, name, "yes" if found else "⚠ not in app sources"))
+
+    write_dex_report(usage, w, missing, warnings)
 
     w("\n## Summary\n\n")
     for m in warnings:
@@ -750,6 +919,7 @@ def main():
         shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(src_dir, exist_ok=True)
     unpack(args.plugin, src_dir)
+    index_plugin_modules(src_dir)
 
     usage = Usage()
     done, failed = 0, []
@@ -776,6 +946,11 @@ def main():
                 shutil.copy(path, target_base + ".py")
                 collect_usage_from_source(path, usage)
                 done += 1
+            elif f.endswith(".dex"):
+                with open(path, "rb") as fh:
+                    data = fh.read()
+                if data[:4] == b"dex\n":
+                    usage.dex_blobs.append((rel, data))
 
     with open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8") as fh:
         missing = write_report(usage, fh, name)

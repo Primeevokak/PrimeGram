@@ -178,7 +178,7 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
 
         if (all.isEmpty()) {
             items.add(UItem.asShadow(null));
-            items.add(UItem.asCenterShadow("Плагинов пока нет.\n\nОткройте файл .plugin в любом чате — приложение предложит его установить."));
+            items.add(UItem.asCenterShadow("Плагинов пока нет.\n\nОткройте файл .plugin, .elyx или .eaf в любом чате — приложение предложит его установить."));
             return;
         }
 
