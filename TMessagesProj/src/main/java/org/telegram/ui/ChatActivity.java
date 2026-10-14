@@ -23837,6 +23837,9 @@ public class ChatActivity extends BaseFragment implements
                 MessageObject messageObject = messagesDict[did == dialog_id ? 0 : 1].get(msgId);
                 if (messageObject != null) {
                     MessageObject.updateReactions(messageObject.messageOwner, (TLRPC.TL_messageReactions) args[2]);
+                    if (org.telegram.messenger.PrimePerfMonitor.skipCountRebind) {
+                        return; // measurement experiment: keep the data, skip the cell rebuild
+                    }
                     messageObject.forceUpdate = true;
                     messageObject.reactionsChanged = true;
                     updateMessageAnimated(messageObject, true);
@@ -24455,7 +24458,8 @@ public class ChatActivity extends BaseFragment implements
                                     newGroups.put(groupedMessages.groupId, groupedMessages);
                                 }
                             }
-                            if (chatAdapter != null) {
+                            // Measurement experiment: keep the new count, skip the cell rebuild.
+                            if (chatAdapter != null && !org.telegram.messenger.PrimePerfMonitor.skipCountRebind) {
                                 chatAdapter.updateRowWithMessageObject(messageObject, false, false);
                             }
                         }

@@ -6899,6 +6899,19 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     public MultiLayoutTypingAnimator botDraftTypingAnimator;
 
     private void setMessageContent(MessageObject messageObject, MessageObject.GroupedMessages groupedMessages, boolean bottomNear, boolean topNear, boolean firstInChat, boolean lastInChatList) {
+        if (!org.telegram.messenger.PrimePerfMonitor.trackingInvalidates) {
+            setMessageContentImpl(messageObject, groupedMessages, bottomNear, topNear, firstInChat, lastInChatList);
+            return;
+        }
+        // "повторно" = the same message rebuilt again (reaction/views/poll update, forceUpdate),
+        // "новое" = a cell bound to a different message (scroll, list change).
+        final boolean same = currentMessageObject != null && messageObject != null && currentMessageObject.getId() == messageObject.getId();
+        final long start = System.nanoTime();
+        setMessageContentImpl(messageObject, groupedMessages, bottomNear, topNear, firstInChat, lastInChatList);
+        org.telegram.messenger.PrimePerfMonitor.noteUiWork(same ? "сообщение повторно" : "сообщение новое", System.nanoTime() - start);
+    }
+
+    private void setMessageContentImpl(MessageObject messageObject, MessageObject.GroupedMessages groupedMessages, boolean bottomNear, boolean topNear, boolean firstInChat, boolean lastInChatList) {
         if (messageObject.checkLayout() || currentPosition != null && lastHeight != AndroidUtilities.displaySize.y) {
             currentMessageObject = null;
         }

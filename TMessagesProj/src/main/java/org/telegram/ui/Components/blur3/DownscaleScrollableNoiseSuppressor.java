@@ -366,6 +366,16 @@ public class DownscaleScrollableNoiseSuppressor {
     private final Blur3HashImpl builder = new Blur3HashImpl();
 
     public boolean invalidateResultRenderNodes(IBlur3Capture capture, int width, int height) {
+        if (!org.telegram.messenger.PrimePerfMonitor.trackingInvalidates) {
+            return invalidateResultRenderNodesImpl(capture, width, height);
+        }
+        final long start = System.nanoTime();
+        final boolean changed = invalidateResultRenderNodesImpl(capture, width, height);
+        org.telegram.messenger.PrimePerfMonitor.noteUiWork(changed ? "блюр перезахват" : "блюр без изменений", System.nanoTime() - start);
+        return changed;
+    }
+
+    private boolean invalidateResultRenderNodesImpl(IBlur3Capture capture, int width, int height) {
         int updatedCount = 0;
         for (int a = 0; a < rectRenderNodesCount; a++) {
             final SourcePart sourcePart = rectRenderNodes.get(a);

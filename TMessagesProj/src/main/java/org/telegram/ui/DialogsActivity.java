@@ -15063,7 +15063,13 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         primeBlurDirty = true;
         final long now = android.os.SystemClock.elapsedRealtime();
         final long since = now - primeBlurLastMs;
-        final long minInterval = isDialogsListScrolling() ? 64 : PRIME_BLUR_MIN_INTERVAL_MS;
+        // A horizontal folder swipe (manual drag = startedTracking, release settle =
+        // tabsAnimationInProgress) slides two full pages of cells under the glass while the list's
+        // own vertical scroll state stays IDLE. Without counting it as motion this fell through to
+        // the 24 ms path and re-captured the GPU blur ~40x/s during the swipe - the stutter reported
+        // when paging between folders. Throttle it the same as a vertical scroll instead.
+        final boolean inMotion = isDialogsListScrolling() || startedTracking || tabsAnimationInProgress;
+        final long minInterval = inMotion ? 64 : PRIME_BLUR_MIN_INTERVAL_MS;
         if (since >= minInterval) {
             primeBlurLastMs = now;
             blur3_InvalidateBlur();

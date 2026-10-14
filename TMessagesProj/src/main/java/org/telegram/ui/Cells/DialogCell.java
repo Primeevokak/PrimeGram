@@ -1246,6 +1246,16 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
     private static final float BADGE_DRAWABLE_OFFSET = (BADGE_SIZE - BADGE_DRAWABLE_SIZE) / 2f;
 
     public void buildLayout() {
+        if (!org.telegram.messenger.PrimePerfMonitor.trackingInvalidates) {
+            buildLayoutImpl();
+            return;
+        }
+        final long start = System.nanoTime();
+        buildLayoutImpl();
+        org.telegram.messenger.PrimePerfMonitor.noteUiWork("строка диалога", System.nanoTime() - start);
+    }
+
+    private void buildLayoutImpl() {
         if (isTransitionSupport) {
             return;
         }

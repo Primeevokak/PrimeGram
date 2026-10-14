@@ -343,16 +343,48 @@ public class ApplicationLoader extends Application {
             // Staggered rather than all at once: each account brings up its own storage thread and
             // its own network stack, and firing them together is what turns several accounts into
             // a stutter. 400 ms apart keeps them out of each other's way.
-            int delay = 2000;
-            for (int account : deferredAccounts) {
-                AndroidUtilities.runOnUIThread(() -> {
-                    initAccountStack(account);
-                    ContactsController.getInstance(account).checkAppAccount();
-                    DownloadController.getInstance(account);
-                    PrimeStartupTrace.mark("background account " + account + " ready");
-                }, delay);
-                delay += 400;
-            }
+            final Runnable startDeferred = new Runnable() {
+                private boolean started;
+                @Override public void run() {
+                    if (started) {
+                        return;
+                    }
+                    started = true;
+                    int delay = 0;
+                    for (int account : deferredAccounts) {
+                        AndroidUtilities.runOnUIThread(() -> {
+                            initAccountStack(account);
+                            ContactsController.getInstance(account).checkAppAccount();
+                            DownloadController.getInstance(account);
+                            PrimeStartupTrace.mark("background account " + account + " ready");
+                        }, delay);
+                        delay += 400;
+                    }
+                }
+            };
+            // The comment above (empty-slot skipping) already states the intent: background accounts
+            // are "built once the list of chats is on screen". A fixed 2000 ms delay did NOT honour
+            // that - on a real account the primary dialog load owns the storage read queue until
+            // ~6 s, so the background account's own openDatabase landed right in the middle of it
+            // (measured: background account up at ~3.2 s, dead centre of the 2.6-6.5 s dialog read).
+            // Gate on the actual "dialogs visible" signal instead: the primary account's first
+            // dialogsNeedReload that carries dialogs (DialogsActivity keys "dialogs visible" off the
+            // same condition). A fixed fallback still fires so an account with no cached dialogs -
+            // or any path that never posts the reload - always comes up.
+            final int primary = primaryAccount;
+            final NotificationCenter primaryNc = NotificationCenter.getInstance(primary);
+            final NotificationCenter.NotificationCenterDelegate[] holder = new NotificationCenter.NotificationCenterDelegate[1];
+            holder[0] = (id, account, args) -> {
+                if (!MessagesController.getInstance(primary).getDialogs(0).isEmpty()) {
+                    primaryNc.removeObserver(holder[0], NotificationCenter.dialogsNeedReload);
+                    startDeferred.run();
+                }
+            };
+            primaryNc.addObserver(holder[0], NotificationCenter.dialogsNeedReload);
+            AndroidUtilities.runOnUIThread(() -> {
+                primaryNc.removeObserver(holder[0], NotificationCenter.dialogsNeedReload);
+                startDeferred.run();
+            }, 10000);
         }
 
         ApplicationLoader app = (ApplicationLoader) ApplicationLoader.applicationContext;

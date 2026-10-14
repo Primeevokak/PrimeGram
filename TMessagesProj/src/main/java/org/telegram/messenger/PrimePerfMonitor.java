@@ -65,6 +65,16 @@ public final class PrimePerfMonitor {
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.primePerfMonitorChanged);
     }
 
+    /** Measurement experiment, not a feature: while on, reaction and view-count updates still
+     *  update the message data but don't rebuild the message cell, so the counters on screen go
+     *  stale. Comparing a busy channel with it on and off gives the upper bound of what avoiding
+     *  those rebuilds can win. Deliberately not persisted - a restart always turns it off. */
+    public static volatile boolean skipCountRebind;
+
+    public static void setSkipCountRebind(boolean skip) {
+        skipCountRebind = skip;
+    }
+
     private static SharedPreferences prefs() {
         return ApplicationLoader.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
@@ -447,6 +457,45 @@ public final class PrimePerfMonitor {
         return synthetic > 0 ? trimmed.substring(0, synthetic) : trimmed;
     }
 
+    private static final java.util.Map<String, long[]> uiWork = new java.util.HashMap<>(); // {count, ns, max}
+
+    /** Time the UI thread spent on one kind of non-drawing work: rebuilding a cell's layouts,
+     *  capturing the blur backdrop... Splits the "считает" share into named costs, so a slow
+     *  window says whether binds, rebinds or the blur ate the frames. */
+    public static void noteUiWork(String key, long ns) {
+        synchronized (PrimePerfMonitor.class) {
+            final long[] c = uiWork.get(key);
+            if (c == null) {
+                uiWork.put(key, new long[]{1, ns, ns});
+            } else {
+                c[0]++;
+                c[1] += ns;
+                c[2] = Math.max(c[2], ns);
+            }
+        }
+    }
+
+    private static void appendUiWorkLines(long elapsedMs) {
+        if (uiWork.isEmpty()) {
+            return;
+        }
+        final java.util.List<java.util.Map.Entry<String, long[]>> sorted = new java.util.ArrayList<>(uiWork.entrySet());
+        sorted.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+        long totalNs = 0;
+        for (java.util.Map.Entry<String, long[]> e : sorted) {
+            totalNs += e.getValue()[1];
+        }
+        final StringBuilder sb = new StringBuilder(String.format(Locale.US,
+                "    работа UI по видам (%.0fмс, %d%% окна):", totalNs / 1e6, Math.round(100.0 * totalNs / 1e6 / elapsedMs)));
+        final double seconds = elapsedMs / 1000.0;
+        for (int i = 0; i < Math.min(6, sorted.size()); i++) {
+            final long[] c = sorted.get(i).getValue();
+            sb.append(i == 0 ? " " : "; ").append(sorted.get(i).getKey())
+                    .append(String.format(Locale.US, " %.0f/сек %.0fмс (макс %.1f)", c[0] / seconds, c[1] / 1e6, c[2] / 1e6));
+        }
+        appendLine(sb.toString());
+    }
+
     private static final java.util.Map<String, long[]> updateSections = new java.util.HashMap<>(); // {count, ns, max}
 
     /** Time spent applying one kind of incoming update on the UI thread. */
@@ -817,6 +866,7 @@ public final class PrimePerfMonitor {
         rootLayoutRequests = 0;
         notificationCost.clear();
         updateSections.clear();
+        uiWork.clear();
         notificationCount.clear();
         longTasks.clear();
     }
@@ -872,6 +922,7 @@ public final class PrimePerfMonitor {
         }
         appendHotSpotLines();
         appendInclusiveLines();
+        appendUiWorkLines(elapsedMs);
         appendInvalidateLines(elapsedMs);
         appendRootLayoutLines(elapsedMs);
         appendBoundaryLines(elapsedMs);
