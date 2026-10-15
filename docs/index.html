@@ -204,12 +204,12 @@ footer{padding:38px 0 54px;color:var(--muted);font-size:14px}
 </header>
 
 <div class="wrap hero">
-  <p class="eyebrow-line rise" style="--d:0ms"><b>●</b> версия 12.9.0.9 · Android · GPLv2</p>
-  <h1 class="rise" style="--d:70ms">Telegram, который <span class="glow">просто работает</span></h1>
+  <p class="eyebrow-line rise" style="--d:0ms"><b>●</b> версия <span id="version">12.10.4.1</span> · Android 7.0+ · GPLv2</p>
+  <h1 class="rise" style="--d:70ms">Клиент Telegram <span class="glow">без ручной настройки VPN</span></h1>
   <p class="lede rise" style="--d:140ms">
-    Тот же мессенджер, к которому вы привыкли — только соединение держится крепче,
-    файлы уходят вчетверо больше, голосовые превращаются в текст прямо на телефоне,
-    а всё остальное можно дописать самому.
+    Неофициальный клиент Telegram для Android на основе исходного кода Telegram.
+    Встроенный обход блокировок, передача файлов до 8 ГБ, распознавание голосовых
+    сообщений на устройстве и плагины на Python, совместимые с exteraGram.
   </p>
   <div class="cta rise" style="--d:210ms">
     <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest">
@@ -225,49 +225,49 @@ footer{padding:38px 0 54px;color:var(--muted);font-size:14px}
 
 <section id="features">
   <div class="wrap">
-    <div class="eyebrow rise">Что внутри</div>
-    <h2 class="rise">Функционал внутри</h2>
-    <p class="section-lede rise">Ничего не нужно настраивать — всё работает сразу после установки.</p>
+    <div class="eyebrow rise">Возможности</div>
+    <h2 class="rise">Функции клиента</h2>
+    <p class="section-lede rise">Функции доступны сразу после установки и не требуют дополнительной настройки.</p>
     <div class="feats">
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5M9 13h6M9 17h6"/></svg></div>
-        <div><h3>Файлы до 8 ГБ</h3><p>Вместо двух, которые разрешает Telegram — одним сообщением, без архивов.</p></div>
+        <div><h3>Файлы до 8 ГБ</h3><p>Файлы сверх ограничения Telegram в 2 ГБ передаются частями и собираются у получателя с PrimeGram.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 2a5 5 0 015 5v3a5 5 0 01-10 0V7a5 5 0 015-5zM19 10v2a7 7 0 01-14 0v-2M12 19v3"/></svg></div>
-        <div><h3>Расшифровка голосовых</h3><p>Прямо на телефоне, без интернета и подписки. Текст набегает по мере распознавания.</p></div>
+        <div><h3>Распознавание голосовых</h3><p>Выполняется на устройстве, без сети и без Telegram Premium. Пять моделей с разным соотношением скорости и точности.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></div>
-        <div><h3>Соединение само по себе</h3><p>Клиент подбирает маршрут до серверов и переключается, если выбранный перестал отвечать.</p></div>
+        <div><h3>Обход блокировок</h3><p>Клиент подбирает рабочий маршрут до серверов Telegram и переключается при его недоступности. Поддерживается собственный туннель на Cloudflare.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 15h4"/></svg></div>
-        <div><h3>Встроенный браузер</h3><p>С блокировщиком рекламы — ссылки открываются, не выходя из приложения.</p></div>
+        <div><h3>Встроенный браузер</h3><p>Вкладки, блокировка рекламы и шифрованный DNS.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
-        <div><h3>Поиск по ID и номеру</h3><p>Числовой идентификатор или телефон — без дополнительных ботов.</p></div>
+        <div><h3>Расширенный поиск</h3><p>Поиск по числовому идентификатору, номеру телефона или ссылке t.me.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16M4 11h16M4 17h10"/><circle cx="19" cy="17" r="2"/></svg></div>
-        <div><h3>Лента каналов</h3><p>Непрочитанные посты всех подписок одним списком, без скачки по чатам.</p></div>
+        <div><h3>Лента каналов</h3><p>Непрочитанные публикации всех подписок в едином списке.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 8v4l3 3M20 12a8 8 0 11-8-8"/></svg></div>
-        <div><h3>Временные подписки</h3><p>Отписываются сами по истечении срока — не нужно вспоминать через месяц.</p></div>
+        <div><h3>Временные подписки</h3><p>Автоматическая отписка от канала по истечении выбранного срока.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5"/></svg></div>
-        <div><h3>Настраиваемая боковая панель</h3><p>Зона активации подстраивается под то, как вы держите телефон.</p></div>
+        <div><h3>Боковая панель</h3><p>Настраиваемая ширина зоны жеста для открытия боковой панели.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h7"/></svg></div>
-        <div><h3>Свои переводчики</h3><p>Не только встроенный движок — можно подключить любой через плагин.</p></div>
+        <div><h3>Переводчики</h3><p>Выбор службы перевода; дополнительные службы подключаются плагинами.</p></div>
       </div>
       <div class="feat rise">
         <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.1-3.1a4 4 0 01-5.4 5.4L6 21H3v-3l10.4-10.4a4 4 0 015.4-5.4l-3 3z"/></svg></div>
-        <div><h3>Плагины на Python</h3><p>Один файл — и клиент делает то, что нужно. Совместимы с exteraGram: написанное под него обычно работает без правок.</p></div>
+        <div><h3>Плагины на Python</h3><p>Форматы .plugin, .elyx и .eaf. API совместим с exteraGram.</p></div>
       </div>
     </div>
   </div>
@@ -276,17 +276,17 @@ footer{padding:38px 0 54px;color:var(--muted);font-size:14px}
 <section id="dev">
   <div class="wrap dev">
     <div>
-      <div class="eyebrow rise">Для тех, кто пишет код</div>
+      <div class="eyebrow rise">Разработчикам</div>
       <h2 class="rise">Плагины</h2>
       <p class="section-lede rise" style="margin-bottom:0">
-        Полноценные плагины на Python: можно менять поведение клиента, а не только
-        реагировать на готовые события.
+        Плагины на Python 3.11 (Chaquopy). Помимо событий клиента доступен перехват
+        методов Java и наследование классов приложения.
       </p>
       <ul class="checks">
-        <li class="rise">Больше сорока библиотек уже внутри — от requests и pillow до pandas с matplotlib</li>
-        <li class="rise">Можно менять поведение самого клиента, а не только пользоваться готовыми крючками</li>
-        <li class="rise">Свои форматы файлов, свои схемы ссылок, свои экраны настроек</li>
-        <li class="rise">Документация с примерами, справочником и готовыми рецептами</li>
+        <li class="rise">39 предустановленных библиотек, в том числе requests, pillow, pandas и matplotlib; прочие чистые Python-пакеты устанавливаются из PyPI</li>
+        <li class="rise">Перехват методов приложения и наследование его классов</li>
+        <li class="rise">Собственные типы файлов, схемы ссылок и экраны настроек</li>
+        <li class="rise">Документация: справочник API, примеры и типовые решения</li>
       </ul>
     </div>
     <div class="code rise">
@@ -311,11 +311,34 @@ __name__ = "Hello World"</span>
   </div>
 </section>
 
+<section id="verify">
+  <div class="wrap">
+    <div class="eyebrow rise">Подлинность</div>
+    <h2 class="rise">Проверка подписи</h2>
+    <p class="section-lede rise">
+      Официальные сборки подписаны двумя сертификатами. APK с иными сертификатами
+      не является официальной сборкой PrimeGram. Проверка выполняется командой
+      <code>apksigner verify --print-certs PrimeGram.apk</code>.
+    </p>
+    <div class="code rise">
+      <div class="top"><i></i><i></i><i></i></div>
+<pre><span class="c-com"># Android 7.0 – 12: исходный сертификат</span>
+A0:8D:7D:C3:23:DD:F7:1E:F3:20:19:44:39:7E:0D:3C:
+CE:7D:40:84:72:63:E1:1F:32:8B:68:BB:E1:92:29:AB
+
+<span class="c-com"># Android 13 и выше: сертификат PrimeGram</span>
+24:8E:BA:BF:62:F2:38:7A:25:BA:7C:0F:00:BE:95:19:
+01:4D:24:4C:FD:84:2B:F6:7B:E4:8E:11:08:52:B2:5D</pre>
+    </div>
+  </div>
+</section>
+
 <section class="final">
   <div class="wrap">
-    <h2 class="rise">Попробуйте — это одна установка</h2>
+    <h2 class="rise">Загрузка</h2>
     <p class="section-lede rise" style="margin:0 auto 40px">
-      Приложение само проверяет обновления, так что скачивать вручную придётся ровно один раз.
+      Приложение проверяет обновления через GitHub и предлагает установить новую версию.
+      Загрузить APK вручную требуется только для первой установки.
     </p>
     <div class="cta rise">
       <a class="btn btn-main" href="https://github.com/Primeevokak/PrimeGram/releases/latest">
@@ -351,6 +374,23 @@ __name__ = "Hello World"</span>
   }, { threshold: .15, rootMargin: '0px 0px -60px' });
 
   items.forEach(el => { if (!el.classList.contains('in')) io.observe(el); });
+})();
+
+// Current version from the latest stable GitHub release (/releases/latest never returns a
+// pre-release). The number written in the markup stays as the fallback when the request fails or
+// GitHub's anonymous rate limit (60 requests per hour per visitor IP) is exhausted.
+(function () {
+  const el = document.getElementById('version');
+  if (!el || !window.fetch) return;
+  fetch('https://api.github.com/repos/Primeevokak/PrimeGram/releases/latest', {
+    headers: { 'Accept': 'application/vnd.github+json' }
+  })
+    .then(r => r.ok ? r.json() : null)
+    .then(release => {
+      const tag = release && release.tag_name;
+      if (tag) el.textContent = tag.replace(/^v/i, '');
+    })
+    .catch(() => {});
 })();
 </script>
 </body>
