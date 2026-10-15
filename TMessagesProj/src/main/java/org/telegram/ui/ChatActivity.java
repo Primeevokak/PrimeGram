@@ -9765,8 +9765,65 @@ public class ChatActivity extends BaseFragment implements
      * the server rather than the in-memory list. Anything the server no longer has — deleted
      * since it was tagged — simply does not come back, which is the correct outcome.
      */
+    /**
+     * PrimeGram: selects every message the active local-tag filter found, entering selection mode
+     * the same way a long press would - the search panel's right button reads "Выбрать все" while
+     * a tag filter is on (it reads "Показать списком" otherwise).
+     */
+    private void primeSelectAllTagResults() {
+        if (primeTagResults.isEmpty() || isInsideContainer || actionBar == null) {
+            return;
+        }
+        if (!actionBar.isActionModeShowed()) {
+            createActionMode();
+            final ActionBarMenu actionMode = actionBar.createActionMode();
+            actionMode.setItemVisibility(delete, View.VISIBLE);
+            actionsButtonsLayout.bringToFront();
+            bottomViewsVisibilityController.setViewVisible(MESSAGE_ACTION_CONTAINER, true, true);
+            if (chatActivityEnterView != null && chatActivityEnterView.getVisibility() == View.VISIBLE) {
+                actionBar.showActionMode(true, null, null, null, new boolean[]{false, true, true}, null, 0);
+                if (chatActivityEnterView.getEditField() != null) {
+                    chatActivityEnterView.getEditField().setAllowDrawCursor(false);
+                }
+                chatActivityEnterView.preventInput = true;
+                chatActivityEnterView.hideBotCommands();
+            } else if (bottomChannelButtonsLayout != null && bottomChannelButtonsLayout.getVisibility() == View.VISIBLE) {
+                actionBar.showActionMode(true, null, null, null, new boolean[]{true}, null, 0);
+            } else {
+                actionBar.showActionMode(true, null, null, null, null, null, 0);
+            }
+            if (getParentActivity() instanceof LaunchActivity) {
+                ((LaunchActivity) getParentActivity()).hideVisibleActionMode();
+            }
+            closeMenu();
+            updatePinnedMessageView(true);
+        }
+        int selected = selectedMessagesIds[0].size() + selectedMessagesIds[1].size();
+        final int size = primeTagResults.size();
+        for (int i = 0; i < size && selected < MAX_SELECTED_MESSAGES; i++) {
+            final MessageObject messageObject = primeTagResults.get(i);
+            final int index = messageObject.getDialogId() == dialog_id ? 0 : 1;
+            if (selectedMessagesIds[index].indexOfKey(messageObject.getId()) >= 0) {
+                continue;
+            }
+            addToSelectedMessages(messageObject, false, i == size - 1);
+            selected++;
+        }
+        updateActionModeTitle();
+        updateVisibleRows();
+    }
+
+    private void primeUpdateSearchExpandLabel() {
+        if (searchExpandList == null) {
+            return;
+        }
+        searchExpandList.setText(primeTagFilter != null ? "Выбрать все"
+                : LocaleController.getString(isMessagesSearchListVisible() ? R.string.SearchAsChat : R.string.SearchAsList), !LocaleController.isRTL);
+    }
+
     private void applyLocalTagFilter(String tagName) {
         primeTagFilter = tagName;
+        primeUpdateSearchExpandLabel();
         if (tagName == null) {
             primeTagResults.clear();
             setFilterMessages(false);
@@ -11039,6 +11096,10 @@ public class ChatActivity extends BaseFragment implements
         searchExpandList.adaptWidth = false;
         searchExpandList.setPadding(dp(15.33f), 0, dp(15.33f), 0);
         searchExpandList.setOnClickListener(v -> {
+            if (primeTagFilter != null) {
+                primeSelectAllTagResults();
+                return;
+            }
             toggleMesagesSearchListView();
         });
         searchExpandList.setAlpha(0.5f);
@@ -14792,7 +14853,7 @@ public class ChatActivity extends BaseFragment implements
                 return;
             }
             final int myId = ++waitingForWebpageId;
-            requestLinkPreviewCached(req, (success, webpage) -> AndroidUtilities.runOnUIThread(() -> {
+            final Utilities.Callback2<Boolean, TLRPC.WebPage> onResult = (success, webpage) -> AndroidUtilities.runOnUIThread(() -> {
                 if (waitingForWebpageId != myId) {
                     return;
                 }
@@ -14823,8 +14884,59 @@ public class ChatActivity extends BaseFragment implements
                     foundWebPage = null;
                     fallbackFieldPanel();
                 }
-            }));
+            });
+            // PrimeGram: a post on X, Instagram, TikTok, Reddit... gets its preview from an embed
+            // fixer (PrimeLinkFixer) - the text keeps the original link, only the preview's URL
+            // differs, and the original is requested whenever no fixer produces a real card.
+            final List<String> fixedUrls = currentEncryptedChat == null && editingMessageObject == null
+                    ? org.telegram.messenger.PrimeLinkFixer.candidates(firstUrl) : java.util.Collections.emptyList();
+            if (fixedUrls.isEmpty()) {
+                requestLinkPreviewCached(req, onResult);
+            } else {
+                AndroidUtilities.runOnUIThread(() -> primeRequestFixedPreview(fixedUrls, 0, 0, req, myId, onResult));
+            }
         });
+    }
+
+    /**
+     * Tries {@code fixedUrls[index]}; a usable card becomes the preview (with the original text as
+     * its display_url, so the composer still recognises it in the field), anything else moves on to
+     * the next fixer and finally to the original request. A preview still being fetched by
+     * Telegram (webPagePending) is asked again a few times rather than trusted blindly - a dead
+     * fixer resolves to an empty page, which would otherwise be sent as "no preview at all".
+     */
+    private void primeRequestFixedPreview(List<String> fixedUrls, int index, int pendingRetries,
+                                          TL_account.getWebPagePreview originalReq, int myId,
+                                          Utilities.Callback2<Boolean, TLRPC.WebPage> onResult) {
+        if (waitingForWebpageId != myId) {
+            return;
+        }
+        if (index >= fixedUrls.size()) {
+            requestLinkPreviewCached(originalReq, onResult);
+            return;
+        }
+        final TL_account.getWebPagePreview req = new TL_account.getWebPagePreview();
+        req.message = fixedUrls.get(index);
+        final Utilities.Callback2<Boolean, TLRPC.WebPage> handle = (success, webpage) -> AndroidUtilities.runOnUIThread(() -> {
+            if (waitingForWebpageId != myId) {
+                return;
+            }
+            if (success && webpage instanceof TLRPC.TL_webPagePending && pendingRetries < 3) {
+                AndroidUtilities.runOnUIThread(() -> primeRequestFixedPreview(fixedUrls, index, pendingRetries + 1, originalReq, myId, onResult), 1200);
+                return;
+            }
+            if (success && org.telegram.messenger.PrimeLinkFixer.isUsable(webpage)) {
+                // onResult stamps display_url with the original request's text - the link as typed.
+                onResult.run(true, webpage);
+                return;
+            }
+            primeRequestFixedPreview(fixedUrls, index + 1, 0, originalReq, myId, onResult);
+        });
+        if (pendingRetries > 0) {
+            requestLinkPreview(req, handle);
+        } else {
+            requestLinkPreviewCached(req, handle);
+        }
     }
 
     private HashMap<String, TLRPC.WebPage> lastLinkPreviewResults;
@@ -40260,6 +40372,7 @@ public class ChatActivity extends BaseFragment implements
             searchingReaction = null;
             primeTagFilter = null;
             primeTagResults.clear();
+            primeUpdateSearchExpandLabel();
             updateSearchUpDownButtonVisibility(true);
             updatePagedownButtonVisibility(true);
             if (actionBarSearchTags != null) {
