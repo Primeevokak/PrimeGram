@@ -142,6 +142,49 @@ public final class PluginsController {
      * data now, built from {@link PrimePluginsController}'s own catalogue on every call - plugins
      * are few and this is not a hot path, so there is nothing worth caching here.
      */
+    /**
+     * exteraGram's Kotlin property, read by plugins as a field ({@code PluginsController.getInstance()
+     * .plugins.get(metainfo['id'])} in reSwaga) - Chaquopy maps that to a field, not to
+     * {@link #getPlugins()}. A live view: every lookup reads the current catalogue.
+     */
+    public final ConcurrentHashMap<String, Plugin> plugins = new ConcurrentHashMap<String, Plugin>() {
+        private void refresh() {
+            final ConcurrentHashMap<String, Plugin> now = getPlugins();
+            super.keySet().retainAll(now.keySet());
+            super.putAll(now);
+        }
+
+        @Override
+        public Plugin get(Object key) {
+            refresh();
+            return super.get(key);
+        }
+
+        @Override
+        public boolean containsKey(Object key) {
+            refresh();
+            return super.containsKey(key);
+        }
+
+        @Override
+        public int size() {
+            refresh();
+            return super.size();
+        }
+
+        @Override
+        public java.util.Collection<Plugin> values() {
+            refresh();
+            return super.values();
+        }
+
+        @Override
+        public java.util.Set<java.util.Map.Entry<String, Plugin>> entrySet() {
+            refresh();
+            return super.entrySet();
+        }
+    };
+
     public ConcurrentHashMap<String, Plugin> getPlugins() {
         final ConcurrentHashMap<String, Plugin> result = new ConcurrentHashMap<>();
         for (org.telegram.messenger.plugins.PrimePlugin primePlugin : PrimePluginsController.getInstance().getPlugins()) {

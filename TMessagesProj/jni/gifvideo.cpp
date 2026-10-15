@@ -105,12 +105,6 @@ typedef struct VideoInfo {
             fallbackBufSize = 0;
         }
 
-        if (ioJniAttached && ioJniEnv != nullptr) {
-            javaVm->DetachCurrentThread();
-            ioJniEnv = nullptr;
-            ioJniAttached = false;
-        }
-
         video_stream_idx = -1;
         video_stream = nullptr;
         audio_stream = nullptr;
@@ -148,9 +142,6 @@ typedef struct VideoInfo {
     uint8_t *fallbackBuf = nullptr;
     int fallbackBufSize = 0;
 
-    // Persistent JNI environment: attached once at decoder open, detached at close
-    JNIEnv *ioJniEnv = nullptr;
-    bool ioJniAttached = false;
 };
 
 void custom_log(void *ptr, int level, const char* fmt, va_list vl){
@@ -266,21 +257,30 @@ int readCallback(void *opaque, uint8_t *buf, int buf_size) {
                 buf_size = (int) (info->file_size - info->last_seek_p);
             }
             if (buf_size > 0) {
-                // Attach once per decoder lifetime, not per-chunk
-                if (info->ioJniEnv == nullptr) {
+                // The JNIEnv of *this* thread, every time. A JNIEnv is thread-local, and one decoder
+                // is driven by whichever pool thread picks up its next frame: caching the first
+                // thread's env in VideoInfo (an "attach once" optimisation) made later reads call
+                // into Java through another thread's env - CheckJNI aborts the process on that
+                // ("JNIEnv* from thread ..." in nGetVideoFrame), and without it it is undefined
+                // behaviour. GetEnv is a thread-local lookup; the callers are Java threads, so it
+                // only attaches for a thread the VM has never seen, and detaches it right after.
+                JNIEnv *ioEnv = nullptr;
+                bool attachedHere = false;
+                if (javaVm->GetEnv((void **) &ioEnv, JNI_VERSION_1_6) != JNI_OK) {
                     JavaVMAttachArgs jvmArgs;
                     jvmArgs.version = JNI_VERSION_1_6;
                     jvmArgs.name = nullptr;
                     jvmArgs.group = nullptr;
-                    if (JNI_EDETACHED == javaVm->GetEnv((void **) &info->ioJniEnv, JNI_VERSION_1_6)) {
-                        javaVm->AttachCurrentThread(&info->ioJniEnv, &jvmArgs);
-                        info->ioJniAttached = true;
-                    } else {
-                        info->ioJniAttached = false;
+                    if (javaVm->AttachCurrentThread(&ioEnv, &jvmArgs) != JNI_OK) {
+                        return AVERROR_EOF;
                     }
+                    attachedHere = true;
                 }
 
-                buf_size = info->ioJniEnv->CallIntMethod(info->stream, jclass_AnimatedFileDrawableStream_read, (jint) info->last_seek_p, (jint) buf_size);
+                buf_size = ioEnv->CallIntMethod(info->stream, jclass_AnimatedFileDrawableStream_read, (jint) info->last_seek_p, (jint) buf_size);
+                if (attachedHere) {
+                    javaVm->DetachCurrentThread();
+                }
                 info->last_seek_p += buf_size;
                 if (buf_size == 0) {
                     return AVERROR_EXIT;

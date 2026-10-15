@@ -209,7 +209,10 @@ public class MediaDataController extends BaseController {
         });
 
         loadStickersByEmojiOrName(AndroidUtilities.STICKERS_PLACEHOLDER_PACK_NAME, false, true);
-        loadEmojiThemes();
+        // PrimeGram: off the main thread - this reads emojithemes_config_N (blocking on its disk
+        // load, 3 s measured at cold start) and deserializes every theme, and its result only
+        // ever reaches defaultEmojiThemes through a UI-thread post anyway.
+        ChatThemeController.chatThemeQueue.postRunnable(this::loadEmojiThemes);
         loadRecentAndTopReactions(false);
         loadAvatarConstructor(false);
         loadAvatarConstructor(true);

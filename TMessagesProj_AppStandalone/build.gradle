@@ -67,10 +67,25 @@ android {
         }
 
         release {
-            storeFile file("../TMessagesProj/config/release.keystore")
-            storePassword RELEASE_STORE_PASSWORD
-            keyAlias RELEASE_KEY_ALIAS
-            keyPassword RELEASE_KEY_PASSWORD
+            // Installed PrimeGram (thousands of users) is signed with upstream's public
+            // release.keystore, and Android installs an update only when its signer matches - an
+            // APK signed with PrimeGram's own key alone fails to update every existing install.
+            // So the old key stays the default. The own key (PRIME_KEYSTORE_* from env/CI secrets or
+            // the gitignored local.properties, keystore outside the repo) is used only on an explicit
+            // PRIME_SIGN_WITH_OWN_KEY=true, meant for a migration via APK v3 key rotation (a lineage
+            // signed by the old key), never as a plain switch.
+            def primeKeystore = "true" == primeSecret("PRIME_SIGN_WITH_OWN_KEY") ? primeSecret("PRIME_KEYSTORE_FILE") : null
+            if (primeKeystore) {
+                storeFile file(primeKeystore)
+                storePassword primeSecret("PRIME_KEYSTORE_PASSWORD")
+                keyAlias primeSecret("PRIME_KEY_ALIAS")
+                keyPassword primeSecret("PRIME_KEY_PASSWORD")
+            } else {
+                storeFile file("../TMessagesProj/config/release.keystore")
+                storePassword RELEASE_STORE_PASSWORD
+                keyAlias RELEASE_KEY_ALIAS
+                keyPassword RELEASE_KEY_PASSWORD
+            }
             // AGP drops the legacy v1 (JAR) signature by default once minSdkVersion >= 24, since
             // v2/v3 alone satisfy stock Android. Some OEM package installers (Huawei/EMUI in
             // particular) still expect v1 to be present and reject a v2/v3-only APK with a generic
@@ -105,13 +120,12 @@ android {
             ndk.debugSymbolLevel = 'FULL'
         }
         release {
-            // Deliberately true, not a leftover from debugging the session-drop issue: without a
-            // Play Store signature, Google Play Protect flags a non-debuggable sideloaded APK much
-            // more aggressively ("this app may be harmful"-style warnings on install/launch). This
-            // is a real tradeoff (a debuggable release build can be attached to and its process
-            // memory read), accepted knowingly because there is no Play Store signing key for this
-            // build and there isn't expected to be one.
-            debuggable true
+            // false: a debuggable APK runs the whole app in ART's debug mode - the slow switch
+            // interpreter instead of nterp, JIT code kept deoptimizable, CheckJNI on every native
+            // call - which cost frames everywhere under load. It was once set true on the belief
+            // that Play Protect trusts debuggable sideloads more; it does not. What it distrusts is
+            // the public upstream signing key, now replaced by PrimeGram's own (signingConfigs).
+            debuggable false
             jniDebuggable false
             signingConfig signingConfigs.release
             minifyEnabled true
@@ -208,3 +222,22 @@ apply plugin: 'com.google.gms.google-services'
 
 
 
+
+// A build secret: the environment first (GitHub Actions secrets), then the gitignored
+// local.properties at the repo root. Null when neither has it.
+def primeSecret(String name) {
+    def fromEnv = System.getenv(name)
+    if (fromEnv != null && !fromEnv.trim().isEmpty()) {
+        return fromEnv.trim()
+    }
+    def propsFile = rootProject.file('local.properties')
+    if (propsFile.exists()) {
+        def props = new Properties()
+        propsFile.withInputStream { props.load(it) }
+        def value = props.getProperty(name)
+        if (value != null && !value.trim().isEmpty()) {
+            return value.trim()
+        }
+    }
+    return null
+}

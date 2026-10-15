@@ -28048,6 +28048,8 @@ public class ChatActivity extends BaseFragment implements
                 };
             }
             openAnimationEnded = false;
+            primeBlurCapturedDuringOpen = false;
+            primeOpenTransitionRunning = true;
             if (!backward) {
                 openAnimationStartTime = SystemClock.elapsedRealtime();
             }
@@ -28084,6 +28086,13 @@ public class ChatActivity extends BaseFragment implements
         if (isOpen) {
             checkShowBlur(false);
             openAnimationEnded = true;
+            primeOpenTransitionRunning = false;
+            // The glass was held on its first capture while the chat slid in; settle it now.
+            if (primeBlurHeldDuringOpen) {
+                primeBlurHeldDuringOpen = false;
+                primeBlurDirty = true;
+                invalidateMergedVisibleBlurredPositionsAndSourcesImpl(0);
+            }
             getNotificationCenter().onAnimationFinish(transitionAnimationIndex);
             NotificationCenter.getGlobalInstance().onAnimationFinish(transitionAnimationGlobalIndex);
 //            if (Build.VERSION.SDK_INT >= 21) {
@@ -48990,6 +48999,9 @@ public class ChatActivity extends BaseFragment implements
     private static final long BLUR_MIN_INTERVAL_MS = 24;
     private long lastBlurInvalidateMs;
     private boolean primeBlurTrailingPosted;
+    private boolean primeBlurCapturedDuringOpen;
+    private boolean primeBlurHeldDuringOpen;
+    private boolean primeOpenTransitionRunning;
     private final Runnable primeBlurTrailing = () -> {
         primeBlurTrailingPosted = false;
         primeBlurDirty = true;
@@ -49014,6 +49026,17 @@ public class ChatActivity extends BaseFragment implements
             scrollableViewNoiseSuppressor.setupRenderNodes(glassDrawablesPositionsMerged, glassDrawablesPositionsCount);
         }
 
+        // PrimeGram: while the chat slides in, its messages stream in from cache and the glass was
+        // re-recorded 5-10 times at 20-47 ms each (the bubbles are drawn into the capture by hand,
+        // not referenced) - most of the opening jank. Under the blur nobody can see that content
+        // settling, so one capture holds until the transition ends, which takes a fresh one. A
+        // moved glass part still re-records: its capture would otherwise sit at the wrong place.
+        if (primeOpenTransitionRunning && primeBlurCapturedDuringOpen && !BitwiseUtils.hasFlag(flags, BLUR_INVALIDATE_FLAG_POSITIONS)) {
+            primeBlurDirty = true;
+            primeBlurHeldDuringOpen = true;
+            return;
+        }
+
         final long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastBlurInvalidateMs < BLUR_MIN_INTERVAL_MS) {
             // PrimeGram: a trailing capture, so the glass lands on where scrolling stopped rather
@@ -49029,6 +49052,9 @@ public class ChatActivity extends BaseFragment implements
         //if (BitwiseUtils.hasFlag(flags, BLUR_INVALIDATE_FLAG_POSITIONS | BLUR_INVALIDATE_FLAG_SCROLL)) {
         final boolean hasChanges = scrollableViewNoiseSuppressor.invalidateResultRenderNodes(contentView::drawList, contentView.getWidth(), contentView.getHeight());
         primeBlurDirty = false;
+        if (primeOpenTransitionRunning) {
+            primeBlurCapturedDuringOpen = true;
+        }
         if (hasChanges) {
             if (glassBackgroundSourceRenderNode != null) {
                 glassBackgroundSourceRenderNode.invalidateDisplayListForDrawables();

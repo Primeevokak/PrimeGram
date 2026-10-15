@@ -83,6 +83,146 @@ public final class PrimeCrashLog {
         }
         installed = true;
         applyState();
+        // Off the startup path: a binder call plus, for each new entry, reading a trace file.
+        Utilities.globalQueue.postRunnable(PrimeCrashLog::importSystemExitReasons, 5000);
+    }
+
+    // ---- deaths the handler above never sees ----
+    //
+    // A native crash (tgnet, media codecs, Python, hook trampolines) kills the process without any
+    // Java exception, and an ANR has none at all - both left this log empty while Android itself
+    // offered to send a report. The system keeps why each process of this app died
+    // (ApplicationExitInfo, Android 11+); read the new entries on the next launch and file them here.
+
+    private static final String KEY_LAST_EXIT_TS = "last_exit_ts";
+
+    private static void importSystemExitReasons() {
+        if (android.os.Build.VERSION.SDK_INT < 30 || !isEnabled()) {
+            return;
+        }
+        try {
+            final android.app.ActivityManager am = (android.app.ActivityManager) ApplicationLoader.applicationContext
+                    .getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) {
+                return;
+            }
+            final String pkg = ApplicationLoader.applicationContext.getPackageName();
+            final java.util.List<android.app.ApplicationExitInfo> infos = am.getHistoricalProcessExitReasons(pkg, 0, 32);
+            final SharedPreferences p = prefs();
+            final long lastSeen = p.getLong(KEY_LAST_EXIT_TS, 0);
+            long newest = lastSeen;
+            // The list is newest first; file them oldest first so the log stays chronological.
+            for (int i = infos.size() - 1; i >= 0; i--) {
+                final android.app.ApplicationExitInfo info = infos.get(i);
+                if (info.getTimestamp() <= lastSeen) {
+                    continue;
+                }
+                newest = Math.max(newest, info.getTimestamp());
+                final String kind = describeReason(info, pkg);
+                if (kind == null) {
+                    continue;
+                }
+                final StringBuilder sb = new StringBuilder();
+                sb.append("== ").append(timestamp(info.getTimestamp())).append("  система: ").append(kind)
+                        .append("  [").append(info.getProcessName()).append("] ==\n");
+                if (info.getDescription() != null) {
+                    sb.append(info.getDescription()).append('\n');
+                }
+                sb.append("PSS ").append(info.getPss() / 1024).append(" МБ, RSS ").append(info.getRss() / 1024).append(" МБ\n");
+                final String trace = readTrace(info);
+                if (trace != null) {
+                    sb.append(trace);
+                }
+                appendEntry(sb.toString());
+            }
+            if (newest != lastSeen) {
+                p.edit().putLong(KEY_LAST_EXIT_TS, newest).apply();
+            }
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+    }
+
+    /** What to call this death, or null when it is not worth a crash-log entry. */
+    @android.annotation.TargetApi(30)
+    private static String describeReason(android.app.ApplicationExitInfo info, String pkg) {
+        switch (info.getReason()) {
+            case android.app.ApplicationExitInfo.REASON_CRASH_NATIVE:
+                return "нативный краш";
+            case android.app.ApplicationExitInfo.REASON_ANR:
+                return "ANR (приложение зависло)";
+            case android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE:
+                return "сбой запуска";
+            case android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE:
+                return "убит за перерасход ресурсов";
+            case android.app.ApplicationExitInfo.REASON_CRASH:
+                // The main process's Java crashes are already here from the handler; other
+                // processes (push, plugin helpers) never ran it.
+                return pkg.equals(info.getProcessName()) ? null : "Java-краш в другом процессе";
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * ANR: the thread dump, cut to the main thread's stack. Native crash: the tombstone, which on
+     * Android 12+ is a protobuf - its readable strings (signal, abort message, frame symbols and
+     * libraries) are enough to see where it died.
+     */
+    @android.annotation.TargetApi(30)
+    private static String readTrace(android.app.ApplicationExitInfo info) {
+        final byte[] data;
+        try (java.io.InputStream in = info.getTraceInputStream()) {
+            if (in == null) {
+                return null;
+            }
+            final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            final byte[] buf = new byte[16 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0 && out.size() < 2 * 1024 * 1024) {
+                out.write(buf, 0, n);
+            }
+            data = out.toByteArray();
+        } catch (Throwable e) {
+            return null;
+        }
+        if (info.getReason() == android.app.ApplicationExitInfo.REASON_ANR) {
+            final String text = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+            final int main = text.indexOf("\"main\"");
+            if (main >= 0) {
+                final int end = text.indexOf("\n\n", main);
+                return clip(text.substring(main, end > main ? end : text.length()), 8000);
+            }
+            return clip(text, 8000);
+        }
+        return clip(printableStrings(data), 8000);
+    }
+
+    private static String printableStrings(byte[] data) {
+        final StringBuilder sb = new StringBuilder();
+        int start = -1;
+        for (int i = 0; i <= data.length; i++) {
+            final boolean printable = i < data.length && data[i] >= 0x20 && data[i] < 0x7f;
+            if (printable) {
+                if (start < 0) {
+                    start = i;
+                }
+            } else if (start >= 0) {
+                if (i - start >= 6) {
+                    sb.append(new String(data, start, i - start, java.nio.charset.StandardCharsets.US_ASCII)).append('\n');
+                }
+                start = -1;
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String clip(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max) + "\n… (обрезано)";
+    }
+
+    private static String timestamp(long ms) {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new java.util.Date(ms));
     }
 
     private static void applyState() {
@@ -114,7 +254,10 @@ public final class PrimeCrashLog {
         final StringWriter sw = new StringWriter();
         throwable.printStackTrace(new PrintWriter(sw));
         final String entry = "== " + timestamp() + "  " + currentScreenName() + "  [" + thread.getName() + "] ==\n" + sw;
+        appendEntry(entry);
+    }
 
+    private static synchronized void appendEntry(String entry) {
         final SharedPreferences p = prefs();
         final JSONArray entries = new JSONArray();
         try {

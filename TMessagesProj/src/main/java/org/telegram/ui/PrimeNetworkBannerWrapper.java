@@ -34,6 +34,9 @@ public class PrimeNetworkBannerWrapper extends FrameLayout {
     private boolean attached;
     private int shownVariant = -1; // 0 = airplane, 1 = mobile data, -1 = none
 
+    // Each check is several binder calls into system services (airplane setting, active network,
+    // every network's capabilities, Wi-Fi state); on the main thread one of them stalled a frame for
+    // ~0.5 s right after launch. They run on a background queue now; only the result touches views.
     private final Runnable pollRunnable = new Runnable() {
         @Override
         public void run() {
@@ -43,6 +46,7 @@ public class PrimeNetworkBannerWrapper extends FrameLayout {
             }
         }
     };
+    private boolean checkInFlight;
 
     public PrimeNetworkBannerWrapper(Context context) {
         super(context);
@@ -90,18 +94,23 @@ public class PrimeNetworkBannerWrapper extends FrameLayout {
     }
 
     public void refresh() {
-        int variant;
-        String message;
-        if (PrimeConnectivityState.shouldShowAirplaneBanner()) {
-            variant = 0;
-            message = "Включён авиарежим — сообщения не отправляются и не приходят.";
-        } else if (PrimeConnectivityState.shouldShowMobileDataBanner()) {
-            variant = 1;
-            message = "Мобильный интернет выключен, а Wi-Fi недоступен — соединения нет.";
-        } else {
-            variant = -1;
-            message = null;
+        if (checkInFlight) {
+            return;
         }
+        checkInFlight = true;
+        org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> {
+            final int variant = PrimeConnectivityState.shouldShowAirplaneBanner() ? 0
+                    : PrimeConnectivityState.shouldShowMobileDataBanner() ? 1 : -1;
+            AndroidUtilities.runOnUIThread(() -> {
+                checkInFlight = false;
+                apply(variant);
+            });
+        });
+    }
+
+    private void apply(int variant) {
+        final String message = variant == 0 ? "Включён авиарежим — сообщения не отправляются и не приходят."
+                : variant == 1 ? "Мобильный интернет выключен, а Wi-Fi недоступен — соединения нет." : null;
         if (variant == shownVariant) {
             return;
         }
@@ -119,8 +128,8 @@ public class PrimeNetworkBannerWrapper extends FrameLayout {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         attached = true;
-        refresh();
-        handler.post(pollRunnable);
+        // Not during launch: the banner only matters once the user is looking at the list.
+        handler.postDelayed(pollRunnable, 2000);
     }
 
     @Override

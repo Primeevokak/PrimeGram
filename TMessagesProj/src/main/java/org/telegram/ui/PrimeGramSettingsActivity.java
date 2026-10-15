@@ -631,6 +631,7 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_HW_ACCEL_BANNER = 185;
     private static final int ID_CALLS_BANNER = 186;
     private static final int ID_NOTIFICATIONS_BANNER = 187;
+    private static final int ID_AUTHOR_CHANNEL = 188;
     /** Tiles that open a whole section rather than toggling something. */
     private static final int TILE_SECTION_BASE = 10_000;
 
@@ -2232,6 +2233,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             row(button(ID_SUPPORT_PROJECT, IconBackgroundColors.PURPLE, R.drawable.msg_gift_premium,
                     "Поддержать проект", "USDT TON через @wallet", null));
             endCard(items);
+            items.add(org.telegram.ui.Components.primeui.PrimeChannelRow.Factory.of(ID_AUTHOR_CHANNEL,
+                    "Канал PrimeGram", "Новости, свежие сборки и ответы",
+                    v -> primeClickById(ID_AUTHOR_CHANNEL)));
             items.add(UItem.asShadow("Спасибо за вашу поддержку! Это помогает развивать PrimeGram."));
         }
     }
@@ -2654,6 +2658,12 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         } else if (item.id == ID_SUPPORT_PROJECT) {
             try {
                 org.telegram.messenger.browser.Browser.openUrl(getContext(), "http://t.me/send?start=IVqCWWqPk6AA");
+            } catch (Exception e) {
+                org.telegram.messenger.FileLog.e(e);
+            }
+        } else if (item.id == ID_AUTHOR_CHANNEL) {
+            try {
+                org.telegram.messenger.browser.Browser.openUrl(getContext(), "https://t.me/o00000000i");
             } catch (Exception e) {
                 org.telegram.messenger.FileLog.e(e);
             }
