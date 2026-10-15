@@ -30,6 +30,10 @@ public class GithubUpdater {
     private static final String KEY_LATER_TIME = "later_time";
     private static final String KEY_PENDING_DOWNLOAD_ID = "pending_download_id";
     private static final String KEY_PENDING_DOWNLOAD_VERSION = "pending_download_version";
+    /** mainconfig: tell about new versions at all (off after "Обновлюсь сам"). */
+    public static final String KEY_NOTIFY = "primegram_update_notify";
+    /** mainconfig: also offer pre-releases (tags like v12.10.5.0-beta1). Off by default. */
+    public static final String KEY_BETA_CHANNEL = "primegram_beta_channel";
 
     /**
      * Reattaches {@link PrimeUpdateProgressDialog} to a download started on a previous run of the
@@ -166,6 +170,13 @@ public class GithubUpdater {
             try {
                 SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
+                SharedPreferences settings = context.getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
+                if (!isManual && !settings.getBoolean(KEY_NOTIFY, true)) {
+                    // "Обновлюсь сам": no automatic checks at all until re-enabled in settings.
+                    return;
+                }
+                final boolean betaChannel = settings.getBoolean(KEY_BETA_CHANNEL, false);
+
                 if (!isManual) {
                     // If user pressed "Later", wait 24 hours
                     long laterTime = prefs.getLong(KEY_LATER_TIME, 0);
@@ -181,7 +192,11 @@ public class GithubUpdater {
                 }
                 prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply();
 
-                URL url = new URL("https://api.github.com/repos/" + GITHUB_REPO + "/releases/latest");
+                // Stable channel: /releases/latest, which GitHub itself never answers with a
+                // pre-release - beta tags stay invisible to everyone who has not opted in. Beta
+                // channel: the recent releases list, newest version of either kind.
+                URL url = new URL("https://api.github.com/repos/" + GITHUB_REPO
+                        + (betaChannel ? "/releases?per_page=20" : "/releases/latest"));
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
@@ -196,8 +211,14 @@ public class GithubUpdater {
                     }
                     in.close();
 
-                    JSONObject json = new JSONObject(response.toString());
+                    JSONObject json = betaChannel
+                            ? pickNewestRelease(new JSONArray(response.toString()))
+                            : new JSONObject(response.toString());
+                    if (json == null) {
+                        return;
+                    }
                     String latestVersion = json.getString("tag_name");
+                    final boolean isBeta = json.optBoolean("prerelease", false) || isBetaVersion(latestVersion);
 
                     if (isNewerVersion(currentVersion, latestVersion)) {
                         String downloadedVersion = prefs.getString("downloaded_version", "");
@@ -241,14 +262,18 @@ public class GithubUpdater {
                                 } else {
                                     try {
                                         org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(context);
-                                        builder.setTitle("Доступно обновление");
-                                        builder.setMessage("Вышла новая версия PrimeGram (" + latestVersion + "). Хотите скачать и установить её?");
+                                        builder.setTitle(isBeta ? "Доступна бета-версия" : "Доступно обновление");
+                                        builder.setMessage((isBeta ? "Вышла бета-версия PrimeGram (" : "Вышла новая версия PrimeGram (")
+                                                + latestVersion + "). Хотите скачать и установить её?");
                                         builder.setPositiveButton("Обновить", (dialogInterface, i) -> {
                                             downloadAndInstallUpdate(context, finalDownloadUrl, latestVersion);
                                         });
                                         builder.setNegativeButton("Позже", (dialogInterface, i) -> {
                                             prefs.edit().putLong(KEY_LATER_TIME, System.currentTimeMillis()).apply();
                                         });
+                                        if (!isManual) {
+                                            builder.setNeutralButton("Обновлюсь сам", (dialogInterface, i) -> confirmManualUpdates(context));
+                                        }
                                         builder.show();
                                     } catch (Exception e) {
                                         android.util.Log.e(TAG, "Failed to show update dialog", e);
@@ -337,27 +362,93 @@ public class GithubUpdater {
         }
     }
 
-    private static boolean isNewerVersion(String current, String latest) {
+    /** "Обновлюсь сам" pressed: explain what it turns off before turning it off. */
+    private static void confirmManualUpdates(Context context) {
         try {
-            current = current.replaceAll("[^0-9.]", "");
-            latest = latest.replaceAll("[^0-9.]", "");
-            
-            if (latest.isEmpty()) return false;
-            if (current.isEmpty()) return true;
-
-            String[] cParts = current.split("\\.");
-            String[] lParts = latest.split("\\.");
-            
-            int length = Math.max(cParts.length, lParts.length);
-            for (int i = 0; i < length; i++) {
-                int c = i < cParts.length && !cParts[i].isEmpty() ? Integer.parseInt(cParts[i]) : 0;
-                int l = i < lParts.length && !lParts[i].isEmpty() ? Integer.parseInt(lParts[i]) : 0;
-                if (l > c) return true;
-                if (l < c) return false;
-            }
+            org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(context);
+            builder.setTitle("Обновляться самостоятельно?");
+            builder.setMessage("Уведомления о новых версиях PrimeGram больше не будут приходить.\n\n"
+                    + "Проверить обновления вручную и включить уведомления снова можно в настройках PrimeGram → Обновления.");
+            builder.setPositiveButton("Понятно", (d, w) -> context.getSharedPreferences("mainconfig", Context.MODE_PRIVATE)
+                    .edit().putBoolean(KEY_NOTIFY, false).apply());
+            builder.setNegativeButton("Отмена", null);
+            builder.show();
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing version", e);
+            Log.e(TAG, "Failed to show manual-updates confirmation", e);
         }
-        return false;
+    }
+
+    /** The newest non-draft release in a /releases page, stable or pre-release. */
+    private static JSONObject pickNewestRelease(JSONArray releases) {
+        JSONObject best = null;
+        for (int i = 0; i < releases.length(); i++) {
+            JSONObject r = releases.optJSONObject(i);
+            if (r == null || r.optBoolean("draft", false) || r.optString("tag_name", "").isEmpty()) {
+                continue;
+            }
+            if (best == null || compareVersions(r.optString("tag_name"), best.optString("tag_name")) > 0) {
+                best = r;
+            }
+        }
+        return best;
+    }
+
+    static boolean isBetaVersion(String version) {
+        return version != null && version.toLowerCase(java.util.Locale.ROOT).contains("beta");
+    }
+
+    private static boolean isNewerVersion(String current, String latest) {
+        if (latest == null || latest.replaceAll("[^0-9]", "").isEmpty()) {
+            return false;
+        }
+        if (current == null || current.replaceAll("[^0-9]", "").isEmpty()) {
+            return true;
+        }
+        return compareVersions(latest, current) > 0;
+    }
+
+    /**
+     * "v12.10.5.0-beta2" vs "12.10.5.0": numeric parts first, then the beta number - a beta comes
+     * before the release it leads up to (beta1 < beta2 < release). The old comparison stripped
+     * every non-digit, which turned "12.10.5.0-beta1" into "12.10.5.01".
+     */
+    static int compareVersions(String a, String b) {
+        final long[] pa = parseVersion(a), pb = parseVersion(b);
+        for (int i = 0; i < pa.length; i++) {
+            if (pa[i] != pb[i]) {
+                return pa[i] > pb[i] ? 1 : -1;
+            }
+        }
+        return 0;
+    }
+
+    /** [major, minor, patch, build, betaNumber]; betaNumber is Long.MAX_VALUE for a stable version. */
+    private static long[] parseVersion(String version) {
+        final long[] out = new long[]{0, 0, 0, 0, Long.MAX_VALUE};
+        if (version == null) {
+            return out;
+        }
+        String v = version.trim().toLowerCase(java.util.Locale.ROOT);
+        if (v.startsWith("v")) {
+            v = v.substring(1);
+        }
+        String core = v;
+        final int beta = v.indexOf("beta");
+        if (beta >= 0) {
+            core = v.substring(0, beta);
+            final String n = v.substring(beta + 4).replaceAll("[^0-9]", "");
+            out[4] = n.isEmpty() ? 0 : Long.parseLong(n);
+        }
+        final String[] parts = core.replaceAll("[^0-9.]", "").split("\\.");
+        for (int i = 0, k = 0; i < parts.length && k < 4; i++) {
+            if (!parts[i].isEmpty()) {
+                try {
+                    out[k] = Long.parseLong(parts[i]);
+                } catch (NumberFormatException ignore) {
+                }
+                k++;
+            }
+        }
+        return out;
     }
 }

@@ -632,6 +632,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_CALLS_BANNER = 186;
     private static final int ID_NOTIFICATIONS_BANNER = 187;
     private static final int ID_AUTHOR_CHANNEL = 188;
+    private static final int ID_UPDATE_NOTIFY = 189;
+    private static final int ID_BETA_CHANNEL = 190;
     /** Tiles that open a whole section rather than toggling something. */
     private static final int TILE_SECTION_BASE = 10_000;
 
@@ -2072,10 +2074,17 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             row(check(ID_AUTO_UPDATES, IconBackgroundColors.GREEN, R.drawable.msg_download,
                     "Автоматически скачивать обновления",
                     preferences.getBoolean("primegram_auto_updates", true)));
+            row(check(ID_UPDATE_NOTIFY, IconBackgroundColors.ORANGE, R.drawable.msg_notifications,
+                    "Сообщать о новых версиях",
+                    preferences.getBoolean(org.telegram.ui.Components.GithubUpdater.KEY_NOTIFY, true)));
+            row(check(ID_BETA_CHANNEL, IconBackgroundColors.PURPLE, R.drawable.msg_premium_speed,
+                    "Бета-канал",
+                    preferences.getBoolean(org.telegram.ui.Components.GithubUpdater.KEY_BETA_CHANNEL, false)));
             row(button(ID_CHECK_UPDATES, IconBackgroundColors.BLUE, R.drawable.msg_retry,
                     "Проверить обновления", null));
             endCard(items);
-            items.add(UItem.asShadow("PrimeGram может автоматически проверять релизы на GitHub и скачивать новые версии."));
+            items.add(UItem.asShadow("PrimeGram может автоматически проверять релизы на GitHub и скачивать новые версии.\n\n"
+                    + "Бета-канал — новые версии раньше остальных, но они могут быть менее стабильными. Без него приходят только обычные релизы."));
         }
 
         if (section == SECTION_ADVANCED_PERFORMANCE) {
@@ -2632,6 +2641,14 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             boolean enabled = preferences.getBoolean("primegram_feed_exclude_archived", false);
             preferences.edit().putBoolean("primegram_feed_exclude_archived", !enabled).apply();
+            listView.adapter.update(true);
+        } else if (item.id == ID_UPDATE_NOTIFY || item.id == ID_BETA_CHANNEL) {
+            final String key = item.id == ID_UPDATE_NOTIFY
+                    ? org.telegram.ui.Components.GithubUpdater.KEY_NOTIFY
+                    : org.telegram.ui.Components.GithubUpdater.KEY_BETA_CHANNEL;
+            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+            final boolean enabled = preferences.getBoolean(key, item.id == ID_UPDATE_NOTIFY);
+            preferences.edit().putBoolean(key, !enabled).apply();
             listView.adapter.update(true);
         } else if (item.id == ID_CHECK_UPDATES) {
             org.telegram.messenger.PrimeUpdater.checkUpdate(getContext(), true);

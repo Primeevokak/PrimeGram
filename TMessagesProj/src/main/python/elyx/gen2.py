@@ -24,10 +24,25 @@ import sys
 from java import dynamic_proxy
 
 
+def _void_method_names(java_interface):
+    try:
+        from org.telegram.messenger.plugins import PrimeClassProxy
+        return set(PrimeClassProxy.voidMethodNames(java_interface))
+    except Exception:
+        return set()
+
+
 def gen2(java_interface, **method_impls):
+    # A void interface method's result is dropped, as elyx does: plugins hand in lambdas such as
+    # ``onViewAttachedToWindow=lambda v: (a(), b())`` - a tuple Chaquopy cannot turn into void,
+    # which crashed inside View.dispatchAttachedToWindow (reSwaga's keyboard page).
+    voids = _void_method_names(java_interface)
     namespace = {}
     for method_name, impl in method_impls.items():
-        namespace[method_name] = (lambda impl: lambda self, *args: impl(*args))(impl)
+        if method_name in voids:
+            namespace[method_name] = (lambda impl: lambda self, *args: (impl(*args), None)[1])(impl)
+        else:
+            namespace[method_name] = (lambda impl: lambda self, *args: impl(*args))(impl)
     return type("_ElyxGen2Impl", (dynamic_proxy(java_interface),), namespace)
 
 
