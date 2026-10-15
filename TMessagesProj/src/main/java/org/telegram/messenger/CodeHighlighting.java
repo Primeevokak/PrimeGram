@@ -320,6 +320,7 @@ public class CodeHighlighting {
                     FileLog.d("[CodeHighlighter] applying " + spans.size() + " colorize spans took " + (System.currentTimeMillis() - S3) + "ms in another thread");
                     AndroidUtilities.runOnUIThread(() -> {
                         ((LockedSpannableString) text).unlock();
+                        Emoji.uiGeneration++;
                         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.emojiLoaded);
                     });
                 } else {
@@ -330,6 +331,7 @@ public class CodeHighlighting {
                             text.setSpan(new ColorSpan(span.group), span.start, span.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                         }
                         FileLog.d("[CodeHighlighter] applying " + spans.size() + " colorize spans took " + (System.currentTimeMillis() - S3) + "ms");
+                        Emoji.uiGeneration++;
                         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.emojiLoaded);
                     });
                 }

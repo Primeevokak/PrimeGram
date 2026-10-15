@@ -68,7 +68,15 @@ public class Emoji {
     public final static ArrayList<String> recentEmoji = new ArrayList<>();
     public final static HashMap<String, String> emojiColor = new HashMap<>();
     private static boolean recentEmojiLoaded;
-    public final static Runnable invalidateUiRunnable = () -> NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.emojiLoaded);
+    /** PrimeGram: bumped whenever emoji bitmaps finished loading (or code highlighting restyled
+     *  text) - everything that redraws on emojiLoaded. Caches of already-drawn text (spoiler text
+     *  RenderNodes) compare against it to know they hold placeholders. */
+    public static volatile int uiGeneration;
+
+    public final static Runnable invalidateUiRunnable = () -> {
+        uiGeneration++;
+        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.emojiLoaded);
+    };
     public static float emojiDrawingYOffset;
     public static boolean emojiDrawingUseAlpha = true;
 

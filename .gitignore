@@ -54,3 +54,7 @@ TMessagesProj/jni/ffmpeg/build_android
 # Decompiled third-party plugins (tools/plugin_decompiler) - never commit these
 Tools/plugin_decompiler/out/
 tools/plugin_decompiler/out/
+
+# Release re-signing with key rotation (old + own key). Kept local; secrets it reads live in
+# local.properties and outside the repo anyway.
+/Tools/sign_release_rotated.sh

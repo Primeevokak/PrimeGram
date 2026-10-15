@@ -474,6 +474,20 @@ public final class PrimeClassProxy {
         return cls.isInterface();
     }
 
+    /** Names of {@code cls}'s public methods that return {@code void}, for Python: a Python
+     *  callable implementing one may return anything (a lambda's tuple, a chained call's
+     *  result), and Chaquopy refuses to convert a non-None value to {@code void} - throwing
+     *  inside whatever Android callback invoked it. */
+    public static String[] voidMethodNames(Class<?> cls) {
+        final java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        for (java.lang.reflect.Method m : cls.getMethods()) {
+            if (m.getReturnType() == void.class) {
+                names.add(m.getName());
+            }
+        }
+        return names.toArray(new String[0]);
+    }
+
     /** The {@code "<init>:param.Type:..."} signature of every constructor the generated class
      *  mirrors (see {@link #createProxyClass}), in the same form the handler receives. */
     public static String[] constructorSignatures(Class<?> cls) {

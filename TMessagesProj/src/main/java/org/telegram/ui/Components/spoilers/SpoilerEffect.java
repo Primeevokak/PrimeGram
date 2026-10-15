@@ -812,6 +812,57 @@ public class SpoilerEffect extends Drawable {
      * @param canvas                   Canvas to render
      * @param useParentWidth
      */
+    // PrimeGram: patched layout -> the textLayout it was built from (identity check, see renderWithRipple).
+    private static final java.util.WeakHashMap<Layout, Layout> PATCHED_SOURCE = new java.util.WeakHashMap<>();
+    // PrimeGram: patched layout -> its text recorded once into a RenderNode.
+    private static final java.util.WeakHashMap<Layout, CachedText> PATCHED_TEXT_NODES = new java.util.WeakHashMap<>();
+
+    private static final class CachedText {
+        android.graphics.RenderNode node;
+        int color, linkColor, emojiGeneration, width, height;
+    }
+
+    /**
+     * Draws the patched (spoilers-transparent) text. A spoiler animates at 30 fps and every tick
+     * redraws the whole message cell, which re-shaped and re-drew every line of text although only
+     * the particles change - most of the cost of a chat that merely shows a spoiler. On a hardware
+     * canvas the text is recorded once into a RenderNode and replayed; it is re-recorded when what
+     * the recording baked in changes: the paint colours (theme, selection) or an emoji bitmap that
+     * finished loading ({@link org.telegram.messenger.Emoji#uiGeneration}).
+     */
+    private static void drawPatchedCached(Layout pl, Canvas canvas) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || !canvas.isHardwareAccelerated()) {
+            pl.draw(canvas);
+            return;
+        }
+        final android.text.TextPaint paint = pl.getPaint();
+        final int generation = org.telegram.messenger.Emoji.uiGeneration;
+        CachedText cached = PATCHED_TEXT_NODES.get(pl);
+        if (cached == null) {
+            cached = new CachedText();
+            cached.node = new android.graphics.RenderNode("spoilerText");
+            cached.node.setClipToBounds(false);
+            PATCHED_TEXT_NODES.put(pl, cached);
+        }
+        final int width = pl.getWidth(), height = pl.getHeight();
+        if (!cached.node.hasDisplayList() || cached.color != paint.getColor() || cached.linkColor != paint.linkColor
+                || cached.emojiGeneration != generation || cached.width != width || cached.height != height) {
+            cached.color = paint.getColor();
+            cached.linkColor = paint.linkColor;
+            cached.emojiGeneration = generation;
+            cached.width = width;
+            cached.height = height;
+            cached.node.setPosition(0, 0, Math.max(1, width), Math.max(1, height));
+            final android.graphics.RecordingCanvas rc = cached.node.beginRecording();
+            try {
+                pl.draw(rc);
+            } finally {
+                cached.node.endRecording();
+            }
+        }
+        canvas.drawRenderNode(cached.node);
+    }
+
     @SuppressLint("WrongConstant")
     @MainThread
     public static void renderWithRipple(View v, boolean invalidateSpoilersParent, int spoilersColor, int verticalOffset, AtomicReference<Layout> patchedLayoutRef, int patchedLayoutType, Layout textLayout, List<SpoilerEffect> spoilers, Canvas canvas, boolean useParentWidth) {
@@ -821,7 +872,13 @@ public class SpoilerEffect extends Drawable {
         }
         Layout pl = patchedLayoutRef.get();
 
-        if (pl == null || !textLayout.getText().toString().equals(pl.getText().toString()) || textLayout.getWidth() != pl.getWidth() || textLayout.getHeight() != pl.getHeight()) {
+        // PrimeGram: this runs on every spoiler animation tick (30/s per visible spoiler), and the
+        // check below used to copy the whole message text into two Strings and compare them each
+        // time - long channel posts allocated and scanned kilobytes per frame. A patched layout
+        // built from this very textLayout instance is current by construction; only a different
+        // source falls through to the full comparison.
+        if (pl == null || PATCHED_SOURCE.get(pl) != textLayout
+                && (!textLayout.getText().toString().equals(pl.getText().toString()) || textLayout.getWidth() != pl.getWidth() || textLayout.getHeight() != pl.getHeight())) {
             SpannableStringBuilder sb = new SpannableStringBuilder(textLayout.getText());
             if (textLayout.getText() instanceof Spanned) {
                 Spanned sp = (Spanned) textLayout.getText();
@@ -865,11 +922,12 @@ public class SpoilerEffect extends Drawable {
             }
             patchedLayoutRef.set(pl = layout);
         }
+        PATCHED_SOURCE.put(pl, textLayout);
 
         if (!spoilers.isEmpty()) {
             canvas.save();
             canvas.translate(0, verticalOffset);
-            pl.draw(canvas);
+            drawPatchedCached(pl, canvas);
             canvas.restore();
         } else {
             layoutDrawMaybe(textLayout, canvas);
