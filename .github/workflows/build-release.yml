@@ -106,9 +106,11 @@ jobs:
         # afterwards - same keystore/credentials Gradle itself used to sign it the first time.
         #
         # Signing: with PrimeGram's own key in the secrets, every APK is signed with both keys -
-        # the original (public upstream) key in v1/v2/v3 for Android 7-12, PrimeGram's key in
-        # v3.1 for Android 13+, joined by the rotation lineage the old key signed. Installed copies
-        # (all on the old key) update either way. Without those secrets: old key only, as before.
+        # the original (public upstream) key in v1/v2 for Android 7-8, PrimeGram's key in the v3
+        # block from Android 9 (rotation-min-sdk-version 28, same as Tools/sign_release_rotated.sh
+        # with PRIME_ROTATION_MIN_SDK=28), joined by the rotation lineage the old key signed.
+        # Installed copies (all on the old key) update either way. Without those secrets: old key
+        # only, as before.
         env:
           PRIME_KEYSTORE_BASE64: ${{ secrets.PRIME_KEYSTORE_BASE64 }}
           PRIME_KEYSTORE_PASSWORD: ${{ secrets.PRIME_KEYSTORE_PASSWORD }}
@@ -128,7 +130,7 @@ jobs:
             echo "$PRIME_LINEAGE_BASE64" | base64 -d > "$RUNNER_TEMP/prime-lineage.bin"
             ROTATE=(--next-signer --ks "$RUNNER_TEMP/prime.jks" --ks-key-alias "$PRIME_KEY_ALIAS"
                     --ks-pass env:PRIME_KEYSTORE_PASSWORD --key-pass env:PRIME_KEY_PASSWORD
-                    --lineage "$RUNNER_TEMP/prime-lineage.bin")
+                    --lineage "$RUNNER_TEMP/prime-lineage.bin" --rotation-min-sdk-version 28)
             echo "Signing with key rotation (old key + PrimeGram key)."
           else
             echo "PrimeGram key secrets not set - signing with the old key only."
