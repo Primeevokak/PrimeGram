@@ -31,17 +31,13 @@ android {
 }
 
 dependencies {
-    implementation(project(":network"))
     api(project(":tunnel"))
     api(project(":proxy"))
 
     implementation(libs.androidx.core.ktx)
 
-    implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.kotlinx.coroutines.android)
 
-    implementation(libs.kotlinx.serialization.json)
 
-    implementation(libs.androidx.navigation.runtime)
 }
 

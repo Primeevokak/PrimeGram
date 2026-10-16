@@ -20,9 +20,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "vpn"
 
-include(":base")
-include(":utils")
-include(":network")
 include(":tunnel")
 include(":proxy")
 include(":sdk")

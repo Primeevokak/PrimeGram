@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -17,8 +18,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import vpn.tunnel.VpnTunnelState
 import vpn.tunnel.VpnStatistics
-import vpn.network.NetworkResult
-import vpn.network.VpnNetworkFactory
 import vpn.tunnel.TunnelFactory
 import vpn.proxy.XrayProxy
 
@@ -27,10 +26,8 @@ import vpn.proxy.XrayProxy
  *
  * Как юзать:
  * 1. [setup] — инициализация (один раз, при старте приложения).
- * 2. [updateConfig] — фоновое обновление конфига.
- * 3. [toggleConnection] — подключение / отключение VPN.
+ * 3. [setCustomVlessConfig] / [connectAwg] — подключение к серверу пользователя.
  * 4. [addStateListener] / [removeStateListener] — callback-наблюдение (Java).
- * 5. [fetchAppUpdate] - проверка доступности обновления
  */
 object VpnSDK {
 
@@ -40,14 +37,11 @@ object VpnSDK {
         fun onStateChanged(state: VpnTunnelState)
     }
 
-    fun interface AppUpdateCallback {
-        fun onResult(updateInfo: AppUpdateResult?)
+    fun interface AwgCallback {
+        /** On the main thread: whether the tunnel came up. */
+        fun onResult(ok: Boolean)
     }
 
-    fun interface RegisterCallback {
-        /** Invoked on Main thread after [registerOrAuth] finishes (with all retries). */
-        fun onResult(success: Boolean)
-    }
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         VpnSDK.logE(TAG, "Unhandled coroutine exception", throwable)
@@ -55,7 +49,6 @@ object VpnSDK {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
     private val listeners = mutableSetOf<StateListener>()
-    private val registerMutex = Mutex()
 
     @Volatile
     private var isInitialized = false
@@ -117,144 +110,110 @@ object VpnSDK {
             return
         }
         val appContext = context.applicationContext
-        VpnNetworkFactory.setup(appContext, debug)
+        ConfigStore.init(appContext)
         TunnelFactory.setup(appContext)
         isInitialized = true
         VpnSDK.logD(TAG, "Initialized")
+    }
 
-        // Off the startup path on purpose: touching the tunnel manager builds the AmneziaWG
-        // Go backend, and this runs inside Application.onCreate. Subscribing a moment later
-        // costs nothing — there is no tunnel to report on until the user starts one.
-        scope.launch(Dispatchers.IO) {
-            try {
-                TunnelFactory.getTunnelManager().tunnelState
-                    .onEach { state -> notifyListeners(state) }
-                    .flowOn(Dispatchers.Main.immediate)
-                    .launchIn(scope)
+    // ---- AmneziaWG (user's own config only) ----
+
+    /** Set while a tunnel subscription is live; the backend itself is built on first use. */
+    @Volatile
+    private var tunnelSubscribed = false
+
+    private fun ensureTunnelSubscription() {
+        if (tunnelSubscribed) return
+        tunnelSubscribed = true
+        TunnelFactory.getTunnelManager().tunnelState
+            .onEach { state -> notifyListeners(state) }
+            .flowOn(Dispatchers.Main.immediate)
+            .launchIn(scope)
+    }
+
+    /**
+     * Last reason [connectAwg] failed (`invalid_config`, or the backend's message), null after a
+     * successful start.
+     */
+    @Volatile
+    @JvmStatic
+    var lastAwgError: String? = null
+        private set
+
+    /**
+     * Brings up an AmneziaWG tunnel from a config the user supplied (the `[Interface]`/`[Peer]`
+     * text of a .conf). The tunnel is limited to [packageName] unless the config itself already
+     * names included/excluded apps, so it carries this app's traffic and nothing else on the
+     * device. The caller must already hold VPN consent (VpnService.prepare returned null).
+     * Runs off the calling thread; [callback] gets the outcome on the main thread.
+     */
+    @JvmStatic
+    fun connectAwg(rawConfig: String, packageName: String, callback: AwgCallback?) {
+        checkInitialized()
+        scope.launch {
+            val ok = try {
+                ensureTunnelSubscription()
+                TunnelFactory.connectWithRawConfig(restrictToApp(rawConfig, packageName))
+                // The backend retries starting its VpnService for up to ~10 s before giving up.
+                val up = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                    TunnelFactory.getTunnelManager().tunnelState.first { it == VpnTunnelState.UP }
+                } != null
+                lastAwgError = if (up) null else "tunnel_not_up"
+                up
             } catch (t: Throwable) {
-                VpnSDK.logE(TAG, "Tunnel state subscription failed: ${t.message}")
+                lastAwgError = t.message ?: t.javaClass.simpleName
+                VpnSDK.logE(TAG, "AmneziaWG connect failed", t)
+                false
             }
+            withContext(Dispatchers.Main) { callback?.onResult(ok) }
         }
     }
 
+    /** True for text that looks like a WireGuard/AmneziaWG config rather than a proxy link. */
     @JvmStatic
-    fun updateConfig() {
-        checkInitialized()
+    fun isAwgConfig(text: String): Boolean =
+        text.contains("[Interface]") && text.contains("[Peer]") && text.contains("PrivateKey")
+
+    @JvmStatic
+    fun disconnectAwg() {
+        if (!isInitialized || !tunnelSubscribed) return
         scope.launch {
-            VpnSDK.logD(TAG, "Fetching remote config…")
-            when (val result = VpnNetworkFactory.getAppConfigRepository().fetchRemoteConfig()) {
-                is NetworkResult.Success -> VpnSDK.logD(TAG, "Config updated")
-                is NetworkResult.Error   -> VpnSDK.logE(TAG, "Config error: ${result.message}")
-                is NetworkResult.Failure -> VpnSDK.logE(TAG, "Config failure, code=${result.code}")
+            try {
+                TunnelFactory.disconnect()
+            } catch (t: Throwable) {
+                VpnSDK.logE(TAG, "AmneziaWG disconnect failed", t)
             }
         }
     }
 
     @JvmStatic
-    fun fetchAppUpdate(callback: AppUpdateCallback) {
-        checkInitialized()
-        scope.launch {
-            VpnSDK.logD(TAG, "Fetching app update info…")
-            when (val result = VpnNetworkFactory.getAppUpdateRepository().fetchUpdateInfo()) {
-                is NetworkResult.Success -> {
-                    val info = result.data
-                    VpnSDK.logD(TAG, "App update info fetched: v${info.version}")
-                    callback.onResult(
-                        AppUpdateResult(
-                            version = info.version,
-                            versionCode = info.versionCode,
-                            fileUrl = info.fileUrl,
-                            changelog = info.changelog,
-                            isRequired = info.isRequired,
-                        )
-                    )
-                }
-                is NetworkResult.Error -> {
-                    VpnSDK.logE(TAG, "App update fetch error: ${result.message}")
-                    callback.onResult(null)
-                }
-                is NetworkResult.Failure -> {
-                    VpnSDK.logE(TAG, "App update fetch failure, code=${result.code}")
-                    callback.onResult(null)
-                }
-            }
+    fun isAwgUp(): Boolean = tunnelSubscribed && TunnelFactory.getTunnelManager().tunnelState.value == VpnTunnelState.UP
+
+    private fun restrictToApp(rawConfig: String, packageName: String): String {
+        if (Regex("""(?im)^\s*(IncludedApplications|ExcludedApplications)\s*=""").containsMatchIn(rawConfig)) {
+            return rawConfig
         }
+        return rawConfig.replaceFirst(Regex("""(?im)^\s*\[Interface\]\s*$"""), "[Interface]\nIncludedApplications = $packageName")
     }
 
-    @JvmStatic
-    fun toggleConnection() {
-        checkInitialized()
-        when (tunnelStateFlow.value) {
-            VpnTunnelState.DOWN -> scope.launch { connect() }
-            VpnTunnelState.UP -> disconnect()
-            VpnTunnelState.CONNECTING -> Unit
-        }
-    }
-
-    @JvmStatic
-    fun getStatistics(): VpnStatistics {
-        checkInitialized()
-        return TunnelFactory.getTunnelManager().getStatistics()
-    }
-
-    @JvmStatic
-    fun getDebugInfo(): String {
-        checkInitialized()
-        val deviceId = VpnNetworkFactory.getDeviceIdRepository().getDeviceId()
-        val clientIP = TunnelFactory.lastClientIP
-        val serverIP = TunnelFactory.lastServerIP
-        return buildString {
-            append("deviceId = $deviceId")
-            clientIP?.let { append("\nclientIP = $it") }
-            serverIP?.let { append("\nserverIP = $it") }
-            append("\n--- xray proxy ---")
-            append("\nxray running = ${XrayProxy.isRunning()}")
-            if (XrayProxy.isRunning()) {
-                append("\nxray addr = ${XrayProxy.socksHost}:${XrayProxy.socksPort}")
-            }
-            XrayProxy.lastError?.let { append("\nxray error = $it") }
-        }
-    }
-
-    private suspend fun connect() {
-        VpnSDK.logD(TAG, "Connecting…")
-        TunnelFactory.getTunnelManager().setState(VpnTunnelState.CONNECTING, null)
-
-        val keyResult = VpnNetworkFactory.getVpnApi().getAnonymousKey()
-        if (keyResult !is NetworkResult.Success) {
-            VpnSDK.logW(TAG, "Failed to get anonymous key: $keyResult")
-            TunnelFactory.getTunnelManager().setState(VpnTunnelState.DOWN, null)
-            return
-        }
-
-        TunnelFactory.connectWithRawConfig(keyResult.data)
-    }
-
-    @JvmStatic
-    fun disconnect() {
-        if (!isInitialized) return
-        VpnSDK.logD(TAG, "Disconnecting…")
-        TunnelFactory.disconnect()
-    }
 
     // ---- Proxy (VLESS+Reality via libxray) ----
 
     /**
-     * Starts the local SOCKS5 proxy (xray-core) using the cached server-issued
-     * config (from the last successful /auth/register).
+     * Starts the local SOCKS5 proxy (xray-core) from the stored config - the one built from the
+     * user's own link by [setCustomVlessConfig]. Nothing here ever fetches a config.
      *
      * Returns `true` if xray is now running (or was already running). Returns
-     * `false` if no cached config exists yet — the caller should kick off
-     * [registerOrAuth] and retry once the callback fires.
+     * `false` if no config is stored.
      *
      * If a cached config exists but libxray rejects it (corrupt cache, schema
      * drift, expired credentials in the JSON, etc.) the cache is cleared and
-     * `false` is returned, so the next register cycle will replace it.
+     * `false` is returned.
      */
     @JvmStatic
     fun startProxy(): Boolean {
         checkInitialized()
-        val cached = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
+        val cached = ConfigStore.getXrayConfig()
         if (cached == null) {
             VpnSDK.logD(TAG, "startProxy: no cached config; xray not started")
             return false
@@ -265,7 +224,7 @@ object VpnSDK {
             return true
         }
         VpnSDK.logW(TAG, "Cached xray config failed to start, clearing cache: ${XrayProxy.lastError}")
-        VpnNetworkFactory.getRegistrationRepository().clearCachedConfig()
+        ConfigStore.clearXrayConfig()
         return false
     }
 
@@ -293,7 +252,7 @@ object VpnSDK {
                 }
                 if (!XrayProxy.refreshHealth()) {
                     VpnSDK.logW(TAG, "Watchdog: xray unhealthy, restarting from cached config")
-                    val cached = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
+                    val cached = ConfigStore.getXrayConfig()
                     if (cached != null) {
                         XrayProxy.stop()
                         if (!XrayProxy.start(cached)) {
@@ -325,7 +284,7 @@ object VpnSDK {
             scope.launch {
                 if (!XrayProxy.refreshHealth()) {
                     VpnSDK.logD(TAG, "onNetworkChanged: xray unhealthy after network change, restarting")
-                    val cached = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
+                    val cached = ConfigStore.getXrayConfig()
                     if (cached != null) {
                         XrayProxy.stop()
                         XrayProxy.start(cached)
@@ -368,7 +327,7 @@ object VpnSDK {
             lastCustomVlessError = "invalid_url"
             return false
         }
-        VpnNetworkFactory.getRegistrationRepository().setCustomConfigJson(json)
+        ConfigStore.setXrayConfig(json)
         if (isProxyRunning()) {
             stopProxy()
         }
@@ -382,7 +341,7 @@ object VpnSDK {
      *  protocol-specific outbound JSON a parser below produced. */
     private fun wrapOutbound(outbound: String): String = """
         {
-          "log": {"loglevel": "warning"},
+          "log": {"loglevel": "none", "access": "none"},
           "inbounds": [{
             "listen": "127.0.0.2",
             "port": 17808,
@@ -508,7 +467,7 @@ object VpnSDK {
 
             return """
             {
-              "log": {"loglevel": "warning"},
+              "log": {"loglevel": "none", "access": "none"},
               "inbounds": [{
                 "listen": "127.0.0.2",
                 "port": 17808,
@@ -833,11 +792,18 @@ object VpnSDK {
         }
     }
 
-    /** True iff a server-issued xray config is cached locally. */
+    /** Drops the stored xray config (e.g. a key left over from the removed backend). */
+    @JvmStatic
+    fun forgetConfig() {
+        checkInitialized()
+        ConfigStore.clearXrayConfig()
+    }
+
+    /** True iff a config from the user's own link is stored. */
     @JvmStatic
     fun hasCachedXrayConfig(): Boolean {
         checkInitialized()
-        return VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson() != null
+        return ConfigStore.getXrayConfig() != null
     }
 
     @JvmStatic
@@ -869,118 +835,6 @@ object VpnSDK {
 
     @JvmStatic
     fun getProxyLastError(): String? = XrayProxy.lastError
-
-    /**
-     * Calls POST /auth/register against the backend, with [maxAttempts] tries
-     * spaced by exponential backoff (1s, 2s, 4s, …). On success, caches the
-     * returned xray config and v2rayKey, restarts the local proxy with the new
-     * config, and invokes [callback] on the Main thread with `true`.
-     *
-     * On exhaustion of all attempts (or if xray fails to restart with the
-     * new config), invokes [callback] with `false`. The caller is responsible
-     * for any UI feedback. After `success=true` callers should also push the
-     * new proxy address into ConnectionsManager via `setProxySettings(...)`
-     * to apply it across active accounts at runtime.
-     *
-     * Concurrent invocations are serialised: while one attempt cycle is in
-     * flight, additional calls are dropped silently (no callback is invoked).
-     * This protects both the backend (no duplicate findOrCreate races) and
-     * the local libxray native state (no concurrent stop/start).
-     */
-    @JvmStatic
-    @JvmOverloads
-    fun registerOrAuth(maxAttempts: Int = 3, callback: RegisterCallback? = null) {
-        checkInitialized()
-        scope.launch {
-            if (!registerMutex.tryLock()) {
-                VpnSDK.logD(TAG, "registerOrAuth already in flight, dropping duplicate call")
-                return@launch
-            }
-            var success = false
-            try {
-                success = runRegisterWithRetries(maxAttempts)
-                withContext(Dispatchers.Main) { callback?.onResult(success) }
-            } finally {
-                registerMutex.unlock()
-            }
-            if (success) {
-                backgroundRetryJob?.cancel()
-                backgroundRetryJob = null
-            } else {
-                scheduleBackgroundRetry()
-            }
-        }
-    }
-
-    private var backgroundRetryJob: kotlinx.coroutines.Job? = null
-    private const val BACKGROUND_RETRY_INITIAL_MS = 30_000L
-    private const val BACKGROUND_RETRY_MAX_MS = 10 * 60_000L
-
-    /**
-     * [registerOrAuth]'s own retries are a short burst (seconds) meant to
-     * ride out a blip while the caller is waiting on a callback. If the
-     * backend is down/unreachable for longer than that, the previous
-     * behaviour was to give up silently until the user manually reopened
-     * settings and toggled something — leaving them without a working key
-     * indefinitely. This keeps trying in the background with a slow backoff
-     * until it succeeds or the user explicitly disables the proxy.
-     */
-    private fun scheduleBackgroundRetry() {
-        if (backgroundRetryJob?.isActive == true) return
-        backgroundRetryJob = scope.launch {
-            var delayMs = BACKGROUND_RETRY_INITIAL_MS
-            while (true) {
-                delay(delayMs)
-                VpnSDK.logD(TAG, "Background retry of registerOrAuth after earlier failure")
-                val success = registerMutex.withLock { runRegisterWithRetries(2) }
-                if (success) {
-                    VpnSDK.logD(TAG, "Background retry succeeded")
-                    return@launch
-                }
-                delayMs = (delayMs * 2).coerceAtMost(BACKGROUND_RETRY_MAX_MS)
-            }
-        }
-    }
-
-    private suspend fun runRegisterWithRetries(maxAttempts: Int): Boolean {
-        var delayMs = 1000L
-        var lastResult: NetworkResult<Unit>? = null
-        for (attempt in 1..maxAttempts) {
-            VpnSDK.logD(TAG, "registerOrAuth attempt $attempt/$maxAttempts")
-            val result = VpnNetworkFactory.getRegistrationRepository().register()
-            lastResult = result
-            if (result is NetworkResult.Success) {
-                // API success means a fresh config is in cache; we still
-                // need libxray to accept it. If the restart fails, the whole
-                // operation is a failure — don't pretend otherwise to the
-                // caller, who will then advance MTProto onto a dead proxy.
-                return applyCachedConfigToXray()
-            }
-            if (attempt < maxAttempts) {
-                delay(delayMs)
-                delayMs *= 2
-            }
-        }
-        VpnSDK.logW(TAG, "registerOrAuth exhausted $maxAttempts attempts: $lastResult")
-        return false
-    }
-
-    private fun applyCachedConfigToXray(): Boolean {
-        val configJson = VpnNetworkFactory.getRegistrationRepository().getCachedConfigJson()
-        if (configJson == null) {
-            VpnSDK.logW(TAG, "applyCachedConfigToXray: no cached config (unexpected after success)")
-            return false
-        }
-        XrayProxy.stop()
-        val ok = XrayProxy.start(configJson)
-        if (!ok) {
-            VpnSDK.logW(TAG, "Failed to restart xray with new config: ${XrayProxy.lastError}")
-        } else {
-            VpnSDK.logD(TAG, "Xray restarted with fresh server config")
-            startProxyWatchdog()
-        }
-        return ok
-    }
 
     private fun notifyListeners(state: VpnTunnelState) {
         val snapshot: List<StateListener>

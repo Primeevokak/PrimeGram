@@ -132,7 +132,6 @@ object XrayProxy {
             if (response.isSuccess) {
                 lastError = null
                 logD("Started on $socksHost:$socksPort")
-                startLogcatReader()
                 true
             } else {
                 lastError = response.error
@@ -149,7 +148,6 @@ object XrayProxy {
     fun stop() {
         startRequested = false
         try {
-            stopLogcatReader()
             libXray.LibXray.stopXray()
             logD("Stopped")
         } catch (e: Throwable) {
@@ -161,16 +159,15 @@ object XrayProxy {
 
     private fun buildRunRequest(configJson: String): String {
         var finalConfigJson = configJson.replace("\"127.0.0.1\"", "\"127.0.0.2\"")
+        // No logs at all: xray's own log lines carry server addresses and every destination it
+        // dials. Whatever the config says, the runtime keeps quiet; a failed start still reports
+        // its reason through the libXray response (lastError).
         try {
             val configObj = JSONObject(finalConfigJson)
-            if (!configObj.has("log")) {
-                val logObj = JSONObject()
-                logObj.put("loglevel", "debug")
-                configObj.put("log", logObj)
-                finalConfigJson = configObj.toString()
-            }
+            configObj.put("log", JSONObject().put("loglevel", "none").put("access", "none"))
+            finalConfigJson = configObj.toString()
         } catch (e: Exception) {
-            logE("Failed to inject debug log level", e)
+            logE("Config is not valid JSON", e)
         }
 
         val requestJson = JSONObject().apply {
@@ -179,37 +176,6 @@ object XrayProxy {
             put("configJSON", finalConfigJson)
         }.toString()
         return Base64.getEncoder().encodeToString(requestJson.toByteArray())
-    }
-
-    private var logcatThread: Thread? = null
-    @Volatile private var isLogcatRunning = false
-
-    private fun startLogcatReader() {
-        if (isLogcatRunning) return
-        isLogcatRunning = true
-        logcatThread = kotlin.concurrent.thread(start = true) {
-            try {
-                val process = Runtime.getRuntime().exec("logcat -v time GoLog:D libxray:D XrayProxy:D VpnSDK:D *:S")
-                val reader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream))
-                var line: String? = null
-                while (isLogcatRunning && reader.readLine().also { line = it } != null) {
-                    val l = line ?: continue
-                    if (l.contains("GoLog") || l.contains("libxray")) {
-                        val msgIndex = l.indexOf("GoLog")
-                        val cleanMsg = if (msgIndex != -1) l.substring(msgIndex) else l
-                        proxyLogger?.invoke(cleanMsg)
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignore
-            }
-        }
-    }
-
-    private fun stopLogcatReader() {
-        isLogcatRunning = false
-        logcatThread?.interrupt()
-        logcatThread = null
     }
 
     private data class LibResponse(val isSuccess: Boolean, val error: String?)
