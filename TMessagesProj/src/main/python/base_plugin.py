@@ -197,6 +197,15 @@ def _java_list_to_py(java_list):
     return [java_list.get(i) for i in range(java_list.size())]
 
 
+def _record_hook(plugin_id, unhook):
+    """Tells the hook catalogue which method went in, for the plugin's settings screen."""
+    try:
+        from org.telegram.messenger.plugins import PrimeHookCatalog
+        PrimeHookCatalog.record(str(plugin_id), unhook.getHookedMethod())
+    except Exception:
+        pass
+
+
 def _journal(plugin_id, text):
     """One line in the plugin's own journal (Settings -> plugin -> "Журнал вызовов")."""
     try:
@@ -740,6 +749,7 @@ class BasePlugin:
         # Kept alive by the plugin: the proxy is referenced only from native code once the hook is
         # in place, and a garbage-collected callback takes the hook down with it.
         self._prime_hooks.append((unhook, callback))
+        _record_hook(self.id, unhook)
         return unhook
 
     def hook_all_methods(self, hook_class, method_name, xposed_hook=None, priority=None, *,
@@ -754,6 +764,7 @@ class BasePlugin:
         result = _java_list_to_py(unhooks)
         for unhook in result:
             self._prime_hooks.append((unhook, callback))
+            _record_hook(self.id, unhook)
         if not result:
             self.log("не нашлось методов %s.%s" % (hook_class, method_name))
         return result
@@ -770,6 +781,7 @@ class BasePlugin:
         result = _java_list_to_py(unhooks)
         for unhook in result:
             self._prime_hooks.append((unhook, callback))
+            _record_hook(self.id, unhook)
         return result
 
     def unhook_method(self, unhook):
@@ -786,6 +798,11 @@ class BasePlugin:
         for unhook, _ in self._prime_hooks:
             PrimePluginXposed.unhook(unhook)
         self._prime_hooks = []
+        try:
+            from org.telegram.messenger.plugins import PrimeHookCatalog
+            PrimeHookCatalog.forget(str(self.id))
+        except Exception:
+            pass
         if self._prime_files:
             from file_utils import FilesController
             FilesController.forget_all(self._prime_files)

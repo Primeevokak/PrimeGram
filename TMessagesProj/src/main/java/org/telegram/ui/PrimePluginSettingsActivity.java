@@ -244,6 +244,12 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
         final Object custom = customViews.get(id);
         if (custom instanceof UItem) {
             // exteraGram factory row: the list calls the factory's createView/bindView itself.
+            // Or a ready UItem.asCustom(id, view) - whose view a plugin may cache across opens of
+            // this screen, still attached to the previous list.
+            final View itemView = ((UItem) custom).view;
+            if (itemView != null && itemView.getParent() instanceof ViewGroup) {
+                ((ViewGroup) itemView.getParent()).removeView(itemView);
+            }
             factoryRows.put((UItem) custom, index);
             items.add((UItem) custom);
             return;
@@ -312,7 +318,39 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
         return builder;
     }
 
+    /**
+     * The exact methods this plugin has hooked right now, in words (PrimeHookCatalog) - what the
+     * install sheet could only guess at from the code, recorded as each hook actually went in.
+     */
+    private void addHooksSection(ArrayList<UItem> items) {
+        final java.util.List<org.telegram.messenger.plugins.PrimeHookCatalog.Hooked> hooks =
+                org.telegram.messenger.plugins.PrimeHookCatalog.hooksOf(plugin.id());
+        if (hooks.isEmpty()) {
+            return;
+        }
+        items.add(UItem.asShadow(null));
+        items.add(UItem.asHeader("Перехватывает (" + hooks.size() + ")"));
+        final android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder();
+        for (org.telegram.messenger.plugins.PrimeHookCatalog.Hooked hook : hooks) {
+            if (text.length() > 0) {
+                text.append("\n");
+            }
+            final int start = text.length();
+            text.append("•  ").append(hook.title());
+            if (hook.sensitivity() == org.telegram.messenger.plugins.PrimeHookCatalog.Sensitivity.CORE) {
+                text.setSpan(new android.text.style.ForegroundColorSpan(Theme.getColor(Theme.key_text_RedRegular)), start, text.length(), 0);
+            }
+            final int techStart = text.length();
+            text.append("  ").append(hook.technicalName());
+            text.setSpan(new android.text.style.RelativeSizeSpan(0.85f), techStart, text.length(), 0);
+        }
+        items.add(UItem.asShadow(text));
+    }
+
     private void addDeleteRow(ArrayList<UItem> items) {
+        if (plugin.isEnabled()) {
+            addHooksSection(items);
+        }
         items.add(UItem.asShadow(null));
         final int logSize = org.telegram.messenger.plugins.PrimePluginLog.size(plugin.id());
         items.add(UItem.asButton(ID_LOG, "Журнал вызовов", logSize > 0 ? logSize + " записей" : "пока пусто"));

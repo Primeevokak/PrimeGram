@@ -653,6 +653,11 @@ def _build_custom_view(plugin_id, path, index):
     row = _row(plugin_id, path, index)
     if row is None or getattr(row, "type", None) != "custom":
         return None
+    # exteraGram's Custom(item=UItem.asCustom(id, view)): the row arrives as a finished UItem,
+    # which the settings list takes as it is (custom_snow's sliders came out as an empty gap).
+    item = getattr(row, "item", None)
+    if item is not None:
+        return item
     view = getattr(row, "view", None)
     if view is not None:
         return view

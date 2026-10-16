@@ -208,14 +208,8 @@ public final class PrimePluginInstallDialog {
                 root.addView(description, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 21, 20, 21, 0));
             }
 
-            if (manifest.requirements != null && !manifest.requirements.isEmpty()) {
-                final TextView requirements = new TextView(context);
-                requirements.setGravity(Gravity.LEFT);
-                requirements.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
-                requirements.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteGrayText));
-                requirements.setText("Требует библиотеки: " + TextUtils.join(", ", manifest.requirements));
-                root.addView(requirements, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 21, 10, 21, 0));
-            }
+            // Requirements are listed by the scan below ("Код из интернета"), next to what else the
+            // plugin would fetch.
 
             if (compatible) {
                 // Filled in once the scan finishes; a 4 MB plugin is too much regex for the UI
@@ -269,19 +263,153 @@ public final class PrimePluginInstallDialog {
 
         /** "What this plugin can do" as the sheet shows it: capabilities as a list, then a red
          *  block if the code looks deliberately hidden. Null when there was nothing to read. */
+        /**
+         * The parts of Telegram the code names, in words from {@link org.telegram.messenger.plugins.PrimeHookCatalog}:
+         * account and traffic in red, personal data one per line, interface parts on one line.
+         */
+        private void appendTouchedParts(android.text.SpannableStringBuilder out,
+                                        org.telegram.messenger.plugins.PrimePluginCapabilities scan, int red) {
+            final java.util.List<org.telegram.messenger.plugins.PrimeHookCatalog.Entry> core = new java.util.ArrayList<>();
+            final java.util.List<org.telegram.messenger.plugins.PrimeHookCatalog.Entry> content = new java.util.ArrayList<>();
+            final java.util.LinkedHashSet<String> ui = new java.util.LinkedHashSet<>();
+            for (String name : scan.touched) {
+                if (org.telegram.messenger.plugins.PrimeHookCatalog.isInfrastructure(name)) {
+                    continue;
+                }
+                final org.telegram.messenger.plugins.PrimeHookCatalog.Entry entry = org.telegram.messenger.plugins.PrimeHookCatalog.find(name);
+                if (entry == null) {
+                    continue;
+                }
+                switch (entry.sensitivity) {
+                    case CORE:
+                        core.add(entry);
+                        break;
+                    case CONTENT:
+                        content.add(entry);
+                        break;
+                    default:
+                        ui.add(entry.title);
+                        break;
+                }
+            }
+            if (core.isEmpty() && content.isEmpty() && ui.isEmpty()) {
+                return;
+            }
+            out.append("\n\n");
+            int start = out.length();
+            out.append(scan.capabilities.contains(org.telegram.messenger.plugins.PrimePluginCapabilities.Capability.HOOKS)
+                    ? "Встраивается в части приложения:" : "Работает с частями приложения:");
+            out.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, out.length(), 0);
+            for (org.telegram.messenger.plugins.PrimeHookCatalog.Entry entry : core) {
+                start = out.length();
+                out.append("\n•  ").append(entry.title);
+                out.setSpan(new android.text.style.ForegroundColorSpan(red), start, out.length(), 0);
+            }
+            for (org.telegram.messenger.plugins.PrimeHookCatalog.Entry entry : content) {
+                out.append("\n•  ").append(entry.title);
+            }
+            if (!ui.isEmpty()) {
+                out.append("\n•  интерфейс: ").append(TextUtils.join(", ", ui));
+            }
+        }
+
         private CharSequence describeCapabilities(org.telegram.messenger.plugins.PrimePluginCapabilities scan) {
             if (!scan.scanned) {
                 return null;
             }
             final android.text.SpannableStringBuilder out = new android.text.SpannableStringBuilder();
-            final int headerStart = out.length();
+            final int gray = getThemedColor(Theme.key_windowBackgroundWhiteGrayText);
+            final int red = getThemedColor(Theme.key_text_RedRegular);
+
+            // The verdict first: one colored line and the reason that decided it.
+            final int riskColor;
+            switch (scan.risk) {
+                case HIGH:
+                    riskColor = red;
+                    break;
+                case MEDIUM:
+                    riskColor = getThemedColor(Theme.key_color_orange);
+                    break;
+                default:
+                    riskColor = getThemedColor(Theme.key_color_green);
+                    break;
+            }
+            int start = out.length();
+            out.append(scan.risk.title);
+            out.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, out.length(), 0);
+            out.setSpan(new android.text.style.ForegroundColorSpan(riskColor), start, out.length(), 0);
+            out.setSpan(new android.text.style.RelativeSizeSpan(1.1f), start, out.length(), 0);
+            if (scan.riskReason != null) {
+                out.append("\n").append(scan.riskReason);
+            }
+            out.append("\n\n");
+
+            start = out.length();
             out.append(scan.capabilities.isEmpty()
                     ? "Судя по коду, плагин не обращается к сети, файлам, сообщениям и аккаунту."
                     : "Судя по коду, плагин может:");
-            out.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), headerStart, out.length(), 0);
+            out.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, out.length(), 0);
             for (org.telegram.messenger.plugins.PrimePluginCapabilities.Capability capability : scan.capabilities) {
+                start = out.length();
                 out.append("\n•  ").append(capability.title);
+                if (capability.critical) {
+                    out.setSpan(new android.text.style.ForegroundColorSpan(red), start, out.length(), 0);
+                }
             }
+
+            appendTouchedParts(out, scan, red);
+
+            if (!scan.hosts.isEmpty()) {
+                out.append("\n\n");
+                start = out.length();
+                out.append("Обращается к:");
+                out.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, out.length(), 0);
+                int shown = 0;
+                for (String host : scan.hosts) {
+                    if (shown == 12) {
+                        out.append("\n•  и ещё ").append(String.valueOf(scan.hosts.size() - shown));
+                        break;
+                    }
+                    out.append("\n•  ").append(host);
+                    shown++;
+                }
+            }
+
+            final java.util.LinkedHashSet<String> downloads = new java.util.LinkedHashSet<>(scan.requirements);
+            if (manifest.requirements != null) {
+                downloads.addAll(manifest.requirements);
+            }
+            if (!downloads.isEmpty() || !scan.fetchable.isEmpty()) {
+                out.append("\n\n");
+                start = out.length();
+                out.append("Код из интернета (PyPI):");
+                out.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, out.length(), 0);
+                if (!downloads.isEmpty()) {
+                    out.append("\n•  скачает при установке: ").append(TextUtils.join(", ", downloads));
+                }
+                if (!scan.fetchable.isEmpty()) {
+                    out.append("\n•  импортирует то, чего нет в приложении, и попробует докачать: ")
+                            .append(TextUtils.join(", ", scan.fetchable));
+                }
+            }
+
+            if (scan.compiledFiles > 0 || scan.embeddedDexBytes > 0) {
+                out.append("\n\n");
+                start = out.length();
+                if (scan.compiledFiles > 0) {
+                    out.append("Модулей в байткоде (.pyc): ").append(String.valueOf(scan.compiledFiles))
+                            .append(" — так собирает elyxbuilder; проверены по именам и строкам, а не по исходнику.");
+                }
+                if (scan.embeddedDexBytes > 0) {
+                    if (scan.compiledFiles > 0) {
+                        out.append("\n");
+                    }
+                    out.append("Встроенный Java-код (DEX, ").append(AndroidUtilities.formatFileSize(scan.embeddedDexBytes))
+                            .append(") проверен по именам классов и методов.");
+                }
+                out.setSpan(new android.text.style.ForegroundColorSpan(gray), start, out.length(), 0);
+            }
+
             if (!scan.obfuscation.isEmpty()) {
                 out.append("\n\n");
                 final int redStart = out.length();

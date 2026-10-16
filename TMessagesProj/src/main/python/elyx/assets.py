@@ -109,6 +109,16 @@ class _Namespace:
 
 class _Assets:
 
+    # Methods, not just the module-level functions above: the module replaces itself with this
+    # instance below, so `import elyx.assets; elyx.assets.register(...)` lands here. Without these
+    # the loader's call fell through to __getattr__, raised, was swallowed by its try/except, and
+    # no plugin's res/ was ever registered (reSwaga: every assets.logo_* raised AttributeError).
+    def register(self, package_name, root_dir):
+        register(package_name, root_dir)
+
+    def unregister(self, package_name):
+        unregister(package_name)
+
     def _caller_plugin_id_and_root(self):
         # frame 0 is this method, frame 1 is __getattr__, frame 2 is the actual caller -
         # same two-hop skip elyx.strings/elyx.settings/elyx.metainfo all use.

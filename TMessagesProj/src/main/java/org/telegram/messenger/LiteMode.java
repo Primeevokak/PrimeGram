@@ -120,17 +120,57 @@ public class LiteMode {
     private static int lastBatteryLevelCached = -1;
     private static long lastBatteryLevelChecked;
 
+    private static volatile boolean batteryRefreshQueued;
+
+    /**
+     * PrimeGram: never a binder call on the UI thread. {@code getIntProperty} is IPC to the battery
+     * service; called from isEnabled() inside cell drawing and from every ACTION_BATTERY_CHANGED, it
+     * held the UI thread up to ~350ms on MIUI while switching chat folders. The level now comes
+     * from the broadcast itself ({@link #onBatteryChanged}), and a stale value is refreshed on a
+     * background queue while callers keep the last known one. Only the very first reading, before
+     * any broadcast arrived, is taken synchronously off the UI thread or assumed full on it.
+     */
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     public static int getBatteryLevel() {
-        long time = 0;
-        if (lastBatteryLevelCached < 0 || (time = System.currentTimeMillis()) - lastBatteryLevelChecked > 1000 * 12) {
+        final long time = System.currentTimeMillis();
+        if (lastBatteryLevelCached < 0 || time - lastBatteryLevelChecked > 1000 * 12) {
+            if (lastBatteryLevelCached < 0 && android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+                queryBatteryLevel();
+            } else if (!batteryRefreshQueued) {
+                batteryRefreshQueued = true;
+                Utilities.globalQueue.postRunnable(() -> {
+                    queryBatteryLevel();
+                    batteryRefreshQueued = false;
+                });
+            }
+        }
+        return lastBatteryLevelCached < 0 ? 100 : lastBatteryLevelCached;
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private static void queryBatteryLevel() {
+        try {
             BatteryManager batteryManager = (BatteryManager) ApplicationLoader.applicationContext.getSystemService(Context.BATTERY_SERVICE);
             if (batteryManager != null) {
                 lastBatteryLevelCached = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-                lastBatteryLevelChecked = time;
+                lastBatteryLevelChecked = System.currentTimeMillis();
             }
+        } catch (Throwable e) {
+            FileLog.e(e);
         }
-        return lastBatteryLevelCached;
+    }
+
+    /** The level ACTION_BATTERY_CHANGED already carries - no need to ask the service again. */
+    static void onBatteryChanged(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+        final int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        final int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        if (level >= 0 && scale > 0) {
+            lastBatteryLevelCached = level * 100 / scale;
+            lastBatteryLevelChecked = System.currentTimeMillis();
+        }
     }
 
     private static int preprocessFlag(int flag) {
@@ -358,7 +398,7 @@ public class LiteMode {
     public static class BatteryReceiver extends BroadcastReceiver {
         @Override
         public void onReceive(Context context, Intent intent) {
-            lastBatteryLevelChecked = 0;
+            onBatteryChanged(intent);
             getValue();
         }
     }
