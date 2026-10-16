@@ -478,14 +478,21 @@ public class ApplicationLoader extends Application {
             // silently drops it with nothing to bring it back - the settings toggle then just
             // reflects reality ("off") until the user reopens that screen and flips it again.
             // Real users reported exactly this ("через несколько часов сам вырубается").
-            // Resume iff the user actually had one of the two xray-backed proxies switched on
-            // last time - a custom server (PrimeVpnServerStore's persisted active id) or the
-            // backend-issued "emergency" key (primegram_emergency_vless_enabled, set/cleared by
-            // that toggle) - never unconditionally, or this would silently re-enable a proxy the
-            // user explicitly turned off.
-            final boolean wantsCustomServer = org.telegram.messenger.PrimeVpnServerStore.getActiveServerId() != null;
-            final boolean wantsEmergencyProxy = MessagesController.getGlobalMainSettings().getBoolean("primegram_emergency_vless_enabled", false);
-            if ((wantsCustomServer || wantsEmergencyProxy) && VpnSDK.startProxy()) {
+            // Resume iff the user had one of their own servers active last time - never
+            // unconditionally, or this would silently re-enable something they turned off. The
+            // old backend-issued "emergency" key is gone: with no server of the user's own
+            // selected, whatever config is still stored came from that backend and is dropped.
+            MessagesController.getGlobalMainSettings().edit().remove("primegram_emergency_vless_enabled").apply();
+            final PrimeVpnServerStore.Server active = PrimeVpnServerStore.getActiveServer();
+            if (active == null) {
+                VpnSDK.forgetConfig();
+            } else if (PrimeVpnServerStore.PROTOCOL_AWG.equals(active.protocol)) {
+                // Only with VPN consent already granted: a cold start cannot show the dialog.
+                if (android.net.VpnService.prepare(applicationContext) == null) {
+                    VpnSDK.connectAwg(active.rawUrl, applicationContext.getPackageName(), null);
+                    PrimeStartupTrace.mark("AmneziaWG resumed");
+                }
+            } else if (VpnSDK.startProxy()) {
                 applyXrayProxyToConnectionsManager();
                 PrimeStartupTrace.mark("VpnSDK.startProxy resumed");
             }

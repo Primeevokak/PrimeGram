@@ -299,9 +299,9 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_TGWS_SETTINGS,
                 "TgWs-сервер",
                 "Основной механизм обхода блокировок — локальный туннель, поднятый прямо на устройстве, через который приложение и ходит в сеть вместо прямого соединения.\n\nНа этом экране видно, работает ли он сейчас, через какой домен идёт трафик и с какой задержкой отвечают остальные доступные варианты. Домен можно закрепить вручную — пригодится, если провайдер блокирует конкретные адреса, а не протокол целиком."));
-        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_EMERGENCY_PROXY,
-                "Аварийный VLESS и свои серверы",
-                "Совершенно отдельный от TgWs локальный прокси — на случай, если основной туннель заблокирован целиком, а не частично. Включается сразу с автоматическим получением ключа, без ручной настройки.\n\nЧуть ниже, в разделе «Серверы», можно вместо автоматических добавить свои — VLESS, VMess, Trojan или Shadowsocks, если уже пользуетесь каким-то из этих протоколов через другого провайдера."));
+        steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_VLESS_CUSTOM_KEY,
+                "Свои серверы",
+                "Отдельный от TgWs способ подключения — на случай, если основной туннель заблокирован целиком. Работает только с вашими ключами: VLESS, VMess, Trojan, Shadowsocks, SOCKS или конфиг AmneziaWG.\n\nКлючи вы добавляете сами. Приложение не получает ключей и настроек от сторонних серверов."));
         steps.add(org.telegram.messenger.PrimeGuide.step(SECTION_CONNECTION, ID_TGWS_BACKGROUND,
                 "Работа TgWs в фоне",
                 "Останавливает локальный сервер вскоре после того, как вы свернули приложение, и снова поднимает его при возврате — экономит батарею на слабых устройствах. Уведомления это не ломает: они приходят через отдельный канал (Firebase), а не через сам туннель, так что новые сообщения продолжат приходить как обычно, даже пока сервер остановлен."));
@@ -1447,30 +1447,18 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     }
 
-    private String vlessKeyStatusText(boolean running) {
-
-        if (running) {
-
-            return "Статус: активен, трафик защищён.";
-
+    private String customServerStatusText() {
+        if (VpnSDK.isAwgUp()) {
+            return "Подключён AmneziaWG.";
         }
-
-        if (!VpnSDK.hasCachedXrayConfig()) {
-
-            return "Статус: ключ ещё не получен от сервера.";
-
+        if (VpnSDK.isProxyRunning()) {
+            return "Подключён свой сервер.";
         }
-
-        String lastError = VpnSDK.getProxyLastError();
-
-        if (lastError != null && !lastError.isEmpty()) {
-
-            return "Статус: ключ есть, но прокси не запустился (" + lastError + ").";
-
+        final String lastError = VpnSDK.getProxyLastError();
+        if (org.telegram.messenger.PrimeVpnServerStore.getActiveServerId() != null && lastError != null && !lastError.isEmpty()) {
+            return "Сервер не запустился (" + lastError + ").";
         }
-
-        return "Статус: ключ получен, прокси выключен.";
-
+        return "Не подключён.";
     }
 
     @Override
@@ -1742,13 +1730,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_CONNECTION) {
-            boolean vlessRunning = VpnSDK.isProxyRunning();
-            row(check(ID_EMERGENCY_PROXY, IconBackgroundColors.PURPLE, R.drawable.msg_secret,
-                    "Включить VLESS-сервер", vlessRunning));
             row(button(ID_VLESS_CUSTOM_KEY, IconBackgroundColors.PURPLE, R.drawable.msg_link2,
-                    "Серверы", org.telegram.messenger.PrimeVpnServerStore.getServers().size() + " добавлено"));
+                    "Свои серверы", org.telegram.messenger.PrimeVpnServerStore.getServers().size() + " добавлено"));
             endCard(items);
-            items.add(UItem.asShadow(vlessKeyStatusText(vlessRunning) + " В случае проблем с основным прокси, вы можете включить аварийный VLESS-прокси для обхода блокировок. Сервер работает локально на 127.0.0.2:17808"));
+            items.add(UItem.asShadow(customServerStatusText() + " VLESS, VMess, Trojan, Shadowsocks, SOCKS и AmneziaWG с вашими собственными ключами — на случай, если основной туннель заблокирован."));
 
             row(check(ID_TGWS_PROXY, IconBackgroundColors.GREEN, R.drawable.msg_satellite,
                     "Включить TgWs-сервер", preferences.getBoolean("primegram_tgws_enabled", true)));
@@ -2566,29 +2551,6 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             }
         } else if (item.id == ID_SIDEBAR_ZONE) {
             showSidebarZoneSheet();
-        } else if (item.id == ID_EMERGENCY_PROXY) {
-            if (VpnSDK.isProxyRunning()) {
-                VpnSDK.stopProxy();
-                // Persisted so a later cold start (the process was killed in the background,
-                // or the user just relaunches the app) knows NOT to resume this - without it,
-                // ApplicationLoader's own auto-resume (see its startProxy() call) can't tell
-                // "user turned this off" apart from "process died while it was still meant to
-                // be running", and had no signal at all either way before this existed.
-                MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_emergency_vless_enabled", false).apply();
-                listView.adapter.update(true);
-            } else {
-                android.widget.Toast.makeText(getContext(), "Получаем ключ...", android.widget.Toast.LENGTH_SHORT).show();
-                VpnSDK.registerOrAuth(2, success -> {
-                    if (listView != null && listView.adapter != null) {
-                        listView.adapter.update(true);
-                    }
-                    if (success) {
-                        MessagesController.getGlobalMainSettings().edit().putBoolean("primegram_emergency_vless_enabled", true).apply();
-                    } else {
-                        android.widget.Toast.makeText(getContext(), "Не удалось получить ключ. Проверьте соединение и попробуйте ещё раз.", android.widget.Toast.LENGTH_LONG).show();
-                    }
-                });
-            }
         } else if (item.id == ID_VLESS_CUSTOM_KEY) {
             presentFragment(new PrimeVpnServersActivity());
         } else if (item.id == ID_TGWS_PROXY) {

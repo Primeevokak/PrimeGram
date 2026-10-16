@@ -10,7 +10,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * PrimeGram: the list of VLESS/VMess/Trojan/Shadowsocks servers a person has added by hand -
+ * PrimeGram: the list of VLESS/VMess/Trojan/Shadowsocks/SOCKS servers and AmneziaWG configs a
+ * person has added by hand -
  * what {@link VpnSDK}'s own cache (one config, last one wins) has no room for. Selecting an entry
  * here is what actually reaches VpnSDK.setCustomVlessConfig; this class only remembers what was
  * typed in and which one is meant to be active, the way a Happ-style client's server list does.
@@ -19,6 +20,9 @@ public final class PrimeVpnServerStore {
 
     private static final String KEY_SERVERS = "primegram_vpn_servers";
     private static final String KEY_ACTIVE = "primegram_vpn_active_server";
+
+    /** An AmneziaWG/WireGuard config: {@link Server#rawUrl} holds the whole .conf text. */
+    public static final String PROTOCOL_AWG = "awg";
 
     public static final class Server {
         public final String id;
@@ -84,6 +88,9 @@ public final class PrimeVpnServerStore {
         if (url == null) {
             return "unknown";
         }
+        if (vpn.sdk.VpnSDK.isAwgConfig(url)) {
+            return PROTOCOL_AWG;
+        }
         final int idx = url.indexOf("://");
         return idx > 0 ? url.substring(0, idx) : "unknown";
     }
@@ -113,6 +120,20 @@ public final class PrimeVpnServerStore {
         if (id.equals(getActiveServerId())) {
             setActiveServerId(null);
         }
+    }
+
+    /** The selected server, or null when none is (or the selected one was deleted). */
+    public static Server getActiveServer() {
+        final String id = getActiveServerId();
+        if (id == null) {
+            return null;
+        }
+        for (Server s : getServers()) {
+            if (s.id.equals(id)) {
+                return s;
+            }
+        }
+        return null;
     }
 
     public static String getActiveServerId() {

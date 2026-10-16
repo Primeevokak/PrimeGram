@@ -485,24 +485,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT));
         listView.setAdapter(listAdapter);
         listView.setOnItemClickListener((view, position) -> {
-            if (position == emergencyProxyRow) {
-                if (VpnSDK.isProxyRunning()) {
-                    VpnSDK.stopProxy();
-                    listAdapter.notifyItemChanged(emergencyProxyRow);
-                } else {
-                    android.widget.Toast.makeText(getParentActivity(), "Получаем ключ...", android.widget.Toast.LENGTH_SHORT).show();
-                    VpnSDK.registerOrAuth(2, success -> {
-                        AndroidUtilities.runOnUIThread(() -> {
-                            if (listAdapter != null) {
-                                listAdapter.notifyItemChanged(emergencyProxyRow);
-                            }
-                            if (!success && getParentActivity() != null) {
-                                android.widget.Toast.makeText(getParentActivity(), "Не удалось получить ключ. Проверьте соединение и попробуйте ещё раз.", android.widget.Toast.LENGTH_LONG).show();
-                            }
-                        });
-                    });
-                }
-            } else if (position == customVlessRow) {
+            if (position == customVlessRow) {
                 // Used to be its own vless://-only dialog straight against VpnSDK, duplicating
                 // (and drifting out of sync with) the real server list this now opens - that old
                 // dialog didn't know about vmess/trojan/ss/socks, and a key entered here never
@@ -730,7 +713,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
 
     private void updateRows(boolean notify) {
         rowCount = 0;
-        emergencyProxyRow = rowCount++;
+        // The backend-issued "emergency" key is gone; only the user's own servers remain.
+        emergencyProxyRow = -1;
         customVlessRow = rowCount++;
         tgwsProxyRow = rowCount++;
         useProxyRow = rowCount++;

@@ -25,21 +25,29 @@ import java.util.List;
 import vpn.sdk.VpnSDK;
 
 /**
- * PrimeGram: a Happ-style list of VLESS/VMess/Trojan/Shadowsocks servers, sitting on top of
+ * PrimeGram: a Happ-style list of the user's own VLESS/VMess/Trojan/Shadowsocks/SOCKS servers and
+ * AmneziaWG configs, sitting on top of
  * {@link VpnSDK} the way {@link PrimeIconPacksActivity} sits on top of {@link
  * org.telegram.messenger.PrimeIconPacks} - VpnSDK itself only ever remembers one active config at
  * a time ({@code setCustomVlessConfig}), it has no notion of a list; {@link PrimeVpnServerStore}
  * is what supplies that, and this screen is what lets a person build one by hand instead of
  * juggling links in a notes app.
+ *
+ * <p>Only keys the user adds: nothing on this screen asks any server for a key or a config.
+ * An AmneziaWG config runs as a system VPN limited to this app, so it needs the VPN consent
+ * dialog once; proxy links run in-process through xray.
  */
 public class PrimeVpnServersActivity extends UniversalFragment {
 
     private static final int ID_ADD = 1;
-    private static final int ID_FREE_KEY = 2;
     private static final int ID_PING_ALL = 3;
     private static final int ID_SERVER_BASE = 100;
 
     private static final int PING_TIMEOUT_MS = 3000;
+    private static final int REQUEST_VPN_CONSENT = 7741;
+
+    /** Waiting for the VPN consent dialog to come back. */
+    private PrimeVpnServerStore.Server pendingAwgServer;
 
     private List<PrimeVpnServerStore.Server> servers = new ArrayList<>();
     private boolean pinging;
@@ -62,45 +70,30 @@ public class PrimeVpnServersActivity extends UniversalFragment {
     @Override
     protected void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {
         final String activeId = PrimeVpnServerStore.getActiveServerId();
-        final boolean autoActive = activeId == null && VpnSDK.hasCachedXrayConfig() && VpnSDK.isProxyRunning();
 
-        items.add(UItem.asButton(ID_ADD, "Добавить сервер", "vless / vmess / trojan / ss / socks"));
-        items.add(UItem.asButton(ID_FREE_KEY, "Попробовать бесплатный ключ", freeKeySubtitle()));
-        items.add(UItem.asShadow("Бесплатный ключ выдаётся автоматически и не хранится в этом списке отдельной строкой - "
-                + "он либо активен, либо нет, без адреса, который можно посмотреть или скопировать."));
+        items.add(UItem.asButton(ID_ADD, "Добавить сервер", "vless / vmess / trojan / ss / socks / AmneziaWG"));
+        items.add(UItem.asShadow("Работают только ваши ключи. AmneziaWG подключается как VPN только для PrimeGram: "
+                + "остальные приложения на телефоне идут мимо туннеля."));
 
         if (!servers.isEmpty()) {
             items.add(UItem.asHeader("Мои серверы"));
             items.add(UItem.asButton(ID_PING_ALL, pinging ? "Проверяем..." : "Проверить все", servers.size() + " серверов"));
             for (int i = 0; i < servers.size(); i++) {
                 final PrimeVpnServerStore.Server s = servers.get(i);
-                final String subtitle = s.protocol.toUpperCase(java.util.Locale.ROOT)
+                final String subtitle = (PrimeVpnServerStore.PROTOCOL_AWG.equals(s.protocol) ? "AmneziaWG" : s.protocol.toUpperCase(java.util.Locale.ROOT))
                         + (s.lastPingMs >= 0 ? " · " + s.lastPingMs + " мс"
                            : s.lastPingMs == -2 ? " · недоступен" : "");
                 items.add(UItem.asCheck(ID_SERVER_BASE + i, s.name + "\n" + subtitle)
-                        .setChecked(!autoActive && s.id.equals(activeId)));
+                        .setChecked(s.id.equals(activeId)));
             }
             items.add(UItem.asShadow("Тап — подключиться. Долгий тап — удалить."));
         }
-    }
-
-    private String freeKeySubtitle() {
-        final String activeId = PrimeVpnServerStore.getActiveServerId();
-        if (activeId != null) {
-            return "выключен, активен свой сервер";
-        }
-        if (VpnSDK.isProxyRunning()) {
-            return "активен";
-        }
-        return VpnSDK.hasCachedXrayConfig() ? "ключ есть, прокси выключен" : "ещё не запрашивался";
     }
 
     @Override
     protected void onClick(UItem item, View view, int position, float x, float y) {
         if (item.id == ID_ADD) {
             showAddServerDialog();
-        } else if (item.id == ID_FREE_KEY) {
-            requestFreeKey();
         } else if (item.id == ID_PING_ALL) {
             pingAll();
         } else if (item.id >= ID_SERVER_BASE && item.id < ID_SERVER_BASE + servers.size()) {
@@ -167,26 +160,21 @@ public class PrimeVpnServersActivity extends UniversalFragment {
         }
     }
 
-    private void requestFreeKey() {
-        if (getParentActivity() == null) {
-            return;
-        }
-        PrimeVpnServerStore.setActiveServerId(null);
-        android.widget.Toast.makeText(getContext(), "Получаем ключ...", android.widget.Toast.LENGTH_SHORT).show();
-        VpnSDK.registerOrAuth(2, success -> {
-            if (listView != null && listView.adapter != null) {
-                listView.adapter.update(true);
-            }
-            if (!success) {
-                android.widget.Toast.makeText(getContext(), "Не удалось получить ключ. Проверьте соединение и попробуйте ещё раз.", android.widget.Toast.LENGTH_LONG).show();
-            }
-        });
-    }
-
     private void connectTo(PrimeVpnServerStore.Server server) {
         if (getParentActivity() == null) {
             return;
         }
+        if (PrimeVpnServerStore.PROTOCOL_AWG.equals(server.protocol)) {
+            final android.content.Intent consent = android.net.VpnService.prepare(getParentActivity());
+            if (consent != null) {
+                pendingAwgServer = server;
+                startActivityForResult(consent, REQUEST_VPN_CONSENT);
+            } else {
+                connectAwg(server);
+            }
+            return;
+        }
+        VpnSDK.disconnectAwg();
         android.widget.Toast.makeText(getContext(), "Подключаемся...", android.widget.Toast.LENGTH_SHORT).show();
         org.telegram.messenger.Utilities.globalQueue.postRunnable(() -> {
             final boolean ok = VpnSDK.setCustomVlessConfig(server.rawUrl);
@@ -210,6 +198,63 @@ public class PrimeVpnServersActivity extends UniversalFragment {
         });
     }
 
+    @Override
+    public void onActivityResultFragment(int requestCode, int resultCode, android.content.Intent data) {
+        if (requestCode != REQUEST_VPN_CONSENT) {
+            return;
+        }
+        final PrimeVpnServerStore.Server server = pendingAwgServer;
+        pendingAwgServer = null;
+        if (server == null) {
+            return;
+        }
+        if (resultCode == android.app.Activity.RESULT_OK) {
+            connectAwg(server);
+        } else if (getContext() != null) {
+            android.widget.Toast.makeText(getContext(), "Без разрешения на VPN AmneziaWG не подключить", android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void connectAwg(PrimeVpnServerStore.Server server) {
+        android.widget.Toast.makeText(getContext(), "Подключаемся...", android.widget.Toast.LENGTH_SHORT).show();
+        // One transport at a time: the xray proxy would otherwise keep Telegram on a SOCKS
+        // endpoint that is about to stop.
+        if (VpnSDK.isProxyRunning()) {
+            VpnSDK.stopProxy();
+            dropXrayProxySelection();
+        }
+        VpnSDK.connectAwg(server.rawUrl, org.telegram.messenger.ApplicationLoader.applicationContext.getPackageName(), ok -> {
+            if (ok) {
+                PrimeVpnServerStore.setActiveServerId(server.id);
+                if (getContext() != null) {
+                    android.widget.Toast.makeText(getContext(), "«" + server.name + "» подключён", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            } else if (getParentActivity() != null) {
+                final String reason = VpnSDK.getLastAwgError();
+                new AlertDialog.Builder(getParentActivity())
+                        .setTitle("Не удалось подключиться")
+                        .setMessage("Туннель «" + server.name + "» не поднялся" + (reason != null ? " (" + reason + ")" : "") + ". Проверьте конфиг.")
+                        .setPositiveButton(LocaleController.getString(R.string.OK), null)
+                        .show();
+            }
+            reload();
+            if (listView != null && listView.adapter != null) {
+                listView.adapter.update(true);
+            }
+        });
+    }
+
+    /** If Telegram is pointed at the xray SOCKS endpoint, stop using it (direct or TgWs remains). */
+    private static void dropXrayProxySelection() {
+        final org.telegram.messenger.SharedConfig.ProxyInfo current = org.telegram.messenger.SharedConfig.currentProxy;
+        if (current != null && VpnSDK.getProxySocksHost().equals(current.settings.getAddress())
+                && current.settings.getPort() == VpnSDK.getProxySocksPort()) {
+            MessagesController.getGlobalMainSettings().edit().putBoolean("proxy_enabled", false).apply();
+            org.telegram.tgnet.ConnectionsManager.setProxySettings(false, null);
+            org.telegram.messenger.NotificationCenter.getGlobalInstance().postNotificationName(org.telegram.messenger.NotificationCenter.proxySettingsChanged);
+        }
+    }
+
     private void confirmDelete(PrimeVpnServerStore.Server server) {
         if (getParentActivity() == null) {
             return;
@@ -220,7 +265,11 @@ public class PrimeVpnServersActivity extends UniversalFragment {
                     final boolean wasActive = server.id.equals(PrimeVpnServerStore.getActiveServerId());
                     PrimeVpnServerStore.removeServer(server.id);
                     if (wasActive) {
-                        VpnSDK.stopProxy();
+                        if (PrimeVpnServerStore.PROTOCOL_AWG.equals(server.protocol)) {
+                            VpnSDK.disconnectAwg();
+                        } else {
+                            VpnSDK.stopProxy();
+                        }
                     }
                     reload();
                     listView.adapter.update(true);
@@ -246,12 +295,14 @@ public class PrimeVpnServersActivity extends UniversalFragment {
         nameInput.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12), AndroidUtilities.dp(16), AndroidUtilities.dp(12));
 
         final EditTextBoldCursor urlInput = new EditTextBoldCursor(getParentActivity());
-        urlInput.setHint("vless:// / vmess:// / trojan:// / ss:// / socks://");
+        urlInput.setHint("vless:// … или конфиг AmneziaWG целиком");
         urlInput.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
         urlInput.setTextColor(getThemedColor(Theme.key_dialogTextBlack));
         urlInput.setHintTextColor(getThemedColor(Theme.key_dialogTextHint));
         urlInput.setBackground(Theme.createEditTextDrawable(getParentActivity(), true));
-        urlInput.setSingleLine(true);
+        urlInput.setSingleLine(false);
+        urlInput.setMaxLines(8);
+        urlInput.setHorizontallyScrolling(false);
         urlInput.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12), AndroidUtilities.dp(16), AndroidUtilities.dp(12));
 
         final android.widget.LinearLayout column = new android.widget.LinearLayout(getParentActivity());
@@ -270,9 +321,10 @@ public class PrimeVpnServersActivity extends UniversalFragment {
                     }
                     final String protocol = PrimeVpnServerStore.detectProtocol(url);
                     if (!"vless".equals(protocol) && !"vmess".equals(protocol) && !"trojan".equals(protocol)
-                            && !"ss".equals(protocol) && !"socks".equals(protocol)) {
+                            && !"ss".equals(protocol) && !"socks".equals(protocol)
+                            && !PrimeVpnServerStore.PROTOCOL_AWG.equals(protocol)) {
                         android.widget.Toast.makeText(getContext(),
-                                "Не похоже на vless/vmess/trojan/ss/socks ссылку",
+                                "Не похоже ни на ссылку vless/vmess/trojan/ss/socks, ни на конфиг AmneziaWG",
                                 android.widget.Toast.LENGTH_LONG).show();
                         return;
                     }
