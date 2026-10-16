@@ -106,6 +106,24 @@ public final class PrimeClassProxy {
         }
     }
 
+    /** A measured size no real layout produces: width and height both carry every state bit. */
+    private static final int MEASURE_SENTINEL = 0xFFFFFFFF ^ 0x00FFFFFF ^ 0x00ABCDEF;
+
+    /**
+     * Before a plugin's onMeasure runs: plant a size it will overwrite if it sets one.
+     *
+     * <p>{@link #isDimensionSet} used to read {@code View.mPrivateFlags}, a hidden field that
+     * targetSdk 36 is denied - so it always answered "not set", and {@link #ensureMeasuredDimension}
+     * re-measured every plugin view with the parent's original specs after the plugin had sized it.
+     * In a vertical list that spec is UNSPECIFIED, so the plugin's exact height (reSwaga's 68dp
+     * settings cells) was replaced by 0 and the row vanished.
+     */
+    public static void beginMeasure(Object view) {
+        if (view instanceof android.view.View) {
+            setDimension((android.view.View) view, MEASURE_SENTINEL, MEASURE_SENTINEL);
+        }
+    }
+
     public static boolean isDimensionSet(android.view.View v) {
         if (privateFlagsField != null) {
             try {
@@ -113,7 +131,22 @@ public final class PrimeClassProxy {
             } catch (Throwable ignore) {
             }
         }
-        return false;
+        return v.getMeasuredWidthAndState() != MEASURE_SENTINEL || v.getMeasuredHeightAndState() != MEASURE_SENTINEL;
+    }
+
+    private static void setDimension(android.view.View v, int width, int height) {
+        try {
+            Method m = v.getClass().getMethod("prime$setMeasuredDimension", int.class, int.class);
+            m.invoke(v, width, height);
+            return;
+        } catch (Throwable ignore) {
+        }
+        try {
+            if (setMeasuredDimensionMethod != null) {
+                setMeasuredDimensionMethod.invoke(v, width, height);
+            }
+        } catch (Throwable ignore) {
+        }
     }
 
     public static void ensureMeasuredDimension(Object view, int widthMeasureSpec, int heightMeasureSpec) {
@@ -702,7 +735,7 @@ public final class PrimeClassProxy {
     }
 
     /** Bumped whenever the generator emits different code for the same description. */
-    private static final int GENERATOR_VERSION = 1;
+    private static final int GENERATOR_VERSION = 2;
     private static volatile File cacheDir;
 
     /** One directory per installed build: a reinstall can change the shape of any superclass, and
@@ -1083,6 +1116,10 @@ public final class PrimeClassProxy {
 
         code.sget(handlerField, handler);
         code.cast(selfBoxed, self);
+        if (isVoid && "onMeasure".equals(name) && paramTypes.length == 2 && paramTypes[0] == int.class && paramTypes[1] == int.class) {
+            code.invokeStatic(TypeId.get(PrimeClassProxy.class).getMethod(TypeId.VOID, "beginMeasure", TypeId.OBJECT),
+                    null, selfBoxed);
+        }
         code.loadConstant(sig, signature(name, paramTypes));
         final Local args = boxArgsInto(code, params, paramTypes, argsLength, argsArray, argsIndex, argsBoxedElem);
         code.invokeInterface(run, resultBoxed, handler, selfBoxed, sig, args);
@@ -1151,6 +1188,10 @@ public final class PrimeClassProxy {
 
         code.loadConstant(codeConst, mvelCode);
         code.cast(selfBoxed, self);
+        if (isVoid && "onMeasure".equals(name) && paramTypes.length == 2 && paramTypes[0] == int.class && paramTypes[1] == int.class) {
+            code.invokeStatic(TypeId.get(PrimeClassProxy.class).getMethod(TypeId.VOID, "beginMeasure", TypeId.OBJECT),
+                    null, selfBoxed);
+        }
         stringArrayInto(code, paramNames, paramTypes.length, namesLength, namesArray, index, namesValue);
         final Local argsBoxed = boxArgsInto(code, params, paramTypes, argsLength, argsArray, index, argsBoxedElem);
         code.invokeStatic(TypeId.get(PrimeClassProxy.class).getMethod(object, "executeMvel",

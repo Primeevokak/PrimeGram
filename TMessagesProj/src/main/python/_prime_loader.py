@@ -29,6 +29,12 @@ _prime_pip.ensure_on_path()
 # Same reasoning, for exteraGram's own Java classes: registered once, before the first plugin gets
 # a chance to ask for one.
 _prime_java_compat.install()
+# Kotlin-style bean properties on every Java object (paint.strokeWidth, view.isClickable = True).
+try:
+    import _prime_java_props
+    _prime_java_props.install()
+except Exception:
+    log("could not install Java bean properties:\n%s" % traceback.format_exc())
 
 
 def _ensure_plugins_dir_on_path():
