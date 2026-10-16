@@ -635,6 +635,16 @@ public class RLottieDrawable extends BitmapDrawable implements Animatable, Bitma
         this(rawRes, w, h, true, null);
     }
 
+    // PrimeGram: pre-12.10 signatures with a cache name, still called by exteraGram plugins.
+    // The name only keyed the old frame cache, which 12.10 replaced; it is ignored.
+    public RLottieDrawable(@RawRes int rawRes, String name, int w, int h) {
+        this(rawRes, w, h, true, null);
+    }
+
+    public RLottieDrawable(@RawRes int rawRes, String name, int w, int h, boolean startDecode, int[] colorReplacement) {
+        this(rawRes, w, h, startDecode, colorReplacement);
+    }
+
     public RLottieDrawable(@RawRes int rawRes, int w, int h, boolean startDecode, int[] colorReplacement) {
         width = w;
         height = h;
