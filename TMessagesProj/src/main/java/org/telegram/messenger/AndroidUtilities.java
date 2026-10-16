@@ -146,7 +146,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.ViewPager;
 
 import com.android.internal.telephony.ITelephony;
-import androidx.media3.common.util.Consumer;
 import com.google.android.gms.auth.api.phone.SmsRetriever;
 import com.google.android.gms.auth.api.phone.SmsRetrieverClient;
 import com.google.android.gms.tasks.Task;
@@ -1545,7 +1544,7 @@ public class AndroidUtilities {
             return 0;
         }
         try {
-            Bitmap b = Bitmaps.createScaledBitmap(bitmap, 1, 1, true);
+            Bitmap b = Bitmap.createScaledBitmap(bitmap, 1, 1, true);
             if (b != null) {
                 int bitmapColor = b.getPixel(0, 0);
                 if (bitmap != b) {
@@ -2978,6 +2977,16 @@ public class AndroidUtilities {
                 }
             }
         }
+    }
+
+    public static int getAccountInProduction() {
+        if (UserConfig.getInstance(UserConfig.selectedAccount).isClientActivated() && !ConnectionsManager.getInstance(UserConfig.selectedAccount).isTestBackend())
+            return UserConfig.selectedAccount;
+        for (int i = 0; i < UserConfig.MAX_ACCOUNT_COUNT; ++i) {
+            if (UserConfig.getInstance(i).isClientActivated() && !ConnectionsManager.getInstance(i).isTestBackend())
+                return i;
+        }
+        return UserConfig.selectedAccount;
     }
 
     public static float getPixelsInCM(float cm, boolean isX) {
@@ -6516,33 +6525,33 @@ public class AndroidUtilities {
         return new Pair<>(0, 0);
     }
 
-    public static void forEachViews(View view, Consumer<View> consumer) {
+    public static void forEachViews(View view, Utilities.Callback<View> consumer) {
         if (view instanceof ViewGroup) {
             ViewGroup viewGroup = (ViewGroup) view;
             for (int i = 0; i < viewGroup.getChildCount(); i++) {
-                consumer.accept(view);
+                consumer.run(view);
                 forEachViews(viewGroup.getChildAt(i), consumer);
             }
         } else {
-            consumer.accept(view);
+            consumer.run(view);
         }
     }
 
-    public static void forEachViews(RecyclerView recyclerView, Consumer<View> consumer) {
+    public static void forEachViews(RecyclerView recyclerView, Utilities.Callback<View> consumer) {
         if (recyclerView == null) {
             return;
         }
         for (int i = 0; i < recyclerView.getChildCount(); i++) {
-            consumer.accept(recyclerView.getChildAt(i));
+            consumer.run(recyclerView.getChildAt(i));
         }
         for (int i = 0; i < recyclerView.getCachedChildCount(); i++) {
-            consumer.accept(recyclerView.getCachedChildAt(i));
+            consumer.run(recyclerView.getCachedChildAt(i));
         }
         for (int i = 0; i < recyclerView.getHiddenChildCount(); i++) {
-            consumer.accept(recyclerView.getHiddenChildAt(i));
+            consumer.run(recyclerView.getHiddenChildAt(i));
         }
         for (int i = 0; i < recyclerView.getAttachedScrapChildCount(); i++) {
-            consumer.accept(recyclerView.getAttachedScrapChildAt(i));
+            consumer.run(recyclerView.getAttachedScrapChildAt(i));
         }
     }
 

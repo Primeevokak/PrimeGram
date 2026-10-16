@@ -257,6 +257,27 @@ public final class PrimeCrashLog {
         appendEntry(entry);
     }
 
+    private static final java.util.Set<String> recordedStalls = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
+    /**
+     * A non-fatal stall worth a report: what {@code busy} was doing while the caller gave up
+     * waiting on it. Recorded once per reason per process, written off the calling thread.
+     */
+    public static void recordStall(String reason, Thread busy) {
+        if (!isEnabled() || !recordedStalls.add(reason)) {
+            return;
+        }
+        final StringBuilder sb = new StringBuilder();
+        sb.append("== ").append(timestamp()).append("  ").append(currentScreenName())
+                .append("  зависание: ").append(reason).append(" ==\n")
+                .append("поток ").append(busy.getName()).append(" (").append(busy.getState()).append("):\n");
+        for (StackTraceElement element : busy.getStackTrace()) {
+            sb.append("  at ").append(element).append('\n');
+        }
+        final String entry = sb.toString();
+        Utilities.globalQueue.postRunnable(() -> appendEntry(entry));
+    }
+
     private static synchronized void appendEntry(String entry) {
         final SharedPreferences p = prefs();
         final JSONArray entries = new JSONArray();

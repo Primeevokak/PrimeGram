@@ -58,3 +58,32 @@ tools/plugin_decompiler/out/
 # Release re-signing with key rotation (old + own key). Kept local; secrets it reads live in
 # local.properties and outside the repo anyway.
 /Tools/sign_release_rotated.sh
+
+# Local tooling and per-machine state
+/.claude/
+/cf-worker-bot/
+.vscode/
+.cxx/
+.externalNativeBuild/
+captures/
+
+# Build and debug by-products
+*.idsig
+*.aab
+*.hprof
+*.orig
+*.rej
+*.bak
+*.tmp
+*~
+Thumbs.db
+desktop.ini
+/nul
+
+# Personal build helpers and stray copies - kept locally, not part of the project
+/build-release.ps1
+/build_primegram.bat
+/Handshake_new.cpp
+/img.png
+/PrimeGram.apk
+vpn/proxy/libs/*-sources.jar
