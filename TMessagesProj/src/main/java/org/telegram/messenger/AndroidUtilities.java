@@ -249,6 +249,8 @@ public class AndroidUtilities {
     public final static int REPLACING_TAG_TYPE_LINK_NBSP = 3;
     public final static int REPLACING_TAG_TYPE_UNDERLINE = 4;
 
+    /** PrimeGram: exteraGram's constant, which plugins pass to getTypeface; plain text is the system font. */
+    public final static String TYPEFACE_ROBOTO_REGULAR = "fonts/rregular.ttf";
     public final static String TYPEFACE_ROBOTO_MEDIUM = "fonts/rmedium.ttf";
     public final static String TYPEFACE_ROBOTO_EXTRA_BOLD = "fonts/rextrabold.ttf";
     public final static String TYPEFACE_ROBOTO_MEDIUM_ITALIC = "fonts/rmediumitalic.ttf";
@@ -2441,6 +2443,9 @@ public class AndroidUtilities {
     }
 
     public static Typeface getTypeface(String assetPath) {
+        if (TYPEFACE_ROBOTO_REGULAR.equals(assetPath)) {
+            return Typeface.DEFAULT;
+        }
         synchronized (typefaceCache) {
             if (!typefaceCache.containsKey(assetPath)) {
                 try {

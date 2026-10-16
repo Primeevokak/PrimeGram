@@ -16,6 +16,7 @@ still reachable through the ``prime$super$draw`` twin the generator keeps for ex
 """
 
 import sys
+import time
 
 from java import dynamic_proxy
 from org.telegram.messenger import Utilities
@@ -59,6 +60,43 @@ def _java_list(items):
         for item in items:
             result.add(item)
     return result
+
+
+# An override slower than this is worth a journal line - but only on the UI thread, where it is
+# a dropped frame; a plugin's own thread may take as long as it likes.
+_SLOW_UI_CALL = 0.016
+
+
+def _owner_plugin_id(python_class):
+    """Which plugin a class belongs to. A plugin's main module carries ``__prime_plugin_id__``; an
+    .elyx plugin's submodules (its screens, cells) only the package prefix in their name."""
+    module_name = getattr(python_class, "__module__", None) or ""
+    plugin_id = getattr(sys.modules.get(module_name), "__prime_plugin_id__", None)
+    if plugin_id is None and module_name.startswith("prime_plugin_"):
+        plugin_id = module_name[len("prime_plugin_"):].split(".", 1)[0]
+    return plugin_id
+
+
+def _journal_for(python_class, text):
+    plugin_id = _owner_plugin_id(python_class)
+    if plugin_id is None:
+        return
+    try:
+        from base_plugin import _journal
+        _journal(plugin_id, text)
+    except Exception:
+        pass
+
+
+def _note_slow_call(python_class, java_name, elapsed):
+    try:
+        from android.os import Looper
+        if Looper.myLooper() != Looper.getMainLooper():
+            return
+    except Exception:
+        return
+    _journal_for(python_class, "медленно в UI-потоке: %s.%s %.0f мс" % (
+        getattr(python_class, "__name__", "?"), java_name, elapsed * 1000))
 
 
 class UnsupportedInThisBuild(NotImplementedError):
@@ -569,8 +607,13 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
         method = getattr(peer, python_name, None)
         if method is None:
             return None
+        started = time.monotonic()
         try:
-            return method(*call_args)
+            result = method(*call_args)
+            elapsed = time.monotonic() - started
+            if elapsed > _SLOW_UI_CALL:
+                _note_slow_call(self._python_class, name, elapsed)
+            return result
         except Exception:
             self._report_crash(signature)
             # The Java original, rather than nothing: Java still needs what the method was for
@@ -595,6 +638,9 @@ class _ConstructorHandler(dynamic_proxy(Utilities.Callback3Return)):
             log("class %r crashed in %s:\n%s" % (self._python_class, signature, trace))
         except Exception:
             pass
+        # Into the plugin's own journal too: without it the user saw nothing but an empty screen.
+        _journal_for(self._python_class, "класс %s упал в %s:\n%s" % (
+            getattr(self._python_class, "__name__", "?"), signature, trace))
         module = sys.modules.get(getattr(self._python_class, "__module__", None))
         plugin_id = getattr(module, "__prime_plugin_id__", None)
         if plugin_id is None:
@@ -687,6 +733,7 @@ class Base:
         # instead removes the guesswork entirely - an ArrayList already *is* a List,
         # nothing left for Chaquopy to convert.
         constructors = _collect_constructors(cls, java_class)
+        started = time.monotonic()
         proxy_class = PrimeClassProxy.createProxyClassFull(
             java_class, _java_list(interfaces), _java_list(methods), _java_list(fields),
             _java_list(mvel_methods), _java_list(new_methods), _java_list(overloads),
@@ -694,6 +741,9 @@ class Base:
             _ConstructorHandler(cls, java_to_python, preconstructor_fns, constructors))
         cls.__jproxy_class__ = proxy_class
         _install_super_bridge(cls, methods, java_to_python)
+        _journal_for(cls, "класс %s: %s за %.0f мс" % (
+            cls.__name__, "загружен из кеша" if PrimeClassProxy.lastWasCached() else "сгенерирован",
+            (time.monotonic() - started) * 1000))
         return proxy_class
 
     @classmethod

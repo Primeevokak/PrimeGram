@@ -257,6 +257,10 @@ public final class ReferenceList<T> implements Iterable<T>, ReferenceCreator<T> 
           return itr;
         }
       } else if (items.isEmpty()) {
+        // emptyIterator never reaches Itr.hasNext(), which is what releases the permit.
+        if (semaphore != null) {
+          semaphore.release();
+        }
         return Collections.emptyIterator();
       } else {
         return new Itr();

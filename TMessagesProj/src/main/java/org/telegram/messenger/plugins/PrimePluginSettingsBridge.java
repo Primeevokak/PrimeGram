@@ -89,22 +89,25 @@ final class PrimePluginSettingsBridge {
      * Fetched separately, once the row is actually about to be drawn. {@code path} is the screen
      * the row lives on, same as in {@link #requestSubSettings}.
      */
-    void requestCustomView(String pluginId, String path, int index, org.telegram.messenger.Utilities.Callback<View> callback) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
-            View view = null;
+    void requestCustomView(String pluginId, String path, int index, org.telegram.messenger.Utilities.Callback<Object> callback) {
+        // On the UI thread, as exteraGram does: a plugin's cell builds Views and reads the theme
+        // there, and one built on the plugin thread came out empty. The answer is either a ready
+        // View or, for an exteraGram factory row, its UItem - which the list itself then builds.
+        AndroidUtilities.runOnUIThread(() -> {
+            Object custom = null;
             try {
                 final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
                 if (loader != null) {
                     final PyObject result = loader.callAttr("build_custom_view", pluginId, path, index);
-                    if (result != null && result.toJava(Object.class) != null) {
-                        view = result.toJava(View.class);
+                    final Object java = result != null ? result.toJava(Object.class) : null;
+                    if (java instanceof View || java instanceof org.telegram.ui.Components.UItem) {
+                        custom = java;
                     }
                 }
             } catch (Throwable e) {
                 FileLog.e(e);
             }
-            final View result = view;
-            AndroidUtilities.runOnUIThread(() -> callback.run(result));
+            callback.run(custom);
         });
     }
 
@@ -162,7 +165,9 @@ final class PrimePluginSettingsBridge {
     }
 
     void notifySettingClicked(String pluginId, String path, int index) {
-        PrimePythonEngine.getInstance().queue().postRunnable(() -> {
+        // UI thread, as in exteraGram: a click handler opens fragments and dialogs right there
+        // (reSwaga: presentFragment), which off the UI thread built a fragment with no view.
+        AndroidUtilities.runOnUIThread(() -> {
             try {
                 final PyObject loader = PrimePythonEngine.getInstance().module("_prime_loader");
                 if (loader != null) {

@@ -1314,6 +1314,20 @@ public class MediaDataController extends BaseController {
         });
     }
 
+    /** PrimeGram: exteraGram's variant, picking the sticker by its position in the set - plugins
+     *  (reSwaga's empty-state duck) call it. */
+    public void setPlaceholderImageByIndex(BackupImageView imageView, String setName, int index, String filter) {
+        final TLRPC.InputStickerSet inputStickerSet = new TLRPC.TL_inputStickerSetShortName();
+        inputStickerSet.short_name = setName;
+        MediaDataController.getInstance(currentAccount).getStickerSet(inputStickerSet, 0, false, set -> {
+            if (set == null || set.documents == null || index < 0 || index >= set.documents.size()) return;
+            final TLRPC.Document document = set.documents.get(index);
+            Drawable thumbDrawable = DocumentObject.getSvgThumb(document, Theme.key_windowBackgroundWhiteGrayIcon, 0.2f, 1f, null);
+            imageView.setImage(ImageLocation.getForDocument(document), filter, thumbDrawable, 0, document);
+            imageView.invalidate();
+        });
+    }
+
     public static String inputSetKey(TLRPC.InputStickerSet i) {
         if (i instanceof TLRPC.TL_inputStickerSetID)
             return "id" + i.id + "access_hash" + i.access_hash;

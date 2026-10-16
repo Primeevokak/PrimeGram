@@ -518,14 +518,65 @@ public final class PrimeClassProxy {
                                              List<MethodOverloadSpec> overloads, List<PreConstructorSpec> preConstructors,
                                              Utilities.Callback3Return<Object, String, Object[], Object> handler)
             throws ReflectiveOperationException {
-        final DexMaker dexMaker = new DexMaker();
-
         String simpleName = superClass.getSimpleName();
         if (simpleName.isEmpty()) {
             simpleName = "Anon";
         }
+        // Python hands the method names over from a set, whose order changes from one process to
+        // the next; sorted, the same plugin describes the same class every time, which is what
+        // lets the dex below be reused across launches.
+        final List<String> sortedNames = methodNames == null ? null : new ArrayList<>(methodNames);
+        if (sortedNames != null) {
+            java.util.Collections.sort(sortedNames);
+        }
+        String key = specKey(superClass, interfaces, sortedNames, fields, mvelMethods, newMethods, overloads, preConstructors);
+        // A plugin may build the same class again in the same process (reSwaga does, per page
+        // switch). The cached dex carries a fixed class name, and Chaquopy keys its Python types by
+        // name, so a second class under it reads as the first ("cannot create X proxy from X
+        // instance"). Only the first build per process uses the cache; later ones get a unique name.
+        if (key != null && !LOADED_KEYS.add(key)) {
+            key = null;
+        }
         final String className = GENERATED_PACKAGE + simpleName + "_"
-                + Math.abs(superClass.getName().hashCode()) + "_" + Math.abs(new Random().nextInt());
+                + (key != null ? key.substring(0, 16) : Math.abs(superClass.getName().hashCode()) + "_" + Math.abs(new Random().nextInt()));
+
+        byte[] dex = key != null ? readCachedDex(key) : null;
+        LAST_FROM_CACHE.set(dex != null);
+        if (dex == null) {
+            dex = generateDex(className, superClass, interfaces, sortedNames, fields, mvelMethods, newMethods, overloads, preConstructors);
+            if (key != null) {
+                writeCachedDex(key, dex);
+            }
+        }
+        // Every generated class only ever references superClass/interfaces from the app's own
+        // classpath - nothing here needs one generated class to resolve symbols from a previous
+        // one. Chaining each new classloader's parent onto the last generated one (as exteraGram's
+        // own ClassProxy does) therefore buys nothing, while keeping every classloader - and every
+        // class and DEX byte array it holds - reachable from a GC root for the rest of the
+        // process's life. Parenting directly on the app's classloader every time means a
+        // generated classloader (and everything it loaded) becomes collectible the moment nothing
+        // still holds an instance of the class it produced. The same class name in two loaders is
+        // two distinct classes, so a plugin reloaded in the same process still gets a fresh one.
+        final ClassLoader classLoader = loadDex(dex, ApplicationLoader.applicationContext.getClassLoader(), className);
+        final Class<?> loaded = classLoader.loadClass(className);
+        final Field field = loaded.getDeclaredField(HANDLER_FIELD);
+        field.setAccessible(true);
+        field.set(null, handler);
+        // Verified and initialized here, on the plugin thread loading the plugin, rather than on
+        // the UI thread the first time a screen built from this class opens.
+        try {
+            Class.forName(className, true, classLoader);
+        } catch (Throwable ignore) {
+            // Warm-up only: the class still initializes on first use, as before.
+        }
+        return loaded;
+    }
+
+    private static byte[] generateDex(String className, Class<?> superClass, List<Class<?>> interfaces,
+                                      List<String> methodNames, List<FieldSpec> fields,
+                                      List<MvelMethodSpec> mvelMethods, List<NewMethodSpec> newMethods,
+                                      List<MethodOverloadSpec> overloads, List<PreConstructorSpec> preConstructors) {
+        final DexMaker dexMaker = new DexMaker();
         final TypeId generated = TypeId.get("L" + className.replace('.', '/') + ";");
         final TypeId superType = TypeId.get(superClass);
         final FieldId handlerField = generated.getField(TypeId.get(Utilities.Callback3Return.class), HANDLER_FIELD);
@@ -637,23 +688,188 @@ public final class PrimeClassProxy {
             setDimCode.returnVoid();
         }
 
-        final byte[] dex = dexMaker.generate();
-        // Every generated class only ever references superClass/interfaces from the app's own
-        // classpath - nothing here needs one generated class to resolve symbols from a previous
-        // one. Chaining each new classloader's parent onto the last generated one (as exteraGram's
-        // own ClassProxy does) therefore buys nothing, while keeping every classloader - and every
-        // class and DEX byte array it holds - reachable from a GC root for the rest of the
-        // process's life. Parenting directly on the app's classloader every time means a
-        // generated classloader (and everything it loaded) becomes collectible the moment nothing
-        // still holds an instance of the class it produced - which matters most for a future
-        // hot-reload/dev-server workflow that would otherwise regenerate and leak a class on every
-        // edit-save cycle.
-        final ClassLoader classLoader = loadDex(dex, ApplicationLoader.applicationContext.getClassLoader(), className);
-        final Class<?> loaded = classLoader.loadClass(className);
-        final Field field = loaded.getDeclaredField(HANDLER_FIELD);
-        field.setAccessible(true);
-        field.set(null, handler);
-        return loaded;
+        return dexMaker.generate();
+    }
+
+    /** Whether the last {@link #createProxyClass} on this thread loaded its dex from the disk
+     *  cache rather than generating it - for the plugin journal's timing line. */
+    private static final ThreadLocal<Boolean> LAST_FROM_CACHE = new ThreadLocal<>();
+    private static final java.util.Set<String> LOADED_KEYS = ConcurrentHashMap.newKeySet();
+
+    public static boolean lastWasCached() {
+        final Boolean cached = LAST_FROM_CACHE.get();
+        return cached != null && cached;
+    }
+
+    /** Bumped whenever the generator emits different code for the same description. */
+    private static final int GENERATOR_VERSION = 1;
+    private static volatile File cacheDir;
+
+    /** One directory per installed build: a reinstall can change the shape of any superclass, and
+     *  a dex built against the old one would fail verification, or worse, at its first call. */
+    private static File cacheDir() {
+        File dir = cacheDir;
+        if (dir != null) {
+            return dir;
+        }
+        synchronized (PrimeClassProxy.class) {
+            if (cacheDir != null) {
+                return cacheDir;
+            }
+            final android.content.Context context = ApplicationLoader.applicationContext;
+            long stamp;
+            try {
+                final android.content.pm.PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+                // The firmware too: framework classes (View and friends) change with an OS update.
+                stamp = info.lastUpdateTime ^ ((long) info.versionCode << 32) ^ ((long) Build.FINGERPRINT.hashCode() << 16);
+            } catch (Throwable e) {
+                stamp = 0;
+            }
+            final File root = new File(context.getCodeCacheDir(), "prime_class_proxy_cache");
+            final String current = Long.toHexString(stamp) + "_" + GENERATOR_VERSION;
+            final File[] old = root.listFiles();
+            if (old != null) {
+                for (File f : old) {
+                    if (!f.getName().equals(current)) {
+                        deleteRecursively(f);
+                    }
+                }
+            }
+            dir = new File(root, current);
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+            cacheDir = dir;
+            return dir;
+        }
+    }
+
+    private static void deleteRecursively(File f) {
+        final File[] children = f.listFiles();
+        if (children != null) {
+            for (File c : children) {
+                deleteRecursively(c);
+            }
+        }
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+    }
+
+    private static byte[] readCachedDex(String key) {
+        try {
+            final File file = new File(cacheDir(), key + ".dex");
+            if (!file.isFile()) {
+                return null;
+            }
+            final byte[] data = new byte[(int) file.length()];
+            try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.FileInputStream(file))) {
+                in.readFully(data);
+            }
+            return data;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static void writeCachedDex(String key, byte[] dex) {
+        try {
+            final File dir = cacheDir();
+            final File tmp = new File(dir, key + ".tmp");
+            try (FileOutputStream out = new FileOutputStream(tmp)) {
+                out.write(dex);
+            }
+            // Renamed into place, so a process killed mid-write never leaves half a file to load.
+            //noinspection ResultOfMethodCallIgnored
+            tmp.renameTo(new File(dir, key + ".dex"));
+        } catch (Throwable ignore) {
+        }
+    }
+
+    /** Everything that decides the generated code, hashed; null if it cannot be described. */
+    private static String specKey(Class<?> superClass, List<Class<?>> interfaces, List<String> methodNames,
+                                  List<FieldSpec> fields, List<MvelMethodSpec> mvelMethods, List<NewMethodSpec> newMethods,
+                                  List<MethodOverloadSpec> overloads, List<PreConstructorSpec> preConstructors) {
+        // Only classes that ship with the app are tied to the build stamp; one from a plugin's own
+        // jar (or another generated class) can change without the app changing, so it is not cached.
+        final ClassLoader appLoader = ApplicationLoader.applicationContext.getClassLoader();
+        if (superClass.getClassLoader() != appLoader && superClass.getClassLoader() != Object.class.getClassLoader()) {
+            return null;
+        }
+        if (interfaces != null) {
+            for (Class<?> c : interfaces) {
+                if (c != null && c.getClassLoader() != appLoader && c.getClassLoader() != Object.class.getClassLoader()) {
+                    return null;
+                }
+            }
+        }
+        try {
+            final StringBuilder sb = new StringBuilder();
+            sb.append(GENERATOR_VERSION).append('|').append(superClass.getName()).append("|I");
+            if (interfaces != null) {
+                for (Class<?> c : interfaces) {
+                    sb.append(',').append(c == null ? "null" : c.getName());
+                }
+            }
+            sb.append("|M");
+            if (methodNames != null) {
+                for (String n : methodNames) {
+                    sb.append(',').append(n);
+                }
+            }
+            sb.append("|F");
+            if (fields != null) {
+                for (FieldSpec f : fields) {
+                    sb.append(',').append(f.name).append(':').append(f.type.getName())
+                            .append(':').append(f.getterName).append(':').append(f.setterName);
+                }
+            }
+            sb.append("|V");
+            if (mvelMethods != null) {
+                for (MvelMethodSpec m : mvelMethods) {
+                    sb.append(',').append(m.name).append(':').append(m.isOverride)
+                            .append(':').append(m.returnType.getName()).append(':').append(types(m.paramTypes))
+                            .append(':').append(m.paramNames == null ? "" : String.join(";", m.paramNames))
+                            .append(':').append(m.code == null ? 0 : m.code.length()).append(':').append(m.code);
+                }
+            }
+            sb.append("|N");
+            if (newMethods != null) {
+                for (NewMethodSpec m : newMethods) {
+                    sb.append(',').append(m.name).append(':').append(m.returnType.getName()).append(':').append(types(m.paramTypes));
+                }
+            }
+            sb.append("|O");
+            if (overloads != null) {
+                for (MethodOverloadSpec m : overloads) {
+                    sb.append(',').append(m.name).append(':').append(types(m.paramTypes));
+                }
+            }
+            sb.append("|P");
+            if (preConstructors != null) {
+                for (PreConstructorSpec m : preConstructors) {
+                    sb.append(',').append(types(m.paramTypes));
+                }
+            }
+            final java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            final byte[] hash = digest.digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            final StringBuilder hex = new StringBuilder();
+            for (byte x : hash) {
+                hex.append(Character.forDigit((x >> 4) & 0xf, 16)).append(Character.forDigit(x & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static String types(Class<?>[] classes) {
+        if (classes == null) {
+            return "";
+        }
+        final StringBuilder sb = new StringBuilder();
+        for (Class<?> c : classes) {
+            sb.append(c == null ? "null" : c.getName()).append(';');
+        }
+        return sb.toString();
     }
 
     private static ClassLoader loadDex(byte[] dex, ClassLoader parent, String className) throws ReflectiveOperationException {

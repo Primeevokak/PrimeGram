@@ -55,7 +55,9 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
     private final int parentIndex;
     private final CharSequence subTitle;
     private JSONArray rows = new JSONArray();
-    private final java.util.HashMap<Integer, View> customViews = new java.util.HashMap<>();
+    private final java.util.HashMap<Integer, Object> customViews = new java.util.HashMap<>();
+    /** Factory rows by their item, to the row index a click reports back. */
+    private final java.util.IdentityHashMap<UItem, Integer> factoryRows = new java.util.IdentityHashMap<>();
     private final java.util.HashSet<Integer> customViewsRequested = new java.util.HashSet<>();
 
     public PrimePluginSettingsActivity(PrimePlugin plugin) {
@@ -239,7 +241,14 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
      * PrimePluginsController#requestCustomView} answers.
      */
     private void addCustomRow(ArrayList<UItem> items, int id, JSONObject row, int index) {
-        final View view = customViews.get(id);
+        final Object custom = customViews.get(id);
+        if (custom instanceof UItem) {
+            // exteraGram factory row: the list calls the factory's createView/bindView itself.
+            factoryRows.put((UItem) custom, index);
+            items.add((UItem) custom);
+            return;
+        }
+        final View view = custom instanceof View ? (View) custom : null;
         if (view != null) {
             final ViewParent parent = view.getParent();
             if (parent instanceof ViewGroup) {
@@ -263,6 +272,28 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
                     listView.adapter.update(true);
                 }
             });
+        }
+    }
+
+    /** The row's own on_click if the plugin gave one, else the factory's onClick - exteraGram's order. */
+    private void onFactoryRowClick(UItem item, View view, int index) {
+        final JSONObject row = rows.optJSONObject(index);
+        if (row != null && row.optBoolean("has_on_click")) {
+            PrimePluginsController.getInstance().notifySettingClicked(plugin.id(), path, index);
+            return;
+        }
+        if (!(item.settingItem instanceof com.exteragram.messenger.plugins.models.CustomSetting)) {
+            return;
+        }
+        final com.exteragram.messenger.plugins.models.CustomSetting.Factory<?> factory =
+                ((com.exteragram.messenger.plugins.models.CustomSetting) item.settingItem).getFactory();
+        if (factory == null || !factory.isClickable()) {
+            return;
+        }
+        try {
+            factory.onClick(com.exteragram.messenger.plugins.PluginsController.getInstance().getPlugins().get(plugin.id()), item, view);
+        } catch (Throwable e) {
+            org.telegram.messenger.FileLog.e(e);
         }
     }
 
@@ -335,6 +366,7 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
                 // The rows come from the plugin, so they only exist once it is running again -
                 // and with fresh indices, so anything cached from before no longer applies.
                 customViews.clear();
+                factoryRows.clear();
                 customViewsRequested.clear();
                 PrimePluginsController.getInstance().requestSettings(plugin.id(), json -> {
                     try {
@@ -366,6 +398,11 @@ public class PrimePluginSettingsActivity extends UniversalFragment {
                     ? error.getMessage() : "Плагин не удалось загрузить.");
             org.telegram.ui.Components.BulletinFactory.of(this).createSimpleBulletin(
                     R.raw.copy, "Ошибка скопирована").show();
+            return;
+        }
+        final Integer factoryIndex = factoryRows.get(item);
+        if (factoryIndex != null) {
+            onFactoryRowClick(item, view, factoryIndex);
             return;
         }
         final int index = item.id - ID_ROW_BASE;

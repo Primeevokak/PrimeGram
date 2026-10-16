@@ -703,7 +703,7 @@ public final class PrimePluginsController {
      * Fetched separately, once the row is actually about to be drawn. {@code path} is the screen
      * the row lives on, same as in {@link #requestSubSettings}.
      */
-    public void requestCustomView(String pluginId, String path, int index, org.telegram.messenger.Utilities.Callback<View> callback) {
+    public void requestCustomView(String pluginId, String path, int index, org.telegram.messenger.Utilities.Callback<Object> callback) {
         PrimePluginSettingsBridge.getInstance().requestCustomView(pluginId, path, index, callback);
     }
 

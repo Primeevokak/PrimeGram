@@ -59,18 +59,49 @@ public final class PrimePluginXposed {
         }
         synchronized (PrimePluginXposed.class) {
             if (available == null) {
-                boolean ok;
-                try {
-                    Class.forName("de.robv.android.xposed.XposedBridge", true,
-                            PrimePluginXposed.class.getClassLoader());
-                    ok = true;
-                } catch (Throwable t) {
-                    FileLog.e("PrimePluginXposed: hooking unavailable", new Exception(t));
-                    ok = false;
-                }
-                available = ok;
+                available = initOnUiThread();
             }
             return available;
+        }
+    }
+
+    /**
+     * XposedBridge's static initialiser is where LSPlant inline-hooks ART's own class linker. Run
+     * on the plugin thread, that patching raced the UI thread linking classes for whatever screen
+     * was opening: a call landing in a hook whose backup pointer was not stored yet jumped to
+     * address 0 (SIGSEGV, pc 0 in ClassLinker::DefineClass, seconds after launch while a chat
+     * opened). On the UI thread the patch cannot overlap the UI thread's own class loading. The
+     * wait is bounded: if the UI thread is itself waiting on the plugin thread, initialising here
+     * after the timeout beats a deadlock.
+     */
+    private static boolean initOnUiThread() {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            return initBridge();
+        }
+        final boolean[] result = new boolean[1];
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        org.telegram.messenger.AndroidUtilities.runOnUIThread(() -> {
+            result[0] = initBridge();
+            done.countDown();
+        });
+        try {
+            if (done.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                return result[0];
+            }
+        } catch (InterruptedException ignore) {
+        }
+        // Class init is serialized by ART: if the UI thread started it meanwhile, this just waits.
+        return initBridge();
+    }
+
+    private static boolean initBridge() {
+        try {
+            Class.forName("de.robv.android.xposed.XposedBridge", true,
+                    PrimePluginXposed.class.getClassLoader());
+            return true;
+        } catch (Throwable t) {
+            FileLog.e("PrimePluginXposed: hooking unavailable", new Exception(t));
+            return false;
         }
     }
 

@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 import traceback
 import types
 
@@ -546,6 +547,7 @@ def _row_to_dict(index, row):
     factory = getattr(row, "factory", None)
     data["clickable"] = getattr(row, "on_click", None) is not None or (
         factory is not None and _is_java_setting_factory(factory) and _factory_clickable(factory))
+    data["has_on_click"] = getattr(row, "on_click", None) is not None
     data["long_clickable"] = getattr(row, "on_long_click", None) is not None
     data["has_sub_fragment"] = getattr(row, "create_sub_fragment", None) is not None
     return data
@@ -608,7 +610,27 @@ def build_sub_settings(plugin_id, parent_path, index):
         return empty
 
 
+def _timed(plugin_id, label, fn, *args):
+    """Runs one settings call on the UI thread and journals it if it cost a dropped frame - where
+    a plugin's first-open lag comes from is otherwise guesswork."""
+    started = time.monotonic()
+    try:
+        return fn(*args)
+    finally:
+        elapsed = time.monotonic() - started
+        if elapsed > 0.016:
+            _journal(plugin_id, "медленно в UI-потоке: %s %.0f мс" % (label, elapsed * 1000))
+
+
 def build_custom_view(plugin_id, path, index):
+    return _timed(plugin_id, "ячейка настроек #%s" % index, _build_custom_view, plugin_id, path, index)
+
+
+def on_setting_clicked(plugin_id, path, index):
+    return _timed(plugin_id, "нажатие на строку #%s" % index, _on_setting_clicked, plugin_id, path, index)
+
+
+def _build_custom_view(plugin_id, path, index):
     """The live View for a ``Custom`` row - can't travel through JSON like the rest of a row, so
     it takes a separate trip, made only once the row is actually about to be shown.
 
@@ -676,11 +698,13 @@ def _exteragram_plugin(plugin_id):
 
 
 def _build_java_factory_view(plugin_id, row, factory, context, index):
-    """exteraGram's order for a factory row: register it, ask it for the row's item (create), then
-    build and bind the view. The item is kept on the row so a click can hand it back."""
+    """exteraGram's order for a factory row: register it and ask it for the row's item (create).
+    The item goes back to the settings screen as it is: its list then calls the factory's
+    createView/bindView itself, with the real list view and adapter, exactly as exteraGram's does.
+    Built here by hand instead, with None for both, a factory that lays out against its list (a
+    horizontal strip of cards, reSwaga's platforms) came out zero-height - an empty row."""
     from com.exteragram.messenger.plugins.models import CustomSetting
     from org.telegram.ui.Components import UItem
-    from org.telegram.messenger import UserConfig
     try:
         CustomSetting.register(factory)
         setting = CustomSetting(factory, getattr(row, "factory_args", None), None, None, None, None)
@@ -689,15 +713,12 @@ def _build_java_factory_view(plugin_id, row, factory, context, index):
         if item is None:
             item = UItem.ofFactory(factory.getClass())
         item.settingItem = setting
-        view = factory.createView(context, None, UserConfig.selectedAccount, 0, None)
-        if view is not None:
-            factory.bindView(view, item, False, None, None)
         row._prime_java_item = item
-        row._prime_java_view = view
-        return view
+        return item
     except Exception:
-        log("plugin %s: фабрика настройки #%s упала при создании view:\n%s" %
-            (plugin_id, index, traceback.format_exc()))
+        trace = traceback.format_exc()
+        log("plugin %s: фабрика настройки #%s упала при создании:\n%s" % (plugin_id, index, trace))
+        _journal(plugin_id, "фабрика настройки #%s упала при создании:\n%s" % (index, trace))
         return None
 
 
@@ -720,7 +741,7 @@ def on_setting_changed(plugin_id, path, index, value_json):
         log("plugin %s on_change failed:\n%s" % (plugin_id, traceback.format_exc()))
 
 
-def on_setting_clicked(plugin_id, path, index):
+def _on_setting_clicked(plugin_id, path, index):
     row = _row(plugin_id, path, index)
     if row is None:
         return
