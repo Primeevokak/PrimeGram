@@ -817,7 +817,18 @@ public class TgWsProxyService extends Service {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .build();
-        startForeground(NOTIFICATION_ID, notification);
+        try {
+            startForeground(NOTIFICATION_ID, notification);
+        } catch (Throwable e) {
+            // Android 15 caps a dataSync foreground service at 6 hours per 24: once spent,
+            // startForeground throws ForegroundServiceStartNotAllowedException, which from inside
+            // onStartCommand took the whole app down (seen in users' crash logs on every start).
+            // Without being foreground the proxy cannot be kept alive either - stop, and say so.
+            logError("startForeground refused, stopping the proxy service", e);
+            running.set(false);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         if (wakeLock == null) {
             android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -837,6 +848,23 @@ public class TgWsProxyService extends Service {
             startWatchdog();
         }
         return START_STICKY;
+    }
+
+    /**
+     * Android 15: the dataSync time limit is up. The system gives a few seconds to stop; a service
+     * that does not is killed with ForegroundServiceDidNotStopInTimeException - an app crash
+     * (users' logs: "did not stop within its timeout: TgWsProxyService").
+     */
+    @Override
+    public void onTimeout(int startId, int fgsType) {
+        logError("foreground service time limit reached (type " + fgsType + "), stopping", new Exception("FGS timeout"));
+        running.set(false);
+        stopSelf();
+    }
+
+    @Override
+    public void onTimeout(int startId) {
+        onTimeout(startId, 0);
     }
 
     @Override
@@ -3406,10 +3434,15 @@ public class TgWsProxyService extends Service {
 
     public static void startService(Context context) {
         Intent intent = new Intent(context, TgWsProxyService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
+            }
+        } catch (Throwable e) {
+            // Started from the background, or the dataSync limit is spent: not allowed to run.
+            FileLog.e(e);
         }
     }
 

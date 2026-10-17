@@ -85,13 +85,16 @@ public final class PrimePluginXposed {
             done.countDown();
         });
         try {
-            if (done.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (done.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
                 return result[0];
             }
         } catch (InterruptedException ignore) {
         }
-        // Class init is serialized by ART: if the UI thread started it meanwhile, this just waits.
-        return initBridge();
+        // The UI thread never got to it. Initializing here instead is the race this exists to
+        // avoid (LSPlant patching ART while the UI thread links classes): no hooks this run is
+        // better than a native crash.
+        FileLog.e("PrimePluginXposed: UI thread busy for 10s, hooking disabled for this run");
+        return false;
     }
 
     private static boolean initBridge() {

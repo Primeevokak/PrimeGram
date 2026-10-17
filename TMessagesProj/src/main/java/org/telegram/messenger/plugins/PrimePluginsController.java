@@ -577,6 +577,12 @@ public final class PrimePluginsController {
         PrimePluginCrashHandler.getInstance().disableAfterCrash(pluginId, reason);
     }
 
+    /** The user chose to run plugins again after a crash-loop shutdown. */
+    public void resumeFromSafeMode() {
+        PrimePluginBootGuard.leaveSafeMode();
+        PrimePythonEngine.getInstance().queue().postRunnable(this::startEnabled);
+    }
+
     private void startEnabled() {
         final Context context = ApplicationLoader.applicationContext;
         final List<PrimePlugin> snapshot = getPlugins();
@@ -590,6 +596,15 @@ public final class PrimePluginsController {
         if (!any) {
             // Nothing to run, so nothing starts the interpreter. This is the common case on this
             // fork and it is worth several megabytes and a good fraction of a second.
+            return;
+        }
+        if (!PrimePluginBootGuard.enterBoot()) {
+            // Two launches in a row died before settling: leave plugins off, tell the user.
+            if (PrimePluginBootGuard.shouldAnnounce()) {
+                AndroidUtilities.runOnUIThread(() -> android.widget.Toast.makeText(context,
+                        "Плагины отключены: приложение падало при запуске. Включить обратно можно в разделе «Плагины».",
+                        android.widget.Toast.LENGTH_LONG).show());
+            }
             return;
         }
         for (int i = 0; i < snapshot.size(); i++) {

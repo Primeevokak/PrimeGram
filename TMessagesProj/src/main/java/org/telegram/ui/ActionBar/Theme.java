@@ -9942,8 +9942,8 @@ public class Theme {
                 // busy for many seconds, so every chat open became an ANR (HONOR, Android 16).
                 // A null drawable here is fine: didSetNewWallpapper re-applies the background as
                 // soon as the load lands. The stuck queue's stack goes to the crash log once.
-                if (!countDownLatch.await(300, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                    org.telegram.messenger.PrimeCrashLog.recordStall("обои не загрузились за 300 мс, очередь тем занята", Utilities.themeQueue);
+                if (!countDownLatch.await(80, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    org.telegram.messenger.PrimeCrashLog.recordStall("обои не загрузились за 80 мс, очередь тем занята", Utilities.themeQueue);
                 }
             } catch (Exception e) {
                 FileLog.e(e);

@@ -7198,6 +7198,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onStop() {
         super.onStop();
+        // Leaving the app normally is not a crash: do not count a short visit against plugins.
+        org.telegram.messenger.plugins.PrimePluginBootGuard.markSettled();
         GramWalletStorageAuth.onActivityStopped(this);
         isStarted = false;
         pipActivityHandler.onStop();

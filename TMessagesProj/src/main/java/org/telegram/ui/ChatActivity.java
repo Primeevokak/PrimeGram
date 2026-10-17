@@ -46088,11 +46088,35 @@ public class ChatActivity extends BaseFragment implements
         if (themeDelegate.backgroundDrawable != null && contentView.getBackgroundImage() != null) {
             return;
         }
-        if (contentView.getBackgroundImage() == null || AndroidUtilities.isTablet()) {
+        if (contentView.getBackgroundImage() == null || backgroundIsPlaceholder || AndroidUtilities.isTablet()) {
             final Drawable drawable = Theme.getCachedWallpaper();
+            if (drawable == null) {
+                // The wallpaper is still loading (getCachedWallpaper no longer blocks the UI thread
+                // for it). Leaving the chat without any background made it transparent: the chat
+                // list showed through underneath it. Paint the wallpaper's colour meanwhile and look
+                // again shortly - the didSetNewWallpapper notification is not guaranteed to come
+                // after this fragment started waiting.
+                if (contentView.getBackgroundImage() == null) {
+                    contentView.setBackgroundImage(new ColorDrawable(getThemedColor(Theme.key_chat_wallpaper)), false);
+                    backgroundIsPlaceholder = true;
+                }
+                if (backgroundRetries++ < 60) {
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (fragmentView != null && !isFinishing()) {
+                            updateBackground();
+                        }
+                    }, 250);
+                }
+                return;
+            }
+            backgroundIsPlaceholder = false;
+            backgroundRetries = 0;
             contentView.setBackgroundImage(drawable, Theme.isWallpaperMotion());
         }
     }
+
+    private boolean backgroundIsPlaceholder;
+    private int backgroundRetries;
 
     private void updateBotHelpCellClick(BotHelpCell cell) {
         final boolean translateButtonEnabled = MessagesController.getInstance(currentAccount).getTranslateController().isContextTranslateEnabled();

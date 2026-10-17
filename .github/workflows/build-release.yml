@@ -105,36 +105,25 @@ jobs:
         # signing block covers the whole zip), so each apk has to be re-aligned and re-signed
         # afterwards - same keystore/credentials Gradle itself used to sign it the first time.
         #
-        # Signing: with PrimeGram's own key in the secrets, every APK is signed with both keys -
-        # the original (public upstream) key in v1/v2 for Android 7-8, PrimeGram's key in the v3
-        # block from Android 9 (rotation-min-sdk-version 28, same as Tools/sign_release_rotated.sh
-        # with PRIME_ROTATION_MIN_SDK=28), joined by the rotation lineage the old key signed.
-        # Installed copies (all on the old key) update either way. Without those secrets: old key
-        # only, as before.
+        # Signing: PrimeGram's own key ONLY. The original (public upstream) key is gone from the
+        # result, so a copy still signed by it - Android 7-8, or anything older than the rotated
+        # 13.0.2.2 - cannot update over this APK. Deliberately no fallback: with the key secrets
+        # missing the job fails instead of quietly shipping an old-key APK nobody asked for.
         env:
           PRIME_KEYSTORE_BASE64: ${{ secrets.PRIME_KEYSTORE_BASE64 }}
           PRIME_KEYSTORE_PASSWORD: ${{ secrets.PRIME_KEYSTORE_PASSWORD }}
           PRIME_KEY_ALIAS: ${{ secrets.PRIME_KEY_ALIAS }}
           PRIME_KEY_PASSWORD: ${{ secrets.PRIME_KEY_PASSWORD }}
-          PRIME_LINEAGE_BASE64: ${{ secrets.PRIME_LINEAGE_BASE64 }}
         run: |
           BUILD_TOOLS="${ANDROID_SDK_ROOT}/build-tools/35.0.0"
           ALL_ABIS=("armeabi-v7a" "arm64-v8a" "x86" "x86_64")
-          KEY_ALIAS=$(grep '^RELEASE_KEY_ALIAS=' gradle.properties | cut -d= -f2)
-          KEY_PASSWORD=$(grep '^RELEASE_KEY_PASSWORD=' gradle.properties | cut -d= -f2)
-          STORE_PASSWORD=$(grep '^RELEASE_STORE_PASSWORD=' gradle.properties | cut -d= -f2)
-
-          ROTATE=()
-          if [ -n "$PRIME_KEYSTORE_BASE64" ] && [ -n "$PRIME_LINEAGE_BASE64" ]; then
-            echo "$PRIME_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/prime.jks"
-            echo "$PRIME_LINEAGE_BASE64" | base64 -d > "$RUNNER_TEMP/prime-lineage.bin"
-            ROTATE=(--next-signer --ks "$RUNNER_TEMP/prime.jks" --ks-key-alias "$PRIME_KEY_ALIAS"
-                    --ks-pass env:PRIME_KEYSTORE_PASSWORD --key-pass env:PRIME_KEY_PASSWORD
-                    --lineage "$RUNNER_TEMP/prime-lineage.bin" --rotation-min-sdk-version 28)
-            echo "Signing with key rotation (old key + PrimeGram key)."
-          else
-            echo "PrimeGram key secrets not set - signing with the old key only."
+          if [ -z "$PRIME_KEYSTORE_BASE64" ] || [ -z "$PRIME_KEY_ALIAS" ] || [ -z "$PRIME_KEYSTORE_PASSWORD" ]; then
+            echo "PrimeGram key secrets are not set - refusing to sign with the old key."
+            exit 1
           fi
+          echo "$PRIME_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/prime.jks"
+          # The key password is the keystore's own unless a separate one is given.
+          export PRIME_KEY_PASSWORD="${PRIME_KEY_PASSWORD:-$PRIME_KEYSTORE_PASSWORD}"
 
           for apk in PrimeGram*.apk; do
             abi=""
@@ -164,11 +153,10 @@ jobs:
             "${BUILD_TOOLS}/zipalign" -f -p 4 "$apk" "${apk}.aligned"
             mv "${apk}.aligned" "$apk"
             "${BUILD_TOOLS}/apksigner" sign \
-              --ks TMessagesProj/config/release.keystore \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass "pass:$STORE_PASSWORD" \
-              --key-pass "pass:$KEY_PASSWORD" \
-              "${ROTATE[@]}" \
+              --ks "$RUNNER_TEMP/prime.jks" \
+              --ks-key-alias "$PRIME_KEY_ALIAS" \
+              --ks-pass env:PRIME_KEYSTORE_PASSWORD \
+              --key-pass env:PRIME_KEY_PASSWORD \
               --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
               "$apk"
             "${BUILD_TOOLS}/apksigner" verify --print-certs "$apk" | grep -E "Signer.*SHA-256" || true

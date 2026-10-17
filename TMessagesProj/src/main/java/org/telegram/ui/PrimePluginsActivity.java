@@ -38,6 +38,7 @@ import java.util.Locale;
 public class PrimePluginsActivity extends UniversalFragment implements NotificationCenter.NotificationCenterDelegate {
 
     private static final int ID_LIBRARIES = 1;
+    private static final int ID_SAFE_MODE = 2;
     private static final int ID_PLUGIN_BASE = 1000;
 
     private List<PrimePlugin> shown;
@@ -170,6 +171,11 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
 
     @Override
     protected void fillItems(java.util.ArrayList<UItem> items, UniversalAdapter adapter) {
+        if (org.telegram.messenger.plugins.PrimePluginBootGuard.isSafeMode()) {
+            items.add(UItem.asButton(ID_SAFE_MODE, "Плагины отключены после сбоя при запуске",
+                    "Приложение дважды упало сразу после старта. Нажмите, чтобы включить плагины снова.").red());
+            items.add(UItem.asShadow(null));
+        }
         final List<PrimePlugin> all = PrimePluginsController.getInstance().getPlugins();
         shown = all;
         if (searchItem != null) {
@@ -429,6 +435,11 @@ public class PrimePluginsActivity extends UniversalFragment implements Notificat
         // ever reached for the plain rows below the list, "Скачанные библиотеки" among them.
         if (item.id == ID_LIBRARIES) {
             confirmClearLibraries();
+        } else if (item.id == ID_SAFE_MODE) {
+            PrimePluginsController.getInstance().resumeFromSafeMode();
+            if (listView != null && listView.adapter != null) {
+                listView.adapter.update(true);
+            }
         }
     }
 

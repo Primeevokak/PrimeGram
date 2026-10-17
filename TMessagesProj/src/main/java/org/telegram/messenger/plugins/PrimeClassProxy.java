@@ -595,13 +595,10 @@ public final class PrimeClassProxy {
         final Field field = loaded.getDeclaredField(HANDLER_FIELD);
         field.setAccessible(true);
         field.set(null, handler);
-        // Verified and initialized here, on the plugin thread loading the plugin, rather than on
-        // the UI thread the first time a screen built from this class opens.
-        try {
-            Class.forName(className, true, classLoader);
-        } catch (Throwable ignore) {
-            // Warm-up only: the class still initializes on first use, as before.
-        }
+        // Not initialized here. An earlier version warmed the class up on this (plugin) thread, which
+        // runs ART's class linking - the very code LSPlant has patched - concurrently with the UI
+        // thread's own; native crashes in ClassLinker::DefineClass started with it. The class
+        // initializes on first use, as it always did.
         return loaded;
     }
 
