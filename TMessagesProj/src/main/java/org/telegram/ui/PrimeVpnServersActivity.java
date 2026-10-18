@@ -9,6 +9,7 @@ import android.widget.FrameLayout;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.PrimeFreeKey;
 import org.telegram.messenger.PrimeVpnServerStore;
 import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -40,6 +41,7 @@ import vpn.sdk.VpnSDK;
 public class PrimeVpnServersActivity extends UniversalFragment {
 
     private static final int ID_ADD = 1;
+    private static final int ID_FREE_KEY = 4;
     private static final int ID_PING_ALL = 3;
     private static final int ID_SERVER_BASE = 100;
 
@@ -51,6 +53,25 @@ public class PrimeVpnServersActivity extends UniversalFragment {
 
     private List<PrimeVpnServerStore.Server> servers = new ArrayList<>();
     private boolean pinging;
+
+    /** Opened from the settings button that goes straight for a free key. */
+    private boolean askFreeKeyOnOpen;
+
+    public PrimeVpnServersActivity() {
+    }
+
+    public PrimeVpnServersActivity(boolean askFreeKeyOnOpen) {
+        this.askFreeKeyOnOpen = askFreeKeyOnOpen;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (askFreeKeyOnOpen) {
+            askFreeKeyOnOpen = false;
+            AndroidUtilities.runOnUIThread(this::askForFreeKey, 250);
+        }
+    }
 
     @Override
     public boolean onFragmentCreate() {
@@ -72,8 +93,10 @@ public class PrimeVpnServersActivity extends UniversalFragment {
         final String activeId = PrimeVpnServerStore.getActiveServerId();
 
         items.add(UItem.asButton(ID_ADD, "Добавить сервер", "vless / vmess / trojan / ss / socks / AmneziaWG"));
-        items.add(UItem.asShadow("Работают только ваши ключи. AmneziaWG подключается как VPN только для PrimeGram: "
-                + "остальные приложения на телефоне идут мимо туннеля."));
+        items.add(UItem.asButton(ID_FREE_KEY, "Получить бесплатный ключ",
+                PrimeFreeKey.hasFreeKey() ? "уже получен, он в списке ниже" : "сторонний сервис " + PrimeFreeKey.SERVICE_NAME));
+        items.add(UItem.asShadow("Бесплатный ключ запрашивается только по нажатию и подтверждению. Остальное - ваши ключи. "
+                + "AmneziaWG подключается как VPN только для PrimeGram: остальные приложения на телефоне идут мимо туннеля."));
 
         if (!servers.isEmpty()) {
             items.add(UItem.asHeader("Мои серверы"));
@@ -94,11 +117,50 @@ public class PrimeVpnServersActivity extends UniversalFragment {
     protected void onClick(UItem item, View view, int position, float x, float y) {
         if (item.id == ID_ADD) {
             showAddServerDialog();
+        } else if (item.id == ID_FREE_KEY) {
+            askForFreeKey();
         } else if (item.id == ID_PING_ALL) {
             pingAll();
         } else if (item.id >= ID_SERVER_BASE && item.id < ID_SERVER_BASE + servers.size()) {
             connectTo(servers.get(item.id - ID_SERVER_BASE));
         }
+    }
+
+    /** Says exactly what a request is and costs, and asks - nothing is sent before the answer. */
+    private void askForFreeKey() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        if (PrimeFreeKey.hasFreeKey()) {
+            android.widget.Toast.makeText(getContext(), "Бесплатный ключ уже в списке. Удалите его (долгое нажатие), чтобы запросить новый.", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(getParentActivity())
+                .setTitle("Бесплатный ключ")
+                .setMessage("Ключ выдаёт сторонний сервис " + PrimeFreeKey.SERVICE_NAME + ", а не PrimeGram.\n\n"
+                        + "Что уйдёт при запросе: ваш IP-адрес (его видит любой сайт) и случайное число, придуманное для этого одного запроса. "
+                        + "Данные устройства, аккаунта и приложения не отправляются.\n\n"
+                        + "Ответ читается только как адрес сервера и параметры подключения. "
+                        + "Всё остальное, что сервис мог бы прислать, отбрасывается. Ключ появится в списке серверов, где виден его адрес, и сам не включится.\n\n"
+                        + "Пока ключ включён, владелец сервера видит ваш IP и адреса, к которым вы подключаетесь, но не содержимое переписки: оно зашифровано Telegram. "
+                        + "Ключ можно удалить в любой момент.")
+                .setPositiveButton("Запросить", (d, w) -> {
+                    android.widget.Toast.makeText(getContext(), "Запрашиваем ключ...", android.widget.Toast.LENGTH_SHORT).show();
+                    PrimeFreeKey.request((added, error) -> {
+                        if (getContext() == null) {
+                            return;
+                        }
+                        android.widget.Toast.makeText(getContext(),
+                                error != null ? error : "Ключ добавлен в список (" + added + ")",
+                                android.widget.Toast.LENGTH_LONG).show();
+                        reload();
+                        if (listView != null && listView.adapter != null) {
+                            listView.adapter.update(true);
+                        }
+                    });
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
     }
 
     @Override
@@ -244,15 +306,8 @@ public class PrimeVpnServersActivity extends UniversalFragment {
         });
     }
 
-    /** If Telegram is pointed at the xray SOCKS endpoint, stop using it (direct or TgWs remains). */
     private static void dropXrayProxySelection() {
-        final org.telegram.messenger.SharedConfig.ProxyInfo current = org.telegram.messenger.SharedConfig.currentProxy;
-        if (current != null && VpnSDK.getProxySocksHost().equals(current.settings.getAddress())
-                && current.settings.getPort() == VpnSDK.getProxySocksPort()) {
-            MessagesController.getGlobalMainSettings().edit().putBoolean("proxy_enabled", false).apply();
-            org.telegram.tgnet.ConnectionsManager.setProxySettings(false, null);
-            org.telegram.messenger.NotificationCenter.getGlobalInstance().postNotificationName(org.telegram.messenger.NotificationCenter.proxySettingsChanged);
-        }
+        PrimeVpnServerStore.dropXrayProxySelection();
     }
 
     private void confirmDelete(PrimeVpnServerStore.Server server) {

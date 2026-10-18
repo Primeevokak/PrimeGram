@@ -46095,9 +46095,13 @@ public class ChatActivity extends BaseFragment implements
                 // for it). Leaving the chat without any background made it transparent: the chat
                 // list showed through underneath it. Paint the wallpaper's colour meanwhile and look
                 // again shortly - the didSetNewWallpapper notification is not guaranteed to come
-                // after this fragment started waiting.
+                // after this fragment started waiting. Placeholder: the theme's own wallpaper
+                // gradient when it has one (cheap, and the right colours), else a neutral colour -
+                // not key_chat_wallpaper, which showed up as a solid red screen on some themes.
                 if (contentView.getBackgroundImage() == null) {
-                    contentView.setBackgroundImage(new ColorDrawable(getThemedColor(Theme.key_chat_wallpaper)), false);
+                    final Drawable gradient = Theme.getCurrentGradientWallpaper();
+                    contentView.setBackgroundImage(gradient != null ? gradient
+                            : new ColorDrawable(getThemedColor(Theme.key_windowBackgroundWhite)), false);
                     backgroundIsPlaceholder = true;
                 }
                 if (backgroundRetries++ < 60) {

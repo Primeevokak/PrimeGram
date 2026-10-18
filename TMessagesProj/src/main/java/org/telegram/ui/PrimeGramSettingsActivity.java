@@ -113,6 +113,8 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
     private static final int ID_WHATS_NEW = 146;
     private static final int ID_VLESS_CUSTOM_KEY = 147;
     private static final int ID_BATTERY_DIAG = 148;
+    private static final int ID_VLESS_TOGGLE = 157;
+    private static final int ID_FREE_KEY = 158;
     private static final int ID_UI_INSPECTOR = 149;
     private static final int ID_PERF_MONITOR = 150;
     private static final int ID_PERF_MONITOR_LOG = 151;
@@ -1447,6 +1449,41 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
 
     }
 
+    /**
+     * The "Включить VLESS-сервер" switch. Off: disconnect and remember which server it was, so it
+     * does not come back by itself at the next start. On: reconnect that one - or send the user to
+     * the servers screen when there is nothing to connect to, or when the server needs the system
+     * VPN consent (AmneziaWG), which only a screen can ask for.
+     */
+    private void toggleVlessServer() {
+        if (org.telegram.messenger.PrimeVpnServerStore.isConnected()) {
+            org.telegram.messenger.PrimeVpnServerStore.disconnectAll();
+            if (listView != null && listView.adapter != null) {
+                listView.adapter.update(true);
+            }
+            return;
+        }
+        final org.telegram.messenger.PrimeVpnServerStore.Server server = org.telegram.messenger.PrimeVpnServerStore.getLastServer();
+        if (server == null) {
+            android.widget.Toast.makeText(getContext(), "Серверов пока нет: добавьте свой или получите бесплатный ключ", android.widget.Toast.LENGTH_LONG).show();
+            presentFragment(new PrimeVpnServersActivity());
+            return;
+        }
+        if (org.telegram.messenger.PrimeVpnServerStore.PROTOCOL_AWG.equals(server.protocol)) {
+            presentFragment(new PrimeVpnServersActivity());
+            return;
+        }
+        android.widget.Toast.makeText(getContext(), "Подключаемся...", android.widget.Toast.LENGTH_SHORT).show();
+        org.telegram.messenger.PrimeVpnServerStore.connectProxyAsync(server, ok -> {
+            if (getContext() != null && !ok) {
+                android.widget.Toast.makeText(getContext(), "«" + server.name + "» не отвечает", android.widget.Toast.LENGTH_LONG).show();
+            }
+            if (listView != null && listView.adapter != null) {
+                listView.adapter.update(true);
+            }
+        });
+    }
+
     private String customServerStatusText() {
         if (VpnSDK.isAwgUp()) {
             return "Подключён AmneziaWG.";
@@ -1730,6 +1767,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
         }
 
         if (section == SECTION_CONNECTION) {
+            row(check(ID_VLESS_TOGGLE, IconBackgroundColors.PURPLE, R.drawable.msg_secret,
+                    "Включить VLESS-сервер", org.telegram.messenger.PrimeVpnServerStore.isConnected()));
+            row(button(ID_FREE_KEY, IconBackgroundColors.GREEN, R.drawable.msg_gift_premium,
+                    "Получить бесплатный ключ", "сторонний сервис, только по вашему подтверждению"));
             row(button(ID_VLESS_CUSTOM_KEY, IconBackgroundColors.PURPLE, R.drawable.msg_link2,
                     "Свои серверы", org.telegram.messenger.PrimeVpnServerStore.getServers().size() + " добавлено"));
             endCard(items);
@@ -2553,6 +2594,10 @@ public class PrimeGramSettingsActivity extends UniversalFragment {
             showSidebarZoneSheet();
         } else if (item.id == ID_VLESS_CUSTOM_KEY) {
             presentFragment(new PrimeVpnServersActivity());
+        } else if (item.id == ID_FREE_KEY) {
+            presentFragment(new PrimeVpnServersActivity(true));
+        } else if (item.id == ID_VLESS_TOGGLE) {
+            toggleVlessServer();
         } else if (item.id == ID_TGWS_PROXY) {
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             // Follows the switch, not the service's current state: those disagree whenever the

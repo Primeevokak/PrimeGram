@@ -460,7 +460,9 @@ object VpnSDK {
                             null
                         }
                     }
-                    """, "xhttpSettings": {"path": "$xhttpPath", "mode": "${xhttpMode.ifEmpty { "auto" }}"${if (extraJson != null) ""","extra": $extraJson""" else ""}}"""
+                    // host: the Host the xhttp requests carry. A link that gave one (the free key's
+                    // servers do) lost it here, and a server that routes by it never answered.
+                    """, "xhttpSettings": {"path": "$xhttpPath", "mode": "${xhttpMode.ifEmpty { "auto" }}"${if (wsHost.isNotEmpty()) """, "host": "$wsHost"""" else ""}${if (extraJson != null) ""","extra": $extraJson""" else ""}}"""
                 }
                 else -> ""
             }

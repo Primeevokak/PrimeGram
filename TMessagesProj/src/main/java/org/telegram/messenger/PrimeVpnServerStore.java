@@ -123,6 +123,66 @@ public final class PrimeVpnServerStore {
     }
 
     /** The selected server, or null when none is (or the selected one was deleted). */
+    private static final String KEY_LAST = "primegram_vpn_last_server";
+
+    /** The server that was on before the switch was turned off - what turning it on again connects to. */
+    public static Server getLastServer() {
+        final String id = prefs().getString(KEY_LAST, null);
+        final List<Server> servers = getServers();
+        if (id != null) {
+            for (Server s : servers) {
+                if (s.id.equals(id)) {
+                    return s;
+                }
+            }
+        }
+        return servers.isEmpty() ? null : servers.get(0);
+    }
+
+    /** Whether any of the user's own servers is connected right now (a proxy or an AmneziaWG tunnel). */
+    public static boolean isConnected() {
+        return vpn.sdk.VpnSDK.isProxyRunning() || vpn.sdk.VpnSDK.isAwgUp();
+    }
+
+    /** Switches the user's own server off and remembers which it was. Nothing resumes it at the next start. */
+    public static void disconnectAll() {
+        final String active = getActiveServerId();
+        if (active != null) {
+            prefs().edit().putString(KEY_LAST, active).apply();
+        }
+        vpn.sdk.VpnSDK.disconnectAwg();
+        if (vpn.sdk.VpnSDK.isProxyRunning()) {
+            vpn.sdk.VpnSDK.stopProxy();
+        }
+        dropXrayProxySelection();
+        setActiveServerId(null);
+    }
+
+    /** If Telegram is pointed at the xray SOCKS endpoint, stop using it (direct or TgWs remains). */
+    public static void dropXrayProxySelection() {
+        final SharedConfig.ProxyInfo current = SharedConfig.currentProxy;
+        if (current != null && vpn.sdk.VpnSDK.getProxySocksHost().equals(current.settings.getAddress())
+                && current.settings.getPort() == vpn.sdk.VpnSDK.getProxySocksPort()) {
+            MessagesController.getGlobalMainSettings().edit().putBoolean("proxy_enabled", false).apply();
+            org.telegram.tgnet.ConnectionsManager.setProxySettings(false, null);
+            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
+        }
+    }
+
+    /** Connects a proxy-type server (not AmneziaWG, which needs the system's VPN consent from a screen). */
+    public static void connectProxyAsync(Server server, Utilities.Callback<Boolean> done) {
+        vpn.sdk.VpnSDK.disconnectAwg();
+        Utilities.globalQueue.postRunnable(() -> {
+            final boolean ok = vpn.sdk.VpnSDK.setCustomVlessConfig(server.rawUrl);
+            AndroidUtilities.runOnUIThread(() -> {
+                if (ok) {
+                    setActiveServerId(server.id);
+                }
+                done.run(ok);
+            });
+        });
+    }
+
     public static Server getActiveServer() {
         final String id = getActiveServerId();
         if (id == null) {

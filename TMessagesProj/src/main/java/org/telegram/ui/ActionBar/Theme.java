@@ -9409,7 +9409,16 @@ public class Theme {
         TLRPC.Document finalWallpaperDocument = wallpaperDocument;
         if (async) {
             Utilities.themeQueue.postRunnable(wallpaperLoadTask = () -> {
-                Drawable drawable = loadWallpaperInternal(overrideWallpaper, wallpaperFile, intensity, wallpaperMotion, finalWallpaperDocument, defaultTheme);
+                Drawable loaded = null;
+                try {
+                    loaded = loadWallpaperInternal(overrideWallpaper, wallpaperFile, intensity, wallpaperMotion, finalWallpaperDocument, defaultTheme);
+                } catch (Throwable e) {
+                    // Out of memory, an unreadable file: either left wallpaperLoadTask set forever,
+                    // so every chat waited for a wallpaper that was never coming and was drawn with
+                    // no background. The task is released below whatever happened.
+                    FileLog.e(e);
+                }
+                final Drawable drawable = loaded;
                 AndroidUtilities.runOnUIThread(() -> {
                     wallpaperLoadTask = null;
                     createCommonChatResources();

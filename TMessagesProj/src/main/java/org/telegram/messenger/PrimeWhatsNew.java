@@ -122,7 +122,13 @@ public final class PrimeWhatsNew {
      */
     public static List<Section> sections() {
         final List<Section> sections = new ArrayList<>();
-        sections.add(new Section("Исправления", "ФИКС", ORANGE, false,
+        sections.add(new Section("Новое", "НОВОЕ", GREEN, false,
+                new Entry("proxy_check", "Бесплатный ключ вернулся",
+                        "В «Своих серверах» снова можно получить бесплатный ключ - только по вашему нажатию и после подтверждения. Теперь он безопаснее: сервису уходит лишь случайное число, придуманное для этого запроса, а не данные устройства; присланное читается только как адрес сервера, а не запускается как настройка; ключ виден в списке и сам не включается.",
+                        ACTION_PROXY)));
+        // 13.0.2.4's fixes, now history.
+        final List<Entry> earlier = new ArrayList<>();
+        Collections.addAll(earlier,
                 new Entry("msg_cancel", "Чат больше не просвечивает",
                         "На части телефонов при открытии чата за ним виднелся предыдущий экран, а картинка накладывалась слоями. Теперь, пока обои загружаются, чат закрашен цветом обоев, а потом подставляются сами обои."),
                 new Entry("msg_bots", "Реже вылеты при запуске с плагинами",
@@ -132,9 +138,8 @@ public final class PrimeWhatsNew {
                         "Android 15 и новее ограничивает время работы фонового сервиса. Раньше из-за этого приложение вылетало, теперь встроенный прокси просто останавливается.",
                         ACTION_PROXY),
                 new Entry("msg_speed", "Быстрее открывается чат",
-                        "Приложение больше не ждёт загрузки обоев при открытии чата.")));
+                        "Приложение больше не ждёт загрузки обоев при открытии чата."));
         // Everything that used to be the headline, folded: the history of this fork in one place.
-        final List<Entry> earlier = new ArrayList<>();
         for (Section section : previousSections()) {
             earlier.addAll(section.entries);
         }
