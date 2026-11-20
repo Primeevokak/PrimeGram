@@ -35,7 +35,6 @@ android {
 
     // srcDir(), not "srcDirs = [...]" - the assignment form replaces the whole source-dir
     // list rather than adding to it.
-    sourceSets.main.jniLibs.srcDir('../TMessagesProj/jni/')
 
     lintOptions {
         disable 'MissingTranslation'
