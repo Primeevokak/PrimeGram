@@ -448,7 +448,7 @@ private:
         bool ok = false;
         uint8_t *y = nullptr, *u = nullptr, *v = nullptr;
         int yLen = 0, uLen = 0, vLen = 0;
-        int32_t yStride = 0, uStride = 0, vStride = 0, uvPixel = 0;
+        int32_t yStride = 0, uStride = 0, vStride = 0, uPixel = 0, vPixel = 0;
         AImageCropRect crop{0, 0, m_width, m_height};
         if (api.planeData(image, 0, &y, &yLen) == AMEDIA_OK &&
             api.planeData(image, 1, &u, &uLen) == AMEDIA_OK &&
@@ -456,24 +456,28 @@ private:
             api.rowStride(image, 0, &yStride) == AMEDIA_OK &&
             api.rowStride(image, 1, &uStride) == AMEDIA_OK &&
             api.rowStride(image, 2, &vStride) == AMEDIA_OK &&
-            api.pixelStride(image, 1, &uvPixel) == AMEDIA_OK) {
+            api.pixelStride(image, 1, &uPixel) == AMEDIA_OK &&
+            api.pixelStride(image, 2, &vPixel) == AMEDIA_OK && uPixel == vPixel && uPixel > 0) {
             api.cropRect(image, &crop);
             const int left = crop.left > 0 ? crop.left & ~1 : 0;
             const int top = crop.top > 0 ? crop.top & ~1 : 0;
             const int cropW = crop.right > crop.left ? crop.right - crop.left : m_width;
             const int cropH = crop.bottom > crop.top ? crop.bottom - crop.top : m_height;
-            if (cropW >= m_width && cropH >= m_height && ensureFrame()) {
-                // libyuv needs the V plane stride equal to U's for the interleaved case; both
-                // are what the image reports, and Android420ToI420 handles pixel stride 1 and 2.
+            const int chromaW = (m_width + 1) / 2;
+            const int chromaH = (m_height + 1) / 2;
+            if (cropW >= m_width && cropH >= m_height &&
+                planeContains(y, yLen, yStride, 1, left, top, m_width, m_height) &&
+                planeContains(u, uLen, uStride, uPixel, left / 2, top / 2, chromaW, chromaH) &&
+                planeContains(v, vLen, vStride, vPixel, left / 2, top / 2, chromaW, chromaH) && ensureFrame() &&
                 libyuv::Android420ToI420(
                         y + (size_t) top * yStride + left, yStride,
-                        u + (size_t) (top / 2) * uStride + (size_t) (left / 2) * uvPixel, uStride,
-                        v + (size_t) (top / 2) * vStride + (size_t) (left / 2) * uvPixel, vStride,
-                        uvPixel,
+                        u + (size_t) (top / 2) * uStride + (size_t) (left / 2) * uPixel, uStride,
+                        v + (size_t) (top / 2) * vStride + (size_t) (left / 2) * vPixel, vStride,
+                        uPixel,
                         m_frame->data[0], m_frame->linesize[0],
                         m_frame->data[1], m_frame->linesize[1],
                         m_frame->data[2], m_frame->linesize[2],
-                        m_width, m_height);
+                        m_width, m_height) == 0) {
                 AVCodecParameters *par = m_fmt->streams[m_streamIndex]->codecpar;
                 m_frame->pts = pts;
                 m_frame->best_effort_timestamp = pts;
@@ -482,11 +486,19 @@ private:
                 m_producedFrames = true;
                 ok = true;
             } else {
-                reportAnomaly("image smaller than stream");
+                reportAnomaly("invalid YUV image planes");
             }
         }
         api.deleteImage(image);
         return ok;
+    }
+
+    static bool planeContains(const uint8_t *data, int size, int rowStride, int pixelStride,
+                              int x, int y, int width, int height) {
+        const int64_t lastColumn = (static_cast<int64_t>(x) + width - 1) * pixelStride;
+        const int64_t lastRow = (static_cast<int64_t>(y) + height - 1) * rowStride;
+        return data != nullptr && width > 0 && height > 0 && rowStride > 0
+            && lastColumn < rowStride && lastRow + lastColumn < size;
     }
 
     bool ensureFrame() {

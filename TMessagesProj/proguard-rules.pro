@@ -55,6 +55,16 @@
 # https://developers.google.com/ml-kit/known-issues#android_issues
 -keep class com.google.mlkit.nl.languageid.internal.LanguageIdentificationJni { *; }
 
+# WidgetSandbox: JNI_OnLoad uses RegisterNatives; backend methods are called by native workers.
+-keep class org.telegram.utils.twidget.WidgetSandboxNative { *; }
+# The client's share (filters, gesture arbiter) in the client library: static Java_* exports, resolved by name.
+-keepclasseswithmembers,includedescriptorclasses class org.telegram.utils.twidget.WidgetClientNative {
+    native <methods>;
+}
+-keep class org.telegram.utils.twidget.WidgetSandboxBackend { *; }
+# The isolated engine process's backend (WidgetEngineService): the same JNI callbacks.
+-keep class org.telegram.utils.twidget.WidgetEngineBackend { *; }
+
 # Huawei Services
 -keep class com.huawei.hianalytics.**{ *; }
 -keep class com.huawei.updatesdk.**{ *; }

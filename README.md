@@ -17,7 +17,7 @@
 | Минимальная версия Android | 7.0 (API 24) |
 | Целевая версия Android | 16 (API 36) |
 | Архитектуры | `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` |
-| Основа | Telegram for Android 12.10.4 |
+| Основа | Telegram for Android 13.2.2 |
 | Лицензия | GNU GPL v2 |
 
 ## Возможности

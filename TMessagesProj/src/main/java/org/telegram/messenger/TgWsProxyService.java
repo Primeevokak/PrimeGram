@@ -18,6 +18,7 @@ import org.telegram.tgnet.ConnectionsManager;
 import androidx.core.app.NotificationCompat;
 
 import java.io.IOException;
+import java.io.EOFException;
 import java.io.InputStream;
 import java.io.BufferedInputStream;
 import java.io.OutputStream;
@@ -47,9 +48,6 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.HostnameVerifier;
@@ -120,7 +118,6 @@ public class TgWsProxyService extends Service {
             // waiting out the thirty-second cooldown on a domain the user just rejected.
             currentBaseDomain = null;
             cachedBaseAddresses.clear();
-            lastDomainSelectionTime = 0;
         }
     }
 
@@ -141,6 +138,7 @@ public class TgWsProxyService extends Service {
      */
     public static long probeDomain(String domain, int dcId) {
         SSLSocket socket = null;
+        Socket plain = null;
         final long started = System.currentTimeMillis();
         // The running service if there is one, so the probe resolves names the same way the
         // service does - including its DNS-over-HTTPS fallback, which is the whole reason a
@@ -150,19 +148,15 @@ public class TgWsProxyService extends Service {
         final TgWsProxyService service = instance;
         try {
             String host = "kws" + dcId + "." + domain;
-            InetAddress[] resolved = service != null ? service.resolveWithFallbackDns(host) : null;
-            if (resolved == null || resolved.length == 0) {
-                host = "kws." + domain;
-                resolved = service != null ? service.resolveWithFallbackDns(host) : null;
-                if (resolved == null || resolved.length == 0) {
-                    host = domain;
-                }
+            if (service != null) {
+                socket = service.createTlsSocketWithIpv4Preference(host, 443, 2500);
+            } else {
+                plain = new Socket();
+                plain.connect(new java.net.InetSocketAddress(host, 443), 2500);
+                final SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+                socket = (SSLSocket) factory.createSocket(plain, host, 443, true);
+                configureTls(socket, 2500, true);
             }
-            final SSLSocketFactory factory = service != null && service.sslSocketFactory != null
-                    ? service.sslSocketFactory : buildTrustAllSslFactory();
-            socket = (SSLSocket) factory.createSocket();
-            socket.connect(new java.net.InetSocketAddress(host, 443), 2500);
-            socket.setSoTimeout(2500);
             socket.startHandshake();
             return System.currentTimeMillis() - started;
         } catch (Exception e) {
@@ -170,6 +164,8 @@ public class TgWsProxyService extends Service {
         } finally {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) {}
+            } else if (plain != null) {
+                try { plain.close(); } catch (IOException ignored) {}
             }
         }
     }
@@ -437,13 +433,18 @@ public class TgWsProxyService extends Service {
      *  failure; callers already treat "couldn't refresh" as "keep the existing pool." */
     private static String httpsGetBestEffort(String urlStr, String host, String pinnedIp, int timeoutMs) {
         try {
-            final HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
-            conn.setConnectTimeout(timeoutMs);
-            conn.setReadTimeout(timeoutMs);
-            conn.setRequestProperty("User-Agent", "PrimeGram");
-            final int code = conn.getResponseCode();
-            if (code == 200) {
-                return readAllUtf8(conn.getInputStream());
+            final HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection(java.net.Proxy.NO_PROXY);
+            try {
+                conn.setConnectTimeout(timeoutMs);
+                conn.setReadTimeout(timeoutMs);
+                conn.setRequestProperty("User-Agent", "PrimeGram");
+                if (conn.getResponseCode() == 200) {
+                    try (InputStream body = conn.getInputStream()) {
+                        return readAllUtf8(body);
+                    }
+                }
+            } finally {
+                conn.disconnect();
             }
         } catch (Exception systemDnsFailed) {
             // fall through to the pinned-IP path below
@@ -457,9 +458,8 @@ public class TgWsProxyService extends Service {
             final String path = new URL(urlStr).getFile();
             plain = new Socket();
             plain.connect(new java.net.InetSocketAddress(pinnedIp, 443), timeoutMs);
-            tls = (SSLSocket) buildTrustAllSslFactory().createSocket(plain, host, 443, true);
-            tls.setUseClientMode(true);
-            tls.setSoTimeout(timeoutMs);
+            tls = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(plain, host, 443, true);
+            configureTls(tls, timeoutMs, true);
             tls.startHandshake();
             final String req = "GET " + path + " HTTP/1.1\r\nHost: " + host
                     + "\r\nUser-Agent: PrimeGram\r\nConnection: close\r\n\r\n";
@@ -467,7 +467,7 @@ public class TgWsProxyService extends Service {
             tls.getOutputStream().flush();
             final String raw = readAllUtf8(tls.getInputStream());
             final int sep = raw.indexOf("\r\n\r\n");
-            return sep >= 0 ? raw.substring(sep + 4) : null;
+            return raw.startsWith("HTTP/1.1 200 ") && sep >= 0 ? raw.substring(sep + 4) : null;
         } catch (Exception pinnedFailed) {
             return null;
         } finally {
@@ -480,6 +480,9 @@ public class TgWsProxyService extends Service {
         final byte[] chunk = new byte[4096];
         int n;
         while ((n = in.read(chunk)) > 0) {
+            if (buf.size() + n > 128 * 1024) {
+                throw new IOException("TgWs domain list is too large");
+            }
             buf.write(chunk, 0, n);
         }
         return buf.toString("UTF-8");
@@ -513,6 +516,12 @@ public class TgWsProxyService extends Service {
             return;
         }
         activeBaseDomains = valid.toArray(new String[0]);
+        synchronized (domainLock) {
+            if (forcedDomain().isEmpty() && !valid.contains(currentBaseDomain)) {
+                currentBaseDomain = null;
+                cachedBaseAddresses.clear();
+            }
+        }
         logInfo("CF proxy domain pool updated from GitHub (" + activeBaseDomains.length + " domains)");
     }
 
@@ -619,7 +628,6 @@ public class TgWsProxyService extends Service {
     public static volatile boolean isSocketBound = false;
     private static volatile String currentBaseDomain = null;
     /** Consecutive failed connects against the currently selected base domain. See connectToWebSocket. */
-    private static final java.util.concurrent.atomic.AtomicInteger consecutiveConnectFailures = new java.util.concurrent.atomic.AtomicInteger();
     public static String getCurrentBaseDomain() {
         return currentBaseDomain;
     }
@@ -633,7 +641,6 @@ public class TgWsProxyService extends Service {
      *  host (not re-resolved every connection) for the original reason this existed - fewer DNS
      *  round trips and a consistent edge IP across repeated connections to the SAME host. */
     private static final java.util.concurrent.ConcurrentHashMap<String, java.net.InetAddress> cachedBaseAddresses = new java.util.concurrent.ConcurrentHashMap<>();
-    private static volatile long lastDomainSelectionTime = 0;
 
     private final Object socketLock = new Object();
     private final List<Socket> activeClientSockets = new ArrayList<>();
@@ -771,7 +778,7 @@ public class TgWsProxyService extends Service {
             } catch (Throwable ignore) {}
             r.run();
         }, "tgws-pool-warm"));
-        sslSocketFactory = buildTrustAllSslFactory();
+        sslSocketFactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
         primeWatchForeground();
 
         ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -787,6 +794,13 @@ public class TgWsProxyService extends Service {
                     lastAvailableNetwork = network;
                     lastNetworkAvailableHandledAt = now;
                     logInfo("Network connection changed: available.");
+                    ipFailUntil.clear();
+                    preferredCfDomain.clear();
+                    cachedBaseAddresses.clear();
+                    dcConnectFailStreak.clear();
+                    dcFastFailureStreak.clear();
+                    dcBackoffUntil.clear();
+                    domainSickUntil.clear();
                     // closeActiveClientSockets(); // Disabled: causes JNI/SOCKS5 SIGPIPE crash
                     clearWsPool();
                     warmupActiveDcs();
@@ -1436,7 +1450,7 @@ public class TgWsProxyService extends Service {
      * the same bad domain.
      */
     private static final java.util.concurrent.ConcurrentHashMap<String, Long> domainSickUntil = new java.util.concurrent.ConcurrentHashMap<>();
-    /** Short on purpose - this is "actively being cut right now", not "unreachable" like ipFailUntil's hour. */
+    /** Cool down domains whose established sessions repeatedly terminate immediately. */
     private static final long DOMAIN_SICK_COOLDOWN_MS = 4 * 60_000L;
 
     /** The declared candidates minus whichever are currently sick, or all of them if that would leave nothing. */
@@ -1749,14 +1763,11 @@ public class TgWsProxyService extends Service {
         String key = dcId + "_" + isMedia;
         activeDcs.put(key, System.currentTimeMillis());
         java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
-        final String activeDomain = currentBaseDomain;
+        final String pinned = forcedDomain();
         WsConnection conn = null;
         while ((conn = q.poll()) != null) {
             long age = System.currentTimeMillis() - conn.createdAt;
-            // Drop sockets built for a domain we have since moved away from. Handing one of
-            // those out is what turned a single failure into a domain-hopping loop: it dies
-            // immediately, which looks like the new domain failing too.
-            boolean wrongDomain = activeDomain != null && conn.domain != null && !conn.domain.endsWith(activeDomain);
+            boolean wrongDomain = !pinned.isEmpty() && !conn.domain.equals("kws" + dcId + "." + pinned);
             if (age > poolAgeLimitMs() || wrongDomain || conn.tlsSocket.isClosed() || !isPooledConnectionAlive(conn.tlsSocket)) {
                 try { conn.tlsSocket.close(); } catch (Exception ignored) {}
                 continue;
@@ -1769,28 +1780,6 @@ public class TgWsProxyService extends Service {
     }
 
     /** Closes and forgets every pooled connection. Called when the base domain changes. */
-    private void discardPooledConnections() {
-        int dropped = 0;
-        for (java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q : wsPoolMap.values()) {
-            WsConnection conn;
-            while ((conn = q.poll()) != null) {
-                try { conn.tlsSocket.close(); } catch (Exception ignored) {}
-                dropped++;
-            }
-        }
-        if (dropped > 0) {
-            logInfo("Discarded " + dropped + " pooled connections after base domain change");
-        }
-    }
-
-    /**
-     * How many spare connections to keep for a data centre.
-     *
-     * <p>Deeper for media, because media does not arrive one file at a time: a tray of stories or
-     * a screen of photos asks for a dozen files at once, and every request beyond the pool pays
-     * for a fresh WebSocket - a handshake measured at roughly 1.7 seconds through this tunnel. A
-     * pool of two covers a conversation; it does not cover a burst.
-     */
     private static int poolTargetFor(boolean isMedia) {
         // Matches 12.9.0.6 exactly. A deeper pool was tried (up to 5/12 depending on mode) on the
         // theory that more standing connections would absorb request bursts better - but every one
@@ -1809,38 +1798,7 @@ public class TgWsProxyService extends Service {
                 try {
                     java.util.concurrent.ConcurrentLinkedQueue<WsConnection> q = wsPoolMap.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedQueue<>());
                     while (q.size() < poolTargetFor(isMedia)) {
-                        // Every spare sourced from connectToWebSocket lands on the same shared
-                        // backend as the live session it is meant to back up (dc-redirect or the
-                        // .co.uk balancer) - a synchronized overload there kills the active
-                        // session AND every spare at once, which is exactly what left the pool
-                        // empty right when a live session just died and a fast replacement
-                        // mattered most. Alternating which path is tried first (by the pool's
-                        // current size, not a flag needing its own state) keeps at least one spare
-                        // on the worker pool - an unrelated Cloudflare account - even while the
-                        // primary path is perfectly healthy, instead of only diversifying once
-                        // something has already broken.
-                        // Was a 50/50 alternation, but connectToWebSocket() itself ALWAYS tries the
-                        // direct dc-redirect IP first internally before falling back to a worker -
-                        // so on every refill where workerFirst was false, 149.154.167.220 still got
-                        // an attempt as the primary path. Combined, direct-IP was being probed on
-                        // very close to every single refill cycle, not every other one. DC2 and DC4
-                        // both funnel through that one shared IP (see DC_REDIRECTS) - it is Telegram's
-                        // own shared load-balancer for just those two DCs, not infrastructure this
-                        // app controls, and a device log showed it rejecting connections outright in
-                        // bursts (instant WS CLOSE, code=1000/reason=404, zero bytes exchanged - the
-                        // same signature this file's own isDcInBackoff doc already attributes to
-                        // sustained overload). Skewing refills toward the worker pool most of the
-                        // time - 20+ distinct Cloudflare accounts to spread load across, versus one
-                        // fixed shared IP every PrimeGram install (and everyone else routed through
-                        // Telegram's own kws2/kws4 balancer) competes for - is the one lever actually
-                        // inside this app's control for reducing pressure on that shared resource.
-                        String dst = DC_DEFAULT_IPS.get(dcId);
-                        boolean workerFirst = dst != null && (q.size() % 3 != 0);
-                        WsConnection conn = workerFirst ? connectThroughWorker(dcId, isMedia, dst) : connectToWebSocket(dcId, isMedia);
-                        if (conn == null) {
-                            conn = workerFirst ? connectToWebSocket(dcId, isMedia)
-                                    : (dst != null ? connectThroughWorker(dcId, isMedia, dst) : null);
-                        }
+                        WsConnection conn = connectToWebSocket(dcId, isMedia);
                         if (conn != null) {
                             q.add(conn);
                             logInfo("WsPool refilled for DC" + dcId + " (media=" + isMedia + "), pool size: " + q.size());
@@ -1938,7 +1896,7 @@ public class TgWsProxyService extends Service {
             final long startedAt = System.currentTimeMillis();
             try {
                 paceDcRedirectAttempt();
-                tlsSocket = createTlsSocketToFixedIp(fixedIp, domain, 443, 6_000);
+                tlsSocket = createTlsSocketToFixedIp(fixedIp, domain, 443, 3000, true);
                 wsHandshake(tlsSocket, domain, dcId, false);
                 logInfo("DC redirect: connected to " + fixedIp + " as " + domain + " (DC" + dcId + ") in "
                         + (System.currentTimeMillis() - startedAt) + "ms");
@@ -1980,7 +1938,7 @@ public class TgWsProxyService extends Service {
         final long startedAt = System.currentTimeMillis();
         try {
             paceDcRedirectAttempt();
-            tlsSocket = createTlsSocketToFixedIp(fixedIp, FRONTING_SNI, 443, 7_000);
+            tlsSocket = createTlsSocketToFixedIp(fixedIp, FRONTING_SNI, 443, 3000, false);
             wsHandshake(tlsSocket, domain, dcId, false);
             logInfo("DC redirect (fronted): connected to " + fixedIp + " as " + domain + " (DC" + dcId + ") in "
                     + (System.currentTimeMillis() - startedAt) + "ms");
@@ -2004,258 +1962,111 @@ public class TgWsProxyService extends Service {
         return message != null && (message.contains("timed out") || message.contains("reset") || message.contains("ECONNRESET"));
     }
 
-    private SSLSocket createTlsSocketToFixedIp(String ip, String sniHost, int port, int timeoutMs) throws IOException {
-        Socket plainSocket = new Socket();
-        tuneTunnelSocketBuffers(plainSocket);
-        plainSocket.connect(new java.net.InetSocketAddress(InetAddress.getByName(ip), port), timeoutMs);
-        SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, sniHost, port, true);
-        tlsSocket.setUseClientMode(true);
-        tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-        tlsSocket.setTcpNoDelay(true);
-        tlsSocket.setSoTimeout(timeoutMs);
-        return tlsSocket;
+    private SSLSocket createTlsSocketToFixedIp(String ip, String host, int port, int timeoutMs, boolean verifyHost) throws IOException {
+        Socket plain = new Socket();
+        try {
+            tuneTunnelSocketBuffers(plain);
+            plain.connect(new java.net.InetSocketAddress(InetAddress.getByName(ip), port), timeoutMs);
+            return wrapTls(plain, host, port, timeoutMs, verifyHost);
+        } catch (IOException | RuntimeException e) {
+            try { plain.close(); } catch (IOException ignored) {}
+            throw e;
+        }
+    }
+
+    private SSLSocket wrapTls(Socket plain, String host, int port, int timeoutMs, boolean verifyHost) throws IOException {
+        SSLSocket socket = (SSLSocket) sslSocketFactory.createSocket(plain, host, port, true);
+        try {
+            configureTls(socket, timeoutMs, verifyHost);
+            return socket;
+        } catch (IOException | RuntimeException e) {
+            try { socket.close(); } catch (IOException ignored) {}
+            throw e;
+        }
+    }
+
+    private static void configureTls(SSLSocket socket, int timeoutMs, boolean verifyHost) throws IOException {
+        socket.setUseClientMode(true);
+        javax.net.ssl.SSLParameters parameters = socket.getSSLParameters();
+        parameters.setProtocols(Arrays.stream(socket.getSupportedProtocols())
+                .filter(protocol -> "TLSv1.2".equals(protocol) || "TLSv1.3".equals(protocol))
+                .toArray(String[]::new));
+        if (verifyHost) {
+            parameters.setEndpointIdentificationAlgorithm("HTTPS");
+        }
+        socket.setSSLParameters(parameters);
+        socket.setTcpNoDelay(true);
+        socket.setSoTimeout(timeoutMs);
     }
 
     private WsConnection connectToWebSocket(int dcId, boolean isMedia) {
-        // PrimeGram: ordering restored to 12.9.0.6's actual primary path - domain rotation
-        // (kws{dc}.<one of the .co.uk pool>) first. Direct dc-redirect to the fixed
-        // 149.154.167.220 IP and the Worker relay are BOTH later additions with no equivalent in
-        // 0.6 at all (confirmed: that IP appears nowhere as a connect target in 0.6, only once in
-        // an unrelated reverse-lookup table) - 0.6 ran exclusively on domain rotation and never
-        // depended on that one fixed IP staying healthy. This investigation's failures (instant
-        // WS CLOSE code=1000/reason=404, connect timeouts) clustered specifically on that IP, so
-        // it goes back to being what 0.6 always treated it as: a fallback, not the first attempt.
-        WsConnection viaRotation = tryDomainRotationConnect(dcId, isMedia);
-        if (viaRotation != null) {
-            return viaRotation;
+        // Flowseal v1.11.4: direct WebSocket for mapped DCs, then Worker, then CF domains.
+        if (!forcedDomain().isEmpty()) {
+            return tryDomainRotationConnect(dcId, isMedia);
         }
-
-        // Checked per-path, not once for both: the DC-redirect fixed IP turned out to be shared
-        // public infrastructure too (same "Server: cloudflare" as the .co.uk balancer) - under
-        // sustained load it starts closing every session instantly with the same 1000/"404"
-        // signature, and without a check first, that path bypassed the breaker entirely and kept
-        // hammering a dead endpoint in a tight loop instead of backing off. The two paths below
-        // (direct dc-redirect vs. third-party Worker relay) share no infrastructure and can fail
-        // completely independently - see dcKey()'s doc - so each gets its own backoff check right
-        // before its own attempt, instead of one shared check blocking both.
-        WsConnection viaRedirect = null;
         if (!isDcInBackoff(dcId, isMedia, false)) {
-            viaRedirect = tryDcRedirectConnect(dcId, isMedia);
-        } else {
-            logInfo("DC" + dcId + " (media=" + isMedia + ") direct path is in backoff after repeated fast failures, skipping");
+            WsConnection direct = tryDcRedirectConnect(dcId, isMedia);
+            if (direct != null) {
+                return direct;
+            }
         }
-        if (viaRedirect != null) {
-            return viaRedirect;
-        }
-
         String dcDst = DC_DEFAULT_IPS.get(dcId);
         if (dcDst != null && !isDcInBackoff(dcId, isMedia, true)) {
-            WsConnection viaWorker = connectThroughWorker(dcId, isMedia, dcDst);
-            if (viaWorker != null) {
-                return viaWorker;
+            WsConnection worker = connectThroughWorker(dcId, isMedia, dcDst);
+            if (worker != null) {
+                return worker;
+            }
+        }
+        return tryDomainRotationConnect(dcId, isMedia);
+    }
+
+    private final java.util.concurrent.ConcurrentHashMap<Integer, String> preferredCfDomain =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private WsConnection tryDomainRotationConnect(int dcId, boolean isMedia) {
+        final String pinned = forcedDomain();
+        final List<String> candidates = pinned.isEmpty() ? healthyBaseDomains() : Collections.singletonList(pinned);
+        if (pinned.isEmpty()) {
+            Collections.shuffle(candidates);
+            final String preferred = preferredCfDomain.get(dcId);
+            if (preferred != null && candidates.remove(preferred)) {
+                candidates.add(0, preferred);
+            }
+        }
+
+        int attempts = 0;
+        for (String baseDomain : candidates) {
+            final String host = "kws" + dcId + "." + baseDomain;
+            if (pinned.isEmpty() && android.os.SystemClock.elapsedRealtime() < ipFailUntil.getOrDefault(host, 0L)) {
+                continue;
+            }
+            SSLSocket socket = null;
+            try {
+                socket = createTlsSocketWithIpv4Preference(host, 443, 3000);
+                wsHandshake(socket, host, dcId, false);
+                if (pinned.isEmpty()) {
+                    preferredCfDomain.put(dcId, baseDomain);
+                }
+                currentBaseDomain = baseDomain;
+                ipFailUntil.remove(host);
+                logInfo("Connected to CF proxy " + host + " (DC" + dcId + ", media=" + isMedia + ")");
+                return new WsConnection(socket, host);
+            } catch (IOException | RuntimeException e) {
+                if (socket != null) {
+                    try { socket.close(); } catch (IOException ignored) {}
+                }
+                cachedBaseAddresses.remove(host);
+                preferredCfDomain.remove(dcId, baseDomain);
+                ipFailUntil.put(host, android.os.SystemClock.elapsedRealtime() + 60_000L);
+                logInfo("CF proxy " + host + " failed: " + e.getMessage());
+                if (++attempts >= 3) {
+                    break;
+                }
             }
         }
         return null;
     }
 
-    /** 12.9.0.6's original (and, until this investigation, ONLY) connection path: pick/rotate a
-     *  base domain from the .co.uk pool by latency, connect to kws{dc}.&lt;domain&gt;. No fixed
-     *  IP, no third-party Worker - the base domain list itself (~10-20 candidates) is the only
-     *  shared resource, and losing one candidate just narrows the pool rather than failing outright. */
-    private WsConnection tryDomainRotationConnect(int dcId, boolean isMedia) {
-        SSLSocket tlsSocket = null;
-        String chosenDomain = null;
-
-        try {
-            Thread.sleep(20 + RANDOM.nextInt(280));
-        } catch (InterruptedException ignored) {}
-
-        String baseDomain;
-        synchronized (domainLock) {
-            final String pinned = forcedDomain();
-            if (currentBaseDomain == null && !pinned.isEmpty()) {
-                // The user picked one. No probing, no failover to a different domain: if it stops
-                // working they will see it stop working, which is the point of pinning it.
-                currentBaseDomain = pinned;
-                cachedBaseAddresses.clear();
-                lastDomainSelectionTime = System.currentTimeMillis();
-                logInfo("Using domain pinned by the user: " + pinned);
-            }
-            if (currentBaseDomain == null) {
-                if (System.currentTimeMillis() - lastDomainSelectionTime > 30_000) {
-                    logInfo("Selecting base domain from candidates using pair-wise latency tests...");
-                    List<String> candidates = healthyBaseDomains();
-                    Collections.shuffle(candidates);
-
-                    final String[] selected = new String[1];
-                    final int targetDcId = dcId;
-
-                    // Was: pairs of two, one pair at a time, 1400 ms per pair. With ten candidates
-                    // that is up to seven seconds - and this whole block holds a lock on the class,
-                    // so every other DC's connection attempt waits behind it. Probing all of them
-                    // at once costs the same 1400 ms whether one domain is reachable or none is,
-                    // and the winner is still whichever answers first. executor is a cached pool,
-                    // so the extra probes cost threads, not time.
-                    final java.util.concurrent.CountDownLatch firstAnswer = new java.util.concurrent.CountDownLatch(1);
-                    final java.util.concurrent.CountDownLatch allDone = new java.util.concurrent.CountDownLatch(candidates.size());
-                    for (int i = 0; i < candidates.size(); i++) {
-                        final String dom = candidates.get(i);
-                        executor.submit(() -> {
-                            SSLSocket testSocket = null;
-                            try {
-                                String testHost = "kws" + targetDcId + "." + dom;
-                                InetAddress[] testResolve = resolveWithFallbackDns(testHost);
-                                if (testResolve == null || testResolve.length == 0) {
-                                    testHost = "kws." + dom;
-                                    testResolve = resolveWithFallbackDns(testHost);
-                                    if (testResolve == null || testResolve.length == 0) {
-                                        testHost = dom;
-                                    }
-                                }
-                                testSocket = (SSLSocket) sslSocketFactory.createSocket();
-                                testSocket.connect(new java.net.InetSocketAddress(testHost, 443), 1200);
-                                testSocket.setSoTimeout(1200);
-                                testSocket.startHandshake();
-                                synchronized (selected) {
-                                    if (selected[0] == null) {
-                                        selected[0] = dom;
-                                    }
-                                }
-                                firstAnswer.countDown();
-                            } catch (Exception ignored) {
-                            } finally {
-                                if (testSocket != null) {
-                                    try { testSocket.close(); } catch (IOException ignored) {}
-                                }
-                                allDone.countDown();
-                            }
-                        });
-                    }
-
-                    try {
-                        // Returns as soon as one domain answers; falls through at 1400 ms if none
-                        // does, without waiting on the stragglers.
-                        if (!firstAnswer.await(1400, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                            allDone.await(200, java.util.concurrent.TimeUnit.MILLISECONDS);
-                        }
-                    } catch (InterruptedException ignored) {}
-
-                    if (selected[0] == null) {
-                        selected[0] = candidates.get(RANDOM.nextInt(candidates.size()));
-                        logInfo("All latency probes failed. Selected fallback: " + selected[0]);
-                        PrimeStartupTrace.mark("!! proxy: all domain probes failed, guessing " + selected[0]);
-                    } else {
-                        logInfo("Fastest base domain selected: " + selected[0]);
-                        PrimeStartupTrace.mark("proxy: domain selected " + selected[0] + " (DC" + dcId + ")");
-                    }
-                    currentBaseDomain = selected[0];
-                    cachedBaseAddresses.clear();
-                    lastDomainSelectionTime = System.currentTimeMillis();
-                } else {
-                    List<String> healthy = healthyBaseDomains();
-                    currentBaseDomain = healthy.get(RANDOM.nextInt(healthy.size()));
-                    cachedBaseAddresses.clear();
-                    logInfo("Quick failover (cooldown active): selected random domain: " + currentBaseDomain);
-                }
-                // Sockets pooled for the previous domain are worthless now, and worse than
-                // worthless if handed out — they fail instantly and look like a new outage.
-                discardPooledConnections();
-                baseDomain = currentBaseDomain;
-            } else {
-                baseDomain = currentBaseDomain;
-            }
-        }
-        boolean isUnified = false;
-        String wsDomain = "kws" + dcId + "." + baseDomain;
-
-        if (System.currentTimeMillis() < ipFailUntil.getOrDefault(wsDomain, 0L)) {
-            logInfo(wsDomain + " is in IP fail cooldown, skipping.");
-            synchronized (domainLock) {
-                if (baseDomain.equals(currentBaseDomain)) {
-                    currentBaseDomain = null;
-                    cachedBaseAddresses.clear();
-                }
-            }
-            return null;
-        }
-
-        InetAddress[] checkResolve = resolveWithFallbackDns(wsDomain);
-        if (checkResolve == null || checkResolve.length == 0) {
-            wsDomain = baseDomain;
-        }
-
-        logInfo("Connecting to CF proxy " + wsDomain + ":443 for DC" + dcId + " (unified=" + isUnified + ")");
-        // Timed because a cold start showed nearly two minutes between "dialogs requested" and
-        // "dialogs visible" with the main thread idle throughout - the wait was in the tunnel,
-        // and the tunnel recorded nothing at all. Each leg is measured separately: a slow TLS
-        // connect, a slow upgrade and a fast connect that is simply retried many times are three
-        // different faults that look identical from the outside.
-        final long connectStartedAt = System.currentTimeMillis();
-        long tlsReadyAt = connectStartedAt;
-        try {
-            tlsSocket = createTlsSocketWithIpv4Preference(wsDomain, 443, 10_000);
-            tlsSocket.setUseClientMode(true);
-            tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-            tlsSocket.setTcpNoDelay(true);
-            tlsSocket.setSoTimeout(10_000); // 10s timeout for handshake
-
-            tlsReadyAt = System.currentTimeMillis();
-            wsHandshake(tlsSocket, wsDomain, dcId, isUnified);
-            chosenDomain = wsDomain;
-            final long now = System.currentTimeMillis();
-            primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " up in " + (now - connectStartedAt)
-                    + " ms (tls " + (tlsReadyAt - connectStartedAt) + ", ws " + (now - tlsReadyAt) + ") via " + wsDomain);
-            logInfo("Successfully connected to " + wsDomain + " (DC" + dcId + ")");
-
-            // clear IP fail cooldown on success
-            ipFailUntil.remove(wsDomain);
-            consecutiveConnectFailures.set(0);
-            return new WsConnection(tlsSocket, chosenDomain);
-        } catch (Exception e) {
-            boolean isTimeout = e instanceof java.net.SocketTimeoutException || (e.getMessage() != null && e.getMessage().contains("timed out"));
-            // No fronting fallback here anymore: it never once succeeded across a full day of
-            // real logs, and it never could - Cloudflare stopped honoring SNI/Host mismatches for
-            // routing back in 2018 specifically to kill this exact technique. Every attempt landed
-            // on max.ru's or yandex.ru's own real backend (confirmed by their own Server/response
-            // headers, e.g. "Server: kittenx" for max.ru, X-Yandex-Req-Id for yandex.ru), which
-            // naturally 404/406'd on our /apiws path since it has nothing to do with our Worker.
-            // It only ever added two guaranteed-doomed round trips (1-2s each) on top of every
-            // failed direct attempt. Failing fast here instead lets the DC-level circuit breaker
-            // and domain rotation react sooner, which matters far more than a fallback that has a
-            // 0% success rate.
-            primeTraceConnect("!! proxy: DC" + dcId + (isMedia ? "m" : "") + " FAILED after "
-                    + (System.currentTimeMillis() - connectStartedAt) + " ms on " + wsDomain + " (" + e.getMessage() + ")");
-
-            if (isTimeout) {
-                ipFailUntil.put(wsDomain, System.currentTimeMillis() + 3600_000L);
-                logInfo("Added " + wsDomain + " to ipFail cooldown for 1 hour");
-            }
-
-            // Dropping the domain after a single failed connect made every transient error
-            // cost a full re-probe, and the re-probe holds the class lock - so one flaky
-            // socket stalled every other DC too. A domain has to fail twice in a row before
-            // we give up on it; any success resets the count.
-            if (consecutiveConnectFailures.incrementAndGet() >= 2) {
-                synchronized (domainLock) {
-                    if (baseDomain.equals(currentBaseDomain)) {
-                        currentBaseDomain = null;
-                        cachedBaseAddresses.clear();
-                        logInfo("Resetting currentBaseDomain (failover triggered)");
-                    }
-                }
-                consecutiveConnectFailures.set(0);
-            }
-            if (tlsSocket != null) {
-                try { tlsSocket.close(); } catch (IOException ignored) {}
-            }
-            return null;
-        }
-    }
-
-    /** Every log line for one client session carries this so the several lines it produces can be
-     *  told apart from a concurrent session's interleaved lines, and correlated end to end - which
-     *  domain it connected through, whether it died fast, how many bytes actually moved - by
-     *  grepping one number instead of guessing from timestamps and DC/media alone. */
     private static final java.util.concurrent.atomic.AtomicLong sessionIdCounter = new java.util.concurrent.atomic.AtomicLong();
 
     private String executorStats() {
@@ -2448,16 +2259,6 @@ public class TgWsProxyService extends Service {
             boolean fromPool = wsConn != null;
             if (wsConn == null) {
                 wsConn = connectToWebSocket(dcId, isMedia);
-            }
-            if (wsConn == null) {
-                // Everything of ours is unreachable - last resort, the CF-worker pool. destIp is
-                // usually the synthetic "dc2.telegram" label (see the SOCKS5 parsing above), not
-                // a real address a Worker's connect() could resolve, so it can't be forwarded
-                // as-is; a literal IPv4 destIp (the rarer real-CONNECT case) is used verbatim,
-                // otherwise DC_DEFAULT_IPS supplies the real target for this DC.
-                String workerDst = destIp != null && destIp.matches("\\d{1,3}(\\.\\d{1,3}){3}")
-                        ? destIp : DC_DEFAULT_IPS.get(dcId);
-                wsConn = connectThroughWorker(dcId, isMedia, workerDst);
             }
             if (wsConn == null) {
                 // Absolute last resort, upstream's own _tcp_fallback: skip Cloudflare entirely
@@ -2723,13 +2524,9 @@ public class TgWsProxyService extends Service {
         // is exactly the kind of thing that gets an edge to treat a client as automated), and
         // which local (srcPort, thread) attempt this was, so concurrent attempts in the log can
         // be told apart instead of reading as one continuous mess.
-        try {
-            SSLSession sess = socket.getSession();
-            logInfo("[ws#" + attemptId + "] TLS negotiated: " + sess.getProtocol() + " / " + sess.getCipherSuite()
-                    + ", ALPN=" + (socket.getApplicationProtocol() == null || socket.getApplicationProtocol().isEmpty() ? "(none)" : socket.getApplicationProtocol())
-                    + ", local=" + socket.getLocalSocketAddress() + ", remote=" + socket.getRemoteSocketAddress()
-                    + ", thread=" + Thread.currentThread().getName());
-        } catch (Exception ignored) {}
+        socket.startHandshake();
+        SSLSession session = socket.getSession();
+        logInfo("[ws#" + attemptId + "] TLS negotiated: " + session.getProtocol() + " / " + session.getCipherSuite());
 
         OutputStream out = socket.getOutputStream();
         InputStream in = socket.getInputStream();
@@ -2739,34 +2536,49 @@ public class TgWsProxyService extends Service {
         out.flush();
 
         // Читаем ответ до \r\n\r\n
-        StringBuilder response = new StringBuilder();
-        int prev = -1;
-        int ch;
-        while ((ch = in.read()) != -1) {
-            response.append((char) ch);
-            if (prev == '\n' && ch == '\r') {
-                int next = in.read();
-                if (next == '\n') break;
-                response.append((char) next);
+        final StringBuilder response = new StringBuilder();
+        final long responseDeadline = android.os.SystemClock.elapsedRealtime() + socket.getSoTimeout();
+        while (response.length() < 16 * 1024) {
+            if (android.os.SystemClock.elapsedRealtime() >= responseDeadline) {
+                throw new java.net.SocketTimeoutException("WebSocket upgrade timed out");
             }
-            prev = ch;
+            final int value = in.read();
+            if (value == -1) {
+                throw new EOFException("Incomplete WebSocket upgrade");
+            }
+            response.append((char) value);
+            final int length = response.length();
+            if (length >= 4 && response.charAt(length - 4) == '\r' && response.charAt(length - 3) == '\n'
+                    && response.charAt(length - 2) == '\r' && response.charAt(length - 1) == '\n') {
+                verifyWsUpgrade(response.toString(), wsKey);
+                return;
+            }
         }
+        throw new IOException("WebSocket upgrade headers are too large");
+    }
 
-        String[] headerLines = response.toString().split("\r\n");
-        String firstLine = headerLines.length > 0 ? headerLines[0] : "";
-        if (!firstLine.contains("101")) {
-            // The full header block, not just the status line - cf-ray pins the exact Cloudflare
-            // colo that answered (so repeated failures on the SAME colo vs. scattered across many
-            // is the difference between "one bad edge" and "this IP/ASN is being treated
-            // differently everywhere"), and any WAF/rate-limit-specific header rides along too.
-            StringBuilder headerDump = new StringBuilder();
-            for (int i = 1; i < headerLines.length; i++) {
-                headerDump.append(" | ").append(headerLines[i]);
+    private static void verifyWsUpgrade(String response, String key) throws IOException {
+        final String[] lines = response.split("\r\n");
+        if (!lines[0].matches("HTTP/1\\.[01] 101(?: .*)?")) {
+            throw new IOException("WebSocket upgrade failed: " + lines[0]);
+        }
+        String accept = null;
+        for (int i = 1; i < lines.length; i++) {
+            final int separator = lines[i].indexOf(':');
+            if (separator > 0 && lines[i].substring(0, separator).equalsIgnoreCase("Sec-WebSocket-Accept")) {
+                accept = lines[i].substring(separator + 1).trim();
+                break;
             }
-            logError("[ws#" + attemptId + "] <- " + firstLine + headerDump, null);
-            throw new IOException("WebSocket upgrade failed: " + firstLine + headerDump);
-        } else {
-            logInfo("[ws#" + attemptId + "] <- " + firstLine);
+        }
+        try {
+            final byte[] digest = java.security.MessageDigest.getInstance("SHA-1").digest(
+                    (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            final String expected = android.util.Base64.encodeToString(digest, android.util.Base64.NO_WRAP);
+            if (!expected.equals(accept)) {
+                throw new IOException("Invalid Sec-WebSocket-Accept");
+            }
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("SHA-1 is unavailable during WebSocket upgrade", e);
         }
     }
 
@@ -2807,10 +2619,16 @@ public class TgWsProxyService extends Service {
      *  single frame's declared length, defends against a malformed/hostile length field forcing a
      *  huge allocation before any of it is even read. */
     private static final long MAX_WS_FRAME_LEN = 16L * 1024 * 1024;
-    /** Cap on a REASSEMBLED (continuation-joined) message, independent of the per-frame cap above -
-     *  many small frames chained together could otherwise still grow unbounded. Generous margin
-     *  above anything Telegram actually chunks through this tunnel. */
-    private static final long MAX_WS_MESSAGE_LEN = 64L * 1024 * 1024;
+    /** Flowseal v1.11.4 also caps the whole reassembled message at 16 MiB. */
+    private static final long MAX_WS_MESSAGE_LEN = 16L * 1024 * 1024;
+
+    private static int readWsByte(InputStream input) throws IOException {
+        final int value = input.read();
+        if (value == -1) {
+            throw new EOFException("Incomplete WebSocket frame");
+        }
+        return value;
+    }
 
     private byte[] recvWsFrame(InputStream in, OutputStream wsOut) throws IOException {
         return recvWsFrame(in, wsOut, "");
@@ -2828,34 +2646,31 @@ public class TgWsProxyService extends Service {
         java.io.ByteArrayOutputStream assembled = null;
         while (true) {
             int b1 = in.read();
-            int b2 = in.read();
-            if (b1 < 0 || b2 < 0) return null;
+            if (b1 < 0 && assembled == null) return null;
+            if (b1 < 0) throw new EOFException("Incomplete WebSocket message");
+            int b2 = readWsByte(in);
 
             boolean fin = (b1 & 0x80) != 0;
             int opcode = b1 & 0x0F;
             long payloadLen = b2 & 0x7F;
+            boolean control = opcode >= 0x8;
+            if ((b1 & 0x70) != 0 || (b2 & 0x80) != 0
+                    || (control && (!fin || payloadLen > 125 || opcode > 0xA))
+                    || (!control && (opcode > 2 || (opcode == 0) != (assembled != null)))) {
+                throw new IOException("Invalid WebSocket frame");
+            }
             if (payloadLen == 126) {
-                payloadLen = ((in.read() & 0xFFL) << 8) | (in.read() & 0xFFL);
+                payloadLen = (readWsByte(in) << 8) | readWsByte(in);
             } else if (payloadLen == 127) {
                 payloadLen = 0;
-                for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | (in.read() & 0xFFL);
+                for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | readWsByte(in);
             }
             if (payloadLen < 0 || payloadLen > MAX_WS_FRAME_LEN) {
                 throw new IOException("WS frame declared an unreasonable length: " + payloadLen);
             }
 
-            boolean masked = (b2 & 0x80) != 0;
-            byte[] maskKey = new byte[4];
-            if (masked) readFully(in, maskKey, 0, 4);
-
             byte[] payload = new byte[(int) payloadLen];
             readFully(in, payload, 0, (int) payloadLen);
-
-            if (masked) {
-                for (int i = 0; i < payload.length; i++) {
-                    payload[i] ^= maskKey[i % 4];
-                }
-            }
 
             if (opcode == 0x9) { // PING -> reply with PONG
                 synchronized (wsOut) {
@@ -2949,17 +2764,15 @@ public class TgWsProxyService extends Service {
             return null;
         }
         final String path = "/apiws?dst=" + destIp + "&dc=" + dcId;
+        int attempts = 0;
         for (String domain : domains) {
             final long startedAt = System.currentTimeMillis();
             SSLSocket socket = null;
             try {
-                socket = createTlsSocketWithIpv4Preference(domain, 443, 10_000);
-                socket.setUseClientMode(true);
-                socket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-                socket.setTcpNoDelay(true);
-                socket.setSoTimeout(10_000);
+                socket = createTlsSocketWithIpv4Preference(domain, 443, 3000);
                 wsHandshake(socket, domain, dcId, false, path);
                 PrimeCfWorkers.markHealthy(domain);
+                noteDcConnectOutcome(dcId, isMedia, true, false);
                 primeTraceConnect("proxy: DC" + dcId + (isMedia ? "m" : "") + " up via worker "
                         + domain + " in " + (System.currentTimeMillis() - startedAt) + " ms");
                 logInfo("Connected through worker " + domain + " -> " + destIp + " (DC" + dcId + ")");
@@ -2973,8 +2786,12 @@ public class TgWsProxyService extends Service {
                     }
                 }
                 PrimeCfWorkers.markSick(domain);
+                if (++attempts >= 3) {
+                    break;
+                }
             }
         }
+        noteDcConnectOutcome(dcId, isMedia, true, true);
         return null;
     }
 
@@ -3384,42 +3201,6 @@ public class TgWsProxyService extends Service {
         }
     }
 
-    /**
-     * SSL factory without certificate validation (matches upstream tg-ws-proxy's own
-     * {@code backend.py} {@code _ssl_ctx}, {@code check_hostname = False} / {@code verify_mode =
-     * ssl.CERT_NONE}) - used for every socket this service opens, tunnel included.
-     *
-     * <p>A real, validating factory was tried instead at one point (strict-security improvement
-     * on paper). It was reverted after real user reports: on the exact hostile/DPI-filtered
-     * networks this whole feature exists to work on, some candidate domains are apparently behind
-     * active TLS interception, and strict validation correctly - but unhelpfully - refused those
-     * connections outright, where trust-all silently accepted the interception and kept working.
-     * For this specific tool, connectivity over a technically-untrusted transport beats a hard
-     * failure: the payload carried over this tunnel is itself already separately encrypted by
-     * MTProto's own auth_key, which a MITM'd outer TLS layer does not expose - the actual message
-     * content isn't what strict TLS here was protecting anyway, just metadata/traffic-analysis
-     * resistance on networks where that fight is already lost the moment DPI is actively
-     * intercepting TLS at all. Do not re-flip this without a fresh, confirmed report tying real
-     * breakage specifically to it - the same swap was tried and reverted for this exact reason.
-     */
-    private static SSLSocketFactory buildTrustAllSslFactory() {
-        try {
-            TrustManager[] trustAll = new TrustManager[]{
-                new X509TrustManager() {
-                    public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
-                    public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
-                    public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }
-                }
-            };
-            SSLContext sc = SSLContext.getInstance("TLS");
-            sc.init(null, trustAll, new SecureRandom());
-            return sc.getSocketFactory();
-        } catch (Exception e) {
-            FileLog.e(TAG + ": SSL factory error", e);
-            return (SSLSocketFactory) SSLSocketFactory.getDefault();
-        }
-    }
-
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -3592,23 +3373,9 @@ public class TgWsProxyService extends Service {
         // to it landing on the same Cloudflare edge - see cachedBaseAddresses' own doc for why this
         // is keyed per-hostname now, not one address shared across every kwsN.<domain> subdomain.
         if (currentBaseDomain != null && host.endsWith(currentBaseDomain)) {
-            synchronized (domainLock) {
-                java.net.InetAddress cached = cachedBaseAddresses.get(host);
-                if (cached == null) {
-                    try {
-                        InetAddress[] resolved = resolveWithFallbackDns(host);
-                        if (resolved != null && resolved.length > 0) {
-                            cached = resolved[0];
-                            cachedBaseAddresses.put(host, cached);
-                            logInfo("Resolved and cached base IP for " + host + ": " + cached);
-                        }
-                    } catch (Exception e) {
-                        logError("Failed to resolve host " + host, e);
-                    }
-                }
-                if (cached != null) {
-                    addresses = new InetAddress[]{cached};
-                }
+            final InetAddress cached = cachedBaseAddresses.get(host);
+            if (cached != null) {
+                addresses = new InetAddress[]{cached};
             }
         }
 
@@ -3640,13 +3407,21 @@ public class TgWsProxyService extends Service {
         }
 
         IOException lastEx = null;
+        final long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
         for (InetAddress addr : prioritized) {
+            final long remaining = deadline - android.os.SystemClock.elapsedRealtime();
+            if (remaining <= 0) {
+                break;
+            }
             Socket socket = new Socket();
             tuneTunnelSocketBuffers(socket);
             try {
                 logInfo("Connecting to resolved address " + addr + " for host " + host);
                 final long tcpStart = System.currentTimeMillis();
-                socket.connect(new java.net.InetSocketAddress(addr, port), timeoutMs);
+                socket.connect(new java.net.InetSocketAddress(addr, port), (int) remaining);
+                if (currentBaseDomain != null && host.endsWith("." + currentBaseDomain)) {
+                    cachedBaseAddresses.put(host, addr);
+                }
                 logInfo("TCP connected to " + addr + " in " + (System.currentTimeMillis() - tcpStart) + "ms, local=" + socket.getLocalSocketAddress());
                 return socket;
             } catch (IOException e) {
@@ -3663,12 +3438,12 @@ public class TgWsProxyService extends Service {
     }
 
     private SSLSocket createTlsSocketWithIpv4Preference(String host, int port, int timeoutMs) throws IOException {
-        Socket plainSocket = connectWithIpv4Preference(host, port, timeoutMs);
-        SSLSocket tlsSocket = (SSLSocket) sslSocketFactory.createSocket(plainSocket, host, port, true);
-        tlsSocket.setUseClientMode(true);
-        tlsSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-        tlsSocket.setTcpNoDelay(true);
-        tlsSocket.setSoTimeout(timeoutMs);
-        return tlsSocket;
+        Socket plain = connectWithIpv4Preference(host, port, timeoutMs);
+        try {
+            return wrapTls(plain, host, port, timeoutMs, true);
+        } catch (IOException | RuntimeException e) {
+            try { plain.close(); } catch (IOException ignored) {}
+            throw e;
+        }
     }
 }

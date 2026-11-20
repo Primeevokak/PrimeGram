@@ -836,7 +836,7 @@ static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, AVFrame *fra
             dst_data,
             dst_stride
         );
-    } else if (frame->width == bitmapWidth && frame->height == bitmapHeight) {
+    } else if (sws_ctx == nullptr && frame->width == bitmapWidth && frame->height == bitmapHeight) {
         if (frame->format == AV_PIX_FMT_YUVA420P) {
             libyuv::I420AlphaToARGBMatrix(
                 frame->data[0], frame->linesize[0],
@@ -891,8 +891,8 @@ static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, AVFrame *fra
                 bitmapHeight
             );
         }
-    } else if (sws_ctx != nullptr && ((intptr_t) pixels) % 16 != 0) {
-        // fallback if pixels not aligned — use cached buffer to avoid per-frame av_malloc
+    } else if (sws_ctx != nullptr) {
+        // A misaligned row stride needs the same staging buffer as a misaligned pixel address.
         int alignedStride = FFALIGN(bitmapWidth * 4, 16);
         int bufSize = alignedStride * bitmapHeight;
         if (info->fallbackBuf == nullptr || info->fallbackBufSize < bufSize) {

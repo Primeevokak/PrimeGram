@@ -44,12 +44,11 @@ public class FileLoadOperation {
     boolean streamPriority;
     long streamOffset;
 
-    public static volatile DispatchQueue filesQueue = new DispatchQueue("writeFileQueue");
+    public static volatile DispatchQueue2 filesQueue = new DispatchQueue2("writeFileQueue");
     public static ImmutableByteArrayOutputStream filesQueueByteBuffer;
     private boolean forceSmallChunk;
     private boolean useDownloadByteBudget;
     private int downloadConnectionsCount = 2;
-    private boolean isAudioDocument;
     private boolean paceDocumentRequests;
     private DownloadRequestPacer downloadRequestPacer;
     private final Runnable pacedDownloadRequest = () -> {
@@ -60,6 +59,7 @@ public class FileLoadOperation {
     };
     private Runnable fileWriteRunnable;
     public boolean isStory;
+    private boolean isVideoDocument;
 
     public volatile boolean caughtPremiumFloodWait;
     public void setStream(FileLoadOperationStream stream, boolean streamPriority, long streamOffset) {
@@ -317,6 +317,11 @@ public class FileLoadOperation {
             maxDownloadRequests = 4;
             maxDownloadRequestsBig = 4;
         }
+        if (isStory) {
+            // On slow connections the first part of a visible story arrives sooner when parts are small.
+            downloadChunkSizeBig = 1024 * 128;
+            maxDownloadRequestsBig = 8;
+        }
         maxCdnParts = (int) (FileLoader.DEFAULT_MAX_FILE_SIZE / downloadChunkSizeBig);
     }
 
@@ -428,8 +433,7 @@ public class FileLoadOperation {
     }
 
     public FileLoadOperation(TLRPC.Document documentLocation, Object parent) {
-        isAudioDocument = MessageObject.isVoiceDocument(documentLocation) || MessageObject.isMusicDocument(documentLocation) ||
-                (documentLocation != null && documentLocation.mime_type != null && documentLocation.mime_type.startsWith("audio/"));
+        isVideoDocument = MessageObject.isVideoDocument(documentLocation);
         paceDocumentRequests = documentLocation != null && !MessageObject.isAnyKindOfStickerOrEmoji(documentLocation) &&
                 !"application/x-tgwallpattern".equals(documentLocation.mime_type);
         updateParams();
@@ -462,6 +466,10 @@ public class FileLoadOperation {
                         preloadPrefixSize = documentLocation.attributes.get(a).preload_prefix_size;
                         break;
                     }
+                }
+                if (isStory && supportsPreloading && preloadPrefixSize <= 0) {
+                    // Lower quality versions of stories come without a prefix size, preload them by a similar size.
+                    preloadPrefixSize = 512 * 1024;
                 }
             }
             ungzip = "application/x-tgsticker".equals(documentLocation.mime_type) || "application/x-tgwallpattern".equals(documentLocation.mime_type);
@@ -837,6 +845,7 @@ public class FileLoadOperation {
             return;
         }
         paused = true;
+        speedStartTime = 0;
         Utilities.stageQueue.postRunnable(() -> {
             if (isStory) {
                 if (BuildVars.LOGS_ENABLED) {
@@ -853,6 +862,24 @@ public class FileLoadOperation {
 
     public boolean start() {
         return start(stream, streamOffset, streamPriority);
+    }
+
+    // Snapshot the policy for this operation, including its connection pool.
+    // Streams use it too, like TDLib, which shares one downloader between streaming and downloads.
+    private void updateDownloadByteBudget() {
+        useDownloadByteBudget = !MessagesController.getInstance(currentAccount).downloadImprovementKillswitch &&
+                totalBytesCount > 0 && key == null && !encryptFile && !isPreloadVideoOperation && preloadPrefixSize == 0;
+        if (useDownloadByteBudget) {
+            boolean premium = UserConfig.getInstance(currentAccount).isPremium();
+            downloadConnectionsCount = premium ? ConnectionsManager.DownloadConnectionsCount : 2;
+            int byteBudget = (premium ? 16 : 2) * 1024 * 1024;
+            currentMaxDownloadRequests = byteBudget / currentDownloadChunkSize;
+        }
+    }
+
+    // Same branch of start() that picks the regular chunk size.
+    private boolean canUseDownloadByteBudget() {
+        return currentDownloadChunkSize != 0 && !forceSmallChunk && !isStory && !isStream;
     }
 
     public boolean start(final FileLoadOperationStream stream, final long streamOffset, final boolean streamPriority) {
@@ -875,17 +902,7 @@ public class FileLoadOperation {
                 boolean bigChunk = totalBytesCount >= bigFileSizeFrom;
                 currentDownloadChunkSize = bigChunk ? downloadChunkSizeBig : downloadChunkSize;
                 currentMaxDownloadRequests = bigChunk ? maxDownloadRequestsBig : maxDownloadRequests;
-                // Keep special download paths on their existing scheduling policy.
-                // Snapshot the policy for this operation, including its connection pool.
-                useDownloadByteBudget = !MessagesController.getInstance(currentAccount).downloadImprovementKillswitch &&
-                        totalBytesCount > 0 && key == null && !encryptFile && !isAudioDocument && stream == null &&
-                        !isPreloadVideoOperation && !supportsPreloading && preloadPrefixSize == 0;
-                if (useDownloadByteBudget) {
-                    boolean premium = UserConfig.getInstance(currentAccount).isPremium();
-                    downloadConnectionsCount = premium ? ConnectionsManager.DownloadConnectionsCount : 2;
-                    int byteBudget = (premium ? 16 : 2) * 1024 * 1024;
-                    currentMaxDownloadRequests = byteBudget / currentDownloadChunkSize;
-                }
+                updateDownloadByteBudget();
             }
         }
         final boolean alreadyStarted = state != stateIdle;
@@ -1353,6 +1370,9 @@ public class FileLoadOperation {
         if (!value && isPreloadVideoOperation) {
             if (state == stateFinished) {
                 isPreloadVideoOperation = value;
+                if (canUseDownloadByteBudget()) {
+                    updateDownloadByteBudget();
+                }
                 state = stateIdle;
                 preloadFinished = false;
                 start();
@@ -1361,6 +1381,9 @@ public class FileLoadOperation {
                     requestedBytesCount = 0;
                     clearOperation(null, true, true);
                     isPreloadVideoOperation = value;
+                    if (canUseDownloadByteBudget()) {
+                        updateDownloadByteBudget();
+                    }
                     startDownloadRequest(-1);
                 });
             } else {
@@ -1485,7 +1508,7 @@ public class FileLoadOperation {
             }
             for (int i = 0; i < waitingDownloadSize.length; i++) {
                 int connectionType = ConnectionsManager.ConnectionTypeDownload | (i << 16);
-                if (waitingDownloadSize[i] > 1024 * 1024)  {
+                if (waitingDownloadSize[i] > getMaxCancelledBytesPerConnection())  {
                     int datacenterId = isCdn ? cdnDatacenterId : this.datacenterId;
                     ConnectionsManager.getInstance(currentAccount).discardConnection(datacenterId, connectionType);
                 }
@@ -1855,6 +1878,8 @@ public class FileLoadOperation {
             }
         }, null, null, 0, datacenterId, ConnectionsManager.ConnectionTypeGeneric, true);
     }
+
+    private int droppedAnswerRetries;
 
     protected boolean processRequestResult(RequestInfo requestInfo, TLRPC.TL_error error) {
         if (state != stateDownloading && state != stateCancelling) {
@@ -2230,11 +2255,16 @@ public class FileLoadOperation {
                     ConnectionsManager.getInstance(currentAccount).cancelRequest(info.requestToken, true);
                     info.cancelled = true;
                 }
+                // Counted to reconnect connections held up by cancelled responses, see getMaxCancelledBytesPerConnection().
+                // On a fast connection they arrive soon, and a paused preload still keeps them.
+                if (!DownloadSpeedEstimator.isFast()) {
+                    waitingDownloadSize[info.connectionType >>> 16] += info.chunkSize;
+                }
             }
         }
         for (int i = 0; i < waitingDownloadSize.length; i++) {
             int connectionType = ConnectionsManager.ConnectionTypeDownload | (i << 16);
-            if (waitingDownloadSize[i] > 512 * 1024 * 2)  {
+            if (waitingDownloadSize[i] > getMaxCancelledBytesPerConnection())  {
                 int datacenterId = isCdn ? cdnDatacenterId : this.datacenterId;
                 ConnectionsManager.getInstance(currentAccount).discardConnection(datacenterId, connectionType);
             }
@@ -2292,7 +2322,7 @@ public class FileLoadOperation {
     protected void startDownloadRequest(int useConnectionType) {
         Utilities.stageQueue.cancelRunnable(pacedDownloadRequest);
         if (BuildVars.DEBUG_PRIVATE_VERSION) {
-            if (Utilities.stageQueue != null && Utilities.stageQueue.getHandler() != null && Thread.currentThread() != Utilities.stageQueue.getHandler().getLooper().getThread()) {
+            if (Utilities.stageQueue != null && Utilities.stageQueue.isReady() && Thread.currentThread() != Utilities.stageQueue) {
                 throw new RuntimeException("Wrong thread!!!");
             }
         }
@@ -2570,6 +2600,18 @@ public class FileLoadOperation {
                     if (requestInfo.whenCancelled != null) {
                         requestInfo.whenCancelled.run();
                     }
+                    if ("RPC_ANSWER_DROPPED".equals(error.text)) {
+                        if (state != stateDownloading || requestInfo.cancelling) {
+                            return;
+                        }
+                        if (droppedAnswerRetries < 2) {
+                            droppedAnswerRetries++;
+                            // Keep the failed chunk in requestInfos until clearOperation restores its range.
+                            clearOperation(requestInfo, false, false);
+                            startDownloadRequest(connectionType);
+                            return;
+                        }
+                    }
                     if (error.code == -2000) {
                         requestInfos.remove(requestInfo);
                         requestedBytesCount -= requestInfo.chunkSize;
@@ -2678,6 +2720,9 @@ public class FileLoadOperation {
                             }
                         }
                     }
+                    if (error == null && response != null) {
+                        measureSpeed(response.getObjectSize());
+                    }
                     processRequestResult(requestInfo, error);
                     if (requestInfo.whenCancelled != null) {
                         requestInfo.whenCancelled.run();
@@ -2712,5 +2757,44 @@ public class FileLoadOperation {
 
     public boolean isFinished() {
         return state == stateFinished;
+    }
+
+    // While its requests keep the link busy, consecutive chunks of a file arrive at the link's speed.
+    // A pause between chunks restarts the measurement, as it would include idle time.
+    private long speedStartTime, speedLastTime, speedBytes;
+    private int speedChunks;
+
+    private void measureSpeed(int bytes) {
+        long now = SystemClock.elapsedRealtime();
+        if (speedStartTime == 0 || now - speedLastTime > 2000) {
+            speedStartTime = now;
+            speedBytes = 0;
+            speedChunks = 0;
+        } else {
+            speedBytes += bytes;
+            speedChunks++;
+            if (speedChunks >= 2 && speedBytes >= 128 * 1024 && now - speedStartTime >= 500) {
+                DownloadSpeedEstimator.onSample(speedBytes * 8, now - speedStartTime);
+                speedStartTime = now;
+                speedBytes = 0;
+                speedChunks = 0;
+            }
+        }
+        speedLastTime = now;
+    }
+
+    // A visible story can be shown once it has the whole photo or the start of the video.
+    public boolean hasStoryStartData() {
+        if (state == stateFinished) {
+            return true;
+        }
+        return isVideoDocument && downloadedBytes >= (preloadPrefixSize > 0 ? preloadPrefixSize : 1024 * 1024);
+    }
+
+    // Responses to cancelled requests still arrive and delay every later request on their connection,
+    // so above this many of them the connection is reconnected instead. On a slow connection the next
+    // story would wait seconds behind them.
+    private int getMaxCancelledBytesPerConnection() {
+        return isStory && !DownloadSpeedEstimator.isFast() ? 256 * 1024 : 1024 * 1024;
     }
 }

@@ -127,9 +127,9 @@ public class ImageLoader {
     private LinkedList<HttpImageTask> httpTasks = new LinkedList<>();
     private LinkedList<ArtworkLoadTask> artworkTasks = new LinkedList<>();
     private DispatchQueuePriority cacheOutQueue = new DispatchQueuePriority("cacheOutQueue");
-    private DispatchQueue cacheThumbOutQueue = new DispatchQueue("cacheThumbOutQueue", true, android.os.Process.THREAD_PRIORITY_BACKGROUND);
-    private DispatchQueue thumbGeneratingQueue = new DispatchQueue("thumbGeneratingQueue", true, android.os.Process.THREAD_PRIORITY_BACKGROUND);
-    private DispatchQueue imageLoadQueue = new DispatchQueue("imageLoadQueue", true, android.os.Process.THREAD_PRIORITY_BACKGROUND);
+    private DispatchQueue2 cacheThumbOutQueue = new DispatchQueue2("cacheThumbOutQueue");
+    private DispatchQueue2 thumbGeneratingQueue = new DispatchQueue2("thumbGeneratingQueue");
+    private DispatchQueue2 imageLoadQueue = new DispatchQueue2("imageLoadQueue");
     private HashMap<String, String> replacedBitmaps = new HashMap<>();
     private ConcurrentHashMap<String, long[]> fileProgresses = new ConcurrentHashMap<>();
     private HashMap<String, ThumbGenerateTask> thumbGenerateTasks = new HashMap<>();
@@ -877,6 +877,18 @@ public class ImageLoader {
 
         @Override
         public void run() {
+            try {
+                runInternal();
+            } finally {
+                // the queue thread is shared: once the task is done, cancel() must not interrupt whatever runs next
+                synchronized (sync) {
+                    runningThread = null;
+                }
+                Thread.interrupted();
+            }
+        }
+
+        private void runInternal() {
             synchronized (sync) {
                 runningThread = Thread.currentThread();
                 Thread.interrupted();
@@ -1153,8 +1165,8 @@ public class ImageLoader {
                 if (fistFrame) {
                     Bitmap bitmap = fileDrawable.getFrameAtTime(0, false);
 
-                    fileDrawable.recycle();
                     Thread.interrupted();
+                    fileDrawable.recycle();
                     if (bitmap == null) {
                         onPostExecute(null);
                     } else {

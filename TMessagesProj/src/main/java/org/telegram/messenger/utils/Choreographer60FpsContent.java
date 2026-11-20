@@ -54,9 +54,6 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
 
     private final Choreographer mChoreographer = Choreographer.getInstance();
 
-    /** One-shot callbacks — fired once on the next frame, then cleared. */
-    private final Set<FrameCallback> mOneShot = new LinkedHashSet<>();
-
     /**
      * Persistent callback groups keyed by fps.
      * All callbacks in the same group share one fixed schedule and always fire together,
@@ -95,8 +92,7 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
      */
     public void post(FrameCallback callback) {
         checkMainThread();
-        mOneShot.add(callback);
-        scheduleIfNeeded();
+        mChoreographer.postFrameCallback(callback::doFrame);
     }
 
     public void postInvalidateDrawable(Drawable drawable) {
@@ -271,7 +267,7 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
     }
 
     private boolean hasPendingWork() {
-        if (!mOneShot.isEmpty() || !mDrawablesToInvalidate.isEmpty()
+        if (!mDrawablesToInvalidate.isEmpty()
                 || !mDrawablesToInvalidate30fps.isEmpty() || !mViewsToInvalidate.isEmpty()) {
             return true;
         }
@@ -342,11 +338,6 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
             }
         }
 
-        // One-shot callbacks.
-        for (FrameCallback cb : mOneShot) {
-            cb.doFrame(frameTimeNanos);
-        }
-
         // View / drawable invalidations.
         for (View view : mViewsToInvalidate) {
             if (view.isAttachedToWindow() && view.getVisibility() == View.VISIBLE) {
@@ -358,7 +349,6 @@ public final class Choreographer60FpsContent implements Choreographer.FrameCallb
         }
         mViewsToInvalidate.clear();
         mDrawablesToInvalidate.clear();
-        mOneShot.clear();
 
         // Legacy 30fps drawables.
         if (mCounter % 2 == 0) {
