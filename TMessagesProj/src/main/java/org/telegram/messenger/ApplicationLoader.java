@@ -82,6 +82,9 @@ public class ApplicationLoader extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+        if (org.telegram.utils.twidget.WidgetEngineService.isEngineProcess()) {
+            return;
+        }
         // PrimeGram: was only called from onCreate() - too late on some OEM launchers/API levels,
         // where the very first Activity window (and on API 31+, the SplashScreen-API preview) can
         // already be resolving its theme/background off the process's Configuration before
@@ -445,6 +448,10 @@ public class ApplicationLoader extends Application {
         // Already applied in attachBaseContext(), the earliest hook available - kept out of here
         // now, not duplicated.
         super.onCreate();
+        // Android also starts Application in the isolated widget process, which cannot read app preferences.
+        if (org.telegram.utils.twidget.WidgetEngineService.isEngineProcess()) {
+            return;
+        }
         PrimeStartupTrace.mark("Application.onCreate");
 
         // As early as possible so it catches crashes from the rest of startup too, not just
@@ -516,11 +523,6 @@ public class ApplicationLoader extends Application {
             if (UserConfig.getInstance(a).isClientActivated()) {
                 org.telegram.messenger.blocks.PrimeBlocksRuntime.getInstance(a).attach();
             }
-        }
-
-        // The widget engine's isolated process has no files, network or accounts: none of the client starts there.
-        if (org.telegram.utils.twidget.WidgetEngineService.isEngineProcess()) {
-            return;
         }
 
         // AndroidUtilities must be initialized before FileLog

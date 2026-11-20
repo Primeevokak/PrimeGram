@@ -5189,8 +5189,10 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                         dialog.setTextColor(getThemedColor(Theme.key_voipgroup_actionBarItems));
                     }
                 } else if (id == gallery_menu_chromecast) {
-                    ChromecastController.getInstance().setCurrentMediaAndCastIfNeeded(getCurrentChromecastMedia());
-                    castItemButton.performClick();
+                    if (castItemButton != null) {
+                        ChromecastController.getInstance().setCurrentMediaAndCastIfNeeded(getCurrentChromecastMedia());
+                        castItemButton.performClick();
+                    }
                 } else if (id == gallery_menu_showall) {
                     if (currentDialogId != 0) {
                         disableShowCheck = true;
@@ -5910,42 +5912,45 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
         videoItem.getPopupLayout().addView(videoQualityLayout);
         loopItem = videoItem.addSubItem(gallery_menu_loop, R.drawable.menu_video_loop, LocaleController.getString(R.string.VideoPlayerLoop));
         loopItem.setSelectorColor(0x0fffffff);
-        castItemButton = new CastMediaRouteButton(activityContext) {
-            @Override
-            public void stateUpdated(boolean connected) {
-                if (castItem != null) {
-                    castItem.setEnabledByColor(connected, 0xFFFFFFFF, 0xFF73B4EC);
-                    castItem.setSelectorColor(connected ? 0x0F73B4EC : 0x0fffffff);
-                }
-                if (videoPlayer != null) {
-                    videoPlayer.setMute(CastSync.isActive() || muteVideo);
-                }
-                if (videoItemIcon != null) {
-                    videoItemIcon.setCasting(CastSync.isActive(), true);
-                }
-            }
-        };
-        // PrimeGram: the route selector (and with it CastContext) is set up when the video menu is
-        // first opened, not while the viewer is being created - see CastSync.ensureReady.
-        boolean castAvailable = true;
+        castItemButton = null;
+        primeCastSelectorSet = false;
+        castItem = videoItem.addSubItem(gallery_menu_chromecast, R.drawable.menu_video_chromecast, getString(R.string.VideoPlayerChromecast));
+        castItem.setEnabledByColor(false, 0xFFFFFFFF, 0xFF73B4EC);
+        castItem.setSelectorColor(0x0fffffff);
+        // Constructing MediaRouteButton initializes AndroidX routing. Defer it to the video menu.
         videoItem.setSubMenuDelegate(new ActionBarMenuItem.ActionBarSubMenuItemDelegate() {
             @Override
             public void onShowSubMenu() {
-                if (primeCastSelectorSet || castItemButton == null) {
+                if (primeCastSelectorSet) {
                     return;
                 }
                 primeCastSelectorSet = true;
                 try {
-                    if (CastSync.ensureReady(activityContext)) {
-                        castItemButton.setRouteSelector(CastContext.getSharedInstance(activityContext).getMergedSelector());
-                    } else if (castItem != null) {
+                    if (!CastSync.ensureReady(activityContext)) {
                         castItem.setVisibility(View.GONE);
+                        return;
                     }
+                    CastMediaRouteButton button = new CastMediaRouteButton(activityContext) {
+                        @Override
+                        public void stateUpdated(boolean connected) {
+                            castItem.setEnabledByColor(connected, 0xFFFFFFFF, 0xFF73B4EC);
+                            castItem.setSelectorColor(connected ? 0x0F73B4EC : 0x0fffffff);
+                            boolean casting = CastSync.isActive();
+                            if (videoPlayer != null) {
+                                videoPlayer.setMute(casting || muteVideo);
+                            }
+                            if (videoItemIcon != null) {
+                                videoItemIcon.setCasting(casting, true);
+                            }
+                        }
+                    };
+                    button.setRouteSelector(CastContext.getSharedInstance(activityContext).getMergedSelector());
+                    button.setVisibility(View.INVISIBLE);
+                    castItem.addView(button, 0, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+                    castItemButton = button;
                 } catch (Exception e) {
                     FileLog.e(e);
-                    if (castItem != null) {
-                        castItem.setVisibility(View.GONE);
-                    }
+                    castItem.setVisibility(View.GONE);
                 }
             }
 
@@ -5953,13 +5958,6 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
             public void onHideSubMenu() {
             }
         });
-        castItemButton.setVisibility(View.INVISIBLE);
-        if (castAvailable) {
-            castItem = videoItem.addSubItem(gallery_menu_chromecast, R.drawable.menu_video_chromecast, getString(R.string.VideoPlayerChromecast));
-            castItem.setEnabledByColor(false, 0xFFFFFFFF, 0xFF73B4EC);
-            castItem.setSelectorColor(0x0fffffff);
-            castItem.addView(castItemButton, 0, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        }
 
         videoItem.redrawPopup(0xf9222222);
         videoItem.setOnMenuDismiss(byClick -> checkProgress(0, false, false));
